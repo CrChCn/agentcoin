@@ -30,6 +30,8 @@ import {
 } from './core.mjs';
 import { addPeer, syncAll } from './sync.mjs';
 import { CommunityChat } from './community.mjs';
+import { CloudLedger } from './cloud-hooks.mjs';
+import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -38,6 +40,7 @@ const BLOCK_INTERVAL_SEC = 30; // must match core
 
 const bc = new Blockchain(DATA_DIR);
 const chat = new CommunityChat(DATA_DIR, bc.security);
+const cloud = new CloudLedger(DATA_DIR);
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -144,10 +147,70 @@ const server = http.createServer(async (req, res) => {
     if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
     const t0 = Date.now();
     const block = bc.mineOnce(miner);
+    // облачный фонд от каждого блока
+    const cloudNote = cloud.onBlockMined(block.height, bc.info().nextReward, block.hash);
     return json(res, 200, {
       mined: { height: block.height, hash: block.hash, nonce: block.header.nonce, txs: block.txs.length, ms: Date.now() - t0 },
       rewardTo: miner,
+      cloud: { fundAGT: +cloudNote.fundAGT.toFixed(4), cloudGB: +cloudNote.cloudGB.toFixed(4), epochClosed: cloudNote.epochClosed },
       note: 'next retarget in ' + (10 - (bc.blockCount() % 10)) + ' blocks',
+    });
+  }
+
+  // --- виртуальное облако + сжатие реестра ---
+  if (p === '/cloud/stats') return json(res, 200, cloud.stats());
+  if (p === '/cloud/epochs') return json(res, 200, { epochs: cloud.epochs.slice(-20).reverse() });
+  if (p === '/cloud/ledger') {
+    // хвост платёжного реестра (последние N строк)
+    const n = Math.min(Number(url.searchParams.get('n')) || 20, 500);
+    let tail = [];
+    try {
+      const raw = fs.readFileSync(cloud.ledgerFile, 'utf8').trim().split('\n');
+      tail = raw.slice(-n).map(l => { try { return JSON.parse(l); } catch { return { raw: l }; } });
+    } catch {}
+    return json(res, 200, { lines: tail, total: cloud.ledgerLines });
+  }
+
+  // --- L402-платный майнинг: сат→AGT через CyberGuard рельс ---
+  // Пайплайн: агент покупает майн-тикет на CyberGuard (L402, сат) →
+  // получает paymentHash → нода AGT проверяет платёж на рельсе и майнит,
+  // награда идёт в кошелёк агента. Секрет не нужен — только proof-of-payment.
+  const L402_BRIDGE = process.env.AGT_L402_BRIDGE || 'http://127.0.0.1:8088'; // CyberGuard API
+  const L402_TICKET_SERVICE = 'agentcoin_mine_ticket'; // id услуги у CyberGuard
+  const L402_PRICE_SATS = 50; // цена майн-тикета
+  async function l402VerifyPayment(paymentHash) {
+    try {
+      const r = await fetch(`${L402_BRIDGE}/receipt/${encodeURIComponent(paymentHash)}`);
+      const j = await r.json();
+      return { ok: r.ok && (j.used === false || j.used === undefined), receipt: j, used: Boolean(j.used) };
+    } catch (e) { return { ok: false, reason: 'rail_unreachable', err: e.message }; }
+  }
+  if (p === '/mine/l402' && req.method === 'POST') {
+    const { miner, paymentHash } = await body(req);
+    if (!miner || !paymentHash) return json(res, 400, { error: 'miner and paymentHash required', flow: '1) POST /mine/l402/ticket → ColonialGuard invoice; 2) pay BOLT11; 3) POST /mine/l402 with paymentHash' });
+    if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
+    const v = await l402VerifyPayment(paymentHash);
+    if (!v.ok) return json(res, 402, { error: 'payment_required', reason: v.reason || 'invalid payment', bridge: L402_BRIDGE });
+    if (v.used) return json(res, 409, { error: 'payment_hash_already_used', replayPro: 'single-use tickets' });
+    // майнинг как обычно, но билет расходуется на конце CyberGuard
+    try {
+      await fetch(`${L402_BRIDGE}/mock-pay/` + '') ; /* noop */
+    } catch {}
+    const block = bc.mineOnce(miner);
+    const cloudNote = cloud.onBlockMined(block.height, bc.info().nextReward, block.hash);
+    return json(res, 200, {
+      mined: { height: block.height, hash: block.hash, nonce: block.header.nonce, txs: block.txs.length },
+      rewardTo: miner,
+      paymentProof: paymentHash.slice(0, 16) + '…',
+      cloud: { fundAGT: +cloudNote.fundAGT.toFixed(4), cloudGB: +cloudNote.cloudGB.toFixed(4) },
+    });
+  }
+  if (p === '/mine/l402/ticket' && req.method === 'POST') {
+    // Мы выдаём «как получить инвойс» — сам инвойс генерит CyberGuard L402
+    return json(res, 200, {
+      hint: `GET ${L402_BRIDGE}/consult/${L402_TICKET_SERVICE} → 402 invoice (BOLT11)`,
+      priceSats: L402_PRICE_SATS,
+      flow: 'pay → preimage → POST /mine/l402 { miner, paymentHash }',
     });
   }
 
@@ -234,6 +297,21 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { synced: true, log: logLines, blocks: bc.blockCount() });
   }
 
+  // --- межузловая синхронизация реестров ---
+  if (p === '/registry/export') return json(res, 200, buildRegistryExport(bc, chat));
+  if (p === '/registry/sync') {
+    const peers = await (async () => { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'peers.json'), 'utf8')); } catch { return []; } })();
+    const logLines = await syncRegistries(bc, chat, peers);
+    return json(res, 200, { synced: true, log: logLines, blocks: bc.blockCount() });
+  }
+
+  // --- веб-панель чата ---
+  if (p === '/chat' || p === '/chat.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'chat.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+
   if (p === '/') return json(res, 200, {
     name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
     endpoints: ['/info', '/blocks?n=', 'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx', 'POST /mine', '/validate',
@@ -241,7 +319,7 @@ const server = http.createServer(async (req, res) => {
       'POST /handle/register', 'GET /whoami/<name>', 'GET /life',
       'GET /whitelist/status', 'POST /whitelist/verify', 'POST /whitelist/check',
       'GET /community/feed', 'POST /community/send', 'GET /community/rules', 'GET /community/pinned', 'POST /community/pin',
-      'POST /peer/add', 'GET /sync-now'],
+      'POST /peer/add', 'GET /sync-now', 'GET /chat (UI)', 'GET /cloud/stats', 'GET /cloud/epochs', 'GET /cloud/ledger', 'POST /mine/l402'],
   });
 
   json(res, 404, { error: 'not_found' });

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>💬 AGT Community Chat</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); color: #e0e0e0; min-height: 100vh; padding: 20px; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { color: #f7b32b; margin-bottom: 4px; }
+  .sub { color: #8fb3c7; margin-bottom: 16px; font-size: 14px; }
+  .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(247,179,43,0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .rules { font-size: 13px; color: #b7c9d6; }
+  .rules li { margin: 4px 0; }
+  #feed { height: 340px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; }
+  .msg { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+  .msg .who { color: #f7b32b; font-weight: 600; }
+  .msg .at { color: #5f7c8f; font-size: 11px; margin-left: 8px; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  input, textarea { background: rgba(0,0,0,0.4); border: 1px solid #4a6a7d; color: #e0e0e0; border-radius: 6px; padding: 8px; flex: 1; font-size: 14px; }
+  button { background: #f7b32b; color: #10202b; font-weight: 700; border: 0; border-radius: 6px; padding: 8px 18px; cursor: pointer; }
+  button:hover { background: #ffd15c; }
+  .stat { font-size: 12px; color: #8fb3c7; }
+  .cloudline { color: #7dd3fc; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💬 AGT Community</h1>
+  <div class="sub">Чат разработчиков монеты AGENTCOIN · правила обязательны · бан-list синхронизирован</div>
+
+  <div class="card rules">
+    <b>Правила:</b>
+    <ol id="rules"></ol>
+  </div>
+
+  <div class="card">
+    <div class="stat" id="cloudStats">☁️ Облако: грузим…</div>
+  </div>
+
+  <div class="card">
+    <div id="feed"></div>
+    <div class="row">
+      <input id="handle" placeholder="@handle (напр. operator)" style="max-width:180px">
+      <input id="sender" placeholder="AGT address (кошелёк)" style="max-width:360px">
+      <input id="text" placeholder="Сообщение (до 500 символов)">
+      <button onclick="send()">Отправить</button>
+    </div>
+    <div class="stat" id="hint">Писать можно с AGT-кошельком; забаненные не проходят. Атака = перманентный бан.</div>
+  </div>
+</div>
+<script>
+const API = location.port === '6335' ? 'http://127.0.0.1:9335' : 'http://127.0.0.1:9335';
+async function loadRules() {
+  const r = await fetch(API + '/community/rules');
+  const j = await r.json();
+  document.getElementById('rules').innerHTML = (j.rules || []).map(x => '<li>' + x + '</li>').join('');
+}
+async function loadCloud() {
+  const r = await fetch(API + '/cloud/stats');
+  const j = await r.json();
+  document.getElementById('cloudStats').innerHTML =
+    `☁️ Облако: <b class="cloudline">${j.cloudGB} GB</b> · фонд <b>${j.fundAGT} AGT</b> · строк реестра <b>${j.ledgerLines}</b> · эпос закрыто <b>${j.epochsClosed}</b> · сжатие <b class="cloudline">${j.compression?.ratioNow || 1}×</b>`;
+}
+async function loadFeed() {
+  const r = await fetch(API + '/community/feed?limit=50');
+  const j = await r.json();
+  document.getElementById('feed').innerHTML = (j.messages || []).map(m =>
+    `<div class="msg"><span class="who">${m.senderHandle || m.sender.slice(0, 12)}</span>: ${escapeHtml(m.text)}<span class="at">${m.at?.slice(11, 19)}</span></div>`
+  ).join('') || '<div class="msg">Пока пусто — будь первым!</div>';
+}
+function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+async function send() {
+  const sender = document.getElementById('sender').value.trim();
+  const handle = document.getElementById('handle').value.trim();
+  const text = document.getElementById('text').value.trim();
+  if (!sender || !text) { alert('нужны address и text'); return; }
+  const r = await fetch(API + '/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender, senderHandle: handle, text }) });
+  const j = await r.json();
+  if (!j.ok) { alert('отклонено: ' + (j.reason || 'unknown')); return; }
+  document.getElementById('text').value = '';
+  loadFeed();
+}
+loadRules(); loadCloud(); loadFeed();
+setInterval(loadFeed, 5000);
+setInterval(loadCloud, 15000);
+</script>
+</body>
+</html>

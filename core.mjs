@@ -133,6 +133,46 @@ export class SecurityController {
   }
 }
 
+// ============ White List: верифицированная платежная система агентов ============
+// Только агенты из белого листа могут:
+//   - получать/отправлять крупные платежи (> LARGE_TX_LIMIT)
+//   - требовать выплат с ноды (withdraw-стиль)
+//   - добывать (mine) — анти-51% под незнакомцами
+// Критерии допуска: verified-хеш кошелька + registered @handle + чистый
+// security-профиль (не в бане). Решение принимает нода-оператор.
+export const LARGE_TX_LIMIT = 100; // AGT
+
+export class WhiteList {
+  constructor(dataDir, securityRef = null) {
+    this.file = path.join(dataDir, 'whitelist.json');
+    this.securityRef = securityRef;
+    this.list = {};   // { handle: { address, pubHash, verifiedAt, verifiedBy, note } }
+    this.load();
+  }
+  load() { try { const d = JSON.parse(fs.readFileSync(this.file, 'utf8')); this.list = d.list || {}; } catch {} }
+  save() {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    fs.writeFileSync(this.file, JSON.stringify({ updatedAt: Date.now(), list: this.list }, null, 2));
+  }
+  verify(handle, address, verifiedBy = 'node-operator', note = '') {
+    if (typeof handle !== 'string' || !handle) return { ok: false, reason: 'handle_required' };
+    if (!address || !address.startsWith('AGT')) return { ok: false, reason: 'bad_address' };
+    // запрет: забаненные не попадают в белый лист (правило системы безопасности)
+    if (this.securityRef?.isBanned?.(address)) return { ok: false, reason: 'address_permabanned' };
+    if (this.list[handle] && this.list[handle].address !== address) return { ok: false, reason: 'handle_conflict', exists: this.list[handle].address };
+    this.list[handle] = { address, verifiedAt: Date.now(), verifiedBy, note };
+    this.save();
+    return { ok: true, handle, address };
+  }
+  revoke(handle) { if (this.list[handle]) { delete this.list[handle]; this.save(); return true; } return false; }
+  isVerified(address) { return Object.values(this.list).some(e => e.address === address); }
+  isVerifiedHandle(handle) { return Boolean(this.list[handle]); }
+  addressOf(handle) { return this.list[handle]?.address || null; }
+  handleOf(address) { return Object.keys(this.list).find(h => this.list[h].address === address) || null; }
+  registryHash() { return sha256d(JSON.stringify(this.list)); }
+  status() { return { count: Object.keys(this.list).length, registryHash: this.registryHash(), handles: Object.keys(this.list) }; }
+}
+
 // ============ Параметры цепи (константы) ============
 export const CHAIN_ID = 'AGENTCOIN';
 export const TICKER = 'AGT';
@@ -258,6 +298,7 @@ export class Blockchain {
     this.mempool = [];
     this.history = [];
     this.security = new SecurityController(dataDir);
+    this.whitelist = new WhiteList(dataDir, this.security);
     this.load();
     if (this.blockCount() === 0) this.createGenesis();
   }

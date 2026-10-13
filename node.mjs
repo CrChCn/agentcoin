@@ -29,6 +29,7 @@ import {
   CHAIN_ID, TICKER, MAX_SUPPLY,
 } from './core.mjs';
 import { addPeer, syncAll } from './sync.mjs';
+import { CommunityChat } from './community.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -36,6 +37,7 @@ const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 
 const bc = new Blockchain(DATA_DIR);
+const chat = new CommunityChat(DATA_DIR, bc.security);
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -182,6 +184,45 @@ const server = http.createServer(async (req, res) => {
   // --- life-guard ---
   if (p === '/life') return json(res, 200, lifeStatus());
 
+  // --- White List: верифицированная платёжная система ---
+  const WHITELIST = path.join(DATA_DIR, 'whitelist.json');
+  if (p === '/whitelist/status') return json(res, 200, bc.whitelist.status());
+  if (p === '/whitelist/verify' && req.method === 'POST') {
+    const { handle, address, note = '' } = await body(req);
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const r = bc.whitelist.verify(handle, address, 'node-operator', note);
+    return r.ok ? json(res, 201, { ...r, identity: handle + '@agt', registryHash: bc.whitelist.registryHash() }) : json(res, 400, r);
+  }
+  if (p === '/whitelist/check' && req.method === 'POST') {
+    const { address, amount = 0 } = await body(req);
+    const handle = bc.whitelist.handleOf(address);
+    const verified = bc.whitelist.isVerified(address);
+    const banned = bc.security.isBanned(address);
+    const needWhite = amount > 100; // LARGE_TX_LIMIT
+    return json(res, 200, {
+      address, verified, handle: handle ? handle + '@agt' : null, banned,
+      largeTxAllowed: verified && !banned,
+      note: needWhite && !verified ? 'tx > 100 AGT requires whitelist' : null,
+    });
+  }
+
+  // --- Чат сообщества разработчиков ---
+  if (p === '/community/feed') {
+    const lim = Math.min(Number(url.searchParams.get('limit')) || 50, 200);
+    return json(res, 200, { messages: chat.feed(lim), count: chat.messages.length });
+  }
+  if (p === '/community/send' && req.method === 'POST') {
+    const { sender, senderHandle = '', text } = await body(req);
+    const r = chat.send({ sender, senderHandle, text });
+    return r.ok ? json(res, 201, r) : json(res, 400, r);
+  }
+  if (p === '/community/rules') return json(res, 200, { rules: chat.rules });
+  if (p === '/community/pinned') return json(res, 200, { pinned: chat.pinned });
+  if (p === '/community/pin' && req.method === 'POST') {
+    const { id } = await body(req);
+    return json(res, 200, chat.pin(id));
+  }
+
   // --- P2P ---
   if (p === '/peer/add' && req.method === 'POST') {
     const { peer } = await body(req);
@@ -197,7 +238,10 @@ const server = http.createServer(async (req, res) => {
     name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
     endpoints: ['/info', '/blocks?n=', 'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx', 'POST /mine', '/validate',
       'GET /security/status', 'GET /security/banlist', 'GET /security/attacks',
-      'POST /handle/register', 'GET /whoami/<name>', 'GET /life', 'POST /peer/add', 'GET /sync-now'],
+      'POST /handle/register', 'GET /whoami/<name>', 'GET /life',
+      'GET /whitelist/status', 'POST /whitelist/verify', 'POST /whitelist/check',
+      'GET /community/feed', 'POST /community/send', 'GET /community/rules', 'GET /community/pinned', 'POST /community/pin',
+      'POST /peer/add', 'GET /sync-now'],
   });
 
   json(res, 404, { error: 'not_found' });

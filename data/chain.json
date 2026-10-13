@@ -1,0 +1,68 @@
+{
+  "chainId": "AGENTCOIN",
+  "chain": [
+    {
+      "height": 0,
+      "hash": "00009dc2822369a3081e8927be53a217902427e1c817e732a5070f7cc0f99446",
+      "header": {
+        "version": 1,
+        "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "merkleRoot": "f7eb809315a2e609a76753e7b394e04437219f71ffc949b9aebae699e3064086",
+        "timestamp": 1734186400,
+        "difficultyBits": 16,
+        "nonce": 39718,
+        "chainId": "AGENTCOIN"
+      },
+      "txs": [
+        {
+          "txid": "f7eb809315a2e609a76753e7b394e04437219f71ffc949b9aebae699e3064086",
+          "from": "COINBASE",
+          "to": "AGT_GENESIS_TREASURY",
+          "amount": 0,
+          "nonce": 0,
+          "ts": 1734186400,
+          "memo": "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
+        }
+      ],
+      "minedAt": 1791928775391,
+      "mineMs": 1270
+    },
+    {
+      "height": 1,
+      "hash": "0000134a239f8a35175348e3df889dc47347ebe9fed61b5f41cbfdd2e470628e",
+      "header": {
+        "version": 1,
+        "prevHash": "00009dc2822369a3081e8927be53a217902427e1c817e732a5070f7cc0f99446",
+        "merkleRoot": "coinbase-1791928924563",
+        "timestamp": 1791928924,
+        "difficultyBits": 16,
+        "nonce": 4904,
+        "chainId": "AGENTCOIN"
+      },
+      "txs": [
+        {
+          "txid": "coinbase-1791928924563",
+          "from": "COINBASE",
+          "to": "AGT-test-miner",
+          "amount": 50,
+          "nonce": 1,
+          "ts": 1791928924,
+          "memo": "block 1"
+        }
+      ],
+      "minedAt": 1791928924819,
+      "mineMs": 256,
+      "miner": "AGT-test-miner"
+    }
+  ],
+  "difficultyBits": 16,
+  "genesisHeader": {
+    "version": 1,
+    "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "merkleRoot": "f7eb809315a2e609a76753e7b394e04437219f71ffc949b9aebae699e3064086",
+    "timestamp": 1734186400,
+    "difficultyBits": 16,
+    "nonce": 39718,
+    "chainId": "AGENTCOIN"
+  }
+}

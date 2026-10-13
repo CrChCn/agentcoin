@@ -1,0 +1,26 @@
+{
+  "AGT147e8f694555ea7a9ea25b2666957dc2e4079e02": {
+    "label": "mark-operator",
+    "pub": "147e8f694555ea7a9ea25b2666957dc2bea1a2561e0cb9d4da5686b908b13760",
+    "privKey": "e49b0c0306eac8e8b8e1596cc079a08b12d75d80b26fcccfd8959836f3a451c3",
+    "createdAt": 1791927311193
+  },
+  "AGT23a94748fe92686debc2b27a32ac13d14693e4f2": {
+    "label": "agent-1",
+    "pub": "23a94748fe92686debc2b27a32ac13d166330adff6fe7e9dcd1dfa34ad0ca67c",
+    "privKey": "e9cf0864fad59d11648969771be4b36f52a939353ea23783a1bda5eb7f4d618c",
+    "createdAt": 1791927943587
+  },
+  "AGT08fe25a17b65e8964b2198beb94a9f44875a7fe0": {
+    "label": "agent-2",
+    "pub": "08fe25a17b65e8964b2198beb94a9f44666224f988270e95fd46381855a090ad",
+    "privKey": "befd1310f25a727c6ec0cd5a87dfc91587be6f46a916ccd09ebdec60e00c0dfe",
+    "createdAt": 1791927945088
+  },
+  "AGTf3c7d3b5823406cd712596fe608d10a9c847bd4d": {
+    "label": "miner-A",
+    "pub": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2M0iMJI0c5vhdxerpge/VHDjYcy77L5MPCGjAZZIdFA=\n-----END PUBLIC KEY-----\n",
+    "privKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIBBEHS1UgQYFKH1eXZY+Z+WF2yZU40jzFtOXxEYnx4bP\n-----END PRIVATE KEY-----\n",
+    "createdAt": 1791928905792
+  }
+}

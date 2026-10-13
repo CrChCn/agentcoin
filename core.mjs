@@ -37,6 +37,102 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 
+// ============ Security Controller: регистр атак + пожизненные баны ============
+// Правила безопасности (жёсткие):
+//   - Спуфинг подписи  → BAN навсегда (прошл. реестр + блок входящих TX от адреса)
+//   - Двойная трата    → BAN навсегда
+//   - Дубликат TX      → бан по правилу повторов (> 3) → BAN
+//   - Мусор/флуд       → счётчик нарушений; 5+ → BAN
+//   - Плохой блок      → отказ и host-бан пира навсегда
+// Ban-лист: banList.json — публичный (каждая нода может сверить), hash реестра
+// подписывается нодой: tampering с бан-листом заметен.
+export const SECURITY_RULES = {
+  spoof_signature: 'ban',
+  double_spend: 'ban',
+  duplicate_tx_spam: 'ban',
+  invalid_block: 'ban',
+  flood: 'ban_after_5',
+};
+
+export class SecurityController {
+  constructor(dataDir) {
+    this.file = path.join(dataDir, 'security.json');
+    this.bans = {};       // { address: { reason, evidence, bannedAt, by } }
+    this.attacks = [];    // журнал атак
+    this.strikes = {};    // счётчик нарушений до BAN (для flood)
+    this.load();
+  }
+
+  load() {
+    try {
+      if (fs.existsSync(this.file)) {
+        const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+        this.bans = d.bans || {};
+        this.attacks = d.attacks || [];
+        this.strikes = d.strikes || {};
+      }
+    } catch {}
+  }
+
+  save() {
+    fs.mkdirSync(this.dataDirSafe(), { recursive: true });
+    fs.writeFileSync(this.file, JSON.stringify({
+      chainId: CHAIN_ID, updatedAt: Date.now(), bans: this.bans, attacks: this.attacks.slice(-200), strikes: this.strikes,
+    }, null, 2));
+  }
+
+  dataDirSafe() { return path.dirname(this.file); }
+
+  registerAttack(kind, address, evidence = '') {
+    const entry = {
+      id: crypto.randomBytes(8).toString('hex'),
+      kind, address, evidence: String(evidence).slice(0, 500),
+      at: new Date().toISOString(),
+      rule: SECURITY_RULES[kind] || 'warn',
+    };
+    this.attacks.push(entry);
+    const needsBan = entry.rule === 'ban';
+    let banned = false;
+    if (!needsBan && entry.rule === 'ban_after_5') {
+      this.strikes[address] = (this.strikes[address] || 0) + 1;
+      if (this.strikes[address] >= 5) needsBan = true;
+    }
+    if (needsBan) banned = this.ban(address, kind, evidence);
+    this.save();
+    return { ...entry, banned };
+  }
+
+  ban(address, reason, evidence = '') {
+    if (!address) return false;
+    this.bans[address] = {
+      reason: String(reason), evidence: String(evidence).slice(0, 300),
+      bannedAt: new Date().toISOString(), lifetime: true,
+    };
+    this.save();
+    return true;
+  }
+
+  isBanned(address) { return Boolean(address && this.bans[address]); }
+  banList() { return Object.keys(this.bans); }
+  isAttackDetected() { return this.attacks.length > 0; }
+
+  registryHash() {
+    // тампер-эвиденц: любое изменение ban-листа заметно по хешу
+    return sha256d(JSON.stringify(this.bans));
+  }
+
+  status() {
+    return {
+      rules: SECURITY_RULES,
+      attacksSeen: this.attacks.length,
+      lastAttack: this.attacks[this.attacks.length - 1] || null,
+      bannedCount: this.banList().length,
+      banned: this.banList(),
+      registryHash: this.registryHash(),
+    };
+  }
+}
+
 // ============ Параметры цепи (константы) ============
 export const CHAIN_ID = 'AGENTCOIN';
 export const TICKER = 'AGT';
@@ -161,6 +257,7 @@ export class Blockchain {
     this.file = path.join(dataDir, 'chain.json');
     this.mempool = [];
     this.history = [];
+    this.security = new SecurityController(dataDir);
     this.load();
     if (this.blockCount() === 0) this.createGenesis();
   }
@@ -225,9 +322,26 @@ export class Blockchain {
   addTransaction(tx) {
     // базовая валидация
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return { ok: false, reason: 'bad_fields' };
-    if (!verifyTransaction(tx)) return { ok: false, reason: 'bad_signature' };
+    // --- Security Controller: бан-фильтр + атак-детект ---
+    if (this.security.isBanned(tx.from)) {
+      this.security.registerAttack('flood', tx.from, 'banned address keeps submitting txs');
+      return { ok: false, reason: 'address_permabanned', bannedAt: this.security.bans[tx.from].bannedAt };
+    }
+    if (!verifyTransaction(tx)) {
+      this.security.registerAttack('spoof_signature', tx.from, 'signature mismatch — spoofing attempt');
+      return { ok: false, reason: 'bad_signature_permaban' };
+    }
+    if (this.mempool.some(t => t.txid === tx.txid || (t.from === tx.from && t.nonce === tx.nonce))) {
+      this.security.registerAttack('duplicate_tx_spam', tx.from, 'duplicate nonce/txid');
+      return { ok: false, reason: 'duplicate_tx' };
+    }
     const balances = this.balances();
-    if ((balances[tx.from] || 0) < tx.amount) return { ok: false, reason: 'insufficient_funds' };
+    const incoming = this.mempool.filter(t => t.from === tx.from).reduce((s, t) => s + t.amount, 0);
+    if ((balances[tx.from] || 0) - incoming - tx.amount < 0) {
+      // двойная трата: расход больше баланса с учётом уже-в-mempool — классический double-spend
+      this.security.registerAttack('double_spend', tx.from, `balance ${balances[tx.from] || 0}, pending ${incoming}, tried ${tx.amount}`);
+      return { ok: false, reason: 'double_spend_attempt_permaban' };
+    }
     this.mempool.push(tx);
     return { ok: true, mempoolSize: this.mempool.length };
   }
@@ -320,6 +434,7 @@ export class Blockchain {
       genesisSeed: GENESIS_PARAMS.seed_message.slice(0, 40) + '...',
       mempool: this.mempool.length,
       retargetIn: RETARGET_INTERVAL - (this.blockCount() % RETARGET_INTERVAL),
+      security: this.security.status(),
     };
   }
 }

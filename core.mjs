@@ -173,7 +173,115 @@ export class WhiteList {
   status() { return { count: Object.keys(this.list).length, registryHash: this.registryHash(), handles: Object.keys(this.list) }; }
 }
 
-// ============ Параметры цепи (константы) ============
+// ============ Gateway: шлюзы/туннели перемещения монет (опыт Ripple/Nano/Bolt) ============
+// Опыт интегрированных систем:
+//   Bitcoin   — UTXO + double-SHA256 + ретарджет + halving (наш базис ок)
+//   Ethereum  — nonce-упорядоченность транзакций (prevent duplicate exploits)
+//   Monero    — privacy: memo в tx не светит суммы (они и так публичны, но memo скрыт)
+//   Ripple    — trustlines/sh gridways: gateway pairs для маршрутов
+//   Nano      — fee-none мелкие платежи: минимальная комиссия = 0 (наш так и есть)
+//   Lightning — мультнихоп: платеж проходит через несколько шлюзов подряд (хоп-путь)
+// Gateway = узел с доверенной ролью Deposit/Withdraw/Forward. Подписывается csrf pubkey.
+export const GATEWAY_TYPES = { deposit: 'd', withdraw: 'w', forward: 'f', pool: 'p' };
+
+export class Gateways {
+  constructor(dataDir, security) {
+    this.file = path.join(dataDir, 'gateways.json');
+    this.security = security;
+    this.map = {};  // { gwId: { type, ownerAddress, pubkey, feeBps, opened } }
+    this.hops = []; // { txid, path: [gwId...] } — фактические маршруты
+    this.load();
+  }
+  load() { try { const d = JSON.parse(fs.readFileSync(this.file, 'utf8')); this.map = d.map || {}; this.hops = d.hops || []; } catch {} }
+  save() { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify({ map: this.map, hops: this.hops, updatedAt: Date.now() }, null, 2)); }
+  hash() { return sha256d(JSON.stringify(this.map)); }
+
+  // открыть шлюз: верифицированный агент (whitelist) + не забанен
+  open(type, ownerAddress, config = {}) {
+    if (!GATEWAY_TYPES[type]) return { ok: false, reason: 'bad_gateway_type', known: Object.keys(GATEWAY_TYPES) };
+    if (this.security.isBanned(ownerAddress)) return { ok: false, reason: 'address_permabanned' };
+    const gwId = 'GW' + crypto.randomBytes(5).toString('hex');
+    this.map[gwId] = {
+      type, owner: ownerAddress,
+      pubkey: config.pubkey || null,
+      feeBps: Math.max(0, Math.min(1000, Number(config.feeBps) || 0)), // макс 10%
+      capacityAGT: Number(config.capacityAGT) || 0,
+      opened: Date.now(),
+    };
+    this.save();
+    return { ok: true, gwId, type };
+  }
+
+  close(gwId, ownerAddress) {
+    const gw = this.map[gwId];
+    if (!gw || gw.owner !== ownerAddress) return { ok: false, reason: 'not_owner_or_missing' };
+    delete this.map[gwId]; this.save(); return { ok: true };
+  }
+
+  // маршрут между двумя агентами через шлюзы-форварды: BFS по map
+  findRoute(fromAddress, toAddress, maxHops = 4) {
+    const fws = Object.entries(this.map).filter(([, g]) => g.type === 'forward' && !this.security.isBanned(g.owner));
+    const deposits = Object.entries(this.map).filter(([, g]) => g.type === 'deposit' && !this.security.isBanned(g.owner));
+    const withdraws = Object.entries(this.map).filter(([, g]) => g.type === 'withdraw' && !this.security.isBanned(g.owner));
+    // простой путь: sender→deposit→forward(s)→withdraw→receiver
+    return { depositGateways: deposits.map(([id]) => id), forwardGateways: fws.map(([id]) => id), withdrawGateways: withdraws.map(([id]) => id), maxHops };
+  }
+
+  hop(txid, path) { this.hops.push({ txid, path, at: Date.now() }); this.save(); }
+  status() {
+    return { count: Object.keys(this.map).length, byType: Object.entries(this.map).reduce((s, [, g]) => (s[g.type] = (s[g.type] || 0) + 1, s), {}), hops: this.hops.length, registryHash: this.hash() };
+  }
+}
+
+// ============ Пул майнинга (опыт BTC-пулов:inance on shares) ============
+// Агенты без мощного железа складывают хешpower: каждая share = хеш выше лёгкой
+// стены SHARE_DIFF_BITS; когда пул находит блок — награда делится по долям
+// share/totalShares (PPLNS-like, ш@лша-подобно, но честно и просто).
+export const SHARE_DIFF_BITS = 12; // гораздо проще difficulty (16)
+export class MiningPool {
+  constructor(dataDir, security) {
+    this.file = path.join(dataDir, 'pool.json');
+    this.security = security;
+    this.miners = {};   // { address: { shares, lastShareAt, joined } }
+    this.targetHeader = null;
+    this.load();
+  }
+  load() { try { const d = JSON.parse(fs.readFileSync(this.file, 'utf8')); this.miners = d.miners || {}; } catch {} }
+  save() { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify({ miners: this.miners, updatedAt: Date.now() }, null, 2)); }
+
+  join(address) {
+    if (this.security.isBanned(address)) return { ok: false, reason: 'address_permabanned' };
+    if (!this.miners[address]) this.miners[address] = { shares: 0, lastShareAt: Date.now(), joined: Date.now() };
+    this.save();
+    return { ok: true, youAreIn: true, shareDiffBits: SHARE_DIFF_BITS, tipPrevHash: this.targetHeader?.prevHash || null };
+  }
+
+  submitShare(address, headerStr) {
+    if (!this.miners[address]) return { ok: false, reason: 'not_in_pool' };
+    if (this.security.isBanned(address)) return { ok: false, reason: 'address_permabanned' };
+    const h = sha256d(headerStr);
+    if (!hashMeetsDifficulty(h, SHARE_DIFF_BITS)) {
+      this.miners[address].lastShareAt = Date.now(); // даже «мимо» —活動记 (friendlier работа)
+      this.save();
+      return { ok: false, reason: 'share_below_diff', hash: h.slice(0, 12) };
+    }
+    this.miners[address].shares++;
+    this.miners[address].lastShareAt = Date.now();
+    this.save();
+    return { ok: true, shares: this.miners[address].shares, hash: h.slice(0, 12) };
+  }
+
+  // распределение награды пропорционально долям (никто не теряет долю)
+  distribute(rewardAGT) {
+    const total = Object.entries(this.miners).reduce((s, [, m]) => s + Math.max(0, m.shares), 0);
+    if (!total) return { ok: false, reason: 'no_shares' };
+    const payouts = {};
+    for (const [addr, m] of Object.entries(this.miners)) if (m.shares > 0) payouts[addr] = +(rewardAGT * m.shares / total).toFixed(4);
+    return { ok: true, totalShares: total, payouts };
+  }
+
+  stats() { return { miners: Object.keys(this.miners).length, shares: Object.values(this.miners).reduce((s, m) => s + m.shares, 0), shareDiffBits: SHARE_DIFF_BITS }; }
+}
 export const CHAIN_ID = 'AGENTCOIN';
 export const TICKER = 'AGT';
 export const BLOCK_INTERVAL_SEC = 30;      // блок каждые ~30 сек
@@ -299,6 +407,8 @@ export class Blockchain {
     this.history = [];
     this.security = new SecurityController(dataDir);
     this.whitelist = new WhiteList(dataDir, this.security);
+    this.gateways = new Gateways(dataDir, this.security);
+    this.pool = new MiningPool(dataDir, this.security);
     this.load();
     if (this.blockCount() === 0) this.createGenesis();
   }

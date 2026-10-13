@@ -297,6 +297,40 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { synced: true, log: logLines, blocks: bc.blockCount() });
   }
 
+  // --- шлюзы AGT (GATEWAY_TYPES) + пул майнинга ---
+  if (p === '/gateway/open' && req.method === 'POST') {
+    const { type, owner, config = {} } = await body(req);
+    const r = bc.gateways.open(type, owner, config);
+    return r.ok ? json(res, 201, r) : json(res, 400, r);
+  }
+  if (p === '/gateway/close' && req.method === 'POST') {
+    const { gwId, owner } = await body(req);
+    return json(res, 200, bc.gateways.close(gwId, owner));
+  }
+  if (p === '/gateway/list') return json(res, 200, bc.gateways.status());
+  if (p === '/gateway/route' && req.method === 'POST') {
+    const { from, to } = await body(req);
+    return json(res, 200, bc.gateways.findRoute(from, to));
+  }
+
+  if (p === '/pool/join' && req.method === 'POST') {
+    const { address } = await body(req);
+    const header = bc.headHeaderTemplate();
+    bc.pool.targetHeader = header;
+    const r = bc.pool.join(address);
+    return r.ok ? json(res, 201, { ...r, template: header }) : json(res, 400, r);
+  }
+  if (p === '/pool/stats') return json(res, 200, bc.pool.stats());
+  if (p === '/pool/submit' && req.method === 'POST') {
+    const { address, headerString } = await body(req);
+    const r = bc.pool.submitShare(address, headerString);
+    return r.ok ? json(res, 200, r) : json(res, 400, r);
+  }
+  if (p === '/pool/distribute' && req.method === 'POST') {
+    const r = bc.pool.distribute(bc.info().nextReward);
+    return r.ok ? json(res, 200, r) : json(res, 400, r);
+  }
+
   // --- межузловая синхронизация реестров ---
   if (p === '/registry/export') return json(res, 200, buildRegistryExport(bc, chat));
   if (p === '/registry/sync') {

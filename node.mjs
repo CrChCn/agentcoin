@@ -20,6 +20,14 @@
    Запуск: node node.mjs [port] (по умолчанию 9333)
    ============================================================ */
 'use strict';
+// Last-resort отряд: любая непойманная ошибка логируется и НЕ убивает ноду
+// (инцидент 2026-10-14: 9342 «тихо» уходила при вещании tx — стэк не падал в лог).
+process.on('uncaughtException', (e) => {
+  console.log(`[guard] uncaughtException: ${e.stack || e}`);
+});
+process.on('unhandledRejection', (e) => {
+  console.log(`[guard] unhandledRejection: ${e && (e.stack || e.message) || e}`);
+});
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

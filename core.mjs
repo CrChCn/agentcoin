@@ -574,8 +574,8 @@ export function chainWork(blocks) {
 // честная цепь, намайненная нодой, всегда проходила эту проверку.
 export function expectedDifficultyBits(chain) {
   const n = (chain || []).length;
-  if (n === 0) return GENESIS_PARAMS.difficultyBits;      // генезис — 14 бит (пиннинг)
-  if (n === 1) return INITIAL_DIFFICULTY_BITS;            // после генезиса state = INITIAL
+  if (n === 0) return (GENESIS_PARAMS.difficulty_bits ?? GENESIS_PARAMS.difficultyBits); // генезис — 14 бит (пиннинг, ключ snake из.BlackLegion genesis.json)
+  if (n === 1) return (chain[0]?.header?.difficultyBits || (GENESIS_PARAMS.difficulty_bits ?? INITIAL_DIFFICULTY_BITS)); // после генезиса продолжаем битами генезиса своей же цепи (пинирование legacy-цепей это живьём требует)
   const tip = chain[n - 1];
   if (n % RETARGET_INTERVAL !== 0) return tip.header.difficultyBits;
   const anchor = chain[n - RETARGET_INTERVAL];

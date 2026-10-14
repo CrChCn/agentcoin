@@ -61,8 +61,15 @@ async function spawnNode() {
     const url = `http://127.0.0.1:${port}`;
     const life = await api(url, 'GET', '/life', null, 2000);
     if (life.status === 200 && life.body?.tipHash) return url; // уже кто-то держит порт с нодой
+    // ПРАВИЛО КЛАСТЕРА: каждая нода держит цепь в собственном AGT_DATA_DIR —
+    // иначе общий chain.json разрушится от гонок записей (инцидент 10-14).
+    const ownData = path.join(ROOT, `data-node${port}`);
+    fs.mkdirSync(ownData, { recursive: true });
+    const pj = path.join(ownData, 'peers.json');
+    if (!fs.existsSync(pj)) fs.writeFileSync(pj, JSON.stringify(ANCHORS.length ? ANCHORS : []));
     const child = spawn(process.execPath, [path.join(ROOT, 'node.mjs'), String(port)], {
       cwd: ROOT, detached: true,
+      env: { ...process.env, AGT_DATA_DIR: ownData },
       stdio: ['ignore', fs.openSync(NODE_LOG, 'a'), fs.openSync(NODE_LOG, 'a')],
     });
     child.unref(); spawned = child;

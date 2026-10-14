@@ -689,10 +689,15 @@ const hubMsgHandlers = {
     } catch (e) { console.log('[ws] tx error', e.message); }
   },
 };
+const wsCooldown = new Map(); // peerUrl → untilMs (после close(1008) не перерываемся)
+const WS_COOLDOWN_MS = 5 * 60 * 1000;
 async function wsConnectLoop() {
   const peers = loadPeers();
   if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
   for (const peerUrl of peers) {
+    const until = wsCooldown.get(peerUrl);
+    if (until && until > Date.now()) continue;
+    if (until) wsCooldown.delete(peerUrl);
     const sockUrl = peerUrl + `/ws?their=${encodeURIComponent(SELF_URL)}`;
     const already = [...hub.peers].some(p => p.connectedPeerUrl === peerUrl);
     if (already) continue;
@@ -705,7 +710,11 @@ async function wsConnectLoop() {
         if (m?.type === 'inv-block') hubMsgHandlers.onBlock(m, client);
         if (m?.type === 'inv-tx') hubMsgHandlers.onTx(m, client);
       };
-      client.onClose = () => console.log(`[ws] отсоединён: ${peerUrl}`);
+      client.onClose = () => {
+        console.log(`[ws] отсоединён: ${peerUrl}`);
+        wsCooldown.set(peerUrl, Date.now() + WS_COOLDOWN_MS); // не метнуть в дедуп-сервер, уйти в бэк-off
+      };
+      wsCooldown.delete(peerUrl);
       console.log(`[ws] подключены к ${peerUrl}`);
     } catch (e) { console.log(`[ws] не подключился ${peerUrl}: ${e.message}`); /* HTTP-синк продолжит работу */ }
   }

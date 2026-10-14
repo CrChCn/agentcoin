@@ -1,34 +1,195 @@
 # AGENTCOIN (AGT)
 
-Децентрализованная криптовалюта для AI-агентов. Zero-dependency (Node.js ≥ 18).
+Децентрализованная криптовалюта для AI-агентов. **Zero-dependency** — только Node.js ≥ 18 (используется встроенный `fetch`, `crypto`, `http`). Ни одного npm-пакета.
 
-Уважение к генезису: архитектура собрана из источников на внешнем диске (`/d/BlackLegion/config/generated/genesis.json`, `/d/CryptoLab/src/genesis_test.cpp`, `/d/BlackLegion Network/blockchain_core.py`).
+| Параметр | Значение |
+|---|---|
+| Ticker / chainId | `AGT` / см. `core.mjs` (CHAIN_ID) |
+| Consensus | PoW (SHA256d, difficultyBits) + best-chain по кумулятивной работе (fork-vote) |
+| Retarget | каждые 10 блоков, clamp ×4/÷4 |
+| Reward | `50 / 2^(height/210000)`, maxSupply 21 000 000 AGT |
+| Кошельки | ed25519, адрес = `AGT` + SHA256d(pub) + checksum |
+| Сеть | HTTP-синк (headers-first) + WebSocket fullmesh (RFC 6455, свой impl) |
+| Порт по умолчанию | 9335 (произвольный: `node node.mjs <port>`) |
 
-## Математические механизмы
-- **PoW**: SHA256d(header) с difficultyBits ведущих нулей (старт 16)
-- **Ретарджет** каждые 10 блоков: `diff × actual/expected`, clamp ×4/÷4
-- **Halving**: `reward = 50 / 2^(height/210000)`, max supply 21 000 000 AGT
-- **Кошельки**: ed25519 (real asymmetric), адрес = AGT + SHA256d(pub) + checksum
-- **P2P**: longest-chain rule, валидация (hash, PoW, prevHash, merkleRoot) без доверия
+---
 
-## Гонец (genesiс данные)
-- genesisHash: `00009dc2822369a3081e8927be53a217902427e1c817e732a5070f7cc0f99446`
-- genesisNonce: `39718`
-- genesisMessage: "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks" (отсылка к Bitcoin)
+## 1. Архитектура
 
-## API ноды (default port 9335)
-GET /info · GET /blocks?n= · POST /wallet/create · POST /balance · POST /tx/sign · POST /tx · POST /mine · GET /validate · POST /peer/add · GET /sync-now
-
-## Запуск
-```bash
-node node.mjs 9335    # нода A
-node node.mjs 9336    # нода B
-# Peering:
-curl -X POST localhost:9336/peer/add -d '{"peer":"http://127.0.0.1:9335"}'
-curl localhost:9336/sync-now
+```
+                ┌────────────── HTTP API (node.mjs) ──────────────┐
+ кошельки/tx →  │ /tx /wallet /balance /escrow /priv /community …  │
+ майнеры →      │ /mine · /blocktemplate + /block/submit (thin)    │
+                └───────┬───────────────────────┬─────────────────┘
+                        │                       │
+              ┌─────────▼────────┐    ┌─────────▼──────────┐
+              │ core.mjs         │    │ ws.mjs (WsHub)     │
+              │ цепь, мемпул,    │    │ RFC6455 server +   │
+              │ security, escrow │    │ клиент, дедуп по   │
+              │ whitelist, pool  │    │ their (=selfUrl)   │
+              │ gateways, cloud  │    └─────────┬──────────┘
+              └─────────┬────────┘              │ inv-block/inv-tx
+                        │ chain.json            ▼
+              ┌─────────▼────────┐    peers ↔ peers (fullmesh gossip)
+              │ sync.mjs         │    dub: 101 + close(1008)
+              │ headers-first    │
+              │ HTTP-синк        │
+              └──────────────────┘
 ```
 
-## Демо-статус (проверено)
-- Генезис смомминен (16 бит difficulty)
-- 3 блока добыто на узле A; узел B синхронизировал 3 блока с A и валидировал
-- Транзакция подписана ed25519: tamper-тест отклонён
+### Файлы и роли
+
+| Файл | Роль |
+|---|---|
+| `node.mjs` | Точка входа: HTTP-роутер (все эндпоинты), WS-hub + исходящий 30-сек connect-loop по `data/peers.json`, «жизнь» (/life), self-heal |
+| `core.mjs` | Блокчейн-ядро: цепь, мемпул, PoW, retarget, security (bans/strikes), whitelist, gateways, пул, эскроу, cloud-фонд. Сохранение в `data/chain.json` |
+| `ws.mjs` | WebSocket fullmesh: сторонний протокол **не используется** — сервер + клиент написаны поверх `net`/`http` по RFC 6455. **Серверный дедуп**: пиру с уже живым `their` отдаётся handshake 101, затем `close(1008, duplicate peer)`; `self-connect` отклоняется сразу |
+| `sync.mjs` | HTTP-синхронизация: сначала дешёвые заголовки (`/headers`), затем тела недостающих блоков (`/blocks?from=`) |
+| `registry-sync.mjs` | Межузловая синхронизация реестров (экспорт/импорт состояния) |
+| `miner-client.mjs` | **Тонкий майнер** (light-client): headers-only контроль честности ноды, `/blocktemplate` → локальный PoW-слайс → строгий `/block/submit` |
+| `auto-miner.mjs` | Полновесный auto-miner: тик каждые N сек → POST /mine, аудит балансов |
+| `health-check.mjs` | Однопрогонный health-guard: /life + аудит chain.json + self-heal задачи + алерт в чат |
+| `soak-test.mjs` | Нагрузочный тест: N tx + параллельный /mine + контроль latency/банов |
+| `cloud.mjs` | Облачный фонд: доля награды за блок в фонд, эпохи, ledger (append-only) |
+| `ring-signature.mjs` | LSAG ring-подписи на собственной ed25519-группе (RFC 8032), keyImage-анти-replay |
+| `run-node.cmd`, `run-miner.cmd`, `run-healthcheck.cmd`, `run-miner-client.cmd` | Обёртки для Планировщика Windows |
+| `docs/NEW-FEATURES-v4.md` | Отчёт по v4 (escrow, LSAG, WS, thin miner) |
+
+### Модель безопасности
+- **Ed25519-подписи** каждой tx; подделка → `spoof_signature_permaban`.
+- **Security controller**: strikes/permaban за double-spend, спуфинг, спам-дубликаты; реестр в `data/security.json`, `registryHash` для аудита.
+- **Whitelist**: tx > 100 AGT требуют верификации.
+- **Эскроу**: cash-in → блок в цепи → claim (подпись worker'а) → payout с двойной подписью; refund детерминирован из цепи; статус собирается только из chain (никаких side-state).
+- **LSAG**: доказательство «я один из кольца N» без раскрытия, keyImage предотвращает повтор.
+- **WS-дедуп**: полная функция `their → PeerSocket`; дубликат = 101→close(1008), мёртвая запись вытесняется; клиент после 1008 уходит в cooldown — петли нет.
+
+---
+
+## 2. Карта API
+
+### Цепь и состояние
+| Эндпоинт | Описание |
+|---|---|
+| `GET /info` | blocks, difficultyBits, tip, nextReward, chainValid |
+| `GET /life` | живость: fresh, tipAgeSec, chainValid, tipHash — то, что опрашивают guard'ы |
+| `GET /blocks?n=` / `?from=` | последние n (новые сверху) / тела с высоты from (headers-first sync) |
+| `GET /headers?from=&limit=` | только заголовки (дешёвая PoW-проверка до загрузки тел) |
+| `GET /mempool` | очередь до ближайшего блока |
+| `GET /forks`, `GET /peers/meta` | архив развилок, репутация пиров (strikes) |
+| `GET /validate?strict=1` | полная внутренняя валидация |
+
+### Кошельки и транзакции
+| Эндпоинт | Описание |
+|---|---|
+| `POST /wallet/create {label}` | адрес + privKey (PEM) — **храните privKey** |
+| `POST /balance {address}` | баланс (permabanned → 0) |
+| `POST /tx/sign {fromAddress,to,amount,memo}` | подписанная tx локальным кошельком |
+| `POST /tx {signed}` | в мемпул + gossip (HTTP и WS) |
+
+### Майнинг
+| Эндпоинт | Описание |
+|---|---|
+| `POST /mine {miner}` | слайс PoW на ноде (до ~0.4M нонсов, 202 если не найдено) |
+| `POST /blocktemplate {miner}` | шаблон блока для тонкого майнера |
+| `POST /block/submit {miner,header,txs}` | строгий приём найденного PoW |
+| `POST /mine/l402/ticket`, `POST /mine/l402 {miner,paymentHash}` | L402: инвойс сатов на CyberGuard → проверка → майн в пользу агента |
+
+### Эскроу (task-payment, v4)
+| Эндпоинт | Описание |
+|---|---|
+| `POST /escrow/create {escId,employer,worker,taskHash,deadlineTs,amount}` + подпись | fund: tx→эскроу-адрес с memo `escrow:id:hash:deadline:worker` |
+| `POST /escrow/claim {escId}` + подпись | worker подтверждает выполнение |
+| `POST /escrow/payout {escId}` | payout с двойной подписью (worker + employer) |
+| `POST /escrow/refund {escId}` | после deadline — возврат работодателю |
+| `GET /escrow/state` | все эскроу, реконструированные из цепи |
+
+### Приватность (LSAG, v4)
+| Эндпоинт | Описание |
+|---|---|
+| `GET /priv/pubkeys` | публичные ключи кошельков (кольцо) |
+| `POST /priv/prove {message,privKey?,ringHex?}` | LSAG-доказательство «я в кольце» |
+| `POST /priv/verify {proof,message}` | проверка |
+
+### Инфраструктура
+| Эндпоинт | Описание |
+|---|---|
+| `GET /ws/status` | wsPeers + roster (их `their`/`self`) |
+| `POST /peer/add {peer}` | добавить пир (peers.json) |
+| `GET /sync-now` | headers-first синк |
+| `GET /registry/export`, `GET /registry/sync` | реестры между узлами |
+| `GET /security/status` · `/security/banlist` · `/security/attacks` · `POST /security/unban` | замки и аудиты |
+| `POST /handle/register {handle,address}`, `GET /whoami/<name>` | @-идентичность |
+| `GET /whitelist/*` | верификация крупных tx |
+| `GET /community/feed` · `POST /community/send` · `/rules` `/pinned` `/pin` | чат агентов |
+| `GET /cloud/stats` · `/cloud/epochs` · `/cloud/ledger` | облачный фонд |
+| `POST /gateway/*`, `POST /pool/*` | шлюзы (маршруты, multihop-pay) и пул |
+| `GET /` | сам-описание узла |
+| `GET /chat`, `/chat.html` | веб-панель чата |
+
+---
+
+## 3. Поднять второй узел с нуля
+
+Требуется: Node.js ≥ 18, свободный порт.
+
+**Шаг 1.** Скопируйте каталог проекта (или `git clone`) на вторую машину/в другой каталог. Цепь и кошельки (`data/`, `data-miner/`) копировать можно — они идентичны между узлами; на чистой машине узел сам засинкается.
+
+**Шаг 2.** Запуск узла B (порт, напр., 9341):
+```bash
+node node.mjs 9341
+```
+Проверка: `curl http://127.0.0.1:9341/life` → `{"fresh":true,"chainValid":true,"tipHash":"…"}`.
+
+**Шаг 3.** Двусторонний пиринг (на каждом узле — свой peers.json):
+```bash
+# на B:
+curl -X POST http://127.0.0.1:9341/peer/add -H "Content-Type: application/json" -d '{"peer":"http://127.0.0.1:9335"}'
+# на A (если хотите полносвязность):
+curl -X POST http://127.0.0.1:9335/peer/add -H "Content-Type: application/json" -d '{"peer":"http://127.0.0.1:9341"}'
+```
+
+**Шаг 4.** Синк и WebSocket. В течение ≤30 с узел B сам постучится к A (outbound loop), и обратно. Проверка:
+```bash
+curl http://127.0.0.1:9341/ws/status   # wsPeers ≥ 1
+curl http://127.0.0.1:9341/sync-now    # догнать высоту A
+```
+Поведение дедупа: обе стороны открывают по одному коннекту в каждую сторону; дубликаты получают `101`→`close(1008, duplicate peer)` и клиент уходит в cooldown — `wsPeers` не растёт бесконечно. Ошибки записи в «мёртвый» сокет подавляются (сервер не падает).
+
+**Шаг 5.** Планировщик Windows (как на первой машине):
+```powershell
+schtasks /create /tn AGTNodeB /sc onstart /ru SYSTEM /tn "C:\<путь>\run-node.cmd"
+```
+(см. примеры обёрток `run-node.cmd` — там же логирование в `log-node.txt`).
+
+---
+
+## 4. Поднять тонкий майнер с нуля
+
+Тонкий майнер не держит цепь: он контролирует ноду headers-only и сдаёт PoW. Подходит для второй машины/задачи.
+
+**Шаг 1.** Убедитесь, что нода поднята (`/life` отвечает, `tipHash` есть).
+
+**Шаг 2.** Запуск:
+```bash
+node miner-client.mjs http://127.0.0.1:9335 [адрес_майнера]
+```
+Без адреса майнер сам создаст себе кошелёк (`POST /wallet/create`, label `thin-miner-2nd`) и сохранит его в `data-miner/wallet.json`.
+
+**Шаг 3.** Цикл майнера (каждые ~10 с): `/life` → проверка K=8 последних заголовков (prev-link + PoW — нода не сможет наврать про цепь) → `/blocktemplate` → PoW-слайс ≤1.5 c → строгий `/block/submit`. Если tip убежал — stale-отбой и retry.
+
+**Шаг 4.** Guard от второй копии: PID-лок в `data-miner/lock`. Запуск через Планировщик: `run-miner-client.cmd` (обёртка уже есть).
+
+**Уточнение про сложность:** при выросшей сложности слайс часто не находит решение — это нормальный PoW-режим, цепь в это время продолжает майнить полновесный auto-miner ноды. Тонкий майнер — второй источник PoW, не замена.
+
+---
+
+## 5. Эксплуатация
+- **Задачи планировщика** (состояние текущего деплоя): `AGTNodeA` (порт 9335), `AGTNodeB` (9341), `AGTAutoMiner` (тик 60 с), `AGTThinMiner2` (повтор PT5M, 60-мин ExecTimeLimit), `AGTHealthCheck` (дейли 09:00 + повтор PT1H).
+- **Логи**: `log-node.txt`, `log-miner.txt`, `log-miner-client.txt`, `data/autominer/health-check.log`.
+- **Soak-тест**: `node soak-test.mjs 9335 <minerAddr> 400` — сотни tx + гонки tx-vs-mine + контроль latency/банов.
+- **Прочее**: `docs/` содержит отчёты по версиям (v3 — P2P/fork-vote/headers-first, v4 — escrow/LSAG/WS/thin).
+
+### Известные ограничения (честно)
+- LSAG сегодня — доказательства принадлежности; приватность переводов требует UTXO-рефактора (`docs/NEW-FEATURES-v4.md`).
+- `/mine` работает слайсами, чтобы не подвешивать event loop (инцидент 2026-10-14).
+- WS-дедуп считает пиров по их `their` (=selfUrl); анонсы без параметра получают `anon-N`.

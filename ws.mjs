@@ -177,32 +177,80 @@ export function connectClient(urlStr, { timeoutMs = 8000 } = {}) {
 // (inv = inventory style: сначала короткий анонс, забор полный через HTTP при развилке).
 export class WsHub {
   constructor() {
-    this.peers = new Set(); // PeerSocket
+    this.peers = new Set();     // PeerSocket (все живые)
+    this.byTheir = new Map();   // { their → PeerSocket }: дедуп-реестр (частичная функция)
+    this._anonN = 0;
+    /**
+     * Дедуп-инвариант (проф. уровень):
+     *   R: their ↦ PeerSocket — каждое鲜活 подключение уникально по источнику.
+     *   Новое c(their) принимается ⇔ ∄ r ∈ R: r.their=their ∧ r жив.
+     *   Иначе — reject close(1008), где 1008 = Policy Violation (RFC 6455 §7.4.1).
+     *   Живость (alive) — «socket функционален»: ¬closed ∧ writable ∧ ¬destroyed.
+     *   Мёртвый r вытесняется (replace), чтобы ре-подключения не зависали на
+     *   портящихся записях — реестр не должен сохранять мусор.
+     *   Self-connect (their == selfUrl) — запрещён по определению (петля нулевой полезности).   */
   }
+
+
+
   attachServer(server, selfUrl, { onBlock, onTx, onPeer } = {}) {
     server.on('upgrade', (req, socket, head) => {
+      // лауful глушение «error»: клиент мог отпасть до наших write (ECONNABORTED и пр.
+      // иначе unhandled 'error' убивает ВЕСЬ сервер); destroy по умолчанию.
+      socket.on('error', () => { try { socket.destroy(); } catch {} });
+      socket.on('clientError', () => { try { socket.destroy(); } catch {} });
+      const w = (buf) => { try { socket.write(buf); } catch {} };
+      const kill = () => { try { socket.destroy(); } catch {} };
+      try {
       const url = new URL(req.url, 'http://localhost');
-      if (url.pathname !== '/ws') { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
+      if (url.pathname !== '/ws') { w('HTTP/1.1 404 Not Found\r\n\r\n'); kill(); return; }
       const key = req.headers['sec-websocket-key'];
-      if (!key) { socket.write('HTTP/1.1 400 Bad Request\r\n\r\n'); socket.destroy(); return; }
+      if (!key) { w('HTTP/1.1 400 Bad Request\r\n\r\n'); kill(); return; }
+      const their = url.searchParams.get('their') || `anon-${++this._anonN}`;
+      // self-connect запрещён (петля нулевой полезности) — сырой destroy без handshake
+      if (their === selfUrl) { try { socket.destroy(); } catch {} return; }
+      const existing = this.byTheir.get(their);
+      // живость записи: ¬closed ∧ writable ∧ ¬destroyed
+      const alive = (p) => p && !p.closed && p.socket && p.socket.writable && !p.socket.destroyed;
+      const duplicate = alive(existing);
+      // мёртвую запись вытесняем сразу (реестр не хранит мусор)
+      if (existing && !duplicate) { try { existing.close(); } catch {} }
+      // --- handshake завершаем ВСЕГДА ПЕРВЫМ (RFC 6455: close допустим только после upgrade) ---
       const accept = acceptKey(key);
-      socket.write(
+      w(
         'HTTP/1.1 101 Switching Protocols\r\n' +
         'Upgrade: websocket\r\n' +
         'Connection: Upgrade\r\n' +
         `Sec-WebSocket-Accept: ${accept}\r\n` +
         '\r\n'
       );
+      // дубликат живого пира: соединение открывается единственно ради close(1008)
+      if (duplicate) {
+        const r = Buffer.from(`duplicate peer ${their}`);
+        const pl = Buffer.alloc(2 + r.length);
+        pl.writeUInt16BE(1008, 0); // Policy Violation (RFC 6455 §7.4.1)
+        r.copy(pl, 2);
+        try { socket.write(encodeFrame(OP_CLOSE, pl)); } catch {}
+        setTimeout(() => { kill(); }, 500);
+        console.log(`[ws] дубликат ${their} → close(1008), реестр не изменён`);
+        return; // реестр не трогаем: старая живая запись остаётся
+      }
       const peer = new PeerSocket(socket, head);
       peer.self = selfUrl;
-      peer.theirUrl = `${url.searchParams.get('their') || 'ws-peer'}`;
+      peer.theirUrl = their;
       if (process.env.AGT_WS_DEBUG) {
         socket.on('data', (c) => console.log(`[ws raw srv] ${c.length}B ${c.toString('hex').slice(0, 28)}...`));
       }
       this.peers.add(peer);
-      peer.onClose = () => this.peers.delete(peer);
+      this.byTheir.set(their, peer);
+      peer.onClose = () => {
+        // аккуратная чистка: удаляем только СВОЮ запись (анонсы клонов не выкидывают живую)
+        if (this.byTheir.get(their) === peer) this.byTheir.delete(their);
+        this.peers.delete(peer);
+      };
       peer.onMessage = (txt) => this._onIncoming(peer, txt, { onBlock, onTx });
       if (onPeer) onPeer(peer);
+      } catch (e) { try { socket.destroy(); } catch {} }
     });
   }
   broadcast(obj, exclude) {

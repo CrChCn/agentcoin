@@ -519,6 +519,7 @@ export class Blockchain {
     this.file = path.join(dataDir, 'chain.json');
     this.mempool = [];
     this.forks = [];   // архив вытесненных/отклонённых развилок (best-chain выбор)
+    this._chainTxidCache = null; // ленивая память txid'ов всех блоков (anti-replay)
     this.history = [];
     this.security = new SecurityController(dataDir);
     this.whitelist = new WhiteList(dataDir, this.security);
@@ -551,6 +552,17 @@ export class Blockchain {
   loadMempool() {
     try { const d = JSON.parse(fs.readFileSync(this.mempoolFile(), 'utf8')); this.mempool = Array.isArray(d) ? d : []; } catch { this.mempool = this.mempool || []; }
   }
+  // ---- Anti-replay: txid'ы всех блоков цепи (кэш, инвалидируется при изменении цепи) ----
+  knownChainTxids() {
+    if (this._chainTxidCache === null) {
+      const s = new Set();
+      for (const b of this.chain) for (const t of (b.txs || [])) if (t && t.txid) s.add(t.txid);
+      this._chainTxidCache = s;
+    }
+    return this._chainTxidCache;
+  }
+  invalidateTxCache() { this._chainTxidCache = null; }
+
   // Валидные к упаковке tx (устаревшие после re-org/синков дропаем):
   // бюджет = баланс на цепи − уже принятые в пачке расходы; подпись проверяем ещё раз.
   usableMempoolTxs() {
@@ -566,13 +578,16 @@ export class Blockchain {
     }
     return out;
   }
-  // перечистка мемпула без упаковки (после re-org): дроп устаревших
+  // перечистка мемпула без упаковки (после re-org/синков): дроп устаревших
+  // И уже записанных в цепь (copies от gossip остаются иначе навсегда)
   refilterMempool() {
     const before = this.mempool.length;
     const keep = [];
     const balances = this.balances();
     const spent = {};
+    const known = this.knownChainTxids();
     for (const tx of this.mempool) {
+      if (tx.txid && known.has(tx.txid)) continue;
       if (verifyTransaction(tx) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
         keep.push(tx); spent[tx.from] = (spent[tx.from] || 0) + tx.amount;
       }
@@ -612,6 +627,7 @@ export class Blockchain {
       this.saveForks();
     }
     this.chain = prefix.concat(blocks);
+    this.invalidateTxCache();
     this.difficultyBits = this.tip().header.difficultyBits;
     this.save();
     this.refilterMempool();
@@ -678,6 +694,9 @@ export class Blockchain {
     // txid вычисляем сразу (для coinbase он уже задан) — иначе undefined===undefined
     // даёт ложные duplicate_tx на любую вторую транзакцию в mempool (баг multihop leg2)
     if (!tx.txid) tx.txid = txDigest(tx);
+    // anti-replay: транзакция, уже записанная в цепь (в т.ч. через gossip с пира),
+    // не принимается повторно — иначе её бесконечно ре-подтверждают
+    if (this.knownChainTxids().has(tx.txid)) return { ok: false, reason: 'already_in_chain', txid: tx.txid.slice(0, 16) };
     if (this.mempool.some(t => (t.txid && t.txid === tx.txid) || (t.from === tx.from && t.nonce === tx.nonce))) {
       this.security.registerAttack('duplicate_tx_spam', tx.from, 'duplicate nonce/txid');
       return { ok: false, reason: 'duplicate_tx' };
@@ -737,6 +756,7 @@ export class Blockchain {
         this.chain.push(block);
         this.mempool = [];
         this.saveMempool();
+        this.invalidateTxCache();
         this.difficultyBits = header.difficultyBits;
         this.save();
         return { ...block, _jsonBuffer: JSON.stringify(txs).length };
@@ -774,6 +794,7 @@ export class Blockchain {
     this.chain.push(block);
     this.mempool = [];
     this.saveMempool();
+    this.invalidateTxCache();
     this.difficultyBits = header.difficultyBits;
     this.save();
     return block;

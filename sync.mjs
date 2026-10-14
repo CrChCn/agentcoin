@@ -207,6 +207,7 @@ export async function syncOne(bc, peerUrl) {
     }
     if (accepted) {
       bc.chain = interim;
+      bc.invalidateTxCache();
       bc.difficultyBits = bc.tip().header.difficultyBits;
       bc.refilterMempool();
       bc.save();

@@ -877,7 +877,6 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { error: 'not_found' });
 });
 
-console.log(`[${new Date().toISOString()}] AGENTCOIN node v2 listening on http://127.0.0.1:${PORT}`);
 // --- WebSocket P2P (RFC 6455): inv-рассылка блоков/транзакций пейрастной сети ---
 hub.attachServer(server, SELF_URL, {
   onBlock: (msg, peer) => {
@@ -911,8 +910,11 @@ hub.attachServer(server, SELF_URL, {
     } catch (e) { console.log('[ws] tx error', e.message); }
   },
 });
-server.listen(PORT, '127.0.0.1');
-// --- исходящая полнасти-сеть: коннект к пирам из peers.json (30с цикл) ---
+const BIND = process.env.AGT_BIND || '127.0.0.1'; // наружу — только осознанно: AGT_BIND=0.0.0.0 или конкретный IP
+const isLocalBind = BIND === '127.0.0.1' || BIND === 'localhost';
+if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: нода слушает ${BIND} — проверь firewall/прокси, админ-эндпоинты не защищены токеном`);
+server.listen(PORT, BIND);
+console.log(`[${new Date().toISOString()}] AGENTCOIN node v2 listening on http://${BIND}:${PORT}`);
 const hubMsgHandlers = {
   onBlock: (msg, peer) => {
     try {

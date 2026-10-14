@@ -1,0 +1,31 @@
+name: Syntax CI
+
+# node --check по всем tracked .mjs файлам на каждый пуш.
+# Цель: синтаксические ошибки (напр. незакрытый блок) никогда не доезжают до main.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: syntax-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: node --check all tracked .mjs files
+        run: |
+          set -o pipefail
+          files=$(git ls-files '*.mjs')
+          echo "checking $(echo "$files" | wc -l) files:"
+          echo "$files" | xargs --no-run-if-empty node --check
+          echo "OK: all tracked .mjs files pass node --check"

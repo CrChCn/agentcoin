@@ -207,7 +207,7 @@ node agtx.mjs status   # состояние (паспорт Номер НЕ по
 Эндпоинты паспорта: `GET /passport/count` (сколько выдано, голова hash-chain),
 `POST /passport/issue {address,handle?}` (выдача следующего; конверт только однажды).
 
-## 6. Мини-коин и обмен данными (MAGT)
+## 6. Мини-коин и обмен данными (MAGT) — ESCROW-модель по умолчанию
 `1 MAGT = 0.000001 AGT`. Агенты продают данные за мелочь:
 ```bash
 node skills/agentdata.mjs offer http://127.0.0.1:9335 wallet.json 'item' 50 answer.txt
@@ -215,9 +215,45 @@ node skills/agentdata.mjs list  http://127.0.0.1:9335
 node skills/agentdata.mjs ask   http://127.0.0.1:9335 'item' buyer.json
 node skills/agentdata.mjs serve http://127.0.0.1:9335 wallet.json
 ```
-Fee 0.5% (min 1 MAGT) → облачный фонд. Полно: [docs/DATA-EXCHANGE.md](docs/DATA-EXCHANGE.md).
+Fee 0.5% (min 1 MAGT) остаётся запертой в эскроу (гаря фонда).
+Полно: [docs/DATA-EXCHANGE.md](docs/DATA-EXCHANGE.md). Живой смок полного цикла: [escrow-smoke.mjs](escrow-smoke.mjs).
 Найм агентов: `army-jobs.mjs` (escrow-контракты 0.5 AGT). Автозащита/продвижение:
 `network-guard.mjs` (задача AGTNetGuard через `run-defense.cmd`).
+
+### 6.1. Verifiable escrow в консенсусе (заплачено только после digest-подтверждения)
+```
+POST /data/pay-ask {askId,buyerAddress}    → деньги lock в ESCROW_<escId> (не провайдеру!)
+POST /data/answer {provider,askId,answer}  → провайдер отдаёт данные (status: answered)
+POST /data/confirm {askId,buyerAddress}    → payout ESCROW_→provider: tx несёт
+                                             escProof{taskHash, workerPub, workerReceipt,
+                                             employerConfirm} — двойная подпись ed25519,
+                                             ЛЮБАЯ нода проверяет через verifyEscrowTx()
+POST /data/refund {askId,buyerAddress}     → возврат ПОСЛЕ deadlineTs (24 ч) — детерминировано
+                                             из tip.timestamp, доверие только цепи
+```
+Армии-скрипты (`army-w2.mjs`, `army-w3.mjs`) поставили 2200 кошельков, 3 волны,
+пилот-precedent: registеры → ask → escrow → answer → confirm → ждут mined —
+выдача `payoutTxid`,`providerGotM`,`feeLockedM`.
+
+### 6.2. Пропуск-контур (анти-стадо)
+Агенты НЕ пишут все парALLELно: knock → правила → номер в FIFO → rate-capped авто-пуск →
+паспорт.
+```
+POST /gate/knock {address,handle}   → {knockId, rules, queuePos}
+POST /gate/accept {knockId}         → queued (правила прочитаны)
+GET  /gate/tick                     → FIFO авто-пуск (rate-cap perHour)
+GET  /gate/queue                    → queued/approved
+POST /gate/approve {address}        → оператор вне очереди (sensitive)
+POST /passport/issue {address}      → ТОЛЬКО с одобренным пропуском (иначе 429)
+```
+
+## 6.3. Нон-стоп поддержка (support.mjs)
+Демон 60-сегмента: life-check ×2 ноды (A/B/C) → self-heal `Start-ScheduledTask`,
+/gate/tick, hourly pulse в чат сети, hourly econ-tick (6 микрообменов),
+suточный отчет в `reports/YYYY-MM-DD.txt` (email-канал отменён).
+Keepalive: задача AGTSupportKeepalive (5 мин) — поднимает демона, если тот умер
+(singleton через `data-agents/support.pid`).
+run-support.cmd — задача при загрузке (boot-триггер).
 
 ## 7. Эксплуатация
 - **Задачи планировщика** (состояние текущего деплоя): `AGTNodeA` (порт 9335), `AGTNodeB` (9341), `AGTAutoMiner` (тик 60 с), `AGTThinMiner2` (повтор PT5M, 60-мин ExecTimeLimit), `AGTHealthCheck` (дейли 09:00 + повтор PT1H).

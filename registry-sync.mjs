@@ -30,6 +30,8 @@ export function buildRegistryExport(bc, chat) {
     banRegistryHash: bc.security.registryHash(),
     whitelist: bc.whitelist.list,
     whitelistRegistryHash: bc.whitelist.registryHash(),
+    gateways: bc.gateways.map,      // общий реестр шлюзов (hop-маршруты по центрам доверия)
+    gatewayHops: bc.gateways.hops,  // факты multihop-платежей — их видят все ноды
     chat: chat.messages.slice(-200),
     exportedAt: new Date().toISOString(),
   };
@@ -51,6 +53,17 @@ export function applyRegistryImport(bc, chat, remote) {
     if (!mine) { bc.whitelist.list[handle] = { ...entry, syncedFrom: 'peer', syncedAt: now }; wlAdded++; }
     else if (mine.address !== entry.address) { wlConflicts++; /* остаётся наша — первая */ }
   }
+  // шлюзы + hops: append-only merge по id — реестр маршрутов общий у всей сети
+  let gwAdded = 0, hopsAdded = 0;
+  for (const [gwId, gw] of Object.entries(remote.gateways || {})) {
+    if (!bc.gateways.map[gwId]) { bc.gateways.map[gwId] = { ...gw, syncedFrom: 'peer' }; gwAdded++; }
+  }
+  const haveHops = new Set(bc.gateways.hops.map(h => `${h.txid}@${h.at ?? ''}`));
+  for (const h of remote.gatewayHops || []) {
+    const key = `${h.txid}@${h.at ?? ''}`;
+    if (!haveHops.has(key)) { bc.gateways.hops.push({ ...h, syncedFrom: 'peer' }); hopsAdded++; }
+  }
+  if (gwAdded || hopsAdded) bc.gateways.save();
   // чат: merge по id
   let chatAdded = 0;
   const haveIds = new Set(chat.messages.map(m => m.id));
@@ -60,7 +73,7 @@ export function applyRegistryImport(bc, chat, remote) {
   if (bansAdded) bc.security.save();
   if (wlAdded) bc.whitelist.save();
   if (chatAdded) chat.save();
-  log.push(`bans +${bansAdded}, whitelist +${wlAdded} (conflicts ${wlConflicts}), chat +${chatAdded}`);
+  log.push(`bans +${bansAdded}, whitelist +${wlAdded} (conflicts ${wlConflicts}), gateways +${gwAdded}, hops +${hopsAdded}, chat +${chatAdded}`);
   return { ok: true, log };
 }
 

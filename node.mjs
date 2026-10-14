@@ -28,7 +28,7 @@ import {
   Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
 } from './core.mjs';
-import { addPeer, syncAll } from './sync.mjs';
+import { addPeer, syncAll, gossipTx, peerMetaStatus } from './sync.mjs';
 import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
@@ -37,6 +37,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
+const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
 
 const bc = new Blockchain(DATA_DIR);
 const chat = new CommunityChat(DATA_DIR, bc.security);
@@ -99,9 +100,36 @@ const server = http.createServer(async (req, res) => {
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
 
   if (p === '/blocks') {
+    const fromRaw = url.searchParams.get('from');
+    const from = fromRaw === null ? NaN : Number(fromRaw);
+    if (Number.isFinite(from) && from >= 0 && from < bc.blockCount()) {
+      // P2P-режим: bodies с высоты from, старые → новые (для headers-first синка)
+      return json(res, 200, { blocks: bc.chain.slice(from), height: bc.blockCount() });
+    }
     const n = Math.min(Number(url.searchParams.get('n')) || 10, 100);
     return json(res, 200, { blocks: bc.chain.slice(-n).reverse() });
   }
+
+  // --- HEADERS-FIRST (как в Bitcoin): дешёвая проверка PoW до загрузки тел ---
+  if (p === '/headers') {
+    const from = Math.max(0, Number(url.searchParams.get('from')) || 0);
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 20, 2000);
+    const headers = bc.chain.slice(from, from + limit).map(b => ({ height: b.height, hash: b.hash, header: b.header }));
+    return json(res, 200, { height: bc.blockCount(), from, count: headers.length, headers });
+  }
+
+  // --- мемпул: публичное состояние очереди транзакций ---
+  if (p === '/mempool') {
+    return json(res, 200, {
+      size: bc.mempool.length,
+      txs: bc.mempool.slice(-50).map(t => ({ txid: (t.txid || '').slice(0, 16), from: t.from?.slice(0, 14), to: t.to?.slice(0, 14), amount: t.amount, nonce: t.nonce })),
+      note: 'транзакции лежат здесь до ближайшего блока майнера',
+    });
+  }
+
+  // --- репутация пиров (strikes) + архив развилок ---
+  if (p === '/peers/meta') return json(res, 200, peerMetaStatus());
+  if (p === '/forks') return json(res, 200, { forks: (bc.forks || []).slice(-10).reverse(), tipWork: undefined });
 
   if (p === '/wallet/create' && req.method === 'POST') {
     const { label = 'agent' } = await body(req);
@@ -138,7 +166,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 400, { error: 'bad_signature' });
     }
     const r = bc.addTransaction(tx);
-    return r.ok ? json(res, 201, { accepted: true, mempool: bc.mempool.length }) : json(res, 400, r);
+    if (!r.ok) return json(res, 400, r);
+    // TX-GOSSIP: принятую tx расходим по пирам (те, у кого она есть, не ре-экспортируют → без петли)
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); });
+    return json(res, 201, { accepted: true, mempool: r.mempoolSize, gossipped: true });
   }
 
   if (p === '/mine' && req.method === 'POST') {
@@ -230,7 +261,10 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (p === '/validate') return json(res, 200, bc.validate());
+  if (p === '/validate') {
+    const strict = url.searchParams.get('strict') === '1';
+    return json(res, 200, bc.validate(strict));
+  }
 
   // --- Security Controller ---
   if (p === '/security/status') return json(res, 200, bc.security.status());
@@ -358,6 +392,7 @@ const server = http.createServer(async (req, res) => {
     const privOf = (addr) => signerPrivKey && addr === from ? signerPrivKey : (wallets[addr]?.privKey || signerPrivKey);
     const pubOf = (addr) => wallets[addr]?.pub || (addr === from ? fromPub : null);
     const signed = [];
+    const txids = [];
     for (const step of plan.plan) {
       const key = privOf(step.signAs);
       if (!key) return json(res, 400, { error: 'signer_key_missing', signAs: step.signAs, hint: 'кошелёк owner шлюза должен быть локальным на ноде' });
@@ -365,13 +400,16 @@ const server = http.createServer(async (req, res) => {
       tx.signature = signTransaction(tx, key);
       const r = bc.addTransaction(tx);
       if (!r.ok) return json(res, 409, { error: 'hop_rejected', leg: step.leg, reason: r.reason, signed: signed.length });
+      txids.push(tx.txid);
       signed.push({ leg: step.leg, gw: step.gw });
     }
-    const block = bc.mineOnce(from);
-    bc.gateways.hop(block.hash.slice(0, 16), signed.map(s => s.gw));
+    // v3: НЕ майним мгновенно — обе leg-и лежат в мемпуле,
+    // их упакует ближайший блок майнера (периодическая упаковка).
+    bc.gateways.hop(txids[0] || 'hop-' + Date.now(), signed.map(s => s.gw));
     return json(res, 200, {
       multihop: true, legs: signed, feePaid: plan.feeTotal, arrived: plan.arrive,
-      block: { height: block.height, hash: block.hash.slice(0, 16) },
+      txids, mempool: bc.mempool.length,
+      note: 'транзакции в мемпуле; упакует ближайший блок майнера (периодическая упаковка)',
     });
   }
 
@@ -410,7 +448,9 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/') return json(res, 200, {
     name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
-    endpoints: ['/info', '/blocks?n=', 'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx', 'POST /mine', '/validate',
+    consensus: 'PoW + best-chain-by-cumulative-work (fork vote) + headers-first sync + tx gossip',
+    endpoints: ['/info', '/blocks?n=|from=', '/headers?from=&limit=', '/mempool', '/forks', '/peers/meta',
+      'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx (→ gossip peers)', 'POST /mine', '/validate?strict=1',
       'GET /security/status', 'GET /security/banlist', 'GET /security/attacks',
       'POST /handle/register', 'GET /whoami/<name>', 'GET /life',
       'GET /whitelist/status', 'POST /whitelist/verify', 'POST /whitelist/check',

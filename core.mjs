@@ -455,12 +455,70 @@ export function verifyTransaction(tx) {
   } catch { return false; }
 }
 
+// ============ Консенсус: суммарная работа, детерминированная сложность,
+// строгая валидация блока против префикса, re-org (best-chain по работе) ============
+// Опыт Bitcoin: fork choice НЕ «кто длиннее», а «кто тяжелее» (most cumulative work).
+// А опыт атак: чужеродный блок с заниженным difficultyBits (напр. 8 бит вместо 14)
+// проходит PoW-проверку против СВОЕЙ заявленной сложности → надо сверять bits
+// с детерминированным правилом ретарджета, который выводим из одних заголовков.
+
+// Работа блока: экспонента от сложности. Минбиты = MIN_DIFFICULTY_BITS (нулевая:
+// 2^0 = 1). Строже — как в Bitcoin target^-1, но для нашей бит-шкалы хватает.
+export function blockWork(difficultyBits) {
+  return Math.pow(2, Math.max(0, Number(difficultyBits) - MIN_DIFFICULTY_BITS));
+}
+export function chainWork(blocks) {
+  return (blocks || []).reduce((s, b) => s + blockWork(b.header?.difficultyBits ?? 0), 0);
+}
+
+// Детерминированная сложность следующего блока (высота = chain.length).
+// Главное условие: ЗЕРКАЛИТ nextDifficulty() внутри Blockchain так, чтобы
+// честная цепь, намайненная нодой, всегда проходила эту проверку.
+export function expectedDifficultyBits(chain) {
+  const n = (chain || []).length;
+  if (n === 0) return GENESIS_PARAMS.difficultyBits;      // генезис — 14 бит (пиннинг)
+  if (n === 1) return INITIAL_DIFFICULTY_BITS;            // после генезиса state = INITIAL
+  const tip = chain[n - 1];
+  if (n % RETARGET_INTERVAL !== 0) return tip.header.difficultyBits;
+  const anchor = chain[n - RETARGET_INTERVAL];
+  if (!anchor) return tip.header.difficultyBits;
+  return retarget(tip.header.difficultyBits, tip.header.timestamp - anchor.header.timestamp, RETARGET_INTERVAL * BLOCK_INTERVAL_SEC);
+}
+
+// Строгая валидация блока, продолжающего chain на высоте chain.length.
+// Возвращает null если блок валиден, иначе строку-причину отказа.
+// Проверяет: высоту, prevHash, hash, PoW, ПРАВИЛО СЛОЖНОСТИ, merkle,
+// coinbase (наличие + без инфляции мимо blockReward).
+export function validateBlockAgainstChain(block, chain) {
+  if (!block || !block.header || !Array.isArray(block.txs)) return 'bad_block_shape';
+  if (typeof block.height !== 'number' || block.height !== chain.length) return 'height_mismatch';
+  if (block.height === 0) return 'genesis_redefined'; // генезис не принимается по сети
+  const prev = chain[chain.length - 1];
+  if (!prev || block.header.prevHash !== prev.hash) return 'prevHash_mismatch';
+  if (computeBlockHash(block.header) !== block.hash) return 'hash_mismatch';
+  if (!hashMeetsDifficulty(block.hash, block.header.difficultyBits)) return 'pow_fail';
+  if (block.header.difficultyBits !== expectedDifficultyBits(chain)) return 'difficulty_rule_violation';
+  if (block.header.merkleRoot !== merkleRoot(block.txs)) return 'merkle_mismatch';
+  const cb = (block.txs || []).find(t => t && t.from === 'COINBASE');
+  if (!cb) return 'coinbase_missing';
+  const allowed = blockReward(block.height);
+  if (!(cb.amount > 0 && cb.amount <= allowed + 1e-9)) return 'coinbase_inflation';
+  // обычные транзакции: подписи и базовые инварианты
+  for (const tx of block.txs) {
+    if (tx.from === 'COINBASE') continue;
+    if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
+    if (!verifyTransaction(tx)) return 'tx_bad_signature';
+  }
+  return null;
+}
+
 // ============ Цепь ============
 export class Blockchain {
   constructor(dataDir) {
     this.dataDir = dataDir;
     this.file = path.join(dataDir, 'chain.json');
     this.mempool = [];
+    this.forks = [];   // архив вытесненных/отклонённых развилок (best-chain выбор)
     this.history = [];
     this.security = new SecurityController(dataDir);
     this.whitelist = new WhiteList(dataDir, this.security);
@@ -478,8 +536,86 @@ export class Blockchain {
         this.difficultyBits = d.difficultyBits ?? INITIAL_DIFFICULTY_BITS;
         this.genesisHeader = d.genesisHeader || null;
       }
+      this.loadMempool();
+      this.loadForks();
     } catch { /* новый файл */ }
     if (!this.chain) this.chain = [];
+  }
+
+  // ---- Мемпул: персистентный (переживает рестарт ноды) ----
+  mempoolFile() { return path.join(this.dataDir, 'mempool.json'); }
+  saveMempool() {
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.mempoolFile(), JSON.stringify(this.mempool, null, 2));
+  }
+  loadMempool() {
+    try { const d = JSON.parse(fs.readFileSync(this.mempoolFile(), 'utf8')); this.mempool = Array.isArray(d) ? d : []; } catch { this.mempool = this.mempool || []; }
+  }
+  // Валидные к упаковке tx (устаревшие после re-org/синков дропаем):
+  // бюджет = баланс на цепи − уже принятые в пачке расходы; подпись проверяем ещё раз.
+  usableMempoolTxs() {
+    const balances = this.balances();
+    const spentFrom = {};
+    const out = [];
+    for (const tx of this.mempool) {
+      if (!tx || !verifyTransaction(tx)) continue;
+      const budget = (balances[tx.from] || 0) - (spentFrom[tx.from] || 0);
+      if (tx.amount <= budget) { out.push(tx); spentFrom[tx.from] = (spentFrom[tx.from] || 0) + tx.amount; }
+      else
+        this.security.registerAttack('double_spend', tx.from, `stale tx in mempool: budget ${budget}, tried ${tx.amount}`);
+    }
+    return out;
+  }
+  // перечистка мемпула без упаковки (после re-org): дроп устаревших
+  refilterMempool() {
+    const before = this.mempool.length;
+    const keep = [];
+    const balances = this.balances();
+    const spent = {};
+    for (const tx of this.mempool) {
+      if (verifyTransaction(tx) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
+        keep.push(tx); spent[tx.from] = (spent[tx.from] || 0) + tx.amount;
+      }
+    }
+    if (keep.length !== before) { this.mempool = keep; this.saveMempool(); }
+    return { kept: this.mempool.length, dropped: before - this.mempool.length };
+  }
+
+  // ---- Развилки: архив + голосование за лучшую цепь по суммарной работе ----
+  forksFile() { return path.join(this.dataDir, 'forks.json'); }
+  saveForks() {
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.forksFile(), JSON.stringify(this.forks.slice(-20), null, 2));
+  }
+  loadForks() { try { const d = JSON.parse(fs.readFileSync(this.forksFile(), 'utf8')); this.forks = Array.isArray(d) ? d : []; } catch { this.forks = []; } }
+
+  // adoptFork(blocks, fromHeight): candidate = chain[0..fromHeight) + blocks.
+  // Валидируем КАЖДЫЙ новый блок против нарастающего префикса (строгий набор
+  // правил: prev/hash/PoW/правило сложности/merkle/coinbase/подписи).
+  // Принимаем только если тяжелее нашего хвоста (голосование best-chain).
+  adoptFork(blocks, fromHeight) {
+    const d = Math.max(0, Math.min(fromHeight ?? this.blockCount(), this.blockCount()));
+    const ourTail = this.chain.slice(d);
+    if (!Array.isArray(blocks) || !blocks.length) return { ok: false, reason: 'no_blocks' };
+    if (blocks[0]?.height !== d) return { ok: false, reason: 'fork_height_mismatch', expected: d, got: blocks[0]?.height };
+    const ourWork = chainWork(ourTail);
+    const candWork = chainWork(blocks);
+    if (candWork <= ourWork) return { ok: false, reason: 'fork_not_heavier', ourWork, candWork };
+    const prefix = this.chain.slice(0, d);
+    for (let i = 0; i < blocks.length; i++) {
+      const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)));
+      if (reason) return { ok: false, reason: `block@${blocks[i].height}: ${reason}` };
+    }
+    // архивируем вытесненный хвост (аудит: ничего не молча удаляется)
+    if (ourTail.length) {
+      this.forks.push({ at: new Date().toISOString(), forkedFrom: d, dropped: ourTail.length, ourWork, candWork, tailHashes: ourTail.map(b => b.hash) });
+      this.saveForks();
+    }
+    this.chain = prefix.concat(blocks);
+    this.difficultyBits = this.tip().header.difficultyBits;
+    this.save();
+    this.refilterMempool();
+    return { ok: true, forkedFrom: d, dropped: ourTail.length, added: blocks.length, ourWork, candWork };
   }
 
   save() {
@@ -554,6 +690,7 @@ export class Blockchain {
       return { ok: false, reason: 'double_spend_attempt_permaban' };
     }
     this.mempool.push(tx);
+    this.saveMempool();
     return { ok: true, mempoolSize: this.mempool.length };
   }
 
@@ -590,7 +727,7 @@ export class Blockchain {
   mineOnce(minerAddress, onProgress) {
     const t0 = Date.now();
     const coinbase = { ...this.coinbaseTxTemplate(), to: minerAddress };
-    const txs = this.mempool.length ? [...this.mempool, coinbase] : [coinbase];
+    const txs = [ ...this.usableMempoolTxs(), coinbase ];
     const header = this.headHeaderTemplate();
     header.merkleRoot = merkleRoot(txs);
     while (true) {
@@ -599,6 +736,7 @@ export class Blockchain {
         const block = { height: this.blockCount(), hash: h, header, txs, minedAt: Date.now(), mineMs: Date.now() - t0, miner: minerAddress };
         this.chain.push(block);
         this.mempool = [];
+        this.saveMempool();
         this.difficultyBits = header.difficultyBits;
         this.save();
         return { ...block, _jsonBuffer: JSON.stringify(txs).length };
@@ -613,7 +751,7 @@ export class Blockchain {
   // merkleRoot изменится и PoW-хеш не совпадёт.
   mineTemplate(minerAddress) {
     const coinbase = { ...this.coinbaseTxTemplate(), to: minerAddress };
-    const txs = this.mempool.length ? [...this.mempool, coinbase] : [coinbase];
+    const txs = [ ...this.usableMempoolTxs(), coinbase ];
     const header = {
       version: 1,
       prevHash: this.tip().hash,
@@ -635,6 +773,7 @@ export class Blockchain {
     const block = { height: this.blockCount(), hash, header, txs, minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
     this.chain.push(block);
     this.mempool = [];
+    this.saveMempool();
     this.difficultyBits = header.difficultyBits;
     this.save();
     return block;
@@ -653,12 +792,22 @@ export class Blockchain {
   }
 
   // ---- Валидация ----
-  validate() {
+  // Полная проверка ВСЕЙ цепи; strict=true добавляет детерминированное правило
+  // сложности и coinbase/подписи для всех блоков кроме генезиса.
+  // strict выключен по умолчанию: старые секции цепи майнились до ужесточений
+  // (историческая совместимость), строгий режим применяется к СИНКУ новых блоков.
+  validate(strict = false) {
     for (let i = 1; i < this.chain.length; i++) {
       const blk = this.chain[i], prev = this.chain[i - 1];
       if (blk.header.prevHash !== prev.hash) return { ok: false, at: i, reason: 'prevHash mismatch' };
       if (computeBlockHash(blk.header) !== blk.hash) return { ok: false, at: i, reason: 'hash mismatch' };
       if (!hashMeetsDifficulty(blk.hash, blk.header.difficultyBits)) return { ok: false, at: i, reason: 'PoW fail' };
+      if (strict) {
+        if (expectedDifficultyBits(this.chain.slice(0, i)) !== blk.header.difficultyBits) return { ok: false, at: i, reason: 'difficulty rule violation' };
+        const cb = (blk.txs || []).find(t => t && t.from === 'COINBASE');
+        if (!cb || !(cb.amount > 0 && cb.amount <= blockReward(i) + 1e-9)) return { ok: false, at: i, reason: 'coinbase invalid' };
+        for (const tx of blk.txs) if (tx.from !== 'COINBASE' && !verifyTransaction(tx)) return { ok: false, at: i, reason: 'tx signature fail' };
+      }
     }
     return { ok: true, blocks: this.blockCount() };
   }

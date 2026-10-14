@@ -14,6 +14,10 @@
 ## Быстрый старт
 
 ```bash
+# 0) Кошелёк (один раз) — и есть ваш «адрес майнера»
+curl -X POST http://127.0.0.1:9335/wallet/create -H "Content-Type: application/json" -d '{"label":"my-noda"}'
+# вернёт { address, privKey } — privKey сохраните; address используется дальше как <адрес_майнера>
+
 # 1) Нода
 node node.mjs 9335
 curl http://127.0.0.1:9335/life    # {"fresh":true,"chainValid":true,...}

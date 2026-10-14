@@ -42,15 +42,24 @@ curl -X POST http://127.0.0.1:9335/wallet/create -H "Content-Type: application/j
 
 ## Шаг 5 — подключись к сети (peer)
 
-Если вам выдали адрес хост-ноды (например, `http://<tailnet-IP или IP хоста>:9336`):
+Если ваши в tailnet (см. ниже) — пиры по адресу хост-ноды:
 
 ```bash
-curl -X POST http://127.0.0.1:9335/peer/add -H "Content-Type: application/json" -d '{"peer":"http://ХОСТ:9336"}'
+curl -X POST http://127.0.0.1:9335/peer/add -H "Content-Type: application/json" -d '{"peer":"http://100.96.7.15:9336"}'
 curl http://127.0.0.1:9335/sync-now
 ```
 
 Через ≤30 с нода сама постучится в ответ. Проверка:
 `curl http://127.0.0.1:9335/life` — blocks растёт, `fresh:true`.
+
+### Tailscale (приватная сеть через интернет)
+
+Сеть доступна не для всего интернета, а только через tailnet `crchcn.github` (Tailscale):
+1. Скачай и установи Tailscale: **https://tailscale.com/download**
+2. Получи приглашение в сеть (ссылка от хоста) и авторизуйся.
+3. После входа твой комп получит приватный IP `100.x.y.z` — через него станут видны хост-ноды.
+
+Хост-нода сейчас: `http://100.96.7.15:9336` (в tailnet — видна только участникам, из обычного интернета её нет).
 
 ## Шаг 6 — первое знакомство с API
 

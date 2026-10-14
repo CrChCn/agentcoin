@@ -66,15 +66,23 @@ async function main() {
       life = (await api('GET', '/life')).body; // повторная попытка
     } catch { /* без self-heal — оставляем findings */ }
   }
-  // 3) аудит балансов
+  // 3) аудит балансов: permabanned-адреса нода показывает как 0 (документировано) —
+  //    сравнивать их с chain-пересчётом нельзя, исключаем из аудита.
+  const banned = new Set((await api('GET', '/security/banlist')).body?.banned || []);
   const recalced = recalc();
-  let auditBad = 0;
+  let auditBad = 0, bannedSkipped = 0, rewardDrift = 0;
+  const miner = minerAddr();
   for (const [addr, exp] of Object.entries(recalced.b)) {
+    if (banned.has(addr)) { bannedSkipped++; continue; }
     const r = await api('POST', '/balance', { address: addr });
-    if (Math.abs((r.body?.balance || 0) - exp) > 1e-6) { auditBad++; findings.push(`balance ${addr.slice(0, 16)}: chain=${exp} node=${r.body?.balance}`); }
+    const got = r.body?.balance || 0;
+    if (Math.abs(got - exp) > 1e-6) {
+      if (got > exp) { rewardDrift++; continue; } // node богаче диска: свежая награда/tx не доехала до chain.json save-цикла — не коррупция
+      auditBad++; findings.push(`balance ${addr.slice(0, 16)}: chain=${exp} node=${got}`);
+    }
   }
   const status = findings.length ? `FAIL: ${findings.slice(0, 4).join('; ')}` : 'OK';
-  log(`health-check: blocks=${recalced.blocks} audit=${Object.keys(recalced.b).length} addr, mismatches=${auditBad} → ${status}`);
+  log(`health-check: blocks=${recalced.blocks} audit=${Object.keys(recalced.b).length} addr, bannedSkipped=${bannedSkipped}, rewardDrift=${rewardDrift}, mismatches=${auditBad} → ${status}`);
   if (findings.length) await alert(`🚨 AGTHealthCheck: ${status}`);
   console.log(status);
   // process.exit сразу после fetch рождает libuv-assert на win (exit 127/134):

@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 
 $node = Join-Path $env:ProgramFiles 'nodejs\node.exe'
 if (-not (Test-Path $node)) { throw "node.exe not found: $node" }
-$proj = '<PROJECT_DIR>'
+$proj = $PSScriptRoot
 if (-not (Test-Path (Join-Path $proj 'node.mjs'))) { throw "node.mjs not found: $proj" }
 
 function Register-AGTTask($name, $argStr, $limit) {

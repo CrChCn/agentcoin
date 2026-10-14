@@ -552,6 +552,9 @@ const server = http.createServer(async (req, res) => {
     return json(res, 201, { askId, item, provider: it.provider, priceM: it.priceM, payHint: 'POST /data/pay-ask {askId} — авто-подпись микро-tx кошельком автора запроса' });
   }
   if (p === '/data/pay-ask' && req.method === 'POST') {
+    // Эскроу-модель данных (2026-10-14): деньги buyer'а уходят НЕ провайдеру, а в
+    // ESCROW_<escId> (цепь-проверяемый контур с двойной подписью, как job-эскроу).
+    // Провайдер получает Funds только после /data/confirm (digest-подтверждение buyer'а).
     const { askId, buyerAddress } = await body(req);
     const dx = loadDX();
     const a = dx.asks[askId];
@@ -561,21 +564,75 @@ const server = http.createServer(async (req, res) => {
     const bw = bAddr ? loadWallets()[bAddr] : null;
     if (!bw?.privKey) return json(res, 400, { error: 'buyer_wallet_not_on_node' });
     if (bc.security.isBanned(bAddr)) return json(res, 403, { error: 'address_permabanned' });
+    if (a.priceM < 10) return json(res, 400, { error: 'price_too_low_for_escrow', minM: 10 });
     const agt = a.priceM * M;
-    const feeAGT = Math.max(a.priceM * 0.005 * M, 1 * M); // 0.5%, min 1 MAGT
-    // финансовый пре-чек: micro-сделка не должна превращаться в пермабан за empty-кошелёк
+    const feeAGT = Math.max(a.priceM * 0.005 * M, 1 * M); // 0.5%, min 1 MAGT — остаётся запертой в эскроу (гари в фонде)
     const balNow = bc.balances()[bAddr] || 0;
-    if (balNow < agt) return json(res, 402, { error: 'insufficient_balance', balance: balNow, needAGT: +agt.toFixed(9), hint: 'попросите у другой ноды/фаусета или заработайте job' });
-    const tx = { from: bAddr, fromPub: bw.pub, to: a.provider, amount: +(agt - feeAGT).toFixed(9), nonce: Date.now() * 1000 + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo: `mdata:${askId.slice(0, 8)}` };
-    tx.signature = signTransaction(tx, bw.privKey);
-    tx.txid = txDigest(tx);
-    const r = bc.addTransaction(tx);
-    if (!r.ok) return json(res, 409, r);
-    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
-    a.status = 'paid'; a.txid = tx.txid.slice(0, 16); a.buyer = bAddr; a.feeM = +(feeAGT / M).toFixed(3);
+    if (balNow < agt) return json(res, 402, { error: 'insufficient_balance', balance: balNow, needAGT: +agt.toFixed(9) });
+    const escId = crypto.randomBytes(6).toString('hex');
+    const taskHash = crypto.createHash('sha256').update(a.item + '|' + askId).digest('hex');
+    const deadlineTs = Math.floor(Date.now() / 1000) + 24 * 3600;
+    const escrTx = { from: bAddr, fromPub: bw.pub, to: ESCROW_PREFIX + escId, amount: +agt.toFixed(9), nonce: Date.now() * 1000 + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo: `escrow:${escId}:${taskHash}:${deadlineTs}:${a.provider}` };
+    escrTx.signature = signTransaction(escrTx, bw.privKey);
+    escrTx.txid = txDigest(escrTx);
+    const rop = bc.addTransaction(escrTx);
+    if (!rop.ok) return json(res, 409, rop);
+    setImmediate(() => { gossipTx(escrTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: escrTx }); });
+    a.status = 'in_escrow'; a.escId = escId; a.taskHash = taskHash; a.deadlineTs = deadlineTs;
+    a.txid = escrTx.txid.slice(0, 16); a.buyer = bAddr; a.feeM = +(feeAGT / M).toFixed(3);
     dx.asks[askId] = a; saveDX(dx);
-    cloud.microFee(feeAGT, `mdata:${a.item}`);
-    return json(res, 200, { askId, paid: +a.priceM.toLocaleString('en-US') + ' M включая fee', feeM: a.feeM, txid: a.txid, mempool: r.mempoolSize, hint: 'ждите /data/answer от провайдера (режим serve/still)' });
+    return json(res, 200, { askId, escrowed: +a.priceM.toLocaleString('en-US') + ' M в escrow до confirm', escId, deadlineTs, feeM: a.feeM, txid: a.txid, mempool: rop.mempoolSize, hint: 'провайдер отвечает /data/answer → покупатель /data/confirm (или /data/refund после deadline, если провайдер не отдал данные)' });
+  }
+  if (p === '/data/confirm' && req.method === 'POST') {
+    // digest-подтверждение buyer'а: эскроу-расход на провайдера — payout Tx ESCROW_ → provider,
+    // подписанный двойным подписыва-доказательством (workerReceipt + employerConfirm) —
+    // консенсус-валидация проверена в verifyEscrowTx на ЛЮБОЙ ноде.
+    const { askId, buyerAddress } = await body(req);
+    const dx = loadDX();
+    const a = dx.asks[askId];
+    if (!a) return json(res, 404, { error: 'ask_not_found' });
+    if (a.status !== 'answered') return json(res, 409, { error: 'status_' + a.status });
+    const bAddr = String(buyerAddress || a.buyer || '');
+    const bw = bAddr ? loadWallets()[bAddr] : null;
+    const pw = loadWallets()[a.provider];
+    if (!bw?.privKey) return json(res, 400, { error: 'buyer_wallet_not_on_node' });
+    if (!pw?.privKey) return json(res, 400, { error: 'provider_wallet_not_on_node' });
+    if (bc.security.isBanned(bAddr) || bc.security.isBanned(a.provider)) return json(res, 403, { error: 'address_permabanned' });
+    const agt = a.priceM * M;
+    const feeAGT = Math.max(a.priceM * 0.005 * M, 1 * M);
+    const outAmount = +(agt - feeAGT).toFixed(9);
+    if (outAmount <= 0) return json(res, 400, { error: 'price_too_low' });
+    const receiptMsg = Buffer.from(escrowReceiptDigest(a.escId, a.taskHash, a.provider, outAmount), 'hex');
+    const confirmMsg = Buffer.from(escrowConfirmDigest(a.escId, a.taskHash, a.provider, outAmount), 'hex');
+    const ptx = { from: ESCROW_PREFIX + a.escId, to: a.provider, amount: outAmount, nonce: Date.now() * 1000 + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo: `escpayout:${a.escId}`, escProof: { taskHash: a.taskHash, workerPub: pw.pub, workerReceipt: crypto.sign(null, receiptMsg, pw.privKey).toString('hex'), employerConfirm: crypto.sign(null, confirmMsg, bw.privKey).toString('hex') } };
+    ptx.txid = txDigest(ptx);
+    const rr = bc.addTransaction(ptx);
+    if (!rr.ok) return json(res, 409, rr);
+    setImmediate(() => { gossipTx(ptx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: ptx }); });
+    a.status = 'confirmed'; a.payoutTxid = ptx.txid.slice(0, 16); a.confirmedAt = Date.now();
+    dx.asks[askId] = a; saveDX(dx);
+    cloud.microFee(feeAGT, `mdata-escrow:${a.item}`);
+    return json(res, 200, { askId, confirmed: true, payoutTxid: a.payoutTxid, providerGotM: +(outAmount / M).toFixed(3), feeLockedM: a.feeM });
+  }
+  if (p === '/data/refund' && req.method === 'POST') {
+    // Возврат НЕотданных данных: только ПОСЛЕ deadlineTs (проверено из цепи, детерминировано)
+    const { askId, buyerAddress } = await body(req);
+    const dx = loadDX();
+    const a = dx.asks[askId];
+    if (!a) return json(res, 404, { error: 'ask_not_found' });
+    if (a.status !== 'in_escrow') return json(res, 409, { error: 'status_' + a.status + ' (refund только для in_escrow)' });
+    const bAddr = String(buyerAddress || a.buyer || '');
+    const bw = loadWallets()[bAddr];
+    if (!bw?.privKey) return json(res, 400, { error: 'buyer_wallet_not_on_node' });
+    const agt = a.priceM * M;
+    const rtx = { from: ESCROW_PREFIX + a.escId, to: bAddr, amount: +agt.toFixed(9), nonce: Date.now() * 1000 + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo: `escrefund:${a.escId}` };
+    rtx.txid = txDigest(rtx);
+    const rr = bc.addTransaction(rtx);
+    if (!rr.ok) return json(res, 409, rr);
+    setImmediate(() => { gossipTx(rtx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: rtx }); });
+    a.status = 'refunded'; a.refundTxid = rtx.txid.slice(0, 16); a.refundedAt = Date.now();
+    dx.asks[askId] = a; saveDX(dx);
+    return json(res, 200, { askId, refunded: true, refundTxid: a.refundTxid });
   }
   if (p === '/data/answer' && req.method === 'POST') {
     // Провайдер (его скрипт serve) отдаёт ответ на оплаченный ask
@@ -584,7 +641,7 @@ const server = http.createServer(async (req, res) => {
     const a = dx.asks[askId];
     if (!a) return json(res, 404, { error: 'ask_not_found' });
     if (a.provider !== provider) return json(res, 403, { error: 'not_your_ask' });
-    if (a.status !== 'paid' && a.status !== 'answered') return json(res, 409, { error: 'status_' + a.status });
+    if (a.status !== 'paid' && a.status !== 'answered' && a.status !== 'in_escrow') return json(res, 409, { error: 'status_' + a.status });
     a.status = 'answered'; a.answer = String(answer || '').slice(0, 20000); a.answerDigest = answerDigest || crypto.createHash('sha256').update(a.answer).digest('hex').slice(0, 16); a.answeredAt = Date.now();
     saveDX(dx);
     return json(res, 200, { askId, answered: true, digest: a.answerDigest });
@@ -595,13 +652,13 @@ const server = http.createServer(async (req, res) => {
     const a = dx.asks[fetchId];
     if (!a) return json(res, 404, { error: 'ask_not_found' });
     if (a.status !== 'answered') return json(res, 202, { status: a.status, note: 'answer ещё не отдан провайдером' });
-    return json(res, 200, { askId: fetchId, answer: a.answer, answerDigest: a.answerDigest, txid: a.txid, priceM: a.priceM, paidAt: a.answeredAt });
+    return json(res, 200, { askId: fetchId, answer: a.answer, answerDigest: a.answerDigest, txid: a.txid, priceM: a.priceM, paidAt: a.answeredAt, esc: { escId: a.escId, deadlineTs: a.deadlineTs, hint: 'если дайджест совпал → /data/confirm; иначе /data/refund (после deadline)' } });
   }
   if (p === '/data/asks') {
     // очередьasks провайдера для его serve-скрипта
     const provider = url.searchParams.get('provider');
     const dx = loadDX();
-    const list = Object.values(dx.asks).filter(a => a.provider === provider && (a.status === 'paid' || a.status === 'answered')).slice(-50);
+    const list = Object.values(dx.asks).filter(a => a.provider === provider && (a.status === 'answered' || a.status === 'in_escrow')).slice(-50);
     return json(res, 200, { asks: list });
   }
 

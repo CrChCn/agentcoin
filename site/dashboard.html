@@ -150,8 +150,8 @@ async function tick() {
     $('blocks').textContent = l.blocks; $('tipHash').textContent = l.tipHash;
     document.title = 'AGT · ' + l.blocks;
     const info = await j('/info').catch(() => ({}));
-    $('diff').textContent = info.difficultyBits ?? '—';
-    $('reward').textContent = info.nextReward != null ? (info.nextReward + ' AGT') : '—';
+    $('diff').textContent = info.difficultyBits ?? (l.difficultyBits ?? '—');
+    $('reward').textContent = info.nextReward != null ? (info.nextReward + ' AGT') : (l.nextReward != null ? l.nextReward + ' AGT' : '—');
     const mp = await j('/mempool'); const m = Array.isArray(mp) ? mp : (mp.txs || []);
     $('mempool').textContent = m.length;
     const mpT = $('mempoolTable').tBodies[0]; mpT.innerHTML = '';
@@ -174,8 +174,11 @@ async function tick() {
       const bl = await j('/blocks?n=10');
       const arr = Array.isArray(bl) ? bl : (bl.blocks || []);
       const bT = $('blocksTable').tBodies[0]; bT.innerHTML = '';
-      arr.forEach(b => { const h = b.header || b;
-        bT.insertAdjacentHTML('beforeend', `<tr><td>${h.height}</td><td class="mono dim">${txt(h.hash).slice(0,16)}</td><td>${(b.txs||[]).length}</td><td class="dim">${new Date((h.timestamp||h.time||0)).toLocaleTimeString()}</td></tr>`); });
+      arr.forEach(b => {
+        const h = b.header || {};
+        const tsMs = (h.timestamp || b.timestamp || 0) * 1000 || b.minedAt || 0;
+        bT.insertAdjacentHTML('beforeend', `<tr><td>${txt(b.height)}</td><td class="mono dim">${txt(b.hash || h.hash).slice(0,16)}</td><td>${(b.txs||[]).length}</td><td class="dim">${tsMs ? new Date(tsMs).toLocaleTimeString() : '—'}</td></tr>`);
+      });
     } catch {}
     const feed = await j('/community/feed');
     const msgs = feed.messages || feed.feed || feed;

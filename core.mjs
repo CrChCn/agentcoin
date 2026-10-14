@@ -310,7 +310,7 @@ export const BASE_REWARD = 50;             // 50 AGT за блок (как Bitco
 export const MAX_SUPPLY = BASE_REWARD * HALVING_INTERVAL * 2; // ≈ 21М
 export const INITIAL_DIFFICULTY_BITS = 12; // старт: 12 бит — живой баланс между скоростью демо и честным PoW
 export const MIN_DIFFICULTY_BITS = 8;
-export const MAX_DIFFICULTY_BITS = 32;
+export const MAX_DIFFICULTY_BITS = 20;   // > 20 бит = миллионы хешей на блок: демо-цепь умирает (инцидент: 14→32, /mine повесил ноду)
 
 // Генезис-данные из внешнего диска (уважаем первоисточник):
 // d:/BlackLegion/config/generated/genesis.json
@@ -379,12 +379,15 @@ export function blockReward(height) {
 
 // Ретарджет — формула из Bitcoin, клэмп ×4 /1
 export function retarget(prevDifficultyBits, actualTimeSec, expectedTimeSec) {
-  let d = prevDifficultyBits * (actualTimeSec / expectedTimeSec);
-  // bits = log2 relationship: чем быстрее блоки, тем меньше нулей нужно (проще)
-  // difficultyBits ↑ = сложнее. если блоки шли быстрее ожидания (actual < expected),
-  // actual/expected < 1 → bits ↓ → проще. верно.
-  if (d > prevDifficultyBits * 4) d = prevDifficultyBits * 4;
-  if (d < prevDifficultyBits / 4) d = prevDifficultyBits / 4;
+  // ±1 бит за ретарджет максимум: прежний ×4 дал runaway (14→32) после простоя цепи.
+  // Направление задаёт ratio, а длительный простой — отдельно: он требует ОБЛЕГЧЕНия,
+  // иначе цепь блокируется без возможности намайнить хоть один блок.
+  const ratio = actualTimeSec / expectedTimeSec;
+  let d = prevDifficultyBits;
+  if (ratio < 0.5) d = prevDifficultyBits + 1;        // блоки шли слишком быстро → усложняем
+  else if (ratio > 2) d = prevDifficultyBits - 1;     // слишком медленно → упрощаем
+  // защита от застоя: если цепь простаивала втрое дольше окна — аварийный клапан вниз
+  if (actualTimeSec > expectedTimeSec * 3) d = prevDifficultyBits - 2;
   const clamped = Math.max(MIN_DIFFICULTY_BITS, Math.min(MAX_DIFFICULTY_BITS, Math.round(d)));
   return clamped;
 }
@@ -568,6 +571,38 @@ export class Blockchain {
       header.nonce++;
       if (onProgress && header.nonce % 50_000 === 0) onProgress(header.nonce);
     }
+  }
+
+  // Заготовка для узрезного майнинга (серверный /mine): header и txs создаются
+  // ОДИН раз — coinbase (txid/ts) обязана быть той же при коммите блокa, иначе
+  // merkleRoot изменится и PoW-хеш не совпадёт.
+  mineTemplate(minerAddress) {
+    const coinbase = { ...this.coinbaseTxTemplate(), to: minerAddress };
+    const txs = this.mempool.length ? [...this.mempool, coinbase] : [coinbase];
+    const header = {
+      version: 1,
+      prevHash: this.tip().hash,
+      merkleRoot: merkleRoot(txs),
+      timestamp: Math.floor(Date.now() / 1000),
+      difficultyBits: this.nextDifficulty(),
+      nonce: 0,
+      chainId: CHAIN_ID,
+    };
+    return { header, txs };
+  }
+
+  // Коммит блока, нонс которого уже найден узрезом (серверный /mine):
+  // нода не зависит от того, как искали нонс — главное, что PoW валиден.
+  commitMinedBlock(header, hash, txs, minerAddress, ms) {
+    if (!hashMeetsDifficulty(hash, header.difficultyBits)) return null;
+    if (merkleRoot(txs) !== header.merkleRoot) return null;
+    if (computeBlockHash(header) !== hash) return null;
+    const block = { height: this.blockCount(), hash, header, txs, minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
+    this.chain.push(block);
+    this.mempool = [];
+    this.difficultyBits = header.difficultyBits;
+    this.save();
+    return block;
   }
 
   // ---- Балансы (из транзакций блоков) ----

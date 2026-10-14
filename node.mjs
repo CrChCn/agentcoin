@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   Blockchain, createWallet, signTransaction, verifyTransaction,
-  CHAIN_ID, TICKER, MAX_SUPPLY,
+  CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
 } from './core.mjs';
 import { addPeer, syncAll } from './sync.mjs';
 import { CommunityChat } from './community.mjs';
@@ -146,7 +146,23 @@ const server = http.createServer(async (req, res) => {
     if (!miner) return json(res, 400, { error: 'miner address required' });
     if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
     const t0 = Date.now();
-    const block = bc.mineOnce(miner);
+    // слайс майнинга: не блокируем event loop — произвольный /mine с выросшей
+    // сложностью иначе подвешивает /info и /life (инцидент 2026-10-14)
+    const { header, txs } = bc.mineTemplate(miner);
+    const NONCE_SLICE = 400_000; // ≈ доля секунды даже на слабом железе
+    let h = null, ns = 0, found = false;
+    while (ns < NONCE_SLICE) {
+      h = computeBlockHash(header);
+      if (hashMeetsDifficulty(h, header.difficultyBits)) { found = true; break; }
+      header.nonce++; ns++;
+    }
+    if (!found) return json(res, 202, {
+      error: 'mining_slice_exhausted', tried: ns, ms: Date.now() - t0,
+      difficultyBits: header.difficultyBits,
+      hint: 'сложность выше порога синхронного слайса: нода не должна зависать. Используйте пул /pool/join + /pool/submit или исправьте retarget',
+    });
+    const block = bc.commitMinedBlock(header, h, txs, miner, Date.now() - t0);
+    if (!block) return json(res, 500, { error: 'commit_rejected', hint: 'PoW-хеш/merkleRoot не прошли внутреннюю проверку' });
     // облачный фонд от каждого блока
     const cloudNote = cloud.onBlockMined(block.height, bc.info().nextReward, block.hash);
     return json(res, 200, {

@@ -114,10 +114,61 @@ function applyBlockFast(chain, blk) {
 }
 function getBlockHash(chain) { return chain.tip()?.hash || null; }
 
-const server = http.createServer(async (req, res) => {
+// ======@ Щит анти-перегрузки (OWASP DoS/Node cheat sheet, голый node:http) ======
+// 1) Rate-limit по IP (фиксированные окна; реестр капнут, старые вытесняются)
+const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
+const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
+const RATE_MAP_MAX = 10_000;
+const rateHits = new Map();
+const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send)/;
+function rateAllow(ip, heavy) {
+  const now = Date.now();
+  const key = (heavy ? 'H|' : 'A|') + ip;
+  let x = rateHits.get(key);
+  if (!x || now >= x.until) { x = { count: 0, until: now + RATE_WINDOW_MS }; rateHits.delete(key); }
+  x.count++;
+  rateHits.delete(key);
+  if (rateHits.size >= RATE_MAP_MAX) rateHits.delete(rateHits.keys().next().value);
+  rateHits.set(key, x);
+  return x.count <= (heavy ? RATE_LIMIT_HEAVY : RATE_LIMIT_ALL);
+}
+// 2) Event-loop lag monitor → режим сброса нагрузки (shedding)
+const LAG_PROBE_MS = 1_000;
+const LAG_SHED_THRESHOLD_MS = 400; // дрейф probe > 400ms = перегрузка
+const LAG_SHED_HOLD_MS = 5_000;    // после выброса держим shedding ≥5s
+let loopLagMs = 0;
+let shedUntil = 0;
+let lastProbe = Date.now();
+setInterval(() => {
+  const now = Date.now();
+  loopLagMs = now - lastProbe - LAG_PROBE_MS;
+  lastProbe = now;
+  if (loopLagMs > LAG_SHED_THRESHOLD_MS) shedUntil = now + LAG_SHED_HOLD_MS;
+}, LAG_PROBE_MS).unref();
+// 3) Щит-гейт: false = вернуть POST 503, GET-heavy → 429/503 решает вызывающий
+function overloaded(p) {
+  return Date.now() < shedUntil && (reqIsHeavy(p) || p !== '/life' && p !== '/info' && p !== '/dashboard');
+}
+function reqIsHeavy(p) { return HEAVY_PATH_RE.test(p); }
+
+const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
+  const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+  // health-эндпоинты (life/dashboard/корень) не лимитируем — маяк живости обязан отвечать всегда
+  const healthFree = req.method === 'GET' && (p === '/life' || p === '/dashboard' || p === '/');
+  if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
+    res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
+    return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
+  }
+  if (overloaded(p) && req.method !== 'GET') {
+    return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
+  }
+  if (overloaded(p) && req.method === 'GET' && p !== '/life' && p !== '/info' && p !== '/dashboard') {
+    return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
+  }
 
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
 
@@ -336,7 +387,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- life-guard ---
-  if (p === '/life') return json(res, 200, lifeStatus());
+  if (p === '/life') return json(res, 200, { ...lifeStatus(), shield: { loopLagMs, overloaded: Date.now() < shedUntil, rateMapSize: rateHits.size, maxConnections: server.maxConnections } });
 
   // --- White List: верифицированная платёжная система ---
   const WHITELIST = path.join(DATA_DIR, 'whitelist.json');
@@ -927,7 +978,9 @@ hub.attachServer(server, SELF_URL, {
 const BIND = process.env.AGT_BIND || '127.0.0.1'; // наружу — только осознанно: AGT_BIND=0.0.0.0 или конкретный IP
 const isLocalBind = BIND === '127.0.0.1' || BIND === 'localhost';
 if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: нода слушает ${BIND} — проверь firewall/прокси, админ-эндпоинты не защищены токеном`);
-server.listen(PORT, BIND);
+server.maxConnections = 256; // OWASP DoS: лишние TCP-соединения отбрасываются
+server.on('drop', (info) => console.log(`[shield] connection dropped: ip ${info.remoteAddress}`));
+server.listen(PORT, BIND); // maxConnections капнут ниже (анти-overload: TCP за пределами порога отбрасывается)
 console.log(`[${new Date().toISOString()}] AGENTCOIN node v2 listening on http://${BIND}:${PORT}`);
 const hubMsgHandlers = {
   onBlock: (msg, peer) => {

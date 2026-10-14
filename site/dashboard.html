@@ -106,6 +106,28 @@
     <table id="epochsTable"><thead><tr><th>эпоха</th><th>блоки</th><th>KB→байт</th></tr></thead><tbody></tbody></table>
   </div>
 
+  <div class="panel" style="grid-column: 1/-1">
+    <h2>Б/drод цепи (сложность и интервалы, последние ~120 блоков)</h2>
+    <canvas id="chart" height="140" style="width:100%; height:140px"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Эскроу-сделки (on-chain)</h2>
+    <div class="row" id="escrowStats"></div>
+    <table id="escTable"><thead><tr><th>escId</th><th>статус</th><th>работник → работодатель</th><th>сумма/выплач.</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>MAGT-рынок данных (1 MAGT = 0.000001 AGT)</h2>
+    <div class="row" id="mktStats"></div>
+    <table id="mktTable"><thead><tr><th>Товар</th><th>продавец</th><th>цена MAGT</th><th>описание</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Пропуск-контур (gate)</h2>
+    <table id="gateTable"><thead><tr><th>в очереди</th></tr></thead><tbody></tbody></table>
+  </div>
+
   <div class="panel">
     <h2>Баланс / кошелёк</h2>
     <div class="actions"><input id="addr" placeholder="AGT…" style="flex:1"><button id="balBtn">Проверить</button></div>
@@ -196,12 +218,87 @@ async function tick() {
       const eT = $('epochsTable').tBodies[0]; eT.innerHTML = '';
       e.forEach(x => eT.insertAdjacentHTML('beforeend', `<tr><td>${x.epoch}</td><td>${x.firstH}–${x.lastH}</td><td class="dim">${x.rawKB || '?'} KB → ${x.archiveBytes} Б</td></tr>`));
     } catch {}
+    // — эскроу —
+    try {
+      const st = await j('/escrow/state');
+      const rows = st.escrows || [];
+      const paid = rows.filter(r => r.status === 'paid').length;
+      const open = rows.filter(r => r.status === 'open' || r.status === 'awaiting').length;
+      const sum = rows.reduce((a, r) => a + (r.paidOut || 0), 0);
+      $('escrowStats').innerHTML = `<div class="kv"><b>Сделок</b><span>${rows.length}</span></div>
+        <div class="kv"><b>закрыты (paid)</b><span class="ok">${paid}</span></div>
+        <div class="kv"><b>открыты</b><span>${open}</span></div>
+        <div class="kv"><b>выплачено, AGT</b><span>${sum}</span></div>`;
+      const eT = $('escTable').tBodies[0]; eT.innerHTML = '';
+      rows.slice(-12).reverse().forEach(r => eT.insertAdjacentHTML('beforeend',
+        `<tr><td class="mono dim">${txt(r.escId).slice(0,12)}</td><td class="${r.status === 'paid' ? 'ok' : ''}">${txt(r.status)}</td>
+         <td class="mono dim" title="${esc(txt(r.worker))} → ${esc(txt(r.employer))}">${txt(r.worker).slice(0,14)} → ${txt(r.employer).slice(0,14)}</td>
+         <td>${txt(r.openedAmount)} / ${txt(r.paidOut)}</td></tr>`));
+    } catch {}
+    // — MAGT-рынок —
+    try {
+      const cat = await j('/data/catalog');
+      const items = cat.items || cat.catalog || [];
+      const sumPrice = items.reduce((a, x) => a + (x.priceM || 0), 0);
+      $('mktStats').innerHTML = `<div class="kv"><b>Товаров</b><span>${items.length}</span></div>
+        <div class="kv"><b>средн. цена</b><span>${items.length ? Math.round(sumPrice / items.length) : 0} MAGT</span></div>
+        <div class="kv"><b>дороже всех</b><span>${items.length ? Math.max(...items.map(x => x.priceM || 0)) : 0} MAGT</span></div>`;
+      const mT = $('mktTable').tBodies[0]; mT.innerHTML = '';
+      items.slice(-12).reverse().forEach(x => mT.insertAdjacentHTML('beforeend',
+        `<tr><td class="mono" title="${esc(txt(x.item))}">${txt(x.item).slice(0,22)}</td><td class="mono dim">${txt(x.provider).slice(0,14)}</td><td>${txt(x.priceM)}</td><td class="dim">${esc((txt(x.answer) || '').slice(0, 60))}</td></tr>`));
+    } catch {}
+    try {
+      const gq = await j('/gate/queue');
+      const gT = $('gateTable').tBodies[0]; gT.innerHTML = '';
+      gT.insertAdjacentHTML('beforeend', `<tr><td>в очереди: <b>${txt(gq.queued)}</b> · одобрено: <b class="ok">${txt(gq.approved)}</b></td></tr>`);
+    } catch {}
+    drawChart(); try { drawChart(await j('/blocks?n=120')); } catch {}
     $('upd').textContent = 'обновлено ' + new Date().toLocaleTimeString() + ' · ' + badge.join(' · ');
   } catch (e) {
     setStatus(false, API + ' — не отвечает: ' + e.message);
     $('upd').textContent = 'обновление неудачно';
   }
 }
+
+  async function drawChart(preLoaded) {
+    let arr = preLoaded;
+    if (!arr) {
+      try { const r = await j('/blocks?n=120'); arr = (r.blocks || r); } catch { return; }
+      if (!Array.isArray(arr)) return;
+    }
+    const c = document.getElementById('chart');
+    const ctx = c.getContext('2d');
+    const W = c.width = c.clientWidth * (window.devicePixelRatio || 1);
+    const H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    const n = arr.length;
+    if (!n) return;
+    const diffs = arr.map(b => b.header?.difficultyBits || b.difficultyBits || 0);
+    const ts = arr.map(b => (b.header?.timestamp || b.timestamp || 0));
+    const gaps = [];
+    for (let i = 1; i < ts.length; i++) gaps.push(Math.max(0, ts[i] - ts[i - 1]));
+    const dMin = Math.min(...diffs), dMax = Math.max(...diffs, dMin + 1);
+    const gMax = Math.max(90, ...gaps);
+    ctx.strokeStyle = '#223040';
+    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const line = (vals, min, max, color, from = 1) => {
+      ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
+      vals.forEach((v, i) => {
+        const x = ((i + from) / Math.max(1, vals.length + from - 1)) * (W - 12) + 6;
+        const y = H - 8 - ((v - min) / (max - min)) * (H - 20);
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      });
+      ctx.stroke();
+    };
+    line(diffs, dMin, dMax, '#5aa2ff');
+    line(gaps, 0, gMax, '#39d98a');
+    ctx.fillStyle = '#7d93a8'; ctx.font = '11px Consolas, monospace';
+    ctx.fillText(`сложность ${dMin}–${dMax}`, 10, 14);
+    ctx.fillStyle = '#39d98a';
+    ctx.fillText(`интервал до ${gMax}s`, 10, 28);
+    ctx.fillStyle = '#7d93a8';
+    ctx.fillText(`${n} блоков (новые справа)`, W - 160, 14);
+  }
 
 $('chatSend').onclick = async () => {
   if (!$('chatWho').value || !$('chatText').value) return;

@@ -97,6 +97,19 @@ export class CloudLedger {
     return { fundAGT: this.fundAGT, cloudGB: this.cloudGB, epochClosed: height % EPOCH_SIZE === 0 };
   }
 
+  // Микрофеe сети (мини-коин MAGT): доля с каждой data-сделки идёт в фонд
+  microFee(agtAmount, note = '') {
+    if (!(agtAmount > 0)) return { ok: false };
+    this.fundAGT += agtAmount;
+    fs.mkdirSync(this.dir, { recursive: true });
+    fs.appendFileSync(this.ledgerFile, JSON.stringify({
+      h: 'micro', type: 'data_fee', agt: +agtAmount.toFixed(9), note, at: Date.now(),
+    }) + '\n');
+    this.ledgerLines++;
+    this.save();
+    return { ok: true, fundAGT: this.fundAGT };
+  }
+
   closeEpoch(lastHeight) {
     const firstH = lastHeight - EPOCH_SIZE + 1;
     const lastH = lastHeight; // ранее lastH использовался без объявления (краш ноды на коммите блока)

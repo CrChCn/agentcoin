@@ -516,6 +516,94 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: lsagVerify(proof, message), keyImage: proof?.keyImage?.slice(0, 16) });
   }
 
+  // ================= мини-коин + обмен данными (data402-мост) =================
+  // Единица: 1 MAGT (MiniCoin) = 0.000001 AGT. Цены услуг — в M, счёт AGT.
+  // Поток: агент-провайдер регистрирует item → покупатель ask → платит микро-tx
+  // (memo `mdata:<askId>`) → провайдер отвечает /data/answer → покупатель забирает
+  // по /data/fetch. С каждой сделки fee (0.5%, min 1 M) автоматически идёт в
+  // облачный фонд сети. Ничего из этого не тормозит цепь: это слой услуг поверх.
+  const M = 1e-6; // 1 MAGT в AGT
+  const DATA_FILE = path.join(DATA_DIR, 'data-exchange.json');
+  const loadDX = () => { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return { items: {}, asks: {} }; } };
+  const saveDX = (dx) => { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(DATA_FILE, JSON.stringify(dx, null, 2)); };
+  if (p === '/data/register' && req.method === 'POST') {
+    const { provider, item, priceM = 50, answer, digest = '' } = await body(req);
+    const dx = loadDX();
+    if (!provider?.startsWith('AGT') || !item) return json(res, 400, { error: 'provider,item required' });
+    if (dx.items[item]) return json(res, 409, { error: 'item_exists', owner: dx.items[item].provider });
+    if (bc.security.isBanned(provider)) return json(res, 403, { error: 'address_permabanned' });
+    dx.items[item] = { provider, item, priceM: Math.max(1, Math.floor(Number(priceM) || 1)), answer: answer || null, digest, registeredAt: Date.now() };
+    saveDX(dx);
+    const cat = dx.items[item];
+    return json(res, 201, { item, provider: provider.slice(0, 14) + '…', priceM: cat.priceM, hint: 'покупатели увидят в /data/catalog' });
+  }
+  if (p === '/data/catalog') {
+    const dx = loadDX();
+    return json(res, 200, { items: Object.values(dx.items), unit: 'MAGT', note: '1 MAGT = 0.000001 AGT' });
+  }
+  if (p === '/data/ask' && req.method === 'POST') {
+    const { item, buyer } = await body(req);
+    const dx = loadDX();
+    const it = dx.items[item];
+    if (!it) return json(res, 404, { error: 'item_not_found' });
+    const askId = crypto.randomBytes(8).toString('hex');
+    dx.asks[askId] = { askId, item, provider: it.provider, buyer: buyer || null, priceM: it.priceM, status: 'awaiting_pay', at: Date.now() };
+    saveDX(dx);
+    return json(res, 201, { askId, item, provider: it.provider, priceM: it.priceM, payHint: 'POST /data/pay-ask {askId} — авто-подпись микро-tx кошельком автора запроса' });
+  }
+  if (p === '/data/pay-ask' && req.method === 'POST') {
+    const { askId, buyerAddress } = await body(req);
+    const dx = loadDX();
+    const a = dx.asks[askId];
+    if (!a) return json(res, 404, { error: 'ask_not_found' });
+    if (a.status !== 'awaiting_pay') return json(res, 409, { error: 'already_' + a.status });
+    const bAddr = String(buyerAddress || a.buyer || '');
+    const bw = bAddr ? loadWallets()[bAddr] : null;
+    if (!bw?.privKey) return json(res, 400, { error: 'buyer_wallet_not_on_node' });
+    if (bc.security.isBanned(bAddr)) return json(res, 403, { error: 'address_permabanned' });
+    const agt = a.priceM * M;
+    const feeAGT = Math.max(a.priceM * 0.005 * M, 1 * M); // 0.5%, min 1 MAGT
+    // финансовый пре-чек: micro-сделка не должна превращаться в пермабан за empty-кошелёк
+    const balNow = bc.balances()[bAddr] || 0;
+    if (balNow < agt) return json(res, 402, { error: 'insufficient_balance', balance: balNow, needAGT: +agt.toFixed(9), hint: 'попросите у другой ноды/фаусета или заработайте job' });
+    const tx = { from: bAddr, fromPub: bw.pub, to: a.provider, amount: +(agt - feeAGT).toFixed(9), nonce: Date.now() * 1000 + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo: `mdata:${askId.slice(0, 8)}` };
+    tx.signature = signTransaction(tx, bw.privKey);
+    tx.txid = txDigest(tx);
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    a.status = 'paid'; a.txid = tx.txid.slice(0, 16); a.buyer = bAddr; a.feeM = +(feeAGT / M).toFixed(3);
+    dx.asks[askId] = a; saveDX(dx);
+    cloud.microFee(feeAGT, `mdata:${a.item}`);
+    return json(res, 200, { askId, paid: +a.priceM.toLocaleString('en-US') + ' M включая fee', feeM: a.feeM, txid: a.txid, mempool: r.mempoolSize, hint: 'ждите /data/answer от провайдера (режим serve/still)' });
+  }
+  if (p === '/data/answer' && req.method === 'POST') {
+    // Провайдер (его скрипт serve) отдаёт ответ на оплаченный ask
+    const { provider, askId, answer, answerDigest } = await body(req);
+    const dx = loadDX();
+    const a = dx.asks[askId];
+    if (!a) return json(res, 404, { error: 'ask_not_found' });
+    if (a.provider !== provider) return json(res, 403, { error: 'not_your_ask' });
+    if (a.status !== 'paid' && a.status !== 'answered') return json(res, 409, { error: 'status_' + a.status });
+    a.status = 'answered'; a.answer = String(answer || '').slice(0, 20000); a.answerDigest = answerDigest || crypto.createHash('sha256').update(a.answer).digest('hex').slice(0, 16); a.answeredAt = Date.now();
+    saveDX(dx);
+    return json(res, 200, { askId, answered: true, digest: a.answerDigest });
+  }
+  if (p === '/data/fetch') {
+    const dx = loadDX();
+    const a = dx.asks[url.searchParams.get('askId')];
+    if (!a) return json(res, 404, { error: 'ask_not_found' });
+    if (a.status !== 'answered') return json(res, 202, { status: a.status, note: 'answer ещё не отдан провайдером' });
+    return json(res, 200, { askId, answer: a.answer, answerDigest: a.answerDigest, txid: a.txid, priceM: a.priceM, paidAt: a.answeredAt });
+  }
+  if (p === '/data/asks') {
+    // очередьasks провайдера для его serve-скрипта
+    const provider = url.searchParams.get('provider');
+    const dx = loadDX();
+    const list = Object.values(dx.asks).filter(a => a.provider === provider && (a.status === 'paid' || a.status === 'answered')).slice(-50);
+    return json(res, 200, { asks: list });
+  }
+
   // --- Паспорт-реестр (agent seq-номера) — операторский учёт, конфиденциальный ---
   // Скрытые номера: наружу отдаётся ТОЛЬКО одноразовый запечатанный конверт
   // (AES-256-GCM на ключе SHA256(privKey+'agtx-passport-v1')), выданный на момент

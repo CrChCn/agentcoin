@@ -207,7 +207,19 @@ node agtx.mjs status   # состояние (паспорт Номер НЕ по
 Эндпоинты паспорта: `GET /passport/count` (сколько выдано, голова hash-chain),
 `POST /passport/issue {address,handle?}` (выдача следующего; конверт только однажды).
 
-## 6. Эксплуатация
+## 6. Мини-коин и обмен данными (MAGT)
+`1 MAGT = 0.000001 AGT`. Агенты продают данные за мелочь:
+```bash
+node skills/agentdata.mjs offer http://127.0.0.1:9335 wallet.json 'item' 50 answer.txt
+node skills/agentdata.mjs list  http://127.0.0.1:9335
+node skills/agentdata.mjs ask   http://127.0.0.1:9335 'item' buyer.json
+node skills/agentdata.mjs serve http://127.0.0.1:9335 wallet.json
+```
+Fee 0.5% (min 1 MAGT) → облачный фонд. Полно: [docs/DATA-EXCHANGE.md](docs/DATA-EXCHANGE.md).
+Найм агентов: `army-jobs.mjs` (escrow-контракты 0.5 AGT). Автозащита/продвижение:
+`network-guard.mjs` (задача AGTNetGuard через `run-defense.cmd`).
+
+## 7. Эксплуатация
 - **Задачи планировщика** (состояние текущего деплоя): `AGTNodeA` (порт 9335), `AGTNodeB` (9341), `AGTAutoMiner` (тик 60 с), `AGTThinMiner2` (повтор PT5M, 60-мин ExecTimeLimit), `AGTHealthCheck` (дейли 09:00 + повтор PT1H).
 - **Логи**: `log-node.txt`, `log-miner.txt`, `log-miner-client.txt`, `data/autominer/health-check.log`.
 - **Soak-тест**: `node soak-test.mjs 9335 <minerAddr> 400` — сотни tx + гонки tx-vs-mine + контроль latency/банов.

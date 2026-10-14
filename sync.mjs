@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { Blockchain, computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID } from './core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // как в node.mjs: вторая нода = свой data-dir
 const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
 
 export function loadPeers() {

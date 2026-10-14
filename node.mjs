@@ -34,7 +34,7 @@ import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 
@@ -235,6 +235,15 @@ const server = http.createServer(async (req, res) => {
   // --- Security Controller ---
   if (p === '/security/status') return json(res, 200, bc.security.status());
   if (p === '/security/banlist') return json(res, 200, { banned: bc.security.banList(), registryHash: bc.security.registryHash() });
+  // ручной разбан оператором: {address} — вместе с TTL-автопродением это размад после N времени
+  if (p === '/security/unban' && req.method === 'POST') {
+    const { address } = await body(req);
+    if (!address || !bc.security.bans[address]) return json(res, 404, { error: 'not_banned' });
+    delete bc.security.bans[address];
+    delete bc.security.strikes[address];
+    bc.security.save();
+    return json(res, 200, { unbanned: address });
+  }
   if (p === '/security/attacks') return json(res, 200, { attacks: bc.security.attacks.slice(-50), count: bc.security.attacks.length });
 
   // --- @-система ---

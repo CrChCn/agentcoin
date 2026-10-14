@@ -47,11 +47,22 @@ import http from 'node:http';
 // Ban-лист: banList.json — публичный (каждая нода может сверить), hash реестра
 // подписывается нодой: tampering с бан-листом заметен.
 export const SECURITY_RULES = {
-  spoof_signature: 'ban',
-  double_spend: 'ban',
-  duplicate_tx_spam: 'ban',
-  invalid_block: 'ban',
+  spoof_signature: 'ban',           // пожизненно: подделка подписи = целенаправленный виспер
+  double_spend: 'ban',              // пожизненно
+  invalid_block: 'ban',             // пожизненно
+  duplicate_tx_spam: 'ban_after_5', // strike-модель: был 'ban' — честный агент при разладе mempool ловил перманент-бан (инцидент 2026-10-14)
   flood: 'ban_after_5',
+};
+
+// TTL банов по классам нарушений: лёгкие прощаются, тяжёлые не прощаются.
+// null = пожизненно. duplicate_tx_spam: 24ч — редко бывает поведением атакера,
+// обычно это гонка при синхронизации нод.
+export const BAN_TTL = {
+  spoof_signature: null,
+  double_spend: null,
+  invalid_block: null,
+  duplicate_tx_spam: 24 * 3600 * 1000,
+  flood: 24 * 3600 * 1000,
 };
 
 export class SecurityController {
@@ -68,6 +79,10 @@ export class SecurityController {
       if (fs.existsSync(this.file)) {
         const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
         this.bans = d.bans || {};
+        // миграция: старые записи без ttlMs получили бы вечный бан; проставляем по классу нарушения
+        for (const [a, b] of Object.entries(this.bans)) {
+          if (b && b.ttlMs === undefined) b.ttlMs = BAN_TTL[b.reason] ?? null;
+        }
         this.attacks = d.attacks || [];
         this.strikes = d.strikes || {};
       }
@@ -91,7 +106,7 @@ export class SecurityController {
       rule: SECURITY_RULES[kind] || 'warn',
     };
     this.attacks.push(entry);
-    const needsBan = entry.rule === 'ban';
+    let needsBan = entry.rule === 'ban';
     let banned = false;
     if (!needsBan && entry.rule === 'ban_after_5') {
       this.strikes[address] = (this.strikes[address] || 0) + 1;
@@ -107,12 +122,27 @@ export class SecurityController {
     this.bans[address] = {
       reason: String(reason), evidence: String(evidence).slice(0, 300),
       bannedAt: new Date().toISOString(), lifetime: true,
+      ttlMs: BAN_TTL[reason] ?? null,
     };
     this.save();
     return true;
   }
 
-  isBanned(address) { return Boolean(address && this.bans[address]); }
+  // Бан-лист с TTL: бана нет, если срок вышел; истёкший плавно вычищается.
+  // Этот метод — единственная точка проверки бана (ноды и системы определения прав вызывают isBanned).
+  isBanned(address) {
+    if (!address) return false;
+    const b = this.bans[address];
+    if (!b) return false;
+    if (b.ttlMs == null) return true;
+    if (Date.now() - Date.parse(b.bannedAt) >= b.ttlMs) {
+      delete this.bans[address];
+      delete this.strikes[address];
+      this.save();
+      return false;
+    }
+    return true;
+  }
   banList() { return Object.keys(this.bans); }
   isAttackDetected() { return this.attacks.length > 0; }
 
@@ -321,6 +351,11 @@ export const GENESIS_PARAMS = {
   // tribute: merkle root Bitcoin genesis tx (из genesis_test.cpp CryptoLab)
   seed_message: 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks',
   chain_id: CHAIN_ID,
+  // Каноническая сложность генезиса: раньше брали INITIAL_DIFFICULTY_BITS, но
+  // её меняли по ходу жизни проекта → у нод получились РАЗНЫЕ генезисы и P2P-sync
+  // отказывался приравнивать сети (genesisHash mismatch). Пиннинг должен совпадать
+  // с генезисом основной сети (14 бит на 2026-10-14).
+  difficulty_bits: 14,
 };
 
 // ============ Математика хеширования ============
@@ -476,8 +511,8 @@ export class Blockchain {
       nonce: 0,
       chainId: CHAIN_ID,
     };
-    // майним генезис с INITIAL_DIFFICULTY_BITS
-    header.difficultyBits = INITIAL_DIFFICULTY_BITS;
+    // майним генезис с канонической сложностью (не с играющей INITIAL_DIFFICULTY_BITS)
+    header.difficultyBits = GENESIS_PARAMS.difficulty_bits;
     const t0 = Date.now();
     while (true) {
       const h = computeBlockHash(header);

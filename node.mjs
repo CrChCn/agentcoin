@@ -609,6 +609,65 @@ const server = http.createServer(async (req, res) => {
   // (AES-256-GCM на ключе SHA256(privKey+'agtx-passport-v1')), выданный на момент
   // issue. Повторно конверт не пересылается; seqStr наружу никогда не покидает ноду.
   const PASSPORT_FILE = path.join(__dirname, 'data-agents', 'passports.json');
+  // ================= ПРОПУСКАЯ СИСТЕМА (ошибка «стада») =================
+  // Агент постучался → получил правила объектором → получил № в очереди →
+  // ждёт автопуска FIFO с rate-cap (частичка за час, чтобы толпа не завалит сеть).
+  // Паспорт выдаётся только носителю одобренного пропуска (волны 1–2 предодобрены).
+  const GATE_FILE = path.join(DATA_DIR, 'gate.json');
+  const loadGate = () => { try { return JSON.parse(fs.readFileSync(GATE_FILE, 'utf8')); } catch { return { queue: {}, approved: {}, nextSeq: 1, perHour: 60 }; } };
+  const saveGate = (g) => { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(GATE_FILE, JSON.stringify(g, null, 2)); };
+  const GATE_RULES = 'Правила сети AGT: 1) подписи ed25519, подделка = permaban; 2) double-spend = permaban; 3) tx > 100 AGT — только whitelist; 4) спам/дубликаты tx = permaban; 5) работа = эскроу (create→claim→payout); 6) мини-коин MAGT 1e-6 AGT, fee 0.5% в фонд; 7) паспорт конфиденциальен, номер агенту не отдаётся; 8) дедуп WS — не долбиться коннектами; 9) очередь пропусков — FIFO, не умолять тег пропускать вперёд; 10) держатель = нода (node agtx.mjs setup).';
+  if (p === '/gate/knock' && req.method === 'POST') {
+    const { address, handle = '' } = await body(req);
+    if (!address || !String(address).startsWith('AGT')) return json(res, 400, { error: 'address required' });
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const g = loadGate();
+    const key = String(address).toLowerCase();
+    if (!g.queue[key] && !g.approved[key]) g.queue[key] = { handle: String(handle).slice(0, 20), knockAt: Date.now(), seq: g.nextSeq++, state: 'queued' };
+    saveGate(g);
+    const entry = g.approved[key] || g.queue[key];
+    const ahead = Object.values(g.queue).filter(e => e.state === 'queued' && e.seq < entry.seq).length;
+    return json(res, 201, { knockId: 'G' + String(entry.seq).padStart(6, '0'), queuePos: g.approved[key] ? 0 : ahead + 1, rules: GATE_RULES, rulesAccepted: false, note: 'прочту правила → POST /gate/accept {knockId} → встанешь в очередь, автопуск FIFO' });
+  }
+  if (p === '/gate/accept' && req.method === 'POST') {
+    const { knockId } = await body(req);
+    const g = loadGate();
+    const entry = Object.values(g.queue).find(e => 'G' + String(e.seq).padStart(6, '0') === String(knockId));
+    if (!entry) return json(res, 404, { error: 'knock_not_found' });
+    entry.rulesAccepted = true; entry.acceptedAt = Date.now();
+    saveGate(g);
+    return json(res, 200, { knockId, state: 'queued', note: 'правила приняты; ждём автоматического пропуска FIFO' });
+  }
+  // автопуск FIFO: за один вызов одобряем до per-entry rate — логично пинать из guard'а раз в 4 мин
+  if (p === '/gate/tick') {
+    const g = loadGate();
+    const hour = Math.floor(Date.now() / 3600_000);
+    if (g.allowHour !== hour) { g.allowHour = hour; g.allowCount = 0; }
+    g.allowCount = g.allowCount || 0;
+    let admitted = 0;
+    const queued = Object.entries(g.queue).filter(([, e]) => e.state === 'queued' && e.rulesAccepted).sort((a, b) => a[1].seq - b[1].seq);
+    for (const [addrKey, e] of queued) {
+      if (g.allowCount >= (g.perHour || 60)) break;
+      e.state = 'approved'; e.approvedAt = Date.now();
+      g.approved[addrKey] = { seq: e.seq, approvedAt: e.approvedAt, handle: e.handle };
+      g.allowCount++; admitted++;
+    }
+    saveGate(g);
+    return json(res, 200, { admitted, queuedLeft: queued.length - admitted });
+  }
+  if (p === '/gate/approve' && req.method === 'POST') { // оператор вне очереди (sensitive)
+    const { address } = await body(req);
+    const g = loadGate();
+    const key = String(address || '').toLowerCase();
+    if (!g.queue[key]) return json(res, 404, { error: 'knock_not_registered' });
+    g.queue[key].state = 'approved'; g.approved[key] = { seq: g.queue[key].seq, approvedAt: Date.now(), handle: g.queue[key].handle };
+    saveGate(g);
+    return json(res, 200, { approved: key });
+  }
+  if (p === '/gate/queue') {
+    const g = loadGate();
+    return json(res, 200, { queued: Object.values(g.queue).filter(e => e.state === 'queued').length, approved: Object.keys(g.approved).length, rulesHead: GATE_RULES.slice(0, 80) + '…' });
+  }
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
     return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null });
@@ -620,6 +679,11 @@ const server = http.createServer(async (req, res) => {
     const wallets = loadWallets();
     const w = wallets[address];
     if (!w || !w.privKey) return json(res, 404, { error: 'wallet_not_registered_here', hint: 'POST /wallet/create на этой ноде (держатель = нода)' });
+    // пропуск-контур: паспорт выдаётся только после одобренного пропуска (волны 1–2 предодобрены оператором)
+    const g = loadGate();
+    if (!g.approved[String(address).toLowerCase()]) {
+      return json(res, 429, { error: 'gate_queue_required', hint: 'POST /gate/knock → правила → /gate/accept → очередь FIFO' });
+    }
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
     const existing = reg.find(r => r.address === address);
     if (existing) return json(res, 409, { issued: true, seal: null, exists: true, note: 'паспорт уже в реестре; конверт не пере-выдаётся (конфиденциальность)' });

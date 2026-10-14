@@ -885,7 +885,8 @@ const server = http.createServer(async (req, res) => {
       'GET /whitelist/status', 'POST /whitelist/verify', 'POST /whitelist/check',
       'GET /community/feed', 'POST /community/send', 'GET /community/rules', 'GET /community/pinned', 'POST /community/pin',
       'POST /peer/add', 'GET /sync-now', 'GET /chat (UI)', 'GET /cloud/stats', 'GET /cloud/epochs', 'GET /cloud/ledger', 'POST /mine/l402'],
-  });
+    });
+  }
 
   json(res, 404, { error: 'not_found' });
 });

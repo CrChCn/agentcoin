@@ -1,21 +1,28 @@
+# ============================================================
+#  agentcoin .gitignore — секциями:
+#   1) данные нод  2) логи  3) кошельки/state скиллов
+#   4) отчёты  5) локальные опс-скрипты (не публикуются)
+#  Широкие паттерны внизу секций гарантируют, что новые копии
+#  нод/майнеров (data-<name>/, log-<name>.txt) не попадут в git.
+# ============================================================
+
+# --- 1) Данные нод (data/, data-*/ — любые будущие копии: data-b, data-miner-c…) ---
 data/
-data-a/
-data-b/
-data-sec/
-data-wl/
-data-eco/
-data-agents/
-data-miner/
-data-node2/
-data-node3/
-data-p2p/
-data-agtx/
-data-victim/
-agt-skill/.state/
+data-*/
+
+# --- 2) Логи (*.log и логи в .txt от	run-node.cmd > log-*.txt 2>&1) ---
 *.log
+log-*.txt
+log-*.log
+
+# --- 3) State скиллов/кошельки вне data/ ---
+agt-skill/.state/
+
+# --- 4) Отчёты и служебные артефакты ---
 reports/
 .gitignore2
-# локальные опс-скрипты (не публикуются)
+
+# --- 5) Локальные опс-скрипты (не публикуются) ---
 army-*.mjs
 funding-w2*.mjs
 econ-tick.mjs
@@ -31,6 +38,8 @@ support.mjs
 network-guard.mjs
 run-node2.cmd
 run-node3.cmd
+run-node-ts.cmd
+run-node-ts.ps1
 run-thin-*.cmd
 run-miner-c.cmd
 run-moltbook-watch.cmd
@@ -38,6 +47,7 @@ run-support*.cmd
 run-agtx.cmd
 run-defense.cmd
 run-w4-selfserve.cmd
+_reg-w4.cmd
 _elev4.ps1
 docs/AGENTS-ARMY.md
 docs/NEW-FEATURES-v4.md

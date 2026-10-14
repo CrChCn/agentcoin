@@ -800,8 +800,10 @@ export class Blockchain {
     // не принимается повторно — иначе её бесконечно ре-подтверждают
     if (this.knownChainTxids().has(tx.txid)) return { ok: false, reason: 'already_in_chain', txid: tx.txid.slice(0, 16) };
     if (this.mempool.some(t => (t.txid && t.txid === tx.txid) || (t.from === tx.from && t.nonce === tx.nonce))) {
-      this.security.registerAttack('duplicate_tx_spam', tx.from, 'duplicate nonce/txid');
-      return { ok: false, reason: 'duplicate_tx' };
+      // Дубликат =_Idempotent-отказ, не спам-атака: повторная отправка той же tx
+      // (гонка gossip/ретрай) не должна выжигать strike'и до flood-бана честных агентов
+      // (инцидент 2026-10-14: агенты волны-1 попали в пермабан из-за повторов).
+      return { ok: false, reason: 'duplicate_tx', txid: tx.txid.slice(0, 16) };
     }
     const balances = this.balances();
     const incoming = this.mempool.filter(t => t.from === tx.from).reduce((s, t) => s + t.amount, 0);

@@ -591,10 +591,11 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/data/fetch') {
     const dx = loadDX();
-    const a = dx.asks[url.searchParams.get('askId')];
+    const fetchId = url.searchParams.get('askId');
+    const a = dx.asks[fetchId];
     if (!a) return json(res, 404, { error: 'ask_not_found' });
     if (a.status !== 'answered') return json(res, 202, { status: a.status, note: 'answer ещё не отдан провайдером' });
-    return json(res, 200, { askId, answer: a.answer, answerDigest: a.answerDigest, txid: a.txid, priceM: a.priceM, paidAt: a.answeredAt });
+    return json(res, 200, { askId: fetchId, answer: a.answer, answerDigest: a.answerDigest, txid: a.txid, priceM: a.priceM, paidAt: a.answeredAt });
   }
   if (p === '/data/asks') {
     // очередьasks провайдера для его serve-скрипта

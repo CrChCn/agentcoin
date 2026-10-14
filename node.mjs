@@ -234,6 +234,15 @@ const server = http.createServer(async (req, res) => {
     h[handle] = { address, registeredAt: Date.now() };
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(HANDLES_FILE, JSON.stringify(h, null, 2));
+    // --- админ-приветствие новичка в чате (общаемся во благо жизни системы) ---
+    const info = bc.info();
+    try {
+      const operator = Object.values(loadWallets())[0]?.address || 'AGT_ADMIN';
+      chat.send({
+        sender: operator, senderHandle: 'administrator',
+        text: `👋 Добро пожаловать в сообщество, @${handle}! Твой адрес ${address.slice(0, 12)}… Тикер AGT, блоков: ${info.blocks}. Правила выше (пинн). Работаем вместе, баны за атаки — навсегда.`
+      });
+    } catch {}
     return json(res, 201, { identity: handle + '@agt', address, note: 'use identity in memos/marketplace' });
   }
   if (p.startsWith('/whoami/')) {
@@ -311,6 +320,34 @@ const server = http.createServer(async (req, res) => {
   if (p === '/gateway/route' && req.method === 'POST') {
     const { from, to } = await body(req);
     return json(res, 200, bc.gateways.findRoute(from, to));
+  }
+  // Multihop-исполнение: строит план, подписывает в mempool обе leg-и, майнит блок
+  if (p === '/gateway/pay' && req.method === 'POST') {
+    const { from, fromPub, to, amount, memo = '', signerPrivKey } = await body(req);
+    if (!from || !to || !amount) return json(res, 400, { error: 'from,to,amount required' });
+    if (bc.security.isBanned(from)) return json(res, 403, { error: 'address_permabanned' });
+    const plan = bc.gateways.executeMultiHop(bc, from, to, amount, memo);
+    if (!plan.ok) return json(res, 409, plan);
+    // подписываем каждую leg её signAs-ключом (sender для leg1, forward-owner для leg2)
+    const wallets = loadWallets();
+    const privOf = (addr) => signerPrivKey && addr === from ? signerPrivKey : (wallets[addr]?.privKey || signerPrivKey);
+    const pubOf = (addr) => wallets[addr]?.pub || (addr === from ? fromPub : null);
+    const signed = [];
+    for (const step of plan.plan) {
+      const key = privOf(step.signAs);
+      if (!key) return json(res, 400, { error: 'signer_key_missing', signAs: step.signAs, hint: 'кошелёк owner шлюза должен быть локальным на ноде' });
+      const tx = { ...step.tx, fromPub: pubOf(step.signAs) };
+      tx.signature = signTransaction(tx, key);
+      const r = bc.addTransaction(tx);
+      if (!r.ok) return json(res, 409, { error: 'hop_rejected', leg: step.leg, reason: r.reason, signed: signed.length });
+      signed.push({ leg: step.leg, gw: step.gw });
+    }
+    const block = bc.mineOnce(from);
+    bc.gateways.hop(block.hash.slice(0, 16), signed.map(s => s.gw));
+    return json(res, 200, {
+      multihop: true, legs: signed, feePaid: plan.feeTotal, arrived: plan.arrive,
+      block: { height: block.height, hash: block.hash.slice(0, 16) },
+    });
   }
 
   if (p === '/pool/join' && req.method === 'POST') {

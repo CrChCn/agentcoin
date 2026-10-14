@@ -231,6 +231,25 @@ export class Gateways {
   status() {
     return { count: Object.keys(this.map).length, byType: Object.entries(this.map).reduce((s, [, g]) => (s[g.type] = (s[g.type] || 0) + 1, s), {}), hops: this.hops.length, registryHash: this.hash() };
   }
+
+  // ---- Multihop-исполнение: escrow-модель (Lightning lesson) ----
+  // leg1: sender → forward-owner (полная сумма), leg2: owner → receiver (amount − fee).
+  // Правильно подписывается ТОТ, КТО from: leg1 ключом sender'а, leg2 ключом owner'а.
+  // Нода подписывает leg2 из своих локальных кошельков (owner у ноды).
+  executeMultiHop(bc, from, to, amount, memo = '') {
+    const hops = [];
+    const fws = Object.entries(this.map).filter(([, g]) => g.type === 'forward' && !this.security.isBanned(g.owner));
+    if (!fws.length) return { ok: false, reason: 'no_forward_gw' };
+    const [fwId, fw] = fws[0];
+    const fee = +(amount * fw.feeBps / 10000).toFixed(6);
+    const arrive = +(amount - fee).toFixed(6);
+    if (arrive <= 0) return { ok: false, reason: 'fee_too_high', fee };
+    const t1 = { from, to: fw.owner, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `hop1→${fwId}:${memo}` };
+    const t2 = { from: fw.owner, to, amount: arrive, nonce: Date.now() + 1, ts: Math.floor(Date.now() / 1000), memo: `hop2:${memo}` };
+    hops.push({ leg: 1, tx: t1, gw: fwId, fee: 0, signAs: from });
+    hops.push({ leg: 2, tx: t2, gw: fwId, fee, signAs: fw.owner });
+    return { ok: true, plan: hops, feeTotal: fee, arrive };
+  }
 }
 
 // ============ Пул майнинга (опыт BTC-пулов:inance on shares) ============
@@ -289,7 +308,7 @@ export const RETARGET_INTERVAL = 10;       // ретарджет каждые 10
 export const HALVING_INTERVAL = 210_000;   // halving каждые 210k блоков (как Bitcoin)
 export const BASE_REWARD = 50;             // 50 AGT за блок (как Bitcoin)
 export const MAX_SUPPLY = BASE_REWARD * HALVING_INTERVAL * 2; // ≈ 21М
-export const INITIAL_DIFFICULTY_BITS = 16; // старт: 16 ведущих нулевых бит (~40k хешей)
+export const INITIAL_DIFFICULTY_BITS = 12; // старт: 12 бит — живой баланс между скоростью демо и честным PoW
 export const MIN_DIFFICULTY_BITS = 8;
 export const MAX_DIFFICULTY_BITS = 32;
 
@@ -482,7 +501,10 @@ export class Blockchain {
       this.security.registerAttack('spoof_signature', tx.from, 'signature mismatch — spoofing attempt');
       return { ok: false, reason: 'bad_signature_permaban' };
     }
-    if (this.mempool.some(t => t.txid === tx.txid || (t.from === tx.from && t.nonce === tx.nonce))) {
+    // txid вычисляем сразу (для coinbase он уже задан) — иначе undefined===undefined
+    // даёт ложные duplicate_tx на любую вторую транзакцию в mempool (баг multihop leg2)
+    if (!tx.txid) tx.txid = txDigest(tx);
+    if (this.mempool.some(t => (t.txid && t.txid === tx.txid) || (t.from === tx.from && t.nonce === tx.nonce))) {
       this.security.registerAttack('duplicate_tx_spam', tx.from, 'duplicate nonce/txid');
       return { ok: false, reason: 'duplicate_tx' };
     }
@@ -541,7 +563,7 @@ export class Blockchain {
         this.mempool = [];
         this.difficultyBits = header.difficultyBits;
         this.save();
-        return block;
+        return { ...block, _jsonBuffer: JSON.stringify(txs).length };
       }
       header.nonce++;
       if (onProgress && header.nonce % 50_000 === 0) onProgress(header.nonce);

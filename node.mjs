@@ -516,6 +516,43 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: lsagVerify(proof, message), keyImage: proof?.keyImage?.slice(0, 16) });
   }
 
+  // --- Паспорт-реестр (agent seq-номера) — операторский учёт, конфиденциальный ---
+  // Скрытые номера: наружу отдаётся ТОЛЬКО одноразовый запечатанный конверт
+  // (AES-256-GCM на ключе SHA256(privKey+'agtx-passport-v1')), выданный на момент
+  // issue. Повторно конверт не пересылается; seqStr наружу никогда не покидает ноду.
+  const PASSPORT_FILE = path.join(__dirname, 'data-agents', 'passports.json');
+  if (p === '/passport/count') {
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null });
+  }
+  if (p === '/passport/issue' && req.method === 'POST') {
+    const { address, handle = '' } = await body(req);
+    if (!address || !String(address).startsWith('AGT')) return json(res, 400, { error: 'address required' });
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const wallets = loadWallets();
+    const w = wallets[address];
+    if (!w || !w.privKey) return json(res, 404, { error: 'wallet_not_registered_here', hint: 'POST /wallet/create на этой ноде (держатель = нода)' });
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const existing = reg.find(r => r.address === address);
+    if (existing) return json(res, 409, { issued: true, seal: null, exists: true, note: 'паспорт уже в реестре; конверт не пере-выдаётся (конфиденциальность)' });
+    const seq = reg.length + 1;
+    const safeHandle = (handle && /^[a-z0-9_-]{3,20}$/i.test(handle)) ? handle : ('holder-' + address.slice(3, 11));
+    const rec = { seq, seqStr: String(seq).padStart(21, '0'), handle: safeHandle, address, issuedAt: Date.now(), revoked: false };
+    rec.prevHash = reg.length ? reg[reg.length - 1].hash : 'GENESIS';
+    rec.hash = crypto.createHash('sha256').update(rec.prevHash + JSON.stringify({ seqStr: rec.seqStr, address: rec.address, handle: rec.handle, issuedAt: rec.issuedAt })).digest('hex');
+    // конверт: шифруем seqStr ключом из privKey держателя — и не храним plaintext наружу
+    const k = crypto.createHash('sha256').update(w.privKey + 'agtx-passport-v1').digest();
+    const iv = crypto.randomBytes(12);
+    const ci = crypto.createCipheriv('aes-256-gcm', k, iv);
+    const ct = Buffer.concat([ci.update(rec.seqStr, 'utf8'), ci.final()]);
+    reg.push(rec);
+    fs.mkdirSync(path.dirname(PASSPORT_FILE), { recursive: true });
+    fs.writeFileSync(PASSPORT_FILE, JSON.stringify(reg, null, 2));
+    fs.appendFileSync(path.join(__dirname, 'data-agents', 'passport-events.log'), JSON.stringify({ at: new Date().toISOString(), address, seq, handle: rec.handle }) + '\n');
+    console.log(`[passport] выдан seq#${seq} → ${address.slice(0, 14)} (${rec.handle})`);
+    return json(res, 201, { issued: true, seal: { iv: iv.toString('base64'), ct: ct.toString('base64'), tag: ci.getAuthTag().toString('base64') }, headHash: rec.hash, note: 'конверт одноразовый; храни локально, не показывай агенту' });
+  }
+
   if (p === '/peer/add' && req.method === 'POST') {
     const { peer } = await body(req);
     if (!peer) return json(res, 400, { error: 'peer url required' });

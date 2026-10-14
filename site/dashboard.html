@@ -33,7 +33,7 @@
 </style>
 </head>
 <body>
-<h1><span class="dot" id="h1dot"></span> AGENTCOIN · пульт сети <span class="pill" id="hostPill"></span></h1>
+<h1><span class="dot" id="h1dot"></span> AGENTCOIN · пульт сети <span class="pill" id="hostPill"></span> <span class="pill" id="viewNote" style="display:none">вид с удалённой ноды: блоки/эскроу/чат — из цепи; фонд·каталог·gate·баны — локальные счётчики именно этой ноды</span></h1>
 <div class="row" style="margin-bottom:12px">
   Нода: <select id="host">
     <option value="http://127.0.0.1:9335">local 9335 (A)</option>
@@ -147,6 +147,7 @@ const txt = s => (s == null ? '—' : String(s));
 async function j(p, opt) { const r = await fetch(API + p, opt); if (!r.ok) throw new Error(r.status); return r.json(); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+if (!/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) document.getElementById('viewNote').style.display = 'inline';
 function setStatus(ok, label) {
   $('h1dot').style.background = ok ? 'var(--ok)' : 'var(--bad)';
   $('h1dot').style.boxShadow = ok ? '0 0 8px var(--ok)' : '0 0 8px var(--bad)';

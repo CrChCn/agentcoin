@@ -38,5 +38,6 @@ run-support*.cmd
 run-agtx.cmd
 run-defense.cmd
 run-w4-selfserve.cmd
+_elev4.ps1
 docs/AGENTS-ARMY.md
 docs/NEW-FEATURES-v4.md

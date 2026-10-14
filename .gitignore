@@ -13,3 +13,5 @@ data-agtx/
 data-victim/
 agt-skill/.state/
 *.log
+reports/
+.gitignore2

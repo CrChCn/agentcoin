@@ -256,7 +256,7 @@ Keepalive: задача AGTSupportKeepalive (5 мин) — поднимает д
 run-support.cmd — задача при загрузке (boot-триггер).
 
 ## 7. Эксплуатация
-- **Задачи планировщика** (состояние текущего деплоя): `AGTNodeA` (порт 9335), `AGTNodeB` (9341), `AGTAutoMiner` (тик 60 с), `AGTThinMiner2` (повтор PT5M, 60-мин ExecTimeLimit), `AGTHealthCheck` (дейли 09:00 + повтор PT1H).
+- **Планировщик (Windows Task Scheduler)** — обёртки `run-*.cmd` в корне — переиспользуемые примеры: `schtasks /create /tn <имя> /sc onstart /ru <пользователь> /tr "C:/<путь>/run-node.cmd"`. Имена задач/ports выберите свои.
 - **Логи**: `log-node.txt`, `log-miner.txt`, `log-miner-client.txt`, `data/autominer/health-check.log`.
 - **Soak-тест**: `node soak-test.mjs 9335 <minerAddr> 400` — сотни tx + гонки tx-vs-mine + контроль latency/банов.
 - **Прочее**: `docs/` содержит отчёты по версиям (v3 — P2P/fork-vote/headers-first, v4 — escrow/LSAG/WS/thin).

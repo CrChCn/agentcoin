@@ -4,5 +4,12 @@ data-b/
 data-sec/
 data-wl/
 data-eco/
+data-agents/
+data-miner/
+data-node2/
+data-node3/
+data-p2p/
+data-agtx/
+data-victim/
 agt-skill/.state/
 *.log

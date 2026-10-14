@@ -21,14 +21,17 @@
    ============================================================ */
 'use strict';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  Blockchain, createWallet, signTransaction, verifyTransaction,
+import { fileURLToPath } from 'node:url';import { Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
+  validateBlockAgainstChain, txDigest,
 } from './core.mjs';
-import { addPeer, syncAll, gossipTx, peerMetaStatus } from './sync.mjs';
+import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
+import { WsHub, connectClient } from './ws.mjs';
+import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
+import { lsagSign, lsagVerify, pointFromPubKeyPEM } from './ring-signature.mjs';
 import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
@@ -91,6 +94,17 @@ function lifeStatus() {
     checkedAt: new Date().toISOString(),
   };
 }
+
+const hub = new WsHub();
+// быстрый приём WS-блока в цепь: тот же набор правил, что сетевой append
+function applyBlockFast(chain, blk) {
+  chain.chain.push(blk);
+  chain.invalidateTxCache();
+  chain.difficultyBits = blk.header.difficultyBits;
+  chain.refilterMempool();
+  chain.save();
+}
+function getBlockHash(chain) { return chain.tip()?.hash || null; }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -168,7 +182,7 @@ const server = http.createServer(async (req, res) => {
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 400, r);
     // TX-GOSSIP: принятую tx расходим по пирам (те, у кого она есть, не ре-экспортируют → без петли)
-    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); });
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
     return json(res, 201, { accepted: true, mempool: r.mempoolSize, gossipped: true });
   }
 
@@ -193,7 +207,8 @@ const server = http.createServer(async (req, res) => {
       hint: 'сложность выше порога синхронного слайса: нода не должна зависать. Используйте пул /pool/join + /pool/submit или исправьте retarget',
     });
     const block = bc.commitMinedBlock(header, h, txs, miner, Date.now() - t0);
-    if (!block) return json(res, 500, { error: 'commit_rejected', hint: 'PoW-хеш/merkleRoot не прошли внутреннюю проверку' });
+    if (!block || block.rejected) return json(res, 500, { error: 'commit_rejected', reason: block?.rejected || 'unknown', hint: 'блок не прошёл строгую внутреннюю валидацию (PoW/prev/merkle/coinbase/подписи tx)' });
+    hub.broadcast({ type: 'inv-block', block: { height: block.height, hash: block.hash, header: block.header, txs: block.txs } });
     // облачный фонд от каждого блока
     const cloudNote = cloud.onBlockMined(block.height, bc.info().nextReward, block.hash);
     return json(res, 200, {
@@ -355,6 +370,152 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- P2P ---
+  // --- инвентарь: WS-рассылка после коммита блока/приёма tx ---
+  if (p === '/ws/status') return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL });
+
+  // --- минимальный вне-HTTP-майнинг: template + строгий submit ---
+  if (p === '/blocktemplate' && req.method === 'POST') {
+    const { miner } = await body(req);
+    if (!miner) return json(res, 400, { error: 'miner required' });
+    if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
+    const { header, txs } = bc.mineTemplate(miner);
+    return json(res, 200, { height: bc.blockCount(), header, txs, tipPrevHash: header.prevHash });
+  }
+  if (p === '/block/submit' && req.method === 'POST') {
+    const { miner, header, txs, ms } = await body(req);
+    if (!header || !Array.isArray(txs) || !header || !miner) return json(res, 400, { error: 'miner/header/txs required' });
+    const t = Date.now();
+    const block = bc.commitMinedBlock(header, computeBlockHash(header), txs, miner, ms || 0);
+    if (!block || block.rejected) return json(res, 409, { accepted: false, reason: block?.rejected || 'unknown' });
+    const cloudNote = cloud.onBlockMined(block.height, bc.info().nextReward, block.hash);
+    hub.broadcast({ type: 'inv-block', block: { height: block.height, hash: block.hash, header: block.header, txs: block.txs } });
+    return json(res, 200, {
+      accepted: true, height: block.height, hash: block.hash.slice(0, 16), txs: block.txs.length, ms: Date.now() - t,
+      cloud: { fundAGT: +cloudNote.fundAGT.toFixed(4), cloudGB: +cloudNote.cloudGB.toFixed(4), epochClosed: cloudNote.epochClosed },
+    });
+  }
+
+  // --- Escrow за задачи (task-receipt) ---
+  const escIdOf = () => crypto.randomBytes(10).toString('hex');
+  // Open: employer (локальный кошелёк) → ESCROW_<id>
+  if (p === '/escrow/create' && req.method === 'POST') {
+    const { employer, worker, amount, taskHash, deadlineSec = 3600 } = await body(req);
+    if (!employer || !worker || !amount || !taskHash) return json(res, 400, { error: 'employer,worker,amount,taskHash required' });
+    if (bc.security.isBanned(employer)) return json(res, 403, { error: 'address_permabanned' });
+    const wallets = loadWallets();
+    const w = wallets[employer];
+    if (!w) return json(res, 404, { error: 'employer_wallet_not_on_this_node' });
+    const escId = escIdOf();
+    const escAddress = ESCROW_PREFIX + escId;
+    const deadlineTs = Math.floor(Date.now() / 1000) + Number(deadlineSec);
+    const tx = { from: employer, fromPub: w.pub, to: escAddress, amount: Number(amount), nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `escrow:${escId}:${taskHash}:${deadlineTs}:${worker}` };
+    tx.signature = signTransaction(tx, w.privKey);
+    tx.txid = txDigest(tx);
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    return json(res, 201, { escId, escAddress, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, worker, employer, amount, deadlineTs, taskHash, hint: 'после майнинга получите /escrow/state' });
+  }
+  // Claim: работник подписывает квитанцию над taskHash (ключ локальный или прислан)
+  if (p === '/escrow/claim' && req.method === 'POST') {
+    const { escId, taskHash, workerPrivKey, workerAddress } = await body(req);
+    const open = findEscrowOpen(bc.chain, String(escId || ''));
+    if (!open || open.taskHash !== taskHash) return json(res, 404, { error: 'escrow_open_not_found_or_taskHash_mismatch', hint: 'эскроу должен быть уже в цепи (оплачен майнером)' });
+    const wallets = loadWallets();
+    const w = workerAddress && workerAddress === open.worker ? (wallets[workerAddress] || null) : null;
+    const privKey = workerPrivKey || w?.privKey;
+    if (!privKey) return json(res, 400, { error: 'worker key required: workerAddress (локальный кошелёк) или workerPrivKey (PEM)', workerExpected: open.worker });
+    const digest = escrowReceiptDigest(String(escId), open.taskHash, open.worker, open.openTx.amount);
+    const sig = crypto.sign(null, Buffer.from(digest, 'hex'), privKey).toString('hex');
+    const pubOut = w?.pub || crypto.createPublicKey(privKey).export({ type: 'spki', format: 'pem' });
+    return json(res, 200, { escId, receiptSig: sig, workerPub: pubOut, worker: open.worker, amount: open.openTx.amount, taskHash: open.taskHash });
+  }
+  // Payout: обе подписи в escProof → tx от адреса эскроу (без обычной подписи)
+  if (p === '/escrow/payout' && req.method === 'POST') {
+    const { escId, employerPrivKey, employerAddress, workerReceiptSig, workerPub } = await body(req);
+    const open = findEscrowOpen(bc.chain, String(escId || ''));
+    if (!open) return json(res, 404, { error: 'escrow_open_not_found' });
+    const wallets = loadWallets();
+    const ew = employerAddress && employerAddress === open.employer ? (wallets[employerAddress] || null) : null;
+    const employerKey = employerPrivKey || ew?.privKey;
+    if (!employerKey) return json(res, 400, { error: 'employer key required', employerExpected: open.employer });
+    if (!workerReceiptSig || !workerPub) return json(res, 400, { error: 'worker receipt required (claim first)' });
+    const confirmDigest = escrowConfirmDigest(String(escId), open.taskHash, open.worker, open.openTx.amount);
+    const employerConfirm = crypto.sign(null, Buffer.from(confirmDigest, 'hex'), employerKey).toString('hex');
+    const tx = {
+      from: ESCROW_PREFIX + String(escId), to: open.worker, amount: open.openTx.amount,
+      nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `escpayout:${escId}`,
+      escProof: { taskHash: open.taskHash, workerPub, workerReceipt: workerReceiptSig, employerConfirm },
+    };
+    tx.txid = txDigest(tx);
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    return json(res, 201, { escId, payoutPrepared: true, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, note: 'tx в мемпуле; майнер упакует (двойная подпись проверяется любой нодой' });
+  }
+  // Refund: только после дедлайна (р condition verify в момент упаковки из chain)
+  if (p === '/escrow/refund' && req.method === 'POST') {
+    const { escId } = await body(req);
+    const open = findEscrowOpen(bc.chain, String(escId || ''));
+    if (!open) return json(res, 404, { error: 'escrow_open_not_found' });
+    const tx = { from: ESCROW_PREFIX + String(escId), to: open.employer, amount: open.openTx.amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `escrefund:${escId}` };
+    tx.txid = txDigest(tx);
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    return json(res, 201, { escId, refundPrepared: true, to: open.employer, amount: open.openTx.amount, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize });
+  }
+  // Состояние всех эскроу ИЗ цепи (долгосрочный реестр)
+  if (p === '/escrow/state') {
+    const map = new Map();
+    for (const blk of bc.chain) {
+      for (const tx of blk.txs || []) {
+        if (typeof tx.memo !== 'string') continue;
+        const open = tx.memo.match(/^escrow:([a-f0-9]{10,32}):([a-f0-9]{16,64}):(\d+):(AGT[A-Za-z0-9]+)$/);
+        if (open) {
+          map.set(open[1], { escId: open[1], employer: tx.from, worker: open[4], taskHash: open[2], deadlineTs: Number(open[3]), openedAmount: tx.amount, paidOut: 0, status: 'open' });
+          continue;
+        }
+        const payout = tx.memo.match(/^escpayout:([a-f0-9]{10,32})$/);
+        if (payout && map.get(payout[1])) {
+          const e = map.get(payout[1]);
+          e.paidOut += tx.amount;
+          e.status = e.paidOut >= e.openedAmount ? 'paid' : 'partial';
+        }
+        const refund = tx.memo.match(/^escrefund:([a-f0-9]{10,32})$/);
+        if (refund && map.get(refund[1])) { const e = map.get(refund[1]); e.status = 'refunded'; e.refunded = tx.amount; }
+      }
+    }
+    return json(res, 200, { escrows: [...map.values()] });
+  }
+
+  // --- Приватность: LSAG-кольца (ring.mjs) — доказательства принадлежности ---
+  // Коммуникативные цели: анонимное голосование, подтверждение «я один из...».
+  // Замечание (честно): спенсер-приватность переводов требует UTXO — контекст в docs.
+  if (p === '/priv/pubkeys') {
+    const wallets = loadWallets();
+    const pubs = [];
+    for (const [addr, w] of Object.entries(wallets)) pubs.push({ address: addr.slice(0, 14) + '…', pubHex: Buffer.from(w.pub.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, ''), 'base64').subarray(-32).toString('hex') });
+    return json(res, 200, { count: pubs.length, pubs });
+  }
+  if (p === '/priv/prove' && req.method === 'POST') {
+    const { message, privKey, ringHex } = await body(req);
+    if (!message) return json(res, 400, { error: 'message required' });
+    if (!privKey) {
+      const firstLocal = Object.entries(loadWallets()).find(([, w]) => w.privKey);
+      if (!firstLocal) return json(res, 400, { error: 'no local wallet with privKey: pass privKey (PEM)' });
+    }
+    const ringHexList = Array.isArray(ringHex) && ringHex.length ? ringHex : (await (async () => { const wallets = loadWallets(); return Object.values(wallets).map(w => Buffer.from(w.pub.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, ''), 'base64').subarray(-32).toString('hex')); })());
+    const effPriv = privKey || Object.entries(loadWallets()).find(([, w]) => w.privKey)?.[1]?.privKey;
+    const proof = lsagSign(effPriv, ringHexList, message);
+    return json(res, 200, { proof, verifiedLocally: lsagVerify(proof, message) });
+  }
+  if (p === '/priv/verify' && req.method === 'POST') {
+    const { proof, message } = await body(req);
+    if (!proof || !message) return json(res, 400, { error: 'proof, message required' });
+    return json(res, 200, { ok: lsagVerify(proof, message), keyImage: proof?.keyImage?.slice(0, 16) });
+  }
+
   if (p === '/peer/add' && req.method === 'POST') {
     const { peer } = await body(req);
     if (!peer) return json(res, 400, { error: 'peer url required' });
@@ -462,4 +623,93 @@ const server = http.createServer(async (req, res) => {
 });
 
 console.log(`[${new Date().toISOString()}] AGENTCOIN node v2 listening on http://127.0.0.1:${PORT}`);
+// --- WebSocket P2P (RFC 6455): inv-рассылка блоков/транзакций пейрастной сети ---
+hub.attachServer(server, SELF_URL, {
+  onBlock: (msg, peer) => {
+    try {
+      const blk = msg.block;
+      if (!blk || !blk.header) return;
+      // дубликат?
+      if (bc.blockCount() > blk.height) return;
+      if (getBlockHash(bc) === blk.hash) return;
+      if (blk.header.prevHash !== (bc.tip()?.hash || null) || blk.height !== bc.blockCount()) {
+        // развилка/пропуск → полный headers-first синк по HTTP
+        setImmediate(() => { syncAll(bc).catch(() => {}); });
+        return;
+      }
+      const reason = validateBlockAgainstChain(blk, bc.chain);
+      if (reason) { console.log(`[ws] блок ${blk.height} от ${peer.theirUrl} отвергнут: ${reason}`); return; }
+      applyBlockFast(bc, blk);
+      console.log(`[ws] блок ${blk.height} принят от ${peer.theirUrl}`);
+      hub.broadcast(msg, peer); // ре-рассылка другим (дубликаты отсеюются)
+    } catch (e) { console.log('[ws] block error', e.message); }
+  },
+  onTx: (msg, peer) => {
+    try {
+      const tx = msg.tx;
+      if (!tx) return;
+      const r = bc.addTransaction(tx);
+      if (r.ok) {
+        console.log(`[ws] tx ${String(tx.txid).slice(0, 12)} принята от ${peer.theirUrl}`);
+        setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); });
+      }
+    } catch (e) { console.log('[ws] tx error', e.message); }
+  },
+});
 server.listen(PORT, '127.0.0.1');
+// --- исходящая полнасти-сеть: коннект к пирам из peers.json (30с цикл) ---
+const hubMsgHandlers = {
+  onBlock: (msg, peer) => {
+    try {
+      const blk = msg.block;
+      if (!blk || !blk.header) return;
+      if (bc.blockCount() > blk.height) return;
+      if (blk.hash === (bc.tip()?.hash || null)) return;
+      if (blk.header.prevHash !== (bc.tip()?.hash || null) || blk.height !== bc.blockCount()) {
+        setImmediate(() => { syncAll(bc).catch(() => {}); });
+        return;
+      }
+      const reason = validateBlockAgainstChain(blk, bc.chain);
+      if (reason) { console.log(`[ws] блок ${blk.height} отвергнут: ${reason}`); return; }
+      applyBlockFast(bc, blk);
+      console.log(`[ws] блок ${blk.height} принят от ${peer.theirUrl}`);
+      hub.broadcast(msg, peer);
+    } catch (e) { console.log('[ws] block error', e.message); }
+  },
+  onTx: (msg, peer) => {
+    try {
+      const tx = msg.tx;
+      if (!tx) return;
+      const r = bc.addTransaction(tx);
+      if (r.ok) {
+        console.log(`[ws] tx ${String(tx.txid).slice(0, 12)} принята от ${peer.theirUrl}`);
+        setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); });
+        hub.broadcast(msg, peer); // ре-рассылка WS-соседям
+      }
+    } catch (e) { console.log('[ws] tx error', e.message); }
+  },
+};
+async function wsConnectLoop() {
+  const peers = loadPeers();
+  if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
+  for (const peerUrl of peers) {
+    const sockUrl = peerUrl + `/ws?their=${encodeURIComponent(SELF_URL)}`;
+    const already = [...hub.peers].some(p => p.connectedPeerUrl === peerUrl);
+    if (already) continue;
+    try {
+      const client = await connectClient(sockUrl, { timeoutMs: 4000 });
+      client.connectedPeerUrl = peerUrl;
+      client.theirUrl = peerUrl;
+      client.onMessage = (txt) => {
+        let m = null; try { m = JSON.parse(txt); } catch { return; }
+        if (m?.type === 'inv-block') hubMsgHandlers.onBlock(m, client);
+        if (m?.type === 'inv-tx') hubMsgHandlers.onTx(m, client);
+      };
+      client.onClose = () => console.log(`[ws] отсоединён: ${peerUrl}`);
+      console.log(`[ws] подключены к ${peerUrl}`);
+    } catch (e) { console.log(`[ws] не подключился ${peerUrl}: ${e.message}`); /* HTTP-синк продолжит работу */ }
+  }
+}
+setInterval(() => wsConnectLoop().catch(() => {}), 30_000);
+console.log('[ws] ws-модуль инициализирован (server + outbound loop)');
+wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.message || e));

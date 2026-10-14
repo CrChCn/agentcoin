@@ -99,6 +99,7 @@ export class CloudLedger {
 
   closeEpoch(lastHeight) {
     const firstH = lastHeight - EPOCH_SIZE + 1;
+    const lastH = lastHeight; // ранее lastH использовался без объявления (краш ноды на коммите блока)
     // merkle-обязательство по хешам блоков эпохи передаётся снаружи (chain), тут — формат
     const rawBytes = EPOCH_SIZE * BLOCK_BYTES_ESTIMATE;
     const archiveBytes = ARCHIVE_BYTES;

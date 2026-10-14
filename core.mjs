@@ -282,6 +282,104 @@ export class Gateways {
   }
 }
 
+// ============ Escrow за задачи (task-receipt, уникальный фича для экономики агентов) ============
+// Опыт HTLC/Lightning: «hashlock» раскрывается знанием секрета; у нас секрета нет,
+// зато есть explorer-проверяемый taskHash — хеш выполненной задачи. Разблокировка =
+// ДВОЙНАЯ подпись (квитаниция работника над taskHash + подтверждение работодателя),
+// полностью проверяемая ЛЮБОЙ нодой из цепи — нода-оператор не нужна.
+//
+// Три tx-типа (консенсус-различимы по from/memo):
+//   fund:    employer → ESCROW_<id>  обычная подписанная tx,
+//            memo = escrow:<escId>:<taskHash>:<deadlineTs>:<worker>
+//   payout:  ESCROW_<id> → worker, memo = escpayout:<escId>,
+//            escProof = { taskHash, workerPub, workerReceipt, employerConfirm }
+//   refund:  ESCROW_<id> → employer, memo = escrefund:<escId>,
+//            валиден только ПОСЛЕ deadlineTs (двойная подпись не нужна —
+//            условие проверяется из самой цепи, детерминировано).
+export const ESCROW_PREFIX = 'ESCROW_';
+
+export function escrowReceiptDigest(escId, taskHash, to, amount) {
+  return sha256d(JSON.stringify({ role: 'escrow-receipt', escId, taskHash, to, amount }));
+}
+export function escrowConfirmDigest(escId, taskHash, to, amount) {
+  return sha256d(JSON.stringify({ role: 'escrow-confirm', escId, taskHash, to, amount }));
+}
+// поиск открытия эскроу в цепи; возвращает { openTx, taskHash, deadlineTs, worker, employer }
+export function findEscrowOpen(chain, escId) {
+  for (const blk of chain) {
+    for (const tx of blk.txs || []) {
+      if (typeof tx.memo !== 'string') continue;
+      const m = tx.memo.match(new RegExp(`^escrow:${escId}:([a-f0-9]{16,64}):(\\d+):(AGT[A-Za-z0-9]+)$`));
+      if (m) return { openTx: tx, taskHash: m[1], deadlineTs: Number(m[2]), worker: m[3], employer: tx.from };
+    }
+  }
+  return null;
+}
+// сумма уже выплаченного по эскроу из цепи (не считая проверяемой сейчас tx)
+export function escrowPaidOut(chain, escId, excludeMemo = null) {
+  let paid = 0;
+  for (const blk of chain) {
+    for (const tx of blk.txs || []) {
+      if (!tx?.from || !String(tx.from).startsWith(ESCROW_PREFIX)) continue;
+      const id = String(tx.from).slice(ESCROW_PREFIX.length);
+      if (id !== escId) continue;
+      if (excludeMemo && tx.memo === excludeMemo) continue;
+      paid += typeof tx.amount === 'number' ? tx.amount : 0;
+    }
+  }
+  return paid;
+}
+
+// Проверка tx, исходящей ОТ эскроу-адреса (payout / refund).
+// Нужная вариация: chain обязателен — валидируем против состояния цепи.
+export function verifyEscrowTx(tx, chain) {
+  if (!tx || typeof tx.from !== 'string' || !tx.from.startsWith(ESCROW_PREFIX)) return { ok: false, reason: 'not_escrow_tx' };
+  const escId = tx.from.slice(ESCROW_PREFIX.length);
+  if (!/^[a-f0-9]{10,32}$/.test(escId)) return { ok: false, reason: 'bad_escrow_id' };
+  if (!/^(escpayout|escrefund):/.test(tx.memo || '')) return { ok: false, reason: 'missing_escrow_memo' };
+  const open = findEscrowOpen(chain, escId);
+  if (!open) return { ok: false, reason: `escrow_open_tx_not_found_in_chain:${escId}` };
+  const isOpenPayout = tx.memo.startsWith('escpayout:');
+  if (isOpenPayout && !tx.memo.endsWith(escId)) return { ok: false, reason: 'escpayout_memo_mismatch' };
+
+  const paidBefore = escrowPaidOut(chain, escId, tx.memo);
+  if (typeof tx.amount !== 'number' || tx.amount <= 0) return { ok: false, reason: 'bad_amount' };
+  if (paidBefore + tx.amount > open.openTx.amount + 1e-9) return { ok: false, reason: 'overdraft_escrow', opened: open.openTx.amount, paidBefore, tried: tx.amount };
+
+  if (isOpenPayout) {
+    if (tx.to !== open.worker) return { ok: false, reason: 'payout_to_wrong_worker', expected: open.worker };
+    const p = tx.escProof || {};
+    if (p.taskHash !== open.taskHash) return { ok: false, reason: 'taskHash_mismatch' };
+    let okReceipt = false, okConfirm = false;
+    try {
+      okReceipt = crypto.verify(null, Buffer.from(escrowReceiptDigest(escId, open.taskHash, tx.to, tx.amount), 'hex'), p.workerPub || '', Buffer.from(p.workerReceipt || '', 'hex'));
+    } catch {}
+    try {
+      okConfirm = crypto.verify(null, Buffer.from(escrowConfirmDigest(escId, open.taskHash, tx.to, tx.amount), 'hex'), open.openTx.fromPub || '', Buffer.from(p.employerConfirm || '', 'hex'));
+    } catch {}
+    if (!okReceipt) return { ok: false, reason: 'worker_receipt_invalid' };
+    if (!okConfirm) return { ok: false, reason: 'employer_confirm_invalid' };
+    return { ok: true, kind: 'escpayout', escId };
+  }
+  // refund: только после дедлайна (время берём из цепи — детерминировано)
+  if (!tx.memo.endsWith(escId)) return { ok: false, reason: 'escrefund_memo_mismatch' };
+  if (tx.to !== open.employer) return { ok: false, reason: 'refund_to_wrong_employer', expected: open.employer };
+  let tipTs = 0;
+  if (chain.length) tipTs = chain[chain.length - 1].header?.timestamp || 0;
+  if (!(tipTs > open.deadlineTs)) return { ok: false, reason: 'deadline_not_passed', deadlineTs: open.deadlineTs, tipTs };
+  return { ok: true, kind: 'escrefund', escId };
+}
+
+// Единая точка проверки ЛЮБОЙ tx (обычная или эскроу-расход):
+// вся внутренняя валидация внутри Blockchain идёт через неё.
+export function verifyTxAny(tx, chain = null) {
+  if (tx && typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) {
+    if (!chain) return false;
+    return Boolean(verifyEscrowTx(tx, chain)?.ok);
+  }
+  return verifyTransaction(tx);
+}
+
 // ============ Пул майнинга (опыт BTC-пулов:inance on shares) ============
 // Агенты без мощного железа складывают хешpower: каждая share = хеш выше лёгкой
 // стены SHARE_DIFF_BITS; когда пул находит блок — награда делится по долям
@@ -505,9 +603,9 @@ export function validateBlockAgainstChain(block, chain) {
   if (!(cb.amount > 0 && cb.amount <= allowed + 1e-9)) return 'coinbase_inflation';
   // обычные транзакции: подписи и базовые инварианты
   for (const tx of block.txs) {
-    if (tx.from === 'COINBASE') continue;
+    if (tx.from === 'COINBASE' || tx.from === 'AGENT_REWARD_POOL') continue;
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
-    if (!verifyTransaction(tx)) return 'tx_bad_signature';
+    if (!verifyTxAny(tx, chain)) return 'tx_bad_signature_or_escrow';
   }
   return null;
 }
@@ -570,7 +668,7 @@ export class Blockchain {
     const spentFrom = {};
     const out = [];
     for (const tx of this.mempool) {
-      if (!tx || !verifyTransaction(tx)) continue;
+      if (!tx || !verifyTxAny(tx, this.chain)) continue;
       const budget = (balances[tx.from] || 0) - (spentFrom[tx.from] || 0);
       if (tx.amount <= budget) { out.push(tx); spentFrom[tx.from] = (spentFrom[tx.from] || 0) + tx.amount; }
       else
@@ -588,7 +686,7 @@ export class Blockchain {
     const known = this.knownChainTxids();
     for (const tx of this.mempool) {
       if (tx.txid && known.has(tx.txid)) continue;
-      if (verifyTransaction(tx) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
+      if (verifyTxAny(tx, this.chain) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
         keep.push(tx); spent[tx.from] = (spent[tx.from] || 0) + tx.amount;
       }
     }
@@ -687,7 +785,11 @@ export class Blockchain {
       this.security.registerAttack('flood', tx.from, 'banned address keeps submitting txs');
       return { ok: false, reason: 'address_permabanned', bannedAt: this.security.bans[tx.from].bannedAt };
     }
-    if (!verifyTransaction(tx)) {
+    if (!verifyTxAny(tx, this.chain)) {
+      // эскроу-payout это НЕ spoofing — отдельный режим отказа
+      if (typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) {
+        return { ok: false, reason: 'escrow_tx_invalid', detail: String(verifyEscrowTx(tx, this.chain)?.reason || '') };
+      }
       this.security.registerAttack('spoof_signature', tx.from, 'signature mismatch — spoofing attempt');
       return { ok: false, reason: 'bad_signature_permaban' };
     }
@@ -703,10 +805,17 @@ export class Blockchain {
     }
     const balances = this.balances();
     const incoming = this.mempool.filter(t => t.from === tx.from).reduce((s, t) => s + t.amount, 0);
-    if ((balances[tx.from] || 0) - incoming - tx.amount < 0) {
-      // двойная трата: расход больше баланса с учётом уже-в-mempool — классический double-spend
+    const isEscrowSpend = typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX);
+    if (!isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
+      // двойная трата: расход больше баланса с учётом уже-в-mempool — классический double-spend.
+      // Эскроу-расходы вместо этого валидируются СВОИМИ правилами (overdraft_escrow и др.):
+      // ложный «permaban» эскроу-адреса не имеет смысла.
       this.security.registerAttack('double_spend', tx.from, `balance ${balances[tx.from] || 0}, pending ${incoming}, tried ${tx.amount}`);
       return { ok: false, reason: 'double_spend_attempt_permaban' };
+    }
+    if (isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
+      const escCheck = verifyEscrowTx(tx, this.chain);
+      return { ok: false, reason: 'escrow_tx_invalid', detail: String(escCheck?.reason || '') };
     }
     this.mempool.push(tx);
     this.saveMempool();
@@ -784,15 +893,19 @@ export class Blockchain {
     return { header, txs };
   }
 
-  // Коммит блока, нонс которого уже найден узрезом (серверный /mine):
-  // нода не зависит от того, как искали нонс — главное, что PoW валиден.
+  // Коммит блока, нонс которого уже найден вне процесса (тонкий майнер, пул):
+  // нода не зависит от того, как искали нонс — но ВНУТРЕННЮЮ валидность блока
+  // проверяем тем же правилам, что и сетевой приём (PoW/prev/merkle/правило
+  // сложности/coinbase/подписи tx). Иначе внешний майнер мог бы вставить
+  // фиктивные транзакции (minting-баг).
   commitMinedBlock(header, hash, txs, minerAddress, ms) {
-    if (!hashMeetsDifficulty(hash, header.difficultyBits)) return null;
-    if (merkleRoot(txs) !== header.merkleRoot) return null;
-    if (computeBlockHash(header) !== hash) return null;
-    const block = { height: this.blockCount(), hash, header, txs, minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
+    const block = { height: this.blockCount(), hash, header, txs: txs || [], minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
+    const reason = validateBlockAgainstChain(block, this.chain);
+    if (reason) return { rejected: reason, block };
     this.chain.push(block);
-    this.mempool = [];
+    // убрать из мемпула всё, что упаковано, остальное — refilter
+    const packed = new Set((txs || []).map(t => t.txid).filter(Boolean));
+    this.mempool = this.mempool.filter(t => !packed.has(t.txid));
     this.saveMempool();
     this.invalidateTxCache();
     this.difficultyBits = header.difficultyBits;

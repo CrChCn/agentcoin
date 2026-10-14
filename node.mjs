@@ -861,6 +861,12 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(html);
   }
+  // --- визуальный пульт сети ---
+  if (p === '/dashboard' || p === '/dashboard.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'dashboard.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
 
   if (p === '/') return json(res, 200, {
     name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,

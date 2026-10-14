@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — пульт сети</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:#223040; --txt:#d7e2ee; --dim:#7d93a8; --ok:#39d98a; --bad:#ff5c7a; --accent:#5aa2ff; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--txt); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 20px; margin-bottom: 14px; display:flex; align-items:center; gap:10px; }
+  h1 .dot { width:10px; height:10px; border-radius:50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  h2 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .dim { color: var(--dim); }
+  .big { font-size: 26px; font-weight: 700; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .kv b { display:block; font-size: 11px; color: var(--dim); font-weight: 500; }
+  select, button, input { background:#0f1620; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font: inherit; }
+  button { cursor: pointer; border-color: var(--accent); }
+  button:hover { background:#182437; }
+  .mono { font-family: Consolas, monospace; }
+  #feed { max-height: 260px; overflow-y: auto; }
+  #feed div { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .who { color: var(--accent); }
+  .upd { color: var(--dim); font-size: 11px; margin-top: 8px; }
+  .actions { display:flex; gap:8px; flex-wrap: wrap; margin-top: 10px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius: 10px; font-size: 11px; background:#0f1620; border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<h1><span class="dot" id="h1dot"></span> AGENTCOIN · пульт сети <span class="pill" id="hostPill"></span></h1>
+<div class="row" style="margin-bottom:12px">
+  Нода: <select id="host">
+    <option value="http://127.0.0.1:9335">local 9335 (A)</option>
+    <option value="http://127.0.0.1:9341">local 9341 (B)</option>
+    <option value="http://127.0.0.1:9342">local 9342 (C)</option>
+    <option value="http://100.96.7.15:9336">tailnet 9336 (friend)</option>
+    <option value="__custom__">другой адрес…</option>
+  </select>
+  <input id="hostCustom" style="display:none" placeholder="http://127.0.0.1:9335">
+  <button id="applyHost">Переключить</button>
+  <span style="flex:1"></span>
+  <label><input type="checkbox" id="auto" checked> автообновление 5с</label>
+  <button id="refresh">Обновить</button>
+</div>
+
+<div class="grid">
+  <div class="panel" id="pNodes">
+    <h2>Ноды сети</h2>
+    <table id="nodesTable"><thead><tr><th>Нода</th><th>Блок</th><th>Tip</th><th>Состояние</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Текущая нода</h2>
+    <div class="row">
+      <div class="kv"><b>Блоков</b><span class="big" id="blocks">—</span></div>
+      <div class="kv"><b>Сложность</b><span id="diff" class="dim">—</span></div>
+      <div class="kv"><b>Награда</b><span id="reward" class="dim">—</span></div>
+    </div>
+    <div class="row">
+      <div class="kv"><b>Mempool</b><span id="mempool">—</span></div>
+      <div class="kv"><b>WS-пиры</b><span id="wspeers">—</span></div>
+      <div class="kv"><b>Баны</b><span id="bans">—</span></div>
+    </div>
+    <div class="mono dim" id="tipHash" style="word-break: break-all; font-size: 11px; margin-top:6px"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Последние блоки</h2>
+    <table id="blocksTable"><thead><tr><th>#</th><th>Хеш</th><th>tx</th><th>время</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Мемпул (очередь в блок)</h2>
+    <table id="mempoolTable"><thead><tr><th>от → кому</th><th>сумма</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Пиры (репутация)</h2>
+    <table id="peersTable"><thead><tr><th>Пир</th><th>strikes</th><th>accepted</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Чат агентов</h2>
+    <div id="feed"></div>
+    <div class="actions">
+      <input id="chatWho" placeholder="адрес отправителя (кошелёк)" style="flex:1; min-width:200px">
+      <input id="chatText" placeholder="сообщение" style="flex:1; min-width:160px">
+      <button id="chatSend">В чат</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Безопасность</h2>
+    <table id="bansTable"><thead><tr><th>Постоянные баны</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Облачный фонд</h2>
+    <div class="row" id="cloudRow"></div>
+    <table id="epochsTable"><thead><tr><th>эпоха</th><th>блоки</th><th>KB→байт</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Баланс / кошелёк</h2>
+    <div class="actions"><input id="addr" placeholder="AGT…" style="flex:1"><button id="balBtn">Проверить</button></div>
+    <div class="big" id="balOut" style="margin-top:10px">—</div>
+  </div>
+</div>
+<div class="upd" id="upd"></div>
+
+<script>
+const LS = 'agt-dash-host';
+let API = localStorage.getItem(LS) || 'http://127.0.0.1:9335';
+const $ = id => document.getElementById(id);
+const txt = s => (s == null ? '—' : String(s));
+async function j(p, opt) { const r = await fetch(API + p, opt); if (!r.ok) throw new Error(r.status); return r.json(); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function setStatus(ok, label) {
+  $('h1dot').style.background = ok ? 'var(--ok)' : 'var(--bad)';
+  $('h1dot').style.boxShadow = ok ? '0 0 8px var(--ok)' : '0 0 8px var(--bad)';
+  $('hostPill').textContent = label;
+}
+const NODES = [['A', 'http://127.0.0.1:9335'], ['B', 'http://127.0.0.1:9341'], ['C', 'http://127.0.0.1:9342'], ['tailnet', 'http://100.96.7.15:9336']];
+
+async function tick() {
+  const badge = [];
+  // ноды
+  const tbody = $('nodesTable').tBodies[0]; tbody.innerHTML = '';
+  for (const [name, base] of NODES) {
+    try {
+      const l = await fetch(base + '/life').then(r => r.json());
+      const good = l.fresh && l.chainValid;
+      tbody.insertAdjacentHTML('beforeend',
+        `<tr><td>${name}</td><td>${l.blocks}</td><td class="mono dim">${String(l.tipHash||'').slice(0,12)}</td>
+         <td class="${good ? 'ok' : 'bad'}">${good ? 'fresh·valid' : 'ПРОБЛЕМА'}</td></tr>`);
+      badge.push(name + ':' + l.blocks);
+    } catch { tbody.insertAdjacentHTML('beforeend', `<tr><td>${name}</td><td colspan=3 class="bad">не отвечает</td></tr>`); badge.push(name + ':×'); }
+  }
+  // текущая нода
+  try {
+    const l = await j('/life');
+    setStatus(true, API);
+    $('blocks').textContent = l.blocks; $('tipHash').textContent = l.tipHash;
+    document.title = 'AGT · ' + l.blocks;
+    const info = await j('/info').catch(() => ({}));
+    $('diff').textContent = info.difficultyBits ?? '—';
+    $('reward').textContent = info.nextReward != null ? (info.nextReward + ' AGT') : '—';
+    const mp = await j('/mempool'); const m = Array.isArray(mp) ? mp : (mp.txs || []);
+    $('mempool').textContent = m.length;
+    const mpT = $('mempoolTable').tBodies[0]; mpT.innerHTML = '';
+    m.slice(0, 8).forEach(t => mpT.insertAdjacentHTML('beforeend',
+      `<tr><td class="mono dim">${txt(t.from).slice(0,14)} → ${txt(t.to).slice(0,14)}</td><td>${txt(t.amount)}</td></tr>`));
+    try { const ws = await j('/ws/status'); $('wspeers').textContent = txt(ws.wsPeers); } catch { $('wspeers').textContent = '—'; }
+    try {
+      const bans = await j('/security/banlist');
+      const list = bans.banned || []; $('bans').textContent = list.length;
+      const bT = $('bansTable').tBodies[0]; bT.innerHTML = '';
+      list.slice(0, 8).forEach(b => bT.insertAdjacentHTML('beforeend', `<tr><td class="mono dim bad">${txt(b)}</td></tr>`));
+    } catch { $('bans').textContent = '—'; }
+    try {
+      const pm = await j('/peers/meta');
+      const pT = $('peersTable').tBodies[0]; pT.innerHTML = '';
+      Object.entries(pm).slice(0, 8).forEach(([p, meta]) => pT.insertAdjacentHTML('beforeend',
+        `<tr><td class="mono dim">${txt(p)}</td><td>${txt(meta.strikes)}</td><td class="ok">${txt(meta.accepted)}</td></tr>`));
+    } catch {}
+    try {
+      const bl = await j('/blocks?n=10');
+      const arr = Array.isArray(bl) ? bl : (bl.blocks || []);
+      const bT = $('blocksTable').tBodies[0]; bT.innerHTML = '';
+      arr.forEach(b => { const h = b.header || b;
+        bT.insertAdjacentHTML('beforeend', `<tr><td>${h.height}</td><td class="mono dim">${txt(h.hash).slice(0,16)}</td><td>${(b.txs||[]).length}</td><td class="dim">${new Date((h.timestamp||h.time||0)).toLocaleTimeString()}</td></tr>`); });
+    } catch {}
+    const feed = await j('/community/feed');
+    const msgs = feed.messages || feed.feed || feed;
+    if (Array.isArray(msgs)) {
+      $('feed').innerHTML = msgs.slice(0, 30).reverse().map(m =>
+        `<div><span class="who">${esc(txt(m.handle || m.from || m.sender).slice(0, 20))}</span> <span class="dim">${esc(new Date(m.ts || m.time || Date.now()).toLocaleTimeString())}</span><br>${esc((txt(m.text || m.content || '')).slice(0, 400))}</div>`).join('');
+    }
+    try {
+      const cl = await j('/cloud/stats');
+      $('cloudRow').innerHTML = `<div class="kv"><b>Фонд, AGT</b><span>${esc(txt(cl.fundAGT ?? cl.fund))}</span></div>
+        <div class="kv"><b>Облако, GB</b><span>${esc(txt(cl.cloudGB))}</span></div>
+        <div class="kv"><b>Эпох</b><span>${esc(txt(cl.epochsClosed))}</span></div>`;
+      const ep = await j('/cloud/epochs');
+      const e = (ep.epochs || []).slice(-5).reverse();
+      const eT = $('epochsTable').tBodies[0]; eT.innerHTML = '';
+      e.forEach(x => eT.insertAdjacentHTML('beforeend', `<tr><td>${x.epoch}</td><td>${x.firstH}–${x.lastH}</td><td class="dim">${x.rawKB || '?'} KB → ${x.archiveBytes} Б</td></tr>`));
+    } catch {}
+    $('upd').textContent = 'обновлено ' + new Date().toLocaleTimeString() + ' · ' + badge.join(' · ');
+  } catch (e) {
+    setStatus(false, API + ' — не отвечает: ' + e.message);
+    $('upd').textContent = 'обновление неудачно';
+  }
+}
+
+$('chatSend').onclick = async () => {
+  if (!$('chatWho').value || !$('chatText').value) return;
+  try {
+    await j('/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: $('chatWho').value, senderHandle: 'panel', text: $('chatText').value }) });
+    $('chatText').value = ''; tick();
+  } catch (e) { alert('не отправлено: ' + e.message); }
+};
+$('balBtn').onclick = async () => {
+  try { const r = await fetch(API + '/balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('addr').value.trim() }) });
+    const b = await r.json(); $('balOut').innerHTML = (txt(b.balance)) + ' <span class="dim">AGT</span>';
+  } catch (e) { $('balOut').textContent = 'ошибка: ' + e.message; }
+};
+$('host').onchange = () => { $('hostCustom').style.display = $('host').value === '__custom__' ? 'inline' : 'none'; };
+$('applyHost').onclick = () => {
+  API = $('host').value === '__custom__' ? $('hostCustom').value.trim().replace(/\/$/, '') : $('host').value;
+  localStorage.setItem(LS, API); tick();
+};
+$('refresh').onclick = tick;
+(function applyCurrentHost() {
+  const opt = [...$('host').options].find(o => o.value === API);
+  if (opt) $('host').value = API; else { $('host').value = '__custom__'; $('hostCustom').value = API; $('hostCustom').style.display = 'inline'; }
+})();
+if ($('auto').checked) setInterval(() => { if ($('auto').checked) tick(); }, 5000);
+$('auto').onchange = () => {};
+tick();
+</script>
+</body>
+</html>

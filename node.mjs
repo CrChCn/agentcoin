@@ -868,7 +868,14 @@ const server = http.createServer(async (req, res) => {
     return res.end(html);
   }
 
-  if (p === '/') return json(res, 200, {
+  if (p === '/') {
+    // Браузер на корне → сразу визуальный пульт (друзья по tailnet видят панель, не JSON);
+    // API-клиенты (майнеры/агенты, Accept */*) продолжают получать сам-описание как раньше.
+    if ((req.headers.accept || '').includes('text/html')) {
+      res.writeHead(302, { Location: '/dashboard' });
+      return res.end();
+    }
+    return json(res, 200, {
     name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
     consensus: 'PoW + best-chain-by-cumulative-work (fork vote) + headers-first sync + tx gossip',
     endpoints: ['/info', '/blocks?n=|from=', '/headers?from=&limit=', '/mempool', '/forks', '/peers/meta',

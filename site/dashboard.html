@@ -138,7 +138,10 @@
 
 <script>
 const LS = 'agt-dash-host';
-let API = localStorage.getItem(LS) || 'http://127.0.0.1:9335';
+// По умолчанию — та нода, с которой открыта страница (location.origin),
+// так что пульт на tailnet-адресе (например http://100.96.7.15:9336/dashboard)
+// сразу работает без переключателя.
+let API = localStorage.getItem(LS) || location.origin;
 const $ = id => document.getElementById(id);
 const txt = s => (s == null ? '—' : String(s));
 async function j(p, opt) { const r = await fetch(API + p, opt); if (!r.ok) throw new Error(r.status); return r.json(); }
@@ -149,7 +152,12 @@ function setStatus(ok, label) {
   $('h1dot').style.boxShadow = ok ? '0 0 8px var(--ok)' : '0 0 8px var(--bad)';
   $('hostPill').textContent = label;
 }
-const NODES = [['A', 'http://127.0.0.1:9335'], ['B', 'http://127.0.0.1:9341'], ['C', 'http://127.0.0.1:9342'], ['tailnet', 'http://100.96.7.15:9336']];
+// На удалённом (tailnet) хосте localhost-ноды A/B/C принадлежат машине ОПЕРАТОРА —
+// наблюдатель их не видит: показывает только доступную в контексте ноду.
+const isTailnetView = !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const NODES = isTailnetView
+  ? [[(location.port || '') === '9336' ? 'tailnet 9336 (host)' : 'та нода', location.origin]]
+  : [['A', 'http://127.0.0.1:9335'], ['B', 'http://127.0.0.1:9341'], ['C', 'http://127.0.0.1:9342'], ['tailnet', 'http://100.96.7.15:9336']];
 
 async function tick() {
   const badge = [];

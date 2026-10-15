@@ -245,6 +245,15 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // --- репутация пиров (strikes) + архив развилок ---
   if (p === '/peers/meta') return json(res, 200, peerMetaStatus());
+  // AGIP-1: официальный стартовый список пиров (bootstrap.json из репо) + живые peers ноды
+  if (p === '/peers/bootstrap') {
+    let boot = [];
+    try {
+      const f = JSON.parse(fs.readFileSync(path.join(__dirname, 'bootstrap.json'), 'utf8'));
+      boot = Array.isArray(f.bootstrap) ? f.bootstrap : [];
+    } catch { /* файла нет — пусто; положение документировано в AGIP-1 */ }
+    return json(res, 200, { bootstrap: boot, peers: loadPeers(), height: bc.blockCount() });
+  }
   if (p === '/forks') return json(res, 200, { forks: (bc.forks || []).slice(-10).reverse(), tipWork: undefined });
 
   if (p === '/wallet/create' && req.method === 'POST') {

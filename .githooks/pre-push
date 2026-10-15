@@ -1,0 +1,41 @@
+#!/bin/sh
+# pre-push hook: node --check всех tracked .mjs перед отправкой на GitHub.
+# Ловит синтаксические ошибки ЛОКАЛЬНО, чтобы ci.yml на GitHub не краснел.
+# Установка: git config core.hooksPath .githooks  (или положить в .git/hooks/pre-push)
+# Отключить разово: git push --no-verify
+
+# Файлы, затронутые пушем: сравниваем с удалённым main, если доступно; иначе все tracked .mjs
+REMOTE=origin/main
+if git rev-parse --verify $REMOTE >/dev/null 2>&1; then
+  RANGE="$REMOTE..HEAD"
+else
+  RANGE="HEAD"
+fi
+
+FILES=$(git diff --name-only --diff-filter=ACMR $RANGE -- '*.mjs' 2>/dev/null)
+if [ -z "$FILES" ]; then
+  # пуш может быть force/первым — проверяем все tracked .mjs
+  FILES=$(git ls-files '*.mjs')
+fi
+
+FAILED=0
+for f in $FILES; do
+  if [ -f "$f" ]; then
+    OUT=$(node --check "$f" 2>&1)
+    if [ $? -ne 0 ]; then
+      echo "SYNTAX FAIL: $f" >&2
+      echo "$OUT" | head -5 >&2
+      FAILED=1
+    fi
+  fi
+done
+
+if [ $FAILED -ne 0 ]; then
+  echo ""
+  echo "✘ pre-push: синтаксис не прошёл — пуш отменён."
+  echo "  Почини файлы выше или отправь принудительно: git push --no-verify"
+  exit 1
+fi
+
+echo "✔ pre-push: node --check OK ($(echo "$FILES" | grep -c . ) файлов)"
+exit 0

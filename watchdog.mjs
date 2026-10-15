@@ -42,11 +42,17 @@ function probe(url) {
 }
 
 function launchWrapper(wrapper) {
+  // ТЗ-1 (аудит 2026-10-15): токен охраны деструктивных POST читаем из gitignored-файла
+  // и пробрасываем в env ноды (работает и для обёрток, которые нельзя править прямоН и
+  // и для будущих рестартов watchdog-ом). Без файла — env не трогаем, охрана неактивна.
+  let adminToken = null;
+  try { adminToken = fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch { adminToken = null; }
   return new Promise((resolve) => {
     const cmd = process.platform === 'win32'
       ? `cmd /c "${wrapper}"`
       : wrapper;
-    exec(cmd, { cwd: __dirname, windowsHide: true }, () => resolve());
+    const env = adminToken ? { ...process.env, AGT_ADMIN_TOKEN: adminToken } : process.env;
+    exec(cmd, { cwd: __dirname, windowsHide: true, env }, () => resolve());
   });
 }
 

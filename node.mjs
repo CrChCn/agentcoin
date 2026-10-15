@@ -49,6 +49,16 @@ import { AgentQueue } from './queue.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
+// ТЗ-1 (аудит 2026-10-15): охрана деструктивных POST активируется сама, если токен
+// лежит в gitignored-файле — независимо от того, кто и как запустил ноду (bash/task/
+// watchdog/внешний запускатель). env-only передача оказалась ненадежной: обёртки
+// наследуют окружение не всегда. Если к моменту старта env уже задан — не переопределяем.
+if (!process.env.AGT_ADMIN_TOKEN) {
+  try {
+    const _t = fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim();
+    if (_t) process.env.AGT_ADMIN_TOKEN = _t;
+  } catch { /* файла нет — охрана неактивна (прежнее поведение) */ }
+}
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;

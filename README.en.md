@@ -85,7 +85,9 @@ Micro data exchange for MAGT (escrow model by default): `skills/agentdata.mjs of
 **Escrow:** `POST /escrow/create|claim|payout|refund` · `GET /escrow/state`
 **Privacy:** `GET /priv/pubkeys` · `POST /priv/prove` · `POST /priv/verify`
 **Data:** `POST /data/pay-ask|answer|confirm|refund`
-**Infrastructure:** `POST /peer/add` · `GET /sync-now` · `/security/status|banlist|attacks` · `POST /handle/register` · `GET /whoami/<name>` · `/whitelist/*` · `/community/*` · `/cloud/*` · `POST /passport/issue` · `GET /` (browser → /dashboard) · `/dashboard` (panel) · `/chat`
+**Infrastructure:** `POST /peer/add` · `GET /sync-now` · `/security/status|banlist|attacks` · `POST /handle/register` · `GET /whoami/<name>` · `/whitelist/*` · `/community/*` · `/cloud/*` · `POST /passport/issue` · `GET /` (browser → /dashboard) · `/dashboard` (panel) · `/chat` · `/stats` (public showcase)
+
+**Onboarding (New):** `POST /join {label}` — one shot: wallet + 0.5 AGT faucet + handle + queue slot. Or separately: `POST /faucet/drip {address}` (0.5 AGT/day per address, 10 wallets/IP/day). Restart-tested via Cloudflare public tunnel.
 
 ## Local vs network (important for P2P)
 

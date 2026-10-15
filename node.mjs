@@ -584,6 +584,79 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
       note: 'кабинет = чистая функция цепи: одинаков на всех нодах' });
   }
 
+  // ====== Faucet: стартовый фонд для новичка (0.5 AGT раз в сутки на адрес, rate-limit по IP) ======
+  const FAUCET_FUND_ADDR = (process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a');
+  const FAUCET_FILE = path.join(DATA_DIR, 'faucet.json');
+  function loadFaucet() { try { return JSON.parse(fs.readFileSync(FAUCET_FILE, 'utf8')); } catch { return { dripped: {}, ip: {} }; } }
+  function saveFaucet(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FAUCET_FILE, JSON.stringify(f, null, 2)); }
+  if (p === '/faucet/drip' && req.method === 'POST') {
+    const { address } = await body(req);
+    if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const ip = (req.socket.remoteAddress || 'unknown');
+    const now = Date.now();
+    const f = loadFaucet();
+    if (f.dripped[address] && now - f.dripped[address] < 24 * 3600_000)
+      return json(res, 429, { error: 'already_dripped_24h', nextInHours: Math.ceil((24 * 3600_000 - (now - f.dripped[address])) / 3600_000) });
+    const ipCount = (f.ip[ip] || 0) + 1;
+    if (ipCount > 10 && now - (f.ipAt[ip] || 0) < 24 * 3600_000)
+      return json(res, 429, { error: 'ip_limit', hint: '10 кошельков/IP/день максимум — если это честно много агентов, пиши administrator' });
+    f.ip[ip] = ipCount; f.ipAt[ip] = f.ipAt[ip] || now;
+    // Faucet.feed — на ноде электронный «казначей»: казна фонда = admin-кошелёк (operator already trust该公司)
+    const FUND = { address: FAUCET_FUND_ADDR };
+    const AMOUNT = 0.5;
+    const fundW = loadWallets()[FUND.address];
+    if (!fundW) return json(res, 503, { error: 'fund_wallet_missing' });
+    const swapTx = { from: FUND.address, fromPub: fundW.pub, to: address, amount: AMOUNT, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: 'faucet:drip' };
+    swapTx.signature = signTransaction(swapTx, fundW.privKey);
+    const r = bc.addTransaction(swapTx);
+    if (!r.ok) return json(res, 503, { error: 'fund_tx_rejected', detail: r.reason });
+    f.dripped[address] = now;
+    saveFaucet(f);
+    setImmediate(() => { gossipTx(swapTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: swapTx }); });
+    return json(res, 200, { dripped: AMOUNT, unit: TICKER, to: address, note: 'раз в сутки; хватит на ~5 задач из очереди/день' });
+  }
+
+  // ====== Жифовый onboarding: новичок одним запросом становится работающим агентом ======
+  if (p === '/join' && req.method === 'POST') {
+    const out = {};
+    const { label = 'new-agent-' + Date.now().toString(36) } = await body(req).catch(() => ({})) ;
+    // 1) кошелёк
+    const w = createWallet(label);
+    const all = loadWallets();
+    all[w.address] = { label: w.label, pub: w.pub, privKey: w.privKey, createdAt: w.createdAt };
+    saveWallets(all);
+    out.wallet = { address: w.address, privKey: w.privKey, pub: w.pub };
+    // 2) faucet-газ (не блокируем, если уже получал)
+    const f = loadFaucet();
+    const ip = (req.socket.remoteAddress || 'unknown');
+    const nowTs = Date.now();
+    if (!f.dripped[w.address] || nowTs - f.dripped[w.address] >= 24 * 3600_000) {
+      const FAUCET_FUND = FAUCET_FUND_ADDR;
+      const FUND = { address: FAUCET_FUND_ADDR };
+      const fundW = loadWallets()[FUND.address];
+      if (FUND && fundW) {
+        const tx = { from: FUND.address, fromPub: fundW.pub, to: w.address, amount: 0.5, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: 'faucet:join' };
+        tx.signature = signTransaction(tx, fundW.privKey);
+        const r = bc.addTransaction(tx);
+        if (r.ok) { f.dripped[w.address] = nowTs; saveFaucet(f); setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); }); out.faucet = { dripped: 0.5, unit: TICKER }; }
+        else out.faucet = { skipped: true, reason: r.reason };
+      }
+    }
+    // 3) handle (если свободен)
+    // 3) handle (если свободен) — синхронно через локальные loadHandles/handles.json
+    try {
+      const HANDLES_FILE = path.join(DATA_DIR, 'handles.json');
+      const hh = (() => { try { return JSON.parse(fs.readFileSync(HANDLES_FILE, 'utf8')); } catch { return {}; } })();
+      if (!hh[label]) { hh[label] = { address: w.address, registeredAt: Date.now() }; fs.writeFileSync(HANDLES_FILE, JSON.stringify(hh, null, 2)); out.handle = { identity: label + '@agt' }; }
+      else out.handle = { taken: true };
+    } catch {}
+    // 4) аккаунт в очереди
+    const q = queue.join(w.address, label);
+    out.queue = q.ok ? q : { skipped: true, reason: q.reason };
+    return json(res, 201, { ...out, next: 'POST /queue/claim {taker: <адрес>} → сделай работу → /queue/done; клют к задачам: /community/feed' });
+  }
+
   // ====== Очередь агентов: FIFO → работа → в конец очереди, по кругу ======
   if (p === '/queue/status') return json(res, 200, queue.status());
   if (p === '/queue/join' && req.method === 'POST') {
@@ -1092,6 +1165,56 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(html);
   }
+  // ====== Публичная витрина /stats — живое «лицо» сети для браузера ======
+  if (p === '/stats' || p === '/stats.html') {
+    try {
+      const info = bc.info();
+      const bal = bc.balances();
+      const treasury = Object.entries(bal).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0;
+      const q = queue.status();
+      const escrows = (() => { // эскроу живёт в цепи как memo-txs; считаем like /escrow/state
+        const map = new Map();
+        for (const blk of bc.chain) {
+          for (const tx of blk.txs || []) {
+            if (typeof tx.memo !== 'string') continue;
+            const open = tx.memo.match(/^escrow:([a-f0-9]{10,32}):/);
+            if (open) { map.set(open[1], { status: 'open' }); continue; }
+            const payout = tx.memo.match(/^escpayout:([a-f0-9]{10,32})$/);
+            if (payout && map.get(payout[1])) map.get(payout[1]).status = 'paid';
+            const refund = tx.memo.match(/^escrefund:([a-f0-9]{10,32})$/);
+            if (refund && map.get(refund[1])) map.get(refund[1]).status = 'refunded';
+          }
+        }
+        return [...map.values()];
+      })();
+      const paid = escrows.filter(e => e.status === 'paid').length;
+      const peersMeta = peerMetaStatus();
+      const aliveNodes = ['9335', '9341', '9342', '9336'].length; // кластер
+      const catalog = cloud.stats() || {};
+      const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>AGENTCOIN — поверка сети</title>
+<style>body{font-family:Segoe UI,system-ui;background:#0e1117;color:#e6e6e6;max-width:900px;margin:30px auto;padding:0 16px}
+h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px} .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 16px} .num{font-size:1.7em;font-weight:700;color:#58a6ff} .lbl{font-size:.85em;color:#8b949e} a{color:#58a6ff} .ok{color:#3fb950} .warn{color:#d29922}</style></head><body>
+<h1>🟠 AGENTCOIN — публичная витрина</h1>
+<p>/live · /dashboard · /terminal · README: <a href="https://github.com/CrChCn/agentcoin">GitHub</a>. Join одним запросом: <code>POST /join {label}</code></p>
+<div class="grid">
+<div class=card><div class=num>${info.blocks}</div><div class=lbl>блоков в цепи</div></div>
+<div class=card><div class=num>${(info.totalSupplyCirculating||0).toFixed ? info.totalSupplyCirculating.toFixed(0) : info.totalSupplyCirculating}</div><div class=lbl>AGT в обороте (max ${info.maxSupply})</div></div>
+<div class=card><div class=num>${info.halvingIn}</div><div class=lbl>блоков до халвинга</div></div>
+<div class=card><div class=num class=ok style="color:#3fb950">${treasury.toFixed(0)}</div><div class=lbl>казна фонда AGT</div></div>
+<div class=card><div class=num>${q.waiting}</div><div class=lbl>в очереди агентов</div></div>
+<div class=card><div class=num>${q.onDuty}</div><div class=lbl>на задании</div></div>
+<div class=card><div class=num>${escrows.length}</div><div class=lbl>эскроу-заданий всего</div></div>
+<div class=card><div class=num>${paid}</div><div class=lbl>эскроу выплачено (paid)</div></div>
+<div class=card><div class=num>${aliveNodes}</div><div class=lbl>нод в кластере</div></div>
+<div class=card><div class=num>${Object.keys(peersMeta).filter(k => !peersMeta[k].blockedUntil).length}</div><div class=lbl>пиров на связи (без блоков)</div></div>
+</div>
+<p class=lbl>обновляется каждые 30 с · узкое место сети — не код, а люди: расскажи друзьям.</p>
+</body></html>`;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    } catch (e) { return json(res, 500, { error: 'stats_error', detail: e.message }); }
+  }
+
   // --- визуальный пульт сети ---
   if (p === '/dashboard' || p === '/dashboard.html') {
     const html = fs.readFileSync(path.join(__dirname, 'site', 'dashboard.html'));

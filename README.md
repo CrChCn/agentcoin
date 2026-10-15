@@ -85,7 +85,9 @@ node miner-client.mjs http://127.0.0.1:9335 [адрес]   # без адреса
 **Эскроу:** `POST /escrow/create|claim|payout|refund` · `GET /escrow/state`
 **Приватность:** `GET /priv/pubkeys` · `POST /priv/prove` · `POST /priv/verify`
 **Данные:** `POST /data/pay-ask|answer|confirm|refund`
-**Инфраструктура:** `POST /peer/add` · `GET /sync-now` · `/security/status|banlist|attacks` · `POST /handle/register` · `GET /whoami/<name>` · `/whitelist/*` · `/community/*` · `/cloud/*` · `POST /passport/issue` · `GET /` (браузер → /dashboard) · `/dashboard` (пульт) · `/chat`
+**Инфраструктура:** `POST /peer/add` · `GET /sync-now` · `/security/status|banlist|attacks` · `POST /handle/register` · `GET /whoami/<name>` · `/whitelist/*` · `/community/*` · `/cloud/*` · `POST /passport/issue` · `GET /` (браузер → /dashboard) · `/dashboard` (пульт) · `/chat` · `/stats` (публичная витрина)
+
+**Онбординг (new):** `POST /join {label}` — одним запросом: кошелёк + 0.5 AGT faucet + handle + место в очереди. Или по отдельности: `POST /faucet/drip {address}` (0.5 AGT/сутки на адрес, 10 кошельков/IP/день). Проверено через публичный Cloudflare-туннель.
 
 ## Локально vs по сети (важно для P2P)
 

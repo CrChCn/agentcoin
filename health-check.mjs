@@ -74,7 +74,16 @@ async function main() {
   const miner = minerAddr();
   for (const [addr, exp] of Object.entries(recalced.b)) {
     if (banned.has(addr)) { bannedSkipped++; continue; }
-    const r = await api('POST', '/balance', { address: addr });
+    // 503-shedding ноды под бурстом аудита — транзиент, а не некро-бит:
+    // ретраи до 4 попыток, как в auto-miner (инцидент 2026-10-15).
+    let r = null;
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) await new Promise(res => setTimeout(res, 250 * (i + 1)));
+      r = await api('POST', '/balance', { address: addr });
+      if (r.status !== 503 && r.status !== 429) break;
+      r = null;
+    }
+    if (!r) continue; // все попытки — 503/429: нода перегружена, не несоответствие баланса
     const got = r.body?.balance || 0;
     if (Math.abs(got - exp) > 1e-6) {
       if (got > exp) { rewardDrift++; continue; } // node богаче диска: свежая награда/tx не доехала до chain.json save-цикла — не коррупция

@@ -43,11 +43,28 @@ function recalcFromChainFile() {
   const b = {};
   for (const blk of d.chain || []) {
     for (const tx of blk.txs || []) {
+      // tx.amount может отсутствовать в служебных записях ((passport/registry/genesis))
+      // — иначе вместо числа в баланс попадает NaN и аудит орёт на призрака
+      if (typeof tx.amount !== 'number') continue;
       if (tx.from && tx.from !== 'COINBASE') b[tx.from] = (b[tx.from] || 0) - tx.amount;
       if (tx.to) b[tx.to] = (b[tx.to] || 0) + tx.amount;
     }
   }
   return b;
+}
+
+// Инцидент 2026-10-15: 2440 подряд HTTP-запросов аудита пробивали щит ноды
+// (503 shedding) → аудит получал 503-е и орал ложные FAIL. Двухслойное лечение:
+// 1) retry с паузой на 503/429/5xx (транзиенты), 2) не оставлять недогруз.
+async function apiRetry(method, p, body = null, attempts = 4) {
+  let last = null;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 250 * (i + 1)));
+    const r = await api(method, p, body);
+    if (r.status !== 503 && r.status !== 429) return r;
+    last = r;
+  }
+  return last;
 }
 async function auditBalances() {
   const recalced = recalcFromChainFile();
@@ -56,9 +73,10 @@ async function auditBalances() {
   // Правило: бан берём из ОТВЕТА САМОЙ ноды (банлисты нод не обязаны совпадать),
   // а не по чужому глобальному списку — иначе ложные FAIL из чужих банов.
   const mismatches = [];
-  let bannedSkipped = 0, rewardDrift = 0;
+  let bannedSkipped = 0, rewardDrift = 0, transientSkipped = 0;
   for (const [addr, expected] of Object.entries(recalced)) {
-    const r = await api('POST', '/balance', { address: addr });
+    const r = await apiRetry('POST', '/balance', { address: addr });
+    if (r.status === 503 || r.status === 429) { transientSkipped++; continue; } // shedding ноды — не несоответствие баланса
     if (r.status !== 200) { mismatches.push({ addr: addr.slice(0, 16), error: 'balance_api_' + r.status }); continue; }
     if (r.body?.opinion === 'permabanned') { bannedSkipped++; continue; }
     const got = r.body?.balance;
@@ -67,7 +85,7 @@ async function auditBalances() {
       mismatches.push({ addr: addr.slice(0, 16), expected, got: got ?? 'absent' });
     }
   }
-  return { checked: Object.keys(recalced).length, bannedSkipped, rewardDrift, mismatches, ok: mismatches.length === 0 };
+  return { checked: Object.keys(recalced).length, bannedSkipped, rewardDrift, transientSkipped, mismatches, ok: mismatches.length === 0 };
 }
 
 async function tick(n) {

@@ -541,6 +541,30 @@ export function txDigest(tx) {
   return sha256d(JSON.stringify({ from: tx.from, to: tx.to, amount: tx.amount, nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' }));
 }
 
+// AGT-адрес из публичного ключа (SPKI PEM) — зеркалит createWallet; нужен для
+// проверки второй подписи казны (sig2Pub должен разворачиваться в-approved signer)
+export function addressFromPub(pub) {
+  const pubHash = sha256d(pub);
+  const checksum = sha256d(pubHash).slice(0, 8);
+  return 'AGT' + pubHash.slice(0, 32) + checksum;
+}
+
+// ==== AGIP-4 (шаг 12): мультисиг казны 2-of-3 ====
+// tx от активной казны требует вторую подпись от одного из policy.signers:
+// tx.sig2 (hex ed25519 над тем же digest) + tx.sig2Pub; sig2Pub должен разворачиваться
+// в адрес одного из доверенных (add желания: ключ казны через fromPub уже учтён как 1-й подписант)
+// policy = { treasury, signers:[addr2,addr3], requires:2 } | null; policy=null → ничего не требует.
+export function verifySecondSig(tx, policy, addressOf = addressFromPub) {
+  if (!policy || !policy.treasury || tx.from !== policy.treasury) return true; // не казна — проверка не применяется
+  if (typeof tx.sig2 !== 'string' || typeof tx.sig2Pub !== 'string' || !tx.sig2 || !tx.sig2Pub) return false;
+  const addr = typeof addressOf === 'function' ? addressOf(tx.sig2Pub) : null;
+  if (!addr || !(policy.signers || []).includes(addr)) return false;  // подписант не из доверенных
+  if (tx.sig2Pub === tx.fromPub) return false;                        // два разных ключа (2-of-3, не «двойной клик»)
+  try {
+    return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), tx.sig2Pub, Buffer.from(tx.sig2, 'hex'));
+  } catch { return false; }
+}
+
 export function signTransaction(tx, privKey) {
   const sig = crypto.sign(null, Buffer.from(txDigest(tx), 'hex'), privKey);
   return sig.toString('hex');
@@ -587,7 +611,7 @@ export function expectedDifficultyBits(chain) {
 // Возвращает null если блок валиден, иначе строку-причину отказа.
 // Проверяет: высоту, prevHash, hash, PoW, ПРАВИЛО СЛОЖНОСТИ, merkle,
 // coinbase (наличие + без инфляции мимо blockReward).
-export function validateBlockAgainstChain(block, chain) {
+export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (!block || !block.header || !Array.isArray(block.txs)) return 'bad_block_shape';
   if (typeof block.height !== 'number' || block.height !== chain.length) return 'height_mismatch';
   if (block.height === 0) return 'genesis_redefined'; // генезис не принимается по сети
@@ -606,6 +630,9 @@ export function validateBlockAgainstChain(block, chain) {
     if (tx.from === 'COINBASE' || tx.from === 'AGENT_REWARD_POOL') continue;
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
     if (!verifyTxAny(tx, chain)) return 'tx_bad_signature_or_escrow';
+    // AGIP-4: tx из активной казны требует вторую подпись (opts.treasury инжектится нодой;
+    // без передачи политика не проверяется — старые вызовы/pированные цепи ведут себя как раньше)
+    if (opts.treasury && !verifySecondSig(tx, opts.treasury)) return 'tx_treasury_needs_2sig';
   }
   return null;
 }
@@ -619,6 +646,8 @@ export class Blockchain {
     this.forks = [];   // архив вытесненных/отклонённых развилок (best-chain выбор)
     this._chainTxidCache = null; // ленивая память txid'ов всех блоков (anti-replay)
     this.history = [];
+    // AGIP-4: инжектится нодой (treasury.mjs); null = политика казны не проверяется
+    this.treasuryPolicyFn = null;
     this.security = new SecurityController(dataDir);
     this.whitelist = new WhiteList(dataDir, this.security);
     this.gateways = new Gateways(dataDir, this.security);
@@ -660,6 +689,9 @@ export class Blockchain {
     return this._chainTxidCache;
   }
   invalidateTxCache() { this._chainTxidCache = null; }
+
+  // AGIP-4: активная политика казны (кэш внутри treasury.mjs.makeTreasuryPolicyFn)
+  getTreasuryPolicy() { return this.treasuryPolicyFn ? this.treasuryPolicyFn() : null; }
 
   // Валидные к упаковке tx (устаревшие после re-org/синков дропаем):
   // бюджет = баланс на цепи − уже принятые в пачке расходы; подпись проверяем ещё раз.
@@ -716,7 +748,7 @@ export class Blockchain {
     if (candWork <= ourWork) return { ok: false, reason: 'fork_not_heavier', ourWork, candWork };
     const prefix = this.chain.slice(0, d);
     for (let i = 0; i < blocks.length; i++) {
-      const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)));
+      const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)), { treasury: this.getTreasuryPolicy() });
       if (reason) return { ok: false, reason: `block@${blocks[i].height}: ${reason}` };
     }
     // архивируем вытесненный хвост (аудит: ничего не молча удаляется)
@@ -819,6 +851,9 @@ export class Blockchain {
       const escCheck = verifyEscrowTx(tx, this.chain);
       return { ok: false, reason: 'escrow_tx_invalid', detail: String(escCheck?.reason || '') };
     }
+    // AGIP-4: tx из активной казны — обязательна вторая подпись (2-of-3),
+    // до push в mempool; отклонение — «treasury_needs_2sig», без бан-эскалации
+    if (!verifySecondSig(tx, this.getTreasuryPolicy())) return { ok: false, reason: 'treasury_needs_2sig' };
     this.mempool.push(tx);
     this.saveMempool();
     return { ok: true, mempoolSize: this.mempool.length };
@@ -907,7 +942,7 @@ export class Blockchain {
   // фиктивные транзакции (minting-баг).
   commitMinedBlock(header, hash, txs, minerAddress, ms) {
     const block = { height: this.blockCount(), hash, header, txs: txs || [], minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
-    const reason = validateBlockAgainstChain(block, this.chain);
+    const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy() });
     if (reason) return { rejected: reason, block };
     this.chain.push(block);
     // убрать из мемпула всё, что упаковано, остальное — refilter

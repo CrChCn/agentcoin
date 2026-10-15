@@ -46,6 +46,7 @@ import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
+import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,8 @@ const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
 
 const bc = new Blockchain(DATA_DIR);
+// AGIP-4: активная политика казны (ончейн-мемо) — детерминирована цепью, кэшируется по высоте
+bc.treasuryPolicyFn = makeTreasuryPolicyFn(bc);
 const queue = new AgentQueue(DATA_DIR); // очередь агентов: FIFO → работа → в конец очереди, по кругу
 const chat = new CommunityChat(DATA_DIR, bc.security);
 const cloud = new CloudLedger(DATA_DIR);
@@ -474,7 +477,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // Охрана: если задан AGT_ADMIN_TOKEN — деструктивные POST требуют заголовок x-admin-token.
   // Без env-флага сеть продолжает работать как раньше (совместимость не ломаем).
   const REQUIRES_ADMIN = req.method === 'POST' &&
-    ['/security/unban', '/peer/add', '/peer/remove'].includes(p);
+    ['/security/unban', '/peer/add', '/peer/remove', '/treasury/propose'].includes(p);
   if (REQUIRES_ADMIN && process.env.AGT_ADMIN_TOKEN) {
     const ok = req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
     if (!ok) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
@@ -643,12 +646,32 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/gov/vote' && req.method === 'POST') {
     const { voter, ref, choice } = await body(req);
     if (!voter || !ref || !['yes', 'no', 'abstain'].includes(String(choice))) return json(res, 400, { error: 'voter,ref,choice(yes|no|abstain) required' });
-    const prop = govState(bc).proposals.find(x => x.ref === ref);
+    const prop = govState(bc).proposals.find(x => x.ref === ref)
+      || treasuryState(bc).proposals.find(x => x.ref === ref); // AGIP-4: голоса за казну — та же gov-схема
     if (!prop) return json(res, 404, { error: 'proposal_not_found_in_chain' });
     if (prop.closed) return json(res, 409, { error: 'voting_closed', closesAt: prop.closesAt });
     const r = await postSignedTx(res, { fromAddress: voter, to: voter, amount: DXE_MEMO_FEE, memo: `gov|V|${ref}|${choice}` });
     if (!r) return;
     return json(res, 201, { ...r, ref, choice, note: 'один адрес — один голос (первый фиксируется)' });
+  }
+
+  // ===== AGIP-4 (шаг 12): ончейн-мультисиг казна 2-of-3 =====
+  if (p === '/treasury/state') {
+    const st = treasuryState(bc);
+    return json(res, 200, { ...st, note: 'policy — активный passed-пропозал trs|K; tx из казны требует 2 подписей (sig2 + sig2Pub от одного из signers)' });
+  }
+  if (p === '/treasury/propose' && req.method === 'POST') {
+    const { fromAddress, treasury, signer2, signer3, blocks = 200 } = await body(req);
+    const A = (x) => /^AGT[A-Za-z0-9]+$/.test(String(x || ''));
+    if (!A(treasury) || !A(signer2) || !A(signer3)) return json(res, 400, { error: 'treasury,signer2,signer3 — валидные AGT-адреса' });
+    if (new Set([treasury, signer2, signer3]).size !== 3) return json(res, 400, { error: 'адреса казны и доверенных должны различаться' });
+    const closesAt = bc.blockCount() + Math.max(10, Math.min(Number(blocks), 5000));
+    const ref = govRef();
+    const memo = `trs|K|${ref}|${treasury}|${signer2}|${signer3}|${closesAt}`;
+    // self-tx (to == from) с memo — деньги возвращаются отправителю, платится депозит DXE_MEMO_FEE (как у gov)
+    const r = await postSignedTx(res, { fromAddress: fromAddress || treasury, to: fromAddress || treasury, amount: DXE_MEMO_FEE, memo });
+    if (!r) return;
+    return json(res, 201, { ...r, ref, closesAt, treasury, signers: [signer2, signer3], hint: 'голоса — штатная gov-схема: POST /gov/vote {voter, ref, choice}' });
   }
 
   // ================= Кабинет агента: всё о моём адресе из цепи =================
@@ -1374,7 +1397,7 @@ hub.attachServer(server, SELF_URL, {
         setImmediate(() => { syncAll(bc).catch(() => {}); });
         return;
       }
-      const reason = validateBlockAgainstChain(blk, bc.chain);
+      const reason = validateBlockAgainstChain(blk, bc.chain, { treasury: bc.getTreasuryPolicy() });
       if (reason) { console.log(`[ws] блок ${blk.height} от ${peer.theirUrl} отвергнут: ${reason}`); return; }
       applyBlockFast(bc, blk);
       console.log(`[ws] блок ${blk.height} принят от ${peer.theirUrl}`);
@@ -1419,7 +1442,7 @@ const hubMsgHandlers = {
         setImmediate(() => { syncAll(bc).catch(() => {}); });
         return;
       }
-      const reason = validateBlockAgainstChain(blk, bc.chain);
+      const reason = validateBlockAgainstChain(blk, bc.chain, { treasury: bc.getTreasuryPolicy() });
       if (reason) { console.log(`[ws] блок ${blk.height} отвергнут: ${reason}`); return; }
       applyBlockFast(bc, blk);
       console.log(`[ws] блок ${blk.height} принят от ${peer.theirUrl}`);

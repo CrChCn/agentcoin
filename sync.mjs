@@ -214,7 +214,7 @@ export async function syncOne(bc, peerUrl) {
       // дешёвая (headers-only) проверка уже была; здесь — полная, против нарастающего префикса
       const known = headers && headers.find(hd => hd.height === blk.height);
       if (known && known.hash !== blk.hash) { log.push(`  → hash заголовка/тела расходится на ${blk.height}`); peerStrike(peerUrl, `header/body hash divergence at ${blk.height}`); return log; }
-      const reason = validateBlockAgainstChain(blk, interim);
+      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy() });
       if (reason) {
         log.push(`  → block ${blk.height} REJECTED: ${reason} — плохой блок от пира не примем`);
         peerStrike(peerUrl, `invalid block ${blk.height}: ${reason}`);

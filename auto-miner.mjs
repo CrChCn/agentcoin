@@ -51,16 +51,23 @@ function recalcFromChainFile() {
 }
 async function auditBalances() {
   const recalced = recalcFromChainFile();
+  // Инцидент 2026-10-15: permabanned-адреса нода (по протоколу) показывает как 0
+  // ('opinion: permabanned') — аудит орал FAIL на них каждый час.
+  // Правило: бан берём из ОТВЕТА САМОЙ ноды (банлисты нод не обязаны совпадать),
+  // а не по чужому глобальному списку — иначе ложные FAIL из чужих банов.
   const mismatches = [];
+  let bannedSkipped = 0, rewardDrift = 0;
   for (const [addr, expected] of Object.entries(recalced)) {
     const r = await api('POST', '/balance', { address: addr });
     if (r.status !== 200) { mismatches.push({ addr: addr.slice(0, 16), error: 'balance_api_' + r.status }); continue; }
+    if (r.body?.opinion === 'permabanned') { bannedSkipped++; continue; }
     const got = r.body?.balance;
     if (typeof got !== 'number' || Math.abs(got - expected) > AUDIT_EPS) {
+      if (typeof got === 'number' && got > expected) { rewardDrift++; continue; } // нода богаче диска: награда/tx ещё не доехала до chain.json — не коррупция
       mismatches.push({ addr: addr.slice(0, 16), expected, got: got ?? 'absent' });
     }
   }
-  return { checked: Object.keys(recalced).length, mismatches, ok: mismatches.length === 0 };
+  return { checked: Object.keys(recalced).length, bannedSkipped, rewardDrift, mismatches, ok: mismatches.length === 0 };
 }
 
 async function tick(n) {

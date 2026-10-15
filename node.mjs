@@ -1290,6 +1290,14 @@ if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: �
 server.maxConnections = 256; // OWASP DoS: лишние TCP-соединения отбрасываются
 server.on('drop', (info) => console.log(`[shield] connection dropped: ip ${info.remoteAddress}`));
 server.listen(PORT, BIND); // maxConnections капнут ниже (анти-overload: TCP за пределами порога отбрасывается)
+// Инцидент 2026-10-15: uncaughtException-guard ниже проглатывал EADDRINUSE —
+// дубликат ноды от watchdog-а логировал ошибку и ЖИЛ ВЕЧНО (18 зомби-процессов
+// с таймерами голсипа на один data-каталог → рассинхрон высот и ложные FAIL-аудиты).
+// Ошибка СЛУШАНИЯ = узел бесполезен → жёсткий выход (watchdog поднимет заново).
+server.on('error', (err) => {
+  console.error(`[listen-fatal] ${err.code || ''}: ${err.message} (port ${PORT}, bind ${BIND}) — выходим, watchdog перезапустит`);
+  process.exit(1);
+});
 console.log(`[${new Date().toISOString()}] AGENTCOIN node v2 listening on http://${BIND}:${PORT}`);
 const hubMsgHandlers = {
   onBlock: (msg, peer) => {

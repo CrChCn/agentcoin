@@ -133,7 +133,23 @@ let API = localStorage.getItem(LS) || location.origin;
 const $ = id => document.getElementById(id);
 const txt = s => s == null ? '—' : String(s);
 const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
-async function j(p, opt){ const r = await fetch(API + p, { ...opt, headers:{'Content-Type':'application/json',...(opt&&opt.headers||{})} }); if (!r.ok) throw new Error(r.status); return r.json(); }
+// failover: список нод — если текущая не отвечает/перегружена, молча перескакиваем на живую
+const CANDS = [API, 'http://127.0.0.1:9335', 'http://127.0.0.1:9341', 'http://127.0.0.1:9342', 'http://100.96.7.15:9336'].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
+async function j(p, opt){
+  let lastErr = null;
+  for (const base of CANDS) {
+    try {
+      const r = await fetch(base + p, { ...opt, headers:{'Content-Type':'application/json',...(opt&&opt.headers||{})}, signal: AbortSignal.timeout(6000) });
+      if (r.ok) {
+        if (base !== API) { API = base; localStorage.setItem(LS, API); $('apiPill').textContent = API; $('host').value = API; }
+        return await r.json();
+      }
+      if (r.status >= 500 || r.status === 429) { lastErr = new Error(String(r.status)); continue; } // перегруз → следующая нода
+      throw new Error('HTTP ' + r.status); // 4xx — это ответ ноды, не переключаемся
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('no node answered');
+}
 $('apiPill').textContent = API;
 $('host').value = API;
 $('applyHost').onclick = () => { API = $('host').value.trim().replace(/\/$/, ''); localStorage.setItem(LS, API); $('apiPill').textContent = API; tick(); };

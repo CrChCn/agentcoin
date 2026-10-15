@@ -45,6 +45,7 @@ import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
+import { AgentQueue } from './queue.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
@@ -53,6 +54,7 @@ const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
 
 const bc = new Blockchain(DATA_DIR);
+const queue = new AgentQueue(DATA_DIR); // очередь агентов: FIFO → работа → в конец очереди, по кругу
 const chat = new CommunityChat(DATA_DIR, bc.security);
 const cloud = new CloudLedger(DATA_DIR);
 
@@ -159,7 +161,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -580,6 +582,30 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
       passport: { has: true, note: 'см. /whoami-interop: панель не полните ключи' },
       escrows, dxeOrders: myOrders, dxeFills: myFills, gov: myVotes,
       note: 'кабинет = чистая функция цепи: одинаков на всех нодах' });
+  }
+
+  // ====== Очередь агентов: FIFO → работа → в конец очереди, по кругу ======
+  if (p === '/queue/status') return json(res, 200, queue.status());
+  if (p === '/queue/join' && req.method === 'POST') {
+    const { address, handle = '' } = await body(req);
+    if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const r = queue.join(String(address), String(handle));
+    return r.ok ? json(res, 200, { ...r, address }) : json(res, 409, r);
+  }
+  if (p === '/queue/claim' && req.method === 'POST') {
+    const { taker = '' } = await body(req);
+    const r = queue.claim(String(taker || 'panel'));
+    return r.ok ? json(res, 200, r) : json(res, 409, r);
+  }
+  if (p === '/queue/done' && req.method === 'POST') {
+    const { jobId, summary = '' } = await body(req);
+    if (!jobId) return json(res, 400, { error: 'jobId required' });
+    const agent = queue.state.onDuty[String(jobId)];
+    if (!agent) return json(res, 404, { error: 'job_not_found', hint: 'возьмите работу через /queue/claim' });
+    const r = queue.done(String(jobId), String(summary));
+    queue.requeue(agent); // ротация: сразу в конец очереди
+    return json(res, 200, { ...r, agent, requeued: true, note: 'работа принята; агент снова в очереди — по кругу' });
   }
 
   // --- P2P ---

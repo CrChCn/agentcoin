@@ -43,6 +43,8 @@ import { lsagSign, lsagVerify, pointFromPubKeyPEM } from './ring-signature.mjs';
 import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
+import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
+import { govState, newRef as govRef } from './gov.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
@@ -121,9 +123,13 @@ const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
 const rateHits = new Map();
-const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send)/;
+const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
 function rateAllow(ip, heavy) {
   const now = Date.now();
+  // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
+  // в коде тяжёлые вещи всё равно капнуты), внешние IP — строгие окна.
+  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  if (isLoopback) return true;
   const key = (heavy ? 'H|' : 'A|') + ip;
   let x = rateHits.get(key);
   if (!x || now >= x.until) { x = { count: 0, until: now + RATE_WINDOW_MS }; rateHits.delete(key); }
@@ -153,11 +159,29 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
 function reqIsHeavy(p) { return HEAVY_PATH_RE.test(p); }
+const DXE_MEMO_FEE = 0.001; // минимальный amount memo-tx (консенсус требует amount>0; self-tx возвращает деньги)
+
+// === DXE/GOV: подписать и отправить tx каноническим путём (sign → add → gossip) ===
+async function postSignedTx(res, { fromAddress, to, amount, memo }) {
+  const all = loadWallets();
+  const w = all[fromAddress];
+  if (!w) return json(res, 404, { error: 'wallet_not_found', hint: 'кошелёк создаётся на своей ноде: POST /wallet/create' }) && null;
+  if (bc.security.isBanned(fromAddress)) return json(res, 403, { error: 'address_permabanned' }) && null;
+  const bal = bc.balances()[fromAddress] || 0;
+  if (amount > bal) return json(res, 402, { error: 'insufficient_balance', balance: bal, needed: amount }) && null;
+  const tx = { from: fromAddress, fromPub: w.pub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
+  tx.txid = txDigest(tx);
+  tx.signature = signTransaction(tx, w.privKey);
+  const r = bc.addTransaction(tx);
+  if (!r.ok) { json(res, 409, r); return null; }
+  setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+  return { accepted: true, txid: String(tx.txid).slice(0, 16), mempool: r.mempoolSize };
+}
 
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -433,6 +457,129 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/community/pin' && req.method === 'POST') {
     const { id } = await body(req);
     return json(res, 200, chat.pin(id));
+  }
+
+  // ================= Mini-exchange DXE (книга из цепи) =================
+  if (p === '/dxe/book') {
+    const dxe = dxeState(bc);
+    const item = url.searchParams.get('item') || (dxeItems(dxe)[0] || {}).item;
+    if (!item) return json(res, 200, { item: null, note: 'книга пуста — ордеров ещё нет', items: [] });
+    return json(res, 200, dxeBook(bc, dxe, item));
+  }
+  if (p === '/dxe/items') return json(res, 200, { items: dxeItems(dxeState(bc)) });
+  if (p === '/dxe/orders') {
+    const dxe = dxeState(bc);
+    const maker = url.searchParams.get('maker');
+    const item = url.searchParams.get('item');
+    let list = dxe.orders;
+    if (maker) list = list.filter(o => o.from === maker);
+    if (item) list = list.filter(o => o.item === item);
+    return json(res, 200, { count: list.length, orders: list.slice(-200).reverse() });
+  }
+  if (p === '/dxe/fills') {
+    const dxe = dxeState(bc);
+    const ref = url.searchParams.get('ref');
+    const maker = url.searchParams.get('maker');
+    let list = dxe.fills;
+    if (ref) list = list.filter(f => f.orderRef === ref);
+    if (maker) list = list.filter(f => f.from === maker || f.to === maker);
+    return json(res, 200, { count: list.length, fills: list.slice(-200).reverse() });
+  }
+  if (p === '/dxe/order' && req.method === 'POST') {
+    const { maker, side, item, qty, price } = await body(req);
+    if (!maker || !side || !item || !qty || !price) return json(res, 400, { error: 'maker,side(b|s),item,qty,price required' });
+    if (!['b', 's'].includes(String(side))) return json(res, 400, { error: 'side must be b or s' });
+    const q = fmtNum(qty), pr = fmtNum(price);
+    if (!q || !pr) return json(res, 400, { error: 'qty/price should be finite numbers' });
+    const ref = dxeRef();
+    const memo = `dxe|O|${side}|${String(item).slice(0, 40)}|${q}|${pr}|${ref}`;
+    // несу\u0000ный amount — требование консенсуса; self-tx 0.001 AGT = «плата за вписание в книгу», деньги остаются у makerа
+    const r = await postSignedTx(res, { fromAddress: maker, to: maker, amount: DXE_MEMO_FEE, memo });
+    if (!r) return;
+    return json(res, 201, { ...r, ref, memo, hint: 'ордер станет книгой после упаковки в блок; доставка товара — ответственность makerа (репутация/escrow)' });
+  }
+  if (p === '/dxe/fill' && req.method === 'POST') {
+    const { buyer, ref, qty } = await body(req);
+    if (!buyer || !ref || !qty) return json(res, 400, { error: 'buyer,ref,qty required' });
+    const o = dxeState(bc).orders.find(o => o.ref === ref);
+    if (!o) return json(res, 404, { error: 'order_not_found_in_chain', hint: 'ордер должен быть уже в блоке (в мемпуле книги нет)' });
+    if (o.status === 'canceled') return json(res, 409, { error: 'order_canceled' });
+    const remaining = +(o.qty - o.filled).toFixed(6);
+    if (remaining <= 1e-9) return json(res, 409, { error: 'order_closed_fully_filled' });
+    if (buyer === o.from) return json(res, 400, { error: 'self_trade_stp', note: 'STP: сделки с собой запрещены' });
+    const qtyFill = Math.min(Number(qty), remaining);
+    const due = +(o.price * qtyFill).toFixed(6);
+    const memo = `dxe|F|${ref}|${fmtNum(qtyFill)}`;
+    const r = await postSignedTx(res, { fromAddress: buyer, to: o.from, amount: due, memo });
+    if (!r) return;
+    return json(res, 201, { ...r, orderRef: ref, item: o.item, qtyFill, due, side: o.side, hint: 'state книги пересчитается из цепи после майнинга; fill с точной суммой принимается, всё иначе отвергается' });
+  }
+  if (p === '/dxe/cancel' && req.method === 'POST') {
+    const { maker, ref } = await body(req);
+    if (!maker || !ref) return json(res, 400, { error: 'maker,ref required' });
+    const o = dxeState(bc).orders.find(o => o.ref === ref);
+    if (o && o.from !== maker) return json(res, 403, { error: 'not_your_order' });
+    const r = await postSignedTx(res, { fromAddress: maker, to: maker, amount: DXE_MEMO_FEE, memo: `dxe|C|${ref}` });
+    if (!r) return;
+    return json(res, 201, { ...r, ref, hint: 'отмена чужого адреса игнорируется индексером' });
+  }
+
+  // ================= GOV (предложения + голосование из цепи) =================
+  if (p === '/gov/state') return json(res, 200, govState(bc));
+  if (p === '/gov/proposal' && req.method === 'POST') {
+    const { author, title, blocks = 100 } = await body(req);
+    if (!author || !title) return json(res, 400, { error: 'author,title required' });
+    const closesAt = bc.blockCount() + Math.max(10, Math.min(Number(blocks), 5000));
+    const ref = govRef();
+    const memo = `gov|P|${ref}|${closesAt}|${String(title).replace(/[|\r\n]/g, ' ').trim().slice(0, 60)}`;
+    const r = await postSignedTx(res, { fromAddress: author, to: author, amount: DXE_MEMO_FEE, memo });
+    if (!r) return;
+    return json(res, 201, { ...r, ref, closesAt, hint: 'успех = yes≥'+ '3 и yes>no к closesAt ; активация интеграции — по решению закреплёнго окна' });
+  }
+  if (p === '/gov/vote' && req.method === 'POST') {
+    const { voter, ref, choice } = await body(req);
+    if (!voter || !ref || !['yes', 'no', 'abstain'].includes(String(choice))) return json(res, 400, { error: 'voter,ref,choice(yes|no|abstain) required' });
+    const prop = govState(bc).proposals.find(x => x.ref === ref);
+    if (!prop) return json(res, 404, { error: 'proposal_not_found_in_chain' });
+    if (prop.closed) return json(res, 409, { error: 'voting_closed', closesAt: prop.closesAt });
+    const r = await postSignedTx(res, { fromAddress: voter, to: voter, amount: DXE_MEMO_FEE, memo: `gov|V|${ref}|${choice}` });
+    if (!r) return;
+    return json(res, 201, { ...r, ref, choice, note: 'один адрес — один голос (первый фиксируется)' });
+  }
+
+  // ================= Кабинет агента: всё о моём адресе из цепи =================
+  if (p.startsWith('/cabinet/')) {
+    const addr = decodeURIComponent(p.slice('/cabinet/'.length));
+    if (!/^AGT[A-Za-z0-9]+$/.test(addr)) return json(res, 400, { error: 'bad_address' });
+    const balances = bc.balances();
+    const dxe = dxeState(bc), gov = govState(bc);
+    const txs = [];
+    const escrows = [];
+    for (let i = bc.chain.length - 1; i >= 0 && (txs.length < 25 || escrows.length < 10); i--) {
+      const blk = bc.chain[i];
+      for (const tx of (blk.txs || [])) {
+        if (typeof tx.memo !== 'string') continue;
+        const mine = tx.from === addr || tx.to === addr;
+        if (!mine) continue;
+        if (txs.length < 25) txs.push({ height: blk.height, from: tx.from, to: tx.to, amount: tx.amount, memo: tx.memo.slice(0, 80), txid: tx.txid ? String(tx.txid).slice(0, 12) : null });
+        if (escrows.length < 10) {
+          if (tx.memo.startsWith('escrow:')) {
+            const parts = tx.memo.split(':');
+            if (parts[4] === addr || tx.from === addr) escrows.push({ kind: 'open', escId: parts[1], role: parts[4] === addr ? 'worker' : 'employer', counterpart: parts[4] === addr ? tx.from : decodeURIComponent(parts[4]), amount: tx.amount, taskHash: String(parts[2]).slice(0, 12), height: blk.height });
+          } else if (tx.memo.startsWith('escpayout:')) {
+            const escId = tx.memo.slice('escpayout:'.length);
+            if (tx.to === addr) escrows.push({ kind: 'paid', escId, role: 'worker', amount: tx.amount, height: blk.height });
+          }
+        }
+      }
+    }
+    const myOrders = dxe.orders.filter(o => o.from === addr).slice(-20).reverse();
+    const myFills = dxe.fills.filter(f => f.from === addr || (f.to === addr && f.accepted)).slice(-20).reverse();
+    const myVotes = gov.proposals.filter(x => x.yes + x.no + x.abstain > 0).slice(0, 20).map(x => ({ ref: x.ref, title: x.title, result: x.result, closesAt: x.closesAt }));
+    return json(res, 200, { address: addr, chainHeight: bc.blockCount(), balance: balances[addr] || 0, unit: TICKER,
+      passport: { has: true, note: 'см. /whoami-interop: панель не полните ключи' },
+      escrows, dxeOrders: myOrders, dxeFills: myFills, gov: myVotes,
+      note: 'кабинет = чистая функция цепи: одинаков на всех нодах' });
   }
 
   // --- P2P ---
@@ -922,6 +1069,12 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // --- визуальный пульт сети ---
   if (p === '/dashboard' || p === '/dashboard.html') {
     const html = fs.readFileSync(path.join(__dirname, 'site', 'dashboard.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  // --- агентский терминал: задания/рынок/голосование/кабинет ---
+  if (p === '/terminal' || p === '/terminal.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'terminal.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(html);
   }

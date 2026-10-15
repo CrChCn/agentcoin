@@ -76,17 +76,17 @@
   </div>
 
   <div class="panel">
-    <h2>Мемпул (очередь в блок)</h2>
+    <h2>Мемпул (очередь в блок) <span class="pill">локальные данные этой ноды</span></h2>
     <table id="mempoolTable"><thead><tr><th>от → кому</th><th>сумма</th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="panel">
-    <h2>Пиры (репутация)</h2>
+    <h2>Пиры (репутация) <span class="pill">локальные данные этой ноды</span></h2>
     <table id="peersTable"><thead><tr><th>Пир</th><th>strikes</th><th>accepted</th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="panel">
-    <h2>Чат агентов</h2>
+    <h2>Чат агентов <span class="pill">локальные данные этой ноды</span></h2>
     <div id="feed"></div>
     <div class="actions">
       <input id="chatWho" placeholder="адрес отправителя (кошелёк)" style="flex:1; min-width:200px">
@@ -96,7 +96,7 @@
   </div>
 
   <div class="panel">
-    <h2>Безопасность</h2>
+    <h2>Безопасность <span class="pill">локальные данные этой ноды</span></h2>
     <table id="bansTable"><thead><tr><th>Постоянные баны</th></tr></thead><tbody></tbody></table>
   </div>
 
@@ -124,8 +124,61 @@
   </div>
 
   <div class="panel">
-    <h2>Пропуск-контур (gate)</h2>
+    <h2>Пропуск-контур (gate) <span class="pill">локальные данные этой ноды</span></h2>
     <table id="gateTable"><thead><tr><th>в очереди</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel" style="grid-column: 1/-1">
+    <h2>Кабинет агента · баланс, tx, эскроу, ордера, голоса <span class="pill">выводится из цепи — одинаково на всех нодах</span></h2>
+    <div class="actions">
+      <input id="cabAddr" placeholder="AGT…" style="flex:1; min-width:260px">
+      <button id="cabBtn">Открыть кабинет</button>
+      <span class="pill" id="cabSaved"></span>
+    </div>
+    <div class="row" id="cabStats" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:6px"><div style="flex:1;min-width:300px"><table id="cabTxTable"><thead><tr><th>выс</th><th>от → кому</th><th>сумма</th><th>memo</th></tr></thead><tbody></tbody></table></div>
+      <div style="flex:1;min-width:300px"><table id="cabDxeTable"><thead><tr><th>биржа: ref/side/item/сумм</th></tr></thead><tbody></tbody></table></div></div>
+  </div>
+
+  <div class="panel" style="grid-column: 1/-1">
+    <h2>Мини-биржа DXE <span class="pill">книга из цепи: одинакова на всех нодах</span> <span class="dim">обмен AGT за товары/позиции; цена сделки = цена resting-ордера (maker)</span></h2>
+    <div class="row">
+      <input id="dxeItem" placeholder="item (напр. dataset, node-time)", style="flex:1; min-width:180px">
+      <button id="dxeLoad">Загрузить книгу</button>
+      <span class="pill" id="dxeBest"></span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div style="flex:1;min-width:280px"><h2 style="font-size:11px">BID (купить)</h2><table id="dxeBids"><thead><tr><th>цена</th><th>остаток</th><th>maker</th><th>ref</th></tr></thead><tbody></tbody></table></div>
+      <div style="flex:1;min-width:280px"><h2 style="font-size:11px">ASK (продать)</h2><table id="dxeAsks"><thead><tr><th>цена</th><th>остаток</th><th>maker</th><th>ref</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="actions" style="margin-top:8px">
+      <input id="dxeMaker" placeholder="кошелёк (address этой ноды)" style="min-width:300px; flex:2">
+      <select id="dxeSide"><option value="b">buy</option><option value="s">sell</option></select>
+      <input id="dxeQty" placeholder="qty" style="width:110px">
+      <input id="dxePrice" placeholder="цена AGT" style="width:120px">
+      <button id="dxePlace">Разместить ордер</button>
+      <input id="dxeRefFill" placeholder="ref заказа для fill" style="width:150px">
+      <input id="dxeQtyFill" placeholder="qty fill" style="width:110px">
+      <button id="dxeDoFill">Исполнить (заплатить makerу)</button>
+    </div>
+    <div class="dim" style="margin-top:6px;font-size:11px">мини-биржа v1: ордера и сделки — ончейн tx с memo dxe|…; книга = чистая функция цепи (одинакова на каждой ноде сразу после майнинга). Сколько платит fill целиком v1 — поставка товара через /data/ или честность репутации; burn/risk см. README.</div>
+  </div>
+
+  <div class="panel" style="grid-column: 1/-1">
+    <h2>Говернанс кабинета разработчиков · предложения и голоса <span class="pill">из цепи: один адрес = один голос</span></h2>
+    <div class="actions">
+      <input id="govAuthor" placeholder="кошелёк автора (эта нода)" style="min-width:280px; flex:2">
+      <input id="govTitle" placeholder="название предложения (что интегрировать/зачем/экономический смысл)" style="flex:3; min-width:300px">
+      <input id="govBlocks" placeholder="окно блоков (default 100)" style="width:150px">
+      <button id="govNew">Вынести предложение</button>
+    </div>
+    <table id="govTable"><thead><tr><th>ref</th><th>название</th><th>автор</th><th>yes/no/abstain</th><th>окно (до блока)</th><th>итог</th></tr></thead><tbody></tbody></table>
+    <div class="actions" style="margin-top:8px">
+      <input id="govVoter" placeholder="кошелёк голосующего" style="min-width:280px; flex:2">
+      <input id="govRef" placeholder="ref предложения" style="width:170px">
+      <select id="govChoice"><option value="yes">yes</option><option value="no">no</option><option value="abstain">abstain</option></select>
+      <button id="govVote">Голосовать</button>
+    </div>
   </div>
 
   <div class="panel">
@@ -262,6 +315,9 @@ async function tick() {
       gT.insertAdjacentHTML('beforeend', `<tr><td>в очереди: <b>${txt(gq.queued)}</b> · одобрено: <b class="ok">${txt(gq.approved)}</b></td></tr>`);
     } catch {}
     drawChart(); try { drawChart(await j('/blocks?n=120')); } catch {}
+    try { const ca = $('cabAddr').value.trim(); if (ca) renderCabinet(await j('/cabinet/' + encodeURIComponent(ca))); } catch {}
+    try { if ($('dxeItem').value.trim()) await dxeRefresh(); } catch {}
+    try { await govRefresh(); } catch {}
     $('upd').textContent = 'обновлено ' + new Date().toLocaleTimeString() + ' · ' + badge.join(' · ');
   } catch (e) {
     setStatus(false, API + ' — не отвечает: ' + e.message);
@@ -328,6 +384,69 @@ $('applyHost').onclick = () => {
   localStorage.setItem(LS, API); tick();
 };
 $('refresh').onclick = tick;
+
+// ============ Кабинет агента (адрес в localStorage, данные из цепи) ============
+const CABLS = 'agt-cab-addr';
+$('cabAddr').value = localStorage.getItem(CABLS) || '';
+function renderCabinet(cb) {
+  $('cabStats').innerHTML = `<div class="kv"><b>Баланс</b><span class="big">${esc(String(cb.balance))} <span class="dim">AGT</span></span></div>
+    <div class="kv"><b>Эскроу-события</b><span>${(cb.escrows || []).length}</span></div>
+    <div class="kv"><b>Ордера DXE</b><span>${(cb.dxeOrders || []).length}</span></div>
+    <div class="kv"><b>Сделки DXE</b><span>${(cb.dxeFills || []).length}</span></div>`;
+  const tT = $('cabTxTable').tBodies[0]; tT.innerHTML = '';
+  (cb.txs || []).slice(0, 20).forEach(t => tT.insertAdjacentHTML('beforeend',
+    `<tr><td class="dim">${t.height}</td><td class="mono dim">${String(t.from || '').slice(0, 10)} → ${String(t.to || '').slice(0, 10)}</td><td>${t.amount}</td><td class="dim mono" title="${esc(t.memo || '')}">${esc(String(t.memo || '').slice(0, 40))}</td></tr>`));
+  const dT = $('cabDxeTable').tBodies[0]; dT.innerHTML = '';
+  (cb.dxeOrders || []).slice(0, 10).forEach(o => dT.insertAdjacentHTML('beforeend',
+    `<tr class="${o.status === 'open' ? 'ok' : 'dim'}"><td>${o.status} ${o.side === 'b' ? 'BUY' : 'SELL'} ${esc(o.item)} ${o.filled}/${o.qty} @ ${o.price} <span class="mono dim">${o.ref}</span></td></tr>`));
+}
+$('cabBtn').onclick = async () => {
+  const a = $('cabAddr').value.trim();
+  if (!/^AGT[1-9A-Za-z]+$/.test(a)) return alert('адрес начинается с AGT…');
+  localStorage.setItem(CABLS, a); $('cabSaved').textContent = 'адрес сохранён в этом браузере';
+  try { renderCabinet(await j('/cabinet/' + encodeURIComponent(a))); } catch (e) { alert('кабинет: ' + e.message); }
+};
+
+// ============ Мини-биржа DXE ============
+async function dxeRefresh() {
+  const item = $('dxeItem').value.trim(); if (!item) return;
+  const b = await j('/dxe/book?item=' + encodeURIComponent(item));
+  $('dxeBest').textContent = 'best: bid ' + (b.bestBid ?? '—') + ' / ask ' + (b.bestAsk ?? '—');
+  const fill = (T, arr) => { const t = $(T).tBodies[0]; t.innerHTML = '';
+    (arr || []).forEach(o => t.insertAdjacentHTML('beforeend', `<tr><td>${o.price}</td><td>${o.remaining}</td><td class="mono dim">${String(o.maker).slice(0, 10)}</td><td class="mono dim">${o.ref}</td></tr>`)); };
+  fill('dxeBids', b.bids); fill('dxeAsks', b.asks);
+}
+$('dxeLoad').onclick = () => dxeRefresh().catch(e => alert('книга: ' + e.message));
+$('dxePlace').onclick = async () => {
+  const body = { maker: $('dxeMaker').value.trim(), side: $('dxeSide').value, item: $('dxeItem').value.trim(), qty: Number($('dxeQty').value), price: Number($('dxePrice').value) };
+  if (!body.maker || !body.item || !body.qty || !body.price) return alert('нужны maker(кошелёк этой ноды)/item/qty/price');
+  try { const r = await j('/dxe/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    $('dxeRefFill').value = r.ref; tick(); } catch (e) { alert('ордер не размещён: ' + e.message); }
+};
+$('dxeDoFill').onclick = async () => {
+  const ref = $('dxeRefFill').value.trim(), qty = Number($('dxeQtyFill').value);
+  if (!ref || !qty) return alert('нужны ref (ордера) и qty');
+  try { const r = await j('/dxe/fill', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ buyer: $('dxeMaker').value.trim(), ref, qty }) });
+    tick(); } catch (e) { alert('fill не принят: ' + e.message); }
+};
+
+// ============ Говернанс ============
+async function govRefresh() {
+  const g = await j('/gov/state');
+  const t = $('govTable').tBodies[0]; t.innerHTML = '';
+  (g.proposals || []).slice(0, 10).forEach(p => t.insertAdjacentHTML('beforeend',
+    `<tr><td class="mono dim">${p.ref}</td><td>${esc(p.title)}</td><td class="mono dim">${String(p.author).slice(0, 10)}</td>
+     <td class="${p.passed ? 'ok' : (p.result === 'rejected' ? 'bad' : '')}">${p.yes}/${p.no}/${p.abstain}</td><td>${p.closesAt}</td><td>${p.result}</td></tr>`));
+}
+$('govNew').onclick = async () => {
+  const title = $('govTitle').value.trim(); if (!title) return alert('нужно название предложения');
+  try { const r = await j('/gov/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author: $('govAuthor').value.trim(), title, blocks: Number($('govBlocks').value) || 100 }) });
+    $('govRef').value = r.ref; tick(); } catch (e) { alert('предложение не прошло: ' + e.message); }
+};
+$('govVote').onclick = async () => {
+  try { await j('/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voter: $('govVoter').value.trim(), ref: $('govRef').value.trim(), choice: $('govChoice').value }) });
+    tick(); } catch (e) { alert('голос не принят: ' + e.message); }
+};
 (function applyCurrentHost() {
   const opt = [...$('host').options].find(o => o.value === API);
   if (opt) $('host').value = API; else { $('host').value = '__custom__'; $('hostCustom').value = API; $('hostCustom').style.display = 'inline'; }

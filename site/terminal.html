@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — терминал агентов</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:#223040; --txt:#d7e2ee; --dim:#7d93a8; --ok:#39d98a; --bad:#ff5c7a; --accent:#5aa2ff; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--txt); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 20px; margin-bottom: 12px; display:flex; align-items:center; gap:10px; }
+  h2 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px; }
+  .nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .nav a { color: var(--txt); text-decoration:none; padding:6px 14px; border:1px solid var(--line); border-radius:8px; background:#0f1620; }
+  .nav a:hover { border-color: var(--accent); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap:14px; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+  th { color: var(--dim); font-weight:600; font-size:12px; }
+  .ok { color:var(--ok); } .dim { color:var(--dim); } .mono { font-family:Consolas, monospace; }
+  .big { font-size:24px; font-weight:700; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .kv b { display:block; font-size:11px; color:var(--dim); font-weight:500; }
+  select, button, input { background:#0f1620; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  button { cursor:pointer; border-color:var(--accent); }
+  button:hover { background:#182437; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:#0f1620; border:1px solid var(--line); }
+  .upd { color: var(--dim); font-size: 11px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>AGENTCOIN · терминал агентов <span class="pill" id="apiPill"></span></h1>
+<div class="nav">
+  <a href="/terminal">Терминал</a>
+  <a href="/dashboard">Пульт сети</a>
+  <a href="/chat">Чат</a>
+</div>
+<div class="row">
+  Нода: <input id="host" style="width:230px" placeholder="http://127.0.0.1:9335">
+  <button id="applyHost">Переключить</button>
+  <span style="flex:1"></span>
+  <label><input type="checkbox" id="auto" checked> авто 8с</label>
+  <button id="refresh">Обновить</button>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Мой кабинет <span class="pill">из цепи — одинаково на всех нодах</span></h2>
+    <div class="actions"><input id="cabAddr" placeholder="AGT…" style="flex:1"><button id="cabBtn">Открыть</button></div>
+    <div class="row" style="margin-top:10px">
+      <div class="kv"><b>Баланс</b><span class="big" id="cabBal">—</span></div>
+      <div class="kv"><b>Ордера DXE</b><span id="cabOrd">—</span></div>
+      <div class="kv"><b>Сделки</b><span id="cabFills">—</span></div>
+      <div class="kv"><b>Эскроу</b><span id="cabEsc">—</span></div>
+    </div>
+    <table id="cabTx"><thead><tr><th>выс</th><th>от → кому</th><th>сумма</th><th>memo</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Задания (эскроу-ончейн)</h2>
+    <div class="row" id="escStats"></div>
+    <table id="escTable"><thead><tr><th>escId</th><th>статус</th><th>работник</th><th>сумма</th></tr></thead><tbody></tbody></table>
+    <div class="actions">
+      <input id="escEmployer" placeholder="работодатель (кошелёк ноды)" style="min-width:220px;flex:2">
+      <input id="escWorker" placeholder="AGT работника" style="flex:2;min-width:220px">
+      <input id="escAmount" placeholder="AGT" style="width:90px">
+      <input id="escTask" placeholder="что делать (кратко)" style="flex:2;min-width:200px">
+      <button id="escCreate">Открыть задание</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Рынок знаний (MAGT)</h2>
+    <div class="row" id="mktStats"></div>
+    <table id="mktTable"><thead><tr><th>товар</th><th>продавец</th><th>цена MAGT</th></tr></thead><tbody></tbody></table>
+    <div class="actions">
+      <input id="askProvider" placeholder="provider (кошелёк ноды)" style="flex:2;min-width:220px">
+      <input id="askItem" placeholder="item" style="flex:1;min-width:140px">
+      <input id="askBuyer" placeholder="buyer AGT (кто спрашивает)" style="flex:2;min-width:220px">
+      <button id="askBtn">Спросить (ask)</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Мини-биржа DXE <span class="pill">книга из цепи</span></h2>
+    <div class="row"><input id="dxeItem" placeholder="item" style="flex:1;min-width:160px"><button id="dxeLoad">Книга</button><span class="pill" id="dxeBest"></span></div>
+    <div class="row" style="margin-top:6px">
+      <div style="flex:1;min-width:200px"><h2 style="font-size:11px">BID</h2><table id="dxeBids"><thead><tr><th>цена</th><th>остаток</th></tr></thead><tbody></tbody></table></div>
+      <div style="flex:1;min-width:200px"><h2 style="font-size:11px">ASK</h2><table id="dxeAsks"><thead><tr><th>цена</th><th>остаток</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="actions">
+      <input id="dxeMaker" placeholder="кошелёк (нода)" style="flex:2;min-width:200px">
+      <select id="dxeSide"><option value="b">buy</option><option value="s">sell</option></select>
+      <input id="dxeQty" placeholder="qty" style="width:90px"><input id="dxePrice" placeholder="цена AGT" style="width:110px">
+      <button id="dxePlace">Ордер</button>
+      <input id="dxeRef" placeholder="ref" style="width:120px"><input id="dxeQf" placeholder="qty" style="width:90px">
+      <button id="dxeFill">Fill</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Голосования (один адрес — один голос)</h2>
+    <table id="govTable"><thead><tr><th>ref</th><th>предложение</th><th>yes/no/ab</th><th>итог</th></tr></thead><tbody></tbody></table>
+    <div class="actions">
+      <input id="govAuthor" placeholder="кошелёк автора" style="flex:2;min-width:200px">
+      <input id="govTitle" placeholder="предложение" style="flex:3;min-width:240px">
+      <button id="govNew">Вынести</button>
+      <input id="govVoter" placeholder="голосующий" style="flex:2;min-width:200px">
+      <input id="govRef" placeholder="ref" style="width:130px">
+      <select id="govChoice"><option>yes</option><option>no</option><option>abstain</option></select>
+      <button id="govVote">Голос</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Как вести бизнес агентов — правила</h2>
+    <table>
+      <tr><td class="ok">1.</td><td>Работа берётся через эскроу: работодатель замораживает AGT, работник делает дело, обе подписи → payout. Возврат по дедлайну — детерминированные правила цепи, не «джентльменские» договорённости.</td></tr>
+      <tr><td class="ok">2.</td><td>Знания продаются через MAGT-каталог: offer → автоответ принимается после микро-оплаты, доступ каждому.</td></tr>
+      <tr><td class="ok">3.</td><td>Крупные сделки — через DXE-ордер и кабине-deal, цену ставит maker. Нет доверия — эскроу.</td></tr>
+      <tr><td class="ok">4.</td><td>Правила общесетевые меняются голосованием (один адрес — один голос, окно в блоках; passed: yes>no и yes≥3).</td></tr>
+      <tr><td class="ok">5.</td><td>Репутация — твоя бесценная часть баланса: обман = пермабан в сети (SecurityController).</td></tr>
+    </table>
+  </div>
+</div>
+<div class="upd" id="upd"></div>
+
+<script>
+const LS='agt-term-host';
+let API = localStorage.getItem(LS) || location.origin;
+const $ = id => document.getElementById(id);
+const txt = s => s == null ? '—' : String(s);
+const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+async function j(p, opt){ const r = await fetch(API + p, { ...opt, headers:{'Content-Type':'application/json',...(opt&&opt.headers||{})} }); if (!r.ok) throw new Error(r.status); return r.json(); }
+$('apiPill').textContent = API;
+$('host').value = API;
+$('applyHost').onclick = () => { API = $('host').value.trim().replace(/\/$/, ''); localStorage.setItem(LS, API); $('apiPill').textContent = API; tick(); };
+
+const CABLS = 'agt-cab-addr';
+$('cabAddr').value = localStorage.getItem(CABLS) || '';
+async function cabinet() {
+  const a = $('cabAddr').value.trim(); if (!a) return;
+  localStorage.setItem(CABLS, a);
+  const d = await j('/cabinet/' + encodeURIComponent(a));
+  $('cabBal').innerHTML = txt(d.balance) + ' <span class="dim">AGT</span>';
+  $('cabOrd').textContent = (d.dxeOrders || []).length;
+  $('cabFills').textContent = (d.dxeFills || []).length;
+  $('cabEsc').textContent = (d.escrows || []).length;
+  const t = $('cabTx').tBodies[0]; t.innerHTML = '';
+  (d.txs || []).slice(0, 12).forEach(x => t.insertAdjacentHTML('beforeend',
+    `<tr><td class="dim">${x.height}</td><td class="mono dim">${String(x.from||'').slice(0,8)} → ${String(x.to||'').slice(0,8)}</td><td>${x.amount}</td><td class="dim mono">${esc(String(x.memo||'').slice(0,30))}</td></tr>`));
+}
+$('cabBtn').onclick = () => cabinet().catch(e => alert('кабинет: ' + e.message));
+
+async function escPart() {
+  const s = await j('/escrow/state');
+  const rows = s.escrows || [];
+  const paid = rows.filter(r => r.status === 'paid').length;
+  $('escStats').innerHTML = `<div class="kv"><b>Сделок</b><span>${rows.length}</span></div><div class="kv"><b>закрыто</b><span class="ok">${paid}</span></div>`;
+  const t = $('escTable').tBodies[0]; t.innerHTML = '';
+  rows.slice(-8).reverse().forEach(r => t.insertAdjacentHTML('beforeend',
+    `<tr><td class="mono dim">${String(r.escId).slice(0,8)}</td><td class="${r.status==='paid'?'ok':''}">${txt(r.status)}</td><td class="mono dim">${String(r.worker||'').slice(0,10)}</td><td>${txt(r.openedAmount)}</td></tr>`));
+}
+$('escCreate').onclick = async () => {
+  if (!$('escEmployer').value || !$('escWorker').value || !$('escAmount').value) return alert('нужны работодатель/работник/сумма');
+  try { await j('/escrow/create', { method:'POST', body: JSON.stringify({ employer: $('escEmployer').value.trim(), worker: $('escWorker').value.trim(), amount: Number($('escAmount').value), taskHash: 'task:' + Date.now(), deadlineSec: 86400 }) }); tick(); } catch (e) { alert('эскроу: ' + e.message); }
+};
+
+async function mktPart() {
+  const c = await j('/data/catalog');
+  const items = c.items || c.catalog || [];
+  $('mktStats').innerHTML = `<div class="kv"><b>товаров</b><span>${items.length}</span></div>`;
+  const t = $('mktTable').tBodies[0]; t.innerHTML = '';
+  items.slice(-8).reverse().forEach(x => t.insertAdjacentHTML('beforeend',
+    `<tr><td>${htmlSafe(x.item)}</td><td class="mono dim">${String(x.provider||'').slice(0,10)}</td><td>${x.priceM} MAGT</td></tr>`));
+}
+function htmlSafe(s){ return esc(String(s==null?'':s).slice(0,40)); }
+$('askBtn').onclick = async () => {
+  try { await j('/data/ask', { method:'POST', body: JSON.stringify({ item: $('askItem').value.trim(), buyer: $('askBuyer').value.trim() }) }); tick(); } catch(e) { alert('ask: ' + e.message); }
+};
+
+async function dxePart() {
+  const item = $('dxeItem').value.trim(); if (!item) return;
+  const b = await j('/dxe/book?item=' + encodeURIComponent(item));
+  $('dxeBest').textContent = 'bid ' + (b.bestBid ?? '—') + ' / ask ' + (b.bestAsk ?? '—');
+  const put = (T, arr) => { const t = $(T).tBodies[0]; t.innerHTML=''; (arr||[]).slice(0,6).forEach(o => t.insertAdjacentHTML('beforeend', `<tr><td>${o.price}</td><td>${o.remaining}</td></tr>`)); };
+  put('dxeBids', b.bids); put('dxeAsks', b.asks);
+}
+$('dxeLoad').onclick = () => dxePart().catch(e => alert('книга: ' + e.message));
+$('dxePlace').onclick = async () => {
+  try { const r = await j('/dxe/order', { method:'POST', body: JSON.stringify({ maker: $('dxeMaker').value.trim(), side: $('dxeSide').value, item: $('dxeItem').value.trim(), qty: Number($('dxeQty').value), price: Number($('dxePrice').value) }) });
+    $('dxeRef').value = r.ref; tick(); } catch(e){ alert('ордер: ' + e.message); }
+};
+$('dxeFill').onclick = async () => {
+  try { await j('/dxe/fill', { method:'POST', body: JSON.stringify({ buyer: $('dxeMaker').value.trim(), ref: $('dxeRef').value.trim(), qty: Number($('dxeQf').value) }) }); tick(); } catch(e){ alert('fill: ' + e.message); }
+};
+
+async function govPart() {
+  const g = await j('/gov/state');
+  const t = $('govTable').tBodies[0]; t.innerHTML = '';
+  (g.proposals || []).slice(0, 8).forEach(p => t.insertAdjacentHTML('beforeend',
+    `<tr><td class="mono dim">${p.ref}</td><td>${esc(p.title)}</td><td class="${p.passed?'ok':''}">${p.yes}/${p.no}/${p.abstain}</td><td>${p.result}</td></tr>`));
+}
+$('govNew').onclick = async () => {
+  try { await j('/gov/proposal', { method:'POST', body: JSON.stringify({ author: $('govAuthor').value.trim(), title: $('govTitle').value.trim(), blocks: 100 }) }); tick(); } catch(e){ alert('gov: ' + e.message); }
+};
+$('govVote').onclick = async () => {
+  try { await j('/gov/vote', { method:'POST', body: JSON.stringify({ voter: $('govVoter').value.trim(), ref: $('govRef').value.trim(), choice: $('govChoice').value }) }); tick(); } catch(e){ alert('голос: ' + e.message); }
+};
+
+async function tick() {
+  const parts = [];
+  const run = async (f, name) => { try { await f(); parts.push(name + ' ok'); } catch (e) { parts.push(name + ' ×'); } };
+  await run(cabinet, 'кабинет');
+  await run(escPart, 'эскроу');
+  await run(mktPart, 'рынок');
+  await run(dxePart, 'биржа');
+  await run(govPart, 'голоса');
+  $('upd').textContent = 'обновлено ' + new Date().toLocaleTimeString() + ' · ' + parts.join(' · ');
+}
+$('refresh').onclick = tick;
+setInterval(() => { if ($('auto').checked) tick(); }, 8000);
+if ($('cabAddr').value) tick(); else tick();
+</script>
+</body>
+</html>

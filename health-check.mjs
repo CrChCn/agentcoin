@@ -32,16 +32,8 @@ async function api(m, p, b = null) {
 function minerAddr() {
   try { return Object.keys(JSON.parse(fs.readFileSync(MINER_FILE, 'utf8')))[0]; } catch { return ''; }
 }
-// пересчёт балансов из chain.json (тот же независимый алгоритм, что в auto-miner)
-function recalc() {
-  const d = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'chain.json'), 'utf8'));
-  const b = {};
-  for (const blk of d.chain || []) for (const tx of blk.txs || []) {
-    if (tx.from && tx.from !== 'COINBASE') b[tx.from] = (b[tx.from] || 0) - tx.amount;
-    if (tx.to) b[tx.to] = (b[tx.to] || 0) + tx.amount;
-  }
-  return { b, blocks: (d.chain || []).length };
-}
+// ТЗ-2 (аудит 2026-10-15): собственные recalc/аудит удалены — используется audit-lib.mjs
+import { auditBalances as sharedAuditBalances } from './audit-lib.mjs';
 async function alert(text) {
   const m = minerAddr();
   if (!m) return;
@@ -66,32 +58,16 @@ async function main() {
       life = (await api('GET', '/life')).body; // повторная попытка
     } catch { /* без self-heal — оставляем findings */ }
   }
-  // 3) аудит балансов: permabanned-адреса нода показывает как 0 (документировано) —
-  //    сравнивать их с chain-пересчётом нельзя, исключаем из аудита.
-  const banned = new Set((await api('GET', '/security/banlist')).body?.banned || []);
-  const recalced = recalc();
-  let auditBad = 0, bannedSkipped = 0, rewardDrift = 0;
+  // 3) аудит балансов — единый источник правды (ТЗ-2 из аудита 2026-10-15):
+  // вся логика (NaN-скип, opinion-скип, 503/429-ретраи, rewardDrift) живёт в audit-lib.mjs
   const miner = minerAddr();
-  for (const [addr, exp] of Object.entries(recalced.b)) {
-    if (banned.has(addr)) { bannedSkipped++; continue; }
-    // 503-shedding ноды под бурстом аудита — транзиент, а не некро-бит:
-    // ретраи до 4 попыток, как в auto-miner (инцидент 2026-10-15).
-    let r = null;
-    for (let i = 0; i < 4; i++) {
-      if (i > 0) await new Promise(res => setTimeout(res, 250 * (i + 1)));
-      r = await api('POST', '/balance', { address: addr });
-      if (r.status !== 503 && r.status !== 429) break;
-      r = null;
-    }
-    if (!r) continue; // все попытки — 503/429: нода перегружена, не несоответствие баланса
-    const got = r.body?.balance || 0;
-    if (Math.abs(got - exp) > 1e-6) {
-      if (got > exp) { rewardDrift++; continue; } // node богаче диска: свежая награда/tx не доехала до chain.json save-цикла — не коррупция
-      auditBad++; findings.push(`balance ${addr.slice(0, 16)}: chain=${exp} node=${got}`);
-    }
+  const audit = await sharedAuditBalances({ dataDir: path.join(__dirname, 'data'), baseUrl: API });
+  const auditBad = audit.mismatches.length;
+  for (const m of audit.mismatches.slice(0, 4)) {
+    findings.push(`balance ${m.addr}: chain=${m.expected} node=${m.got ?? m.error ?? 'absent'}`);
   }
   const status = findings.length ? `FAIL: ${findings.slice(0, 4).join('; ')}` : 'OK';
-  log(`health-check: blocks=${recalced.blocks} audit=${Object.keys(recalced.b).length} addr, bannedSkipped=${bannedSkipped}, rewardDrift=${rewardDrift}, mismatches=${auditBad} → ${status}`);
+  log(`health-check: blocks=${audit.height} audit=${audit.checked} addr, bannedSkipped=${audit.bannedSkipped}, rewardDrift=${audit.rewardDrift}, transientSkipped=${audit.transientSkipped}, mismatches=${auditBad} → ${status}`);
   if (findings.length) await alert(`🚨 AGTHealthCheck: ${status}`);
   console.log(status);
   // process.exit сразу после fetch рождает libuv-assert на win (exit 127/134):

@@ -37,55 +37,12 @@ async function api(method, p, body = null) {
 // всех блоков chain.json и сверяем с ответами ноды на каждое известное лицо.
 // Расхождение = первый признак подделки состояния → алерт в чат немедленно.
 const AUDIT_EPS = 1e-6;
-function recalcFromChainFile() {
-  const chainPath = path.join(__dirname, 'data', 'chain.json');
-  const d = JSON.parse(fs.readFileSync(chainPath, 'utf8'));
-  const b = {};
-  for (const blk of d.chain || []) {
-    for (const tx of blk.txs || []) {
-      // tx.amount может отсутствовать в служебных записях ((passport/registry/genesis))
-      // — иначе вместо числа в баланс попадает NaN и аудит орёт на призрака
-      if (typeof tx.amount !== 'number') continue;
-      if (tx.from && tx.from !== 'COINBASE') b[tx.from] = (b[tx.from] || 0) - tx.amount;
-      if (tx.to) b[tx.to] = (b[tx.to] || 0) + tx.amount;
-    }
-  }
-  return b;
-}
+// ТЗ-2 (аудит 2026-10-15): вся логика аудита вынесена в audit-lib.mjs —
+// единый источник правды, чтобы копии в auto-miner и health-check не расходились.
+import { auditBalances as sharedAuditBalances } from './audit-lib.mjs';
 
-// Инцидент 2026-10-15: 2440 подряд HTTP-запросов аудита пробивали щит ноды
-// (503 shedding) → аудит получал 503-е и орал ложные FAIL. Двухслойное лечение:
-// 1) retry с паузой на 503/429/5xx (транзиенты), 2) не оставлять недогруз.
-async function apiRetry(method, p, body = null, attempts = 4) {
-  let last = null;
-  for (let i = 0; i < attempts; i++) {
-    if (i > 0) await new Promise(r => setTimeout(r, 250 * (i + 1)));
-    const r = await api(method, p, body);
-    if (r.status !== 503 && r.status !== 429) return r;
-    last = r;
-  }
-  return last;
-}
 async function auditBalances() {
-  const recalced = recalcFromChainFile();
-  // Инцидент 2026-10-15: permabanned-адреса нода (по протоколу) показывает как 0
-  // ('opinion: permabanned') — аудит орал FAIL на них каждый час.
-  // Правило: бан берём из ОТВЕТА САМОЙ ноды (банлисты нод не обязаны совпадать),
-  // а не по чужому глобальному списку — иначе ложные FAIL из чужих банов.
-  const mismatches = [];
-  let bannedSkipped = 0, rewardDrift = 0, transientSkipped = 0;
-  for (const [addr, expected] of Object.entries(recalced)) {
-    const r = await apiRetry('POST', '/balance', { address: addr });
-    if (r.status === 503 || r.status === 429) { transientSkipped++; continue; } // shedding ноды — не несоответствие баланса
-    if (r.status !== 200) { mismatches.push({ addr: addr.slice(0, 16), error: 'balance_api_' + r.status }); continue; }
-    if (r.body?.opinion === 'permabanned') { bannedSkipped++; continue; }
-    const got = r.body?.balance;
-    if (typeof got !== 'number' || Math.abs(got - expected) > AUDIT_EPS) {
-      if (typeof got === 'number' && got > expected) { rewardDrift++; continue; } // нода богаче диска: награда/tx ещё не доехала до chain.json — не коррупция
-      mismatches.push({ addr: addr.slice(0, 16), expected, got: got ?? 'absent' });
-    }
-  }
-  return { checked: Object.keys(recalced).length, bannedSkipped, rewardDrift, transientSkipped, mismatches, ok: mismatches.length === 0 };
+  return sharedAuditBalances({ dataDir: path.join(__dirname, 'data'), baseUrl: API });
 }
 
 async function tick(n) {

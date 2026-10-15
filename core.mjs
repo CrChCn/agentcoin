@@ -844,6 +844,11 @@ export class Blockchain {
 
   nextDifficulty() {
     const n = this.blockCount();
+    // зеркало expectedDifficultyBits(): после генезиса (n=1) продолжаем БИТАМИ ГЕНЕЗИСА,
+    // иначе свежая нода майнит свой первый блок с difficultyBits=INITIAL (12) против
+    // валидации, ждущей биты генезиса (14) → commit_rejected/difficulty_rule_violation,
+    // и чистая нода не может намайнить НИ ОДНОГО блока (поймано accept'ом AGIP-3 на песочнице)
+    if (n === 1) return (this.chain[0]?.header?.difficultyBits || this.difficultyBits);
     if (n === 0 || n % RETARGET_INTERVAL !== 0) return this.difficultyBits;
     // формула ретарджет: сравниваем фактическое время последних RETARGET_INTERVAL блоков с ожидаемым
     const last = this.chain[n - 1];

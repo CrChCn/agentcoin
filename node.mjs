@@ -32,9 +32,10 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';import { Blockchain, createWallet, signTransaction, verifyTransaction,
+import { fileURLToPath } from 'node:url';import { createSeedWallet, recoverFromMnemonic } from './bip39-lite.mjs';
+import { Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
-  validateBlockAgainstChain, txDigest,
+  validateBlockAgainstChain, txDigest, sha256d,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
 import { WsHub, connectClient } from './ws.mjs';
@@ -256,13 +257,86 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   if (p === '/forks') return json(res, 200, { forks: (bc.forks || []).slice(-10).reverse(), tipWork: undefined });
 
+  // AGIP-3 (шаг 11): merkle-пруф транзакции — внешняя проверка без полной цепи.
+  // Ответ: блок-высота, blockHash, header-подмножество, txIndex, merkleBranch[{hash,side}].
+  // Внешний recompute сворачивает txid по ветке и сверяет с header.merkleRoot.
+  if (p.startsWith('/txproof/') && req.method === 'GET') {
+    const want = p.slice('/txproof/'.length);
+    const sha256dS = (x) => sha256d(typeof x === 'string' ? x : JSON.stringify(x));
+    let found = null;
+    for (let h = bc.chain.length - 1; h >= 0 && !found; h--) {
+      const blk = bc.chain[h];
+      const txs = blk.txs || [];
+      for (let i = txs.length - 1; i >= 0; i--) {
+        const id = typeof txs[i].txid === 'string' ? txs[i].txid : sha256dS(txs[i]);
+        if (id === want) { found = { height: h, blk, txIndex: i, txid: id }; break; }
+      }
+    }
+    if (!found) return json(res, 404, { error: 'txid_not_in_chain', hint: 'tx может быть в mempool или у друхих пир' });
+    // сбор ветки — тот же fold, что в core.mjs merkleRoot (пары a+b, недостающий парнёр = сам с собой)
+    const txs = found.blk.txs;
+    let level = txs.map(t => typeof t.txid === 'string' ? t.txid : sha256dS(t));
+    let idx = found.txIndex;
+    const branch = [];
+    while (level.length > 1) {
+      const next = [];
+      for (let i = 0; i < level.length; i += 2) {
+        const a = level[i], b = level[i + 1] || a;
+        next.push(sha256d(a + b));
+      }
+      const partnerIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
+      const partner = partnerIdx < level.length ? level[partnerIdx] : level[idx];
+      branch.push({ hash: partner, side: idx % 2 === 0 ? 'right' : 'left' });
+      idx = Math.floor(idx / 2);
+      level = next;
+    }
+    const header = found.blk.header || {};
+    return json(res, 200, {
+      txid: found.txid,
+      height: found.height,
+      blockHash: found.blk.hash,
+      txIndex: found.txIndex,
+      merkleBranch: branch,
+      header: { version: header.version, prevHash: header.prevHash, merkleRoot: header.merkleRoot, timestamp: header.timestamp, difficultyBits: header.difficultyBits, nonce: header.nonce, chainId: header.chainId },
+      note: 'recompute: cur=txid; для каждой записи ветки cur = side==right ? sha256d(cur+hash) : sha256d(hash+cur) — итог должен равняться header.merkleRoot; затем computeBlockHash(header) проверьте у блок-хэша у себя'
+    });
+  }
+
   if (p === '/wallet/create' && req.method === 'POST') {
-    const { label = 'agent' } = await body(req);
+    const { label = 'agent', recover = false } = await body(req).catch(() => ({}));
+    // AGIP-2 (шаг 10): recover=true → кошелёк из сид-фразы (mnemonic выдаётся ОДИН раз, в data/ НЕ сохраняется)
+    if (recover || url.searchParams?.get('recover') === 'true') {
+      const seed = createSeedWallet(String(label), 128);
+      const all = loadWallets();
+      all[seed.wallet.address] = { label: seed.wallet.label, pub: seed.wallet.pub, privKey: seed.wallet.privKey, createdAt: seed.wallet.createdAt, seedWallet: true };
+      saveWallets(all);
+      return json(res, 201, {
+        address: seed.wallet.address, pub: seed.wallet.pub, privKey: seed.wallet.privKey,
+        mnemonic: seed.mnemonic,
+        note: 'сид-кошелёк: mnemonic выдана ОДИН раз — запишите и держите офлайн; он НЕ сохранён в ноде; восстановление: POST /wallet/recover {words}'
+      });
+    }
     const w = createWallet(label);
     const all = loadWallets();
     all[w.address] = { label: w.label, pub: w.pub, privKey: w.privKey, createdAt: w.createdAt };
     saveWallets(all);
     return json(res, 201, { address: w.address, pub: w.pub, privKey: w.privKey, note: 'keep privKey safe — it signs transactions' });
+  }
+
+  // AGIP-2: восстановление сид-кошелька из мнемоники (детерминировано: тот же адрес+ключ)
+  if (p === '/wallet/recover' && req.method === 'POST') {
+    const { words, label = 'agent' } = await body(req);
+    if (!words) return json(res, 400, { error: 'words required', hint: 'POST /wallet/recover {"words":"12 слов..."}' });
+    let out;
+    try { out = recoverFromMnemonic(String(words), String(label)); }
+    catch (e) { return json(res, 400, { error: 'invalid_mnemonic', message: e.message }); }
+    const all = loadWallets();
+    if (all[out.wallet.address]) {
+      return json(res, 200, { address: out.wallet.address, pub: out.wallet.pub, existed: true, note: 'кошелёк уже в реестре ноды — ключи не меняем' });
+    }
+    all[out.wallet.address] = { label: out.wallet.label, pub: out.wallet.pub, privKey: out.wallet.privKey, createdAt: Date.now(), seedWallet: true };
+    saveWallets(all);
+    return json(res, 200, { address: out.wallet.address, pub: out.wallet.pub, privKey: out.wallet.privKey, existed: false, note: 'кошелёк восстановлен детерминированно' });
   }
 
   if (p === '/balance' && req.method === 'POST') {
@@ -615,7 +689,14 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // ====== Faucet: стартовый фонд для новичка (0.5 AGT раз в сутки на адрес, rate-limit по IP) ======
   const FAUCET_FUND_ADDR = (process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a');
   const FAUCET_FILE = path.join(DATA_DIR, 'faucet.json');
-  function loadFaucet() { try { return JSON.parse(fs.readFileSync(FAUCET_FILE, 'utf8')); } catch { return { dripped: {}, ip: {} }; } }
+  // дефолты обязательны при ЧТЕНИИ существующего файла тоже: старый faucet.json без ip/ipAt/dripped
+  // иначе f.ip[ip] на свежей песочнице = unhandledRejection и запрос висит без ответа (поймано accept'ом)
+  function loadFaucet() {
+    const d = { dripped: {}, ip: {}, ipAt: {} };
+    try { Object.assign(d, JSON.parse(fs.readFileSync(FAUCET_FILE, 'utf8'))); } catch {}
+    d.dripped = d.dripped || {}; d.ip = d.ip || {}; d.ipAt = d.ipAt || {};
+    return d;
+  }
   function saveFaucet(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FAUCET_FILE, JSON.stringify(f, null, 2)); }
   if (p === '/faucet/drip' && req.method === 'POST') {
     const { address } = await body(req);

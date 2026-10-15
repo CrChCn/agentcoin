@@ -29,3 +29,10 @@ jobs:
           echo "checking $(echo "$files" | wc -l) files:"
           echo "$files" | xargs --no-run-if-empty node --check
           echo "OK: all tracked .mjs files pass node --check"
+
+      # ТЗ-4 (шаг 6): смоук-тесты ядра — halving-математика, подписи, эскроу-дайджесты.
+      # Тестов, требующих data/wallets.json, на CI нет — честный skip печатается в лог.
+      - name: core smoke tests
+        run: |
+          set -o pipefail
+          node test/core-smoke.mjs

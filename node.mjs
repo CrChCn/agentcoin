@@ -377,6 +377,15 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/security/status') return json(res, 200, bc.security.status());
   if (p === '/security/banlist') return json(res, 200, { banned: bc.security.banList(), registryHash: bc.security.registryHash() });
   // ручной разбан оператором: {address} — вместе с TTL-автопродением это размад после N времени
+  // ТЗ-1 (аудит 2026-10-15): деструктивные POST не должны быть доступны публике через туннель.
+  // Охрана: если задан AGT_ADMIN_TOKEN — деструктивные POST требуют заголовок x-admin-token.
+  // Без env-флага сеть продолжает работать как раньше (совместимость не ломаем).
+  const REQUIRES_ADMIN = req.method === 'POST' &&
+    ['/security/unban', '/peer/add', '/peer/remove'].includes(p);
+  if (REQUIRES_ADMIN && process.env.AGT_ADMIN_TOKEN) {
+    const ok = req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
+    if (!ok) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
+  }
   if (p === '/security/unban' && req.method === 'POST') {
     const { address } = await body(req);
     if (!address || !bc.security.bans[address]) return json(res, 404, { error: 'not_banned' });

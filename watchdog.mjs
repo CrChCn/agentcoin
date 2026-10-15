@@ -17,8 +17,6 @@ const __dirname = path.dirname(process.argv[1] || '.');
 const CHECK_EVERY_MS = 40_000;
 const FAIL_LIMIT = 2;          // 2 подряд неудачи → рестарт
 const RESTART_COOLDOWN_MS = 3 * 60_000;
-const HTTP_OPTIONS = { port: 0 };
-
 // цель: name, url, wrapper (абс. путь .cmd), неоходимо ли tailscale-биндинг
 const NODES = [
   { name: 'A (9335)', url: 'http://127.0.0.1:9335/life', wrapper: path.join(__dirname, 'run-node.cmd') },

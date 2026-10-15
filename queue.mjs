@@ -61,8 +61,6 @@ export class AgentQueue {
   }
   done(jobId, summary = '') {
     delete this.state.onDuty[jobId];
-    // ротация: сделавший работу улетает в конец очереди (если был свободен и ещё жив в сети)
-    if (Array.isArray(this.state.waiting) && !this.state.waiting.includes(jobId)) { /* placeholder, no-op */ }
     this.state.history.push({ at: Date.now(), jobId, summary: String(summary || '').slice(0, 200) });
     if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
     this.save();

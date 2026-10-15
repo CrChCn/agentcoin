@@ -137,18 +137,25 @@ function rateAllow(ip, heavy) {
 const LAG_PROBE_MS = 1_000;
 const LAG_SHED_THRESHOLD_MS = 400; // дрейф probe > 400ms = перегрузка
 const LAG_SHED_HOLD_MS = 5_000;    // после выброса держим shedding ≥5s
+const LAG_SHED_STREAK = 3;         // 3 спайка подряд, иначе shedding от одного PoW-слайса
 let loopLagMs = 0;
 let shedUntil = 0;
 let lastProbe = Date.now();
+let lagStreak = 0;
 setInterval(() => {
   const now = Date.now();
   loopLagMs = now - lastProbe - LAG_PROBE_MS;
   lastProbe = now;
-  if (loopLagMs > LAG_SHED_THRESHOLD_MS) shedUntil = now + LAG_SHED_HOLD_MS;
+  if (loopLagMs > LAG_SHED_THRESHOLD_MS) {
+    lagStreak++;
+    if (lagStreak >= LAG_SHED_STREAK) shedUntil = now + LAG_SHED_HOLD_MS;
+  } else if (lagStreak > 0) lagStreak--;
 }, LAG_PROBE_MS).unref();
-// 3) Щит-гейт: false = вернуть POST 503, GET-heavy → 429/503 решает вызывающий
+// 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
+// консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state)/;
 function overloaded(p) {
-  return Date.now() < shedUntil && (reqIsHeavy(p) || p !== '/life' && p !== '/info' && p !== '/dashboard');
+  return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
 function reqIsHeavy(p) { return HEAVY_PATH_RE.test(p); }
 

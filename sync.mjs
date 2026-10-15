@@ -154,17 +154,35 @@ export async function syncOne(bc, peerUrl) {
     if (divergedAt >= 0) {
       // первый заголовок окна не сцепился с нашим tip: настоящая точка развилки
       // может быть РАНЬШЕ окна — ищем первое расхождение полных линий заголовков.
-      let d = divergedAt;
-      const base = (await fetchJson(`${peerUrl}/headers?from=0&limit=${myH + 1}`).catch(() => null))?.headers;
-      if (base && base.length) {
-        for (const hd of base) {
+      // ВАЖНО: /headers на ноде имеет кап limit=2000 (node.mjs "/headers") — один
+      // запрос from=0&limit=myH+1 МОЛЧА урезается до 0..1999, и развилка на высоте
+      // >2000 теряется (инцидент 2026-10-15: ноды отсекали пиры с 3 strike
+      // "fork adopt failed: prevHash_mismatch" именно из-за этого). Поэтому —
+      // пагинация по ≤2000 и честный поиск первого несовпавшего height.
+      let d = -2; // -2 = развилка не найдена / скан не удался
+      let scanDone = true;
+      let scanFrom = 0;
+      while (scanFrom < myH && d < 0) {
+        const n = Math.min(2000, myH - scanFrom);
+        if (n <= 0) break;
+        const part = (await fetchJson(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`).catch(() => null))?.headers;
+        if (!part || !part.length) { scanDone = false; break; }
+        for (const hd of part) {
+          if (hd.height >= myH) break; // дошли до конца нашей цепи без расхождений — развилки нет
           const ours = bc.chain[hd.height];
-          if (!ours || ours.hash !== hd.hash) { d = hd.height; break; }
+          if (ours && ours.hash !== hd.hash) { d = hd.height; break; }
         }
-      } else {
-        // пир без полного /headers на 0..myH: без точки развилки голосовать нельзя
-        log.push(`  → не смогли найти точку развилки (пир отдал мало заголовков), skip`);
-        return log;
+        if (d >= 0) break;
+        scanFrom = part[part.length - 1].height + 1; // единственный ход вперёд (не «+= 2000» — иначе таблица пропусков!)
+      }
+      if (d === -2) {
+        // реальный путь: пиры синхронизированы по 0..myH-1, а окно дало другой блок на myH —
+        // но если full-скан не подтвердил общий префикс, безопаснее отказаться.
+        if (!scanDone) {
+          log.push(`  → не смогли проверить линию 0..${myH - 1} (пир отдал мало/обрыв), skip`);
+          return log;
+        }
+        d = myH; // общий префикс 0..myH-1 сходится: расхождение — в следующем блоке (height myH)
       }
       log.push(`  → точка развилки: высота ${d}`);
       const fullHeaders = (await fetchJson(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`).catch(() => null))?.headers;

@@ -3,7 +3,7 @@
 const fs = require('fs');
 
 const TAG_OPEN = '<script src="/panel.js" defer></script>';
-const FILES = ['imperial', 'index', 'terminal', 'jobs', 'dashboard', 'chat'];
+const FILES = ['imperial', 'index', 'terminal', 'jobs', 'dashboard', 'chat', 'jail', 'mbc20'];
 
 // 1) пропатчить node.mjs: отдать /panel.js как статический файл из tools/
 const nodeSrc = fs.readFileSync('node.mjs', 'utf8');

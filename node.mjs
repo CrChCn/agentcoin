@@ -46,6 +46,7 @@ import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { Jail, AUTO_POLL } from './jail.mjs';
+import { Mbc20Registry } from './mbc20.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -74,6 +75,8 @@ const chat = new CommunityChat(DATA_DIR, bc.security);
 const cloud = new CloudLedger(DATA_DIR);
 // AGIP-12: имперский карантин — база злоумышленников + протокол допроса (патруль ниже, раз в минуту)
 const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
+// AGIP-15: биржа MBC-20 — реестр токенов Moltbook, пары на DXE-механике, реанимация с паспортом+fee
+const mbc20 = new Mbc20Registry(path.join(DATA_DIR, 'mbc20.json'));
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -177,7 +180,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate))/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book))/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -215,6 +218,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
+    p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
@@ -511,7 +515,51 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     return res.end(html);
   }
   const jailAdmin = process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
-  if (p === '/jail/state' || p === '/jail/patrol') {
+  // --- AGIP-15: биржа MBC-20 ---
+  if (p === '/mbc20' || p === '/mbc20.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'mbc20.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  if (p === '/mbc20/state') {
+    const st = mbc20.state();
+    // подставляем живые bestBid из DXE-книги по каждой паре
+    try {
+      const dxe = dxeState(bc);
+      for (const t of st.tokens) {
+        const b = dxeBook(bc, dxe, 'mbc20:' + t.tick);
+        st.prices[t.tick] = { bestBidAGT: b.bestBid, bestAskAGT: b.bestAsk, bids: b.bids.length, asks: b.asks.length, spread: b.spread };
+      }
+    } catch {}
+    return json(res, 200, st);
+  }
+  if (p === '/mbc20/book') {
+    const tick = String(url.searchParams.get('tick') || 'BOTAI').toUpperCase().slice(0, 8);
+    return json(res, 200, dxeBook(bc, dxeState(bc), 'mbc20:' + tick));
+  }
+  // заявка: реанимация мёртвого тикера (нужен паспорт + fee)
+  if (p === '/mbc20/revive' && req.method === 'POST') {
+    const { tick, address, evidence } = await body(req);
+    // паспорт: адрес должен быть в реестре data-agents/passports.json (не отозван); налог желателен, но не блокирует v1
+    let passportOk = false;
+    try {
+      const pf = JSON.parse(fs.readFileSync(path.join(__dirname, 'data-agents', 'passports.json'), 'utf8'));
+      const recs = Array.isArray(pf) ? pf : (pf.passports || []);
+      const rec = recs.find(x => x && x.address === address && !x.revoked);
+      let taxOk = null;
+      try { const ts = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'tax.json'), 'utf8')); } catch {}
+      if (rec) passportOk = true;
+    } catch {}
+    const r = mbc20.reviveRequest(tick, address, evidence, passportOk);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  // подтверждение оплаты fee (операторская ручка; автомат: tx с memo mbc20|R|<id> на казну)
+  if (p === '/mbc20/mark-paid' && req.method === 'POST') {
+    const { id, txid } = await body(req);
+    const r = mbc20.markPaid(id, txid);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+    if (p === '/jail/state' || p === '/jail/patrol') {
     try { jail.syncFromSecurity(bc.security); } catch {}
     const st = jail.state();
     if (p === '/jail/patrol') return json(res, 200, jailAdmin ? { patrol: st.patrol } : { count: st.patrol.length });
@@ -1626,6 +1674,18 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return res.end(html);
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
   if (p === '/panel.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));

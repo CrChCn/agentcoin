@@ -209,7 +209,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/life' || p === '/dashboard' || p === '/' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/jobs' || p === '/jobs.html' ||
-    p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state');
+    p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
+    p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));

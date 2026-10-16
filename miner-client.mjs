@@ -114,6 +114,8 @@ async function mineSlice(header) {
 }
 
 let stopped = false;
+let staleProbes = 0; // счётчик sync-прогонов на протухшем tip (AGIP-7 сольо-правило)
+const STALE_PROBE_MAX = 3; // до 3 sync-прогонов → потом возвращаемся к майнингу
 process.on('SIGINT', () => { stopped = true; process.exit(0); });
 
 async function tick() {
@@ -126,8 +128,23 @@ async function tick() {
   // неделями тянула свой заглухший форк, пиры отвергали как «fork_not_heavier».
   const tipAgeSec = Number(life.body.tipAgeSec) || 0;
   if (!life.body.fresh || tipAgeSec > 300) {
-    log(`tip stale (age=${tipAgeSec}c) — пропускаем слайс, ждём sync ноды (не закрепляем форк)`);
-    return;
+    // AGIP-7: сначала нудим ноду синхронизироваться (не закрепляем форк).
+    // НО: если после N прыжков sync-прогонов tip всё ещё самый тяжёлый известный
+    // (нода отвечает «fork слабее» / глухая тишина) — возвращаемся к майнингу
+    // (сольо-правило, как в Bitcoin при смерти сети): иначе протухший guard
+    // навсегда глушит единственного производителя блоков (бага того же дня 2026-10-16).
+    staleProbes++;
+    if (staleProbes <= STALE_PROBE_MAX) {
+      await api('/sync-now'); // нода прогонит syncAll: возьмёт более тяжёлую цепь, если есть
+      log(`tip stale (age=${tipAgeSec}с) — прогоняю sync ${staleProbes}/${STALE_PROBE_MAX}, майнинг на паузе`);
+      return;
+    }
+    if (life.body.fresh === false && tipAgeSec > 300 && staleProbes === STALE_PROBE_MAX + 1) {
+      log(`tip stale ${Math.round(tipAgeSec)}с, после ${STALE_PROBE_MAX} sync-прогонов нет более тяжёлой цепи — возвращаюсь к майнингу (сольо)`);
+    }
+  } else if (staleProbes > 0) {
+    staleProbes = 0;
+    log('tip снова свежий — обычный режим');
   }
 
   // headers-only контроль последних K заголовков (через tip-высоту)

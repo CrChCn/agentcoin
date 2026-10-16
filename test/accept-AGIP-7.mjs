@@ -58,8 +58,8 @@ process.env.AGT_DATA_DIR = oldData;
 // ── 3. Miner-client: гварды через рантайм-симуляцию недоступны без сети,
 // проверяем KEY-константы в исходнике (не исполняем сеть)
 const src = fs.readFileSync(path.join(process.cwd(), 'miner-client.mjs'), 'utf8');
-if (src.includes('tipAgeSec > 300') && src.includes('пропускаем слайс')) ok('майнер: гвард stale tip присутствует');
-else bad('майнер: гвард stale tip отсутствует');
+if (src.includes('tipAgeSec > 300') && src.includes('sync-now') && src.includes('сольо')) ok('майнер: stale-tip гвард — sync-пробеты с возвратом к майнингу (сольо-правило, никто не законсервирован)');
+else bad('майнер: гвард stale tip отсутствует или не отдает сольо-правило');
 if (src.includes('HEARTBEAT_FILE') && src.includes('зомби-детект')) ok('майнер: зомби-детект по heartbeat присутствует');
 else bad('майнер: heartbeat-зомби-детект отсутствует');
 const ssrc = fs.readFileSync(path.join(process.cwd(), 'sync.mjs'), 'utf8');

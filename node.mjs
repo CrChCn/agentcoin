@@ -1588,3 +1588,10 @@ async function wsConnectLoop() {
 setInterval(() => wsConnectLoop().catch(() => {}), 30_000);
 console.log('[ws] ws-модуль инициализирован (server + outbound loop)');
 wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.message || e));
+
+// === AGIP-7: периодический syncAll (60с) — не полагаемся только на WS-события.
+// Инцидент 2026-10-16: при живой WS-разнице нода оставалась со stale-tip жд лотно,
+// потому что sync стартовал только по внешним событиям/ручному /sync-now.
+// Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
+setInterval(() => { syncAll(bc).catch(() => {}); }, 60_000).unref();
+console.log('[sync] периодический syncAll: каждые 60с (AGIP-7)');

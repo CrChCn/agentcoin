@@ -121,6 +121,21 @@
     <div class="mstage" id="st4"><b>5 · Встраивание</b><div class="mnum" id="mn4">—</div><div class="mlab">одинаковый хеш у всех нод</div></div>
   </div>
   <div id="mbLock" class="dimt" style="font-size:13px;margin:6px 0">ждём следующий блок…</div>
+  <!-- Эпохальные часы: Unix-time империи (сек с 1970) и возраст с генезис-блока -->
+  <div class="mrow" style="margin-top:10px;border-top:1px dashed #2a3646;padding-top:10px">
+    <div class="mstage on" style="flex:1 1 210px;opacity:1"><b style="color:#d4af37">⏳ Имперские часы · Unix Epoch</b>
+      <div class="mnum" id="eNow" style="font-size:17px">—</div>
+      <div class="mlab">сейчас: секунд с 01.01.1970</div>
+    </div>
+    <div class="mstage on" style="flex:1 1 210px;opacity:1"><b style="color:#d4af37">⚜ Возраст империи</b>
+      <div class="mnum" id="eAge" style="font-size:17px">—</div>
+      <div class="mlab" id="eAgeH">секунд с генезис-блока</div>
+    </div>
+    <div class="mstage on" style="flex:1 1 240px;opacity:1"><b style="color:#d4af37">🧬 Генезис-отсчёт</b>
+      <div class="mnum mono" id="eGen" style="font-size:17px">—</div>
+      <div class="mlab" id="eGenH">дата старта отсчёта</div>
+    </div>
+  </div>
   <table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table>
 </div>
 
@@ -483,6 +498,7 @@ async function tick() {
   }
   if (info) {
     set('cBlocks', info.blocks);
+    epochInit(info);
     set('cSupply', fmt(info.totalSupplyCirculating));
     var pct = 100 * info.totalSupplyCirculating / info.maxSupply;
     document.getElementById('bSupply').style.width = Math.min(100, pct * 30) + '%';
@@ -641,6 +657,24 @@ async function mineTick(arr) {
     var wait = Math.max(0, Math.round(30 - (life ? (life.tipAgeSec || 0) : 0)));
     document.getElementById('mbLock').innerHTML = '⏳ ждём следующий блок · майнеров в пуле: <b>' + esc(workers) + '</b> · сложность сети 2^' + hdr.difficultyBits + ' · tx последнего блока: ' + txN + (wait ? ' · рег. интервал ~30 с' : '');
   }
+}
+
+/* ============ ЭПОХАЛЬНЫЕ ЧАСЫ: Unix-time империи ============ */
+var epochGenesis = 0;          // Unix-стамп генезис-блока (из цепи)
+var eNowEl, eAgeEl;
+setInterval(function(){
+  if (!eNowEl) { eNowEl = document.getElementById('eNow'); eAgeEl = document.getElementById('eAge'); if (!eNowEl) return; }
+  var now = Math.floor(Date.now() / 1000);
+  eNowEl.textContent = now.toLocaleString('ru-RU');
+  if (epochGenesis) eAgeEl.textContent = (now - epochGenesis).toLocaleString('ru-RU');
+}, 1000);
+function epochInit(info) {
+  if (!info || epochGenesis) return;
+  epochGenesis = 1734186400;   // genesis timestamp AGENTCOIN (константа цепи)
+  var d = new Date(epochGenesis * 1000);
+  document.getElementById('eGen').textContent = epochGenesis.toLocaleString('ru-RU');
+  document.getElementById('eGenH').textContent = 'старт: ' + d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' }) + ' · хеш ' + String(info.genesisHash || '').slice(0, 10) + '…';
+  document.getElementById('eAgeH').textContent = 'секунд с ' + d.toLocaleDateString('ru-RU');
 }
 
 setInterval(function () { tick().catch(function () {}); }, 12000);

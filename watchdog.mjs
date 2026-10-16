@@ -23,7 +23,10 @@ const NODES = [
   { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(__dirname, 'run-node2.cmd') },
   { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(__dirname, 'run-node3.cmd') },
   { name: 'TS (9336)', port: '9336', url: `http://${process.env.AGT_TS_IP || '100.96.7.15'}:9336/life`, wrapper: path.join(__dirname, 'run-node-ts.cmd') },
-];
+  { name: 'D (9337)', port: '9337', url: 'http://127.0.0.1:9337/life', wrapper: path.join(__dirname, 'run-node9337.cmd') },
+  { name: 'E (9338)', port: '9338', url: 'http://127.0.0.1:9338/life', wrapper: path.join(__dirname, 'run-node9338.cmd') },
+  { name: 'F (9339)', port: '9339', url: 'http://127.0.0.1:9339/life', wrapper: path.join(__dirname, 'run-node9339.cmd') },
+]; // инцидент 2026-10-16: D/E/F умерли молча и караулились 2.5 ч — теперь под присмотром
 const SICK_LIMIT = 5; // подряд живой-порт-но-мёртвый-/life → жёсткий рестарт (5 × 40с = ~3.3 мин)
 
 const stateFile = path.join(__dirname, 'data', 'watchdog.json');

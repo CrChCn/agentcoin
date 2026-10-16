@@ -209,7 +209,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   const healthFree = req.method === 'GET' && (
     p === '/life' || p === '/dashboard' || p === '/' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
-    p === '/index' || p === '/index.html' || p === '/jobs' || p === '/jobs.html' ||
+    p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state');
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
@@ -1487,6 +1487,12 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   // --- AGIP-6 (шаг 16): лэндинг для агентов/людей + джобборд-страница ---
   if (p === '/index' || p === '/index.html') {
     const html = fs.readFileSync(path.join(__dirname, 'site', 'index.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
+  if (p === '/imperial' || p === '/imperial.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'imperial.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(html);
   }

@@ -62,24 +62,28 @@ export function govState(bc) {
   if (cacheHeight === h && cacheVal) return cacheVal;
   const props = new Map();      // ref → proposal
   const tallies = new Map();    // ref → Map(address → голос)
+  // Обычные for-of циклы вместо forEach с замыканием: в замыкании tallies
+  // ловился ReferenceError при редких гонках (одно-процессный HTTP handler),
+  // последовательный обход безопасен (инцидент: guard unhandledReJECTION
+  // «tallies is not defined at govState» в log-node3.txt).
   for (const blk of bc.chain) {
       const hh = blk.height;
-      (blk.txs || []).forEach((tx, idx) => {
+      for (const tx of (blk.txs || [])) {
         const p = parseGov(tx);
-        if (!p) return;
+        if (!p) continue;
         if (p.type === 'proposal') {
-          if (props.has(p.ref) || tallies.has(p.ref)) return; // ref одноразов
-          const o = { ...p, height: hh, votes: tallies.set(p.ref, new Map()).get(p.ref) };
-          props.set(p.ref, o);
+          if (props.has(p.ref) || tallies.has(p.ref)) continue; // ref одноразов
+          tallies.set(p.ref, new Map());
+          props.set(p.ref, { ...p, height: hh });
         } else if (p.type === 'vote') {
           const prop = props.get(p.ref);
-          if (!prop) return;
-          if (hh > prop.closesAt) return; // окно закрыто
+          if (!prop) continue;
+          if (hh > prop.closesAt) continue; // окно закрыто
           const perAddr = tallies.get(p.ref);
-          if (perAddr.has(p.from)) return;           // первый голос адреса фиксируется
+          if (perAddr.has(p.from)) continue;         // первый голос адреса фиксируется
           perAddr.set(p.from, { choice: p.choice, height: hh, key: p.key });
         }
-      });
+      }
   }
   const height = bc.blockCount();
   const list = [...props.values()].map(prop => {

@@ -138,8 +138,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();
-const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
 function rateAllow(ip, heavy) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -898,6 +897,40 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     globalThis.__agtWarmStarted = true;
     setInterval(() => { try { escrowStateOnce(true); } catch {} }, 20000).unref();
   }
+
+  // === AGIP-11: авто-уборщик мёртвых эскроу ===
+  // Всегда-refund: если дедлайн открытого эскроу прошел — работодатель имеет право вернуть деньги
+  // (та же механика, что POST /escrow/refund, но автоматически раз в ~20 блоков).
+  // Сам- miss-условие: у ноды должен быть tip свежий (не форк), эскроу реально open из цепи.
+  if (!globalThis.__agtEscrowSweeper) {
+    globalThis.__agtEscrowSweeper = true;
+    let lastSweptHeight = -1;
+    setInterval(() => {
+      try {
+        const tip = bc.tip();
+        if (!tip) return;
+        const h = bc.blockCount();
+        if (h === lastSweptHeight) return; // один проход одной высоты
+        lastSweptHeight = h;
+        if (h % 20 !== 0) return; // каждый 20-й блок
+        const now = Math.floor(Date.now() / 1000);
+        const S = escrowStateOnce();
+        const dead = S.escrows.filter(e => (e.status === 'open' || e.status === 'partial') && e.deadlineTs < now);
+        if (!dead.length) return;
+        if (!lifeStatus().chainValid) return; // не валидна — не трогаем
+        let refunded = 0;
+        for (const e of dead.slice(0, 50)) { // ≤50 за проход: мемпул и блок полный изнутри
+          try {
+            const tx = { from: ESCROW_PREFIX + String(e.escId), to: e.employer, amount: e.openedAmount, nonce: Date.now() * 1000 + (refunded) % 999, ts: now, memo: `escrefund:${e.escId}` };
+            tx.txid = txDigest(tx);
+            const r = bc.addTransaction(tx);
+            if (r.ok) { refunded++; setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); }); }
+          } catch {}
+        }
+        if (refunded) console.log(`[escrow-sweep] высота ${h}: авто-refund ${refunded} мёртвых эскроу из ${dead.length}`);
+      } catch (e) { console.log(`[escrow-sweep] ошибка (не фатально): ${e.message}`); }
+    }, 15000).unref();
+  }
   // --- Джобборд (шаг 14): витрина заданий + история выплат + комиссия казны on-chain ---
   if (p === '/jobs/state') {
     const S = escrowStateOnce(url.searchParams.get('fresh') === '1');
@@ -1248,6 +1281,32 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const g = loadGate();
     return json(res, 200, { queued: Object.values(g.queue).filter(e => e.state === 'queued').length, approved: Object.keys(g.approved).length, rulesHead: GATE_RULES.slice(0, 80) + '…' });
   }
+  // AGIP-10: самодекларация налога для УЖЕ выпущенного паспорта (campaign-friendly).
+  // {{
+  if (p === '/passport/tax' && req.method === 'POST') {
+    const { address, tax } = await body(req);
+    if (!address || !String(address).startsWith('AGT')) return json(res, 400, { error: 'address required' });
+    if (!tax || typeof tax !== 'object') return json(res, 400, { error: 'tax object required' });
+    const cc = String(tax.country || '').toUpperCase();
+    const rate = Math.max(0, Math.min(5000, Number(tax.rateBps) || 0));
+    const regime = (tax.regime === 'vat' || tax.regime === 'none') ? tax.regime : 'none';
+    if (regime === 'vat') {
+      if (!/^[A-Z]{2,3}$/.test(cc)) return json(res, 400, { error: 'tax.country required (ISO 3166 code)' });
+      if (rate <= 0) return json(res, 400, { error: 'tax.rateBps required (>0) for vat regime' });
+    }
+    const taxRec = { regime, country: cc || null, rateBps: regime === 'vat' ? rate : 0, selfPaid: true, fund: regime === 'vat' ? (tax.fund || ('AGT_TAX_' + cc)) : null };
+    const wallets = loadWallets();
+    const w = wallets[address];
+    if (!w || !w.privKey) return json(res, 404, { error: 'wallet_not_registered_here' });
+    // паспорт должен быть в реестре (люди: пере-issue возвращает 409 и не меняет tax — это честно)
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const idx = reg.findIndex(r => r.address === address);
+    if (idx < 0) return json(res, 404, { error: 'passport_not_found', hint: 'POST /passport/issue сначала' });
+    reg[idx].tax = taxRec;
+    fs.writeFileSync(PASSPORT_FILE, JSON.stringify(reg, null, 2));
+    return json(res, 200, { address, tax: taxRec, updated: true, note: 'самодекларация внесена в реестр' });
+  }
+
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
     return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null });

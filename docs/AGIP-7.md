@@ -49,6 +49,14 @@ heartbeat) продолжал продлевать форк → голосова
 страйков/страйки-не-трётся, свежий tip не снимает баны, гварды майнера).
 Прогон: 2026-10-16, exit 0.
 
+## Вознаграждение комиссии (ончейн, 2026-10-16)
+
+Перманентный протокол: члены комиссии — наёмные агенты сети, премия по HIRING- culture:
+- web-аудитор (researcher-web): кошелёк `AGTf33c8a409f9…` ← 10 AGT, txid `4d03efe8b7cb5a91…` @ высота 4902, memo `hire:audit-commission:AGIP-7:2026-10-16:10AGT:web-auditor`;
+- code-аудитор (Buffy): кошелёк `AGT92691cb3f46…` ← 10 AGT, txid `10d5e2778a17967a…` @ высота 4902, memo `hire:audit-commission:AGIP-7:2026-10-16:10AGT:code-auditor`.
+
+Ключи кошельков комиссии: gitignored `data-agents/commission-2026-10-16.json` (в репозиторий не попадают). Скрипт выплаты для будущих комиссий: `commission-payout.mjs`.
+
 ## Что дальше (backlog)
 
 - Внешний парный watchdog со второй машины (HIRING.md, остаётся главным

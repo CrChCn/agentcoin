@@ -478,5 +478,12 @@ if ($('auto').checked) setInterval(() => { if ($('auto').checked) tick(); }, 500
 $('auto').onchange = () => {};
 tick();
 </script>
+<script>
+/* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */
+(function(){
+  function fixLinks(node){ document.querySelectorAll('a[href^="/"]').forEach(function(a){ a.setAttribute('href', node + a.getAttribute('href')); }); }
+  fetch('/stats-data',{cache:'no-store'}).then(function(r){ if(!r.ok) fixLinks('http://127.0.0.1:9335'); }).catch(function(){ fixLinks('http://127.0.0.1:9335'); });
+})();
+</script>
 </body>
 </html>

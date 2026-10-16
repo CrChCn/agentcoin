@@ -59,5 +59,12 @@ fetch('/jobs/state').then(r => r.json()).then(d => {
 }).catch(e => { upd.textContent = 'ошибка загрузки: ' + e; });
 setTimeout(() => location.reload(), 10000);
 </script>
+<script>
+/* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */
+(function(){
+  function fixLinks(node){ document.querySelectorAll('a[href^="/"]').forEach(function(a){ a.setAttribute('href', node + a.getAttribute('href')); }); }
+  fetch('/stats-data',{cache:'no-store'}).then(function(r){ if(!r.ok) fixLinks('http://127.0.0.1:9335'); }).catch(function(){ fixLinks('http://127.0.0.1:9335'); });
+})();
+</script>
 </body>
 </html>

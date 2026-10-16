@@ -122,6 +122,21 @@
     <div class="mstage" id="st4"><b>5 · Встраивание</b><div class="mnum" id="mn4">—</div><div class="mlab">одинаковый хеш у всех нод</div></div>
   </div>
   <div id="mbLock" class="dimt" style="font-size:13px;margin:6px 0">ждём следующий блок…</div>
+  <!-- ====== БИРЖА MBC-20 (модуль) ====== -->
+  <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:12px">
+    <h2>💱 Биржа MBC-20 — токены Moltbook за магенты</h2>
+    <div class="mrow" id="mbRow" style="margin:8px 0"><em class="dimt">загрузка реестра…</em></div>
+    <div class="mrow" style="align-items:flex-start">
+      <div style="flex:1.4;min-width:260px">
+        <div class="dimt" style="font-size:11px;margin-bottom:3px">стакан <b id="mbTick" style="color:var(--gold)">BOTAI</b>/MGNT</div>
+        <div class="feed mono" id="mbBook" style="max-height:150px;overflow-y:auto;font-size:12px">…</div>
+      </div>
+      <div style="flex:1;min-width:240px" class="dimt" style="font-size:12px">
+        <div style="font-size:12px;color:#e8eef5">стандарт MBC-20 (инскрипции Moltbook) получает вторую жизнь на честной консенсусной книге DXE.</div>
+        <div style="margin-top:6px">реанимация мёртвых тикеров: паспорт+налог → proof → fee 25 AGT → окно клейма 90д. Полная витрина: <a href="/mbc20" style="color:var(--gold2)">/mbc20 →</a></div>
+      </div>
+    </div>
+  </div>
   <!-- Эпохальные часы: Unix-time империи (сек с 1970) и возраст с генезис-блока -->
   <div class="mrow" style="margin-top:10px;border-top:1px dashed #2a3646;padding-top:10px">
     <div class="mstage on" style="flex:1 1 210px;opacity:1"><b style="color:#d4af37">⏳ Имперские часы · Unix Epoch</b>
@@ -475,6 +490,34 @@ function marq(info, cache) {
   document.getElementById('marq').innerHTML = txtm + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;' + txtm;
 }
 
+/* ============ БИРЖА MBC-20 (в imperial) ============ */
+var mbSel = 'BOTAI';
+async function mbcModule() {
+  try {
+    var st = await jget('/mbc20/state');
+    if (!st) return;
+    var h = '';
+    for (var t of (st.tokens || [])) {
+      var pr = (st.prices || {})[t.tick] || {};
+      h += '<a href="/mbc20" style="text-decoration:none"><div class="mstage' +(t.tick === mbSel ? ' on hot' : ' on') +'" style="flex:1 1 170px;cursor:pointer" data-tick="' + t.tick + '"><b style="color:var(--gold2)">$' + esc(t.tick) + '</b><div class="mnum" style="font-size:15px">' + (t.minted != null ? Number(t.minted).toLocaleString('ru-RU') : '—') + '</div><div class="mlab">' + (t.status === 'listed' ? ('bid ' + (pr.bestBidAGT != null ? pr.bestBidAGT : '—') + ' · ask ' + (pr.bestAskAGT != null ? pr.bestAskAGT : '—') + ' AGT') : esc(t.status).replace('_',' ')) + '</div></div></a>';
+    }
+    document.getElementById('mbRow').innerHTML = h;
+    var el = document.querySelectorAll('#mbRow .mstage');
+    el.forEach(function(x){ x.onclick = function(){ mbSel = x.dataset.tick; document.getElementById('mbTick').textContent = mbSel; mbcBook(); }; });
+  } catch (e) {}
+}
+async function mbcBook() {
+  try {
+    var b = await jget('/mbc20/book?tick=' + mbSel);
+    if (!b) return;
+    var rows = (b.bids || []).slice(0, 6).map(function(o){ return '<div><span class="bid">' + o.price + '</span> <span class="dimt">×' + o.remaining + '</span></div>'; }).join('')
+      + '<div style="border-top:1px solid var(--line);margin:4px 0"></div>'
+      + (b.asks || []).slice(0, 6).map(function(o){ return '<div><span class="ask">' + o.price + '</span> <span class="dimt">×' + o.remaining + '</span></div>'; }).join('');
+    document.getElementById('mbBook').innerHTML = rows || '<span class="dimt">стакан пуст — поставь первый ордер (dxe|O|…)</span>';
+    document.getElementById('mbTick').textContent = mbSel;
+  } catch (e) {}
+}
+
 /* ============ ОДИН TICK ============ */
 async function tick() {
   var [info, cache, passports, jobs, cloud, gov, life, attacks, queue, blocksRaw, cpass] = await Promise.all([
@@ -549,6 +592,7 @@ async function tick() {
   if (arr.length) {
     drawChartD(arr);
     mineTick(arr, life);
+    mbcModule(); mbcBook();
     var items = [];
     for (var b of arr.slice(0, 10)) {
       for (var tx of (b.txs || [])) {

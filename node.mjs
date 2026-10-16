@@ -45,6 +45,7 @@ import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
+import { Jail } from './jail.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -71,6 +72,8 @@ bc.treasuryPolicyFn = makeTreasuryPolicyFn(bc);
 const queue = new AgentQueue(DATA_DIR); // очередь агентов: FIFO → работа → в конец очереди, по кругу
 const chat = new CommunityChat(DATA_DIR, bc.security);
 const cloud = new CloudLedger(DATA_DIR);
+// AGIP-12: имперский карантин — база злоумышленников + протокол допроса (патруль ниже, раз в минуту)
+const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -174,7 +177,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate))/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -211,6 +214,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
+    p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
@@ -483,7 +487,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // Охрана: если задан AGT_ADMIN_TOKEN — деструктивные POST требуют заголовок x-admin-token.
   // Без env-флага сеть продолжает работать как раньше (совместимость не ломаем).
   const REQUIRES_ADMIN = req.method === 'POST' &&
-    ['/security/unban', '/peer/add', '/peer/remove', '/treasury/propose'].includes(p);
+    ['/security/unban', '/peer/add', '/peer/remove', '/treasury/propose', '/jail/ask', '/jail/answer', '/jail/release', '/jail/profile'].includes(p);
   if (REQUIRES_ADMIN && process.env.AGT_ADMIN_TOKEN) {
     const ok = req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
     if (!ok) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
@@ -497,6 +501,56 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     return json(res, 200, { unbanned: address });
   }
   if (p === '/security/attacks') return json(res, 200, { attacks: bc.security.attacks.slice(-50), count: bc.security.attacks.length });
+
+  // --- AGIP-12: имперский карантин — база злоумышленников + допрос ---
+  // Данные КОНФИДЕНЦИАЛЬНЫ (внутреннее пользование оператора; в перспективе — продажа зашифрованных пакетов).
+  // Публично: только счётчики. Полные досье/анкеты/допросы — только с x-admin-token.
+  if (p === '/jail' || p === '/jail.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'jail.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  const jailAdmin = process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
+  if (p === '/jail/state' || p === '/jail/patrol') {
+    try { jail.syncFromSecurity(bc.security); } catch {}
+    const st = jail.state();
+    if (p === '/jail/patrol') return json(res, 200, jailAdmin ? { patrol: st.patrol } : { count: st.patrol.length });
+    if (jailAdmin) return json(res, 200, st.jail);
+    // публичная выжимка: цифры без адресов, улик и анкет
+    return json(res, 200, { total: st.jail.total, inQuarantine: st.jail.inQuarantine, kindsCount: st.jail.inmates.reduce((m, x) => { for (const k of x.kinds) m[k] = (m[k] || 0) + 1; return m; }, {}) });
+  }
+  if (p === '/jail/profile' && req.method === 'POST') {
+    const { address, profile } = await body(req);
+    // IP берём из фактического соединения — self-report не является доказательством
+    const ip = (req.socket && (req.socket.remoteAddress || '')).replace('::ffff:', '') || null;
+    const r = jail.profile(address, profile || {}, ip);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/jail/ask' && req.method === 'POST') {
+    const { address, question, by } = await body(req);
+    const r = jail.ask(address, question, by || 'operator');
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/jail/answer' && req.method === 'POST') {
+    const { address, id, answer } = await body(req);
+    const r = jail.answer(address, id, answer);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/jail/inmate' && req.method === 'GET') {
+    if (!jailAdmin) return json(res, 401, { error: 'admin_token_required', hint: 'полные досье — только внутренне: x-admin-token' });
+    const address = url.searchParams.get('address');
+    const d = jail.inmates[address];
+    if (!d) return json(res, 404, { error: 'not_in_jail' });
+    return json(res, 200, d);
+  }
+  if (p === '/jail/release' && req.method === 'POST') {
+    const { address, by } = await body(req);
+    const r = jail.release(address, by || 'operator');
+    if (r.ok) { // релиз в карантине = разбан в сети (единая судьба)
+      try { delete bc.security.bans[address]; delete bc.security.strikes[address]; bc.security.save(); } catch {}
+    }
+    return json(res, r.ok ? 200 : 400, r);
+  }
 
   // --- @-система ---
   const HANDLES_FILE = path.join(DATA_DIR, 'handles.json');
@@ -1556,6 +1610,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
   }
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
   if (p === '/imperial' || p === '/imperial.html') {
     const html = fs.readFileSync(path.join(__dirname, 'site', 'imperial.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1708,6 +1766,13 @@ wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.mess
 // потому что sync стартовал только по внешним событиям/ручному /sync-now.
 // Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
 setInterval(() => { syncAll(bc).catch(() => {}); }, 60_000).unref();
+// AGIP-12: патруль карантина — раз в минуту синхронизируем базу злоумышленников с журналом атак
+setInterval(() => {
+  try {
+    const { taken } = jail.syncFromSecurity(bc.security);
+    if (taken) console.log(`[jail] патруль: взято под стражу ${taken} атакующих`);
+  } catch {}
+}, 60_000).unref();
 console.log('[sync] периодический syncAll: каждые 60с (AGIP-7)');
 
 // === AGIP-10: налоговая инфраструктура ===

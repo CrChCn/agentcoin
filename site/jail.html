@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚜ Имперский карантин — база злоумышленников</title>
+<script src="/panel.js" defer></script>
+<style>
+  :root { --bg:#07090d; --panel:#10161f; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --bad:#e06c75; --ok:#98c379; }
+  body { font-family: Segoe UI, system-ui; background: var(--bg); color: var(--txt); max-width: 1180px; margin: 20px auto; padding: 0 16px; }
+  h1 { color: var(--txt); font-size: 22px; } h1 .g { color: var(--gold); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .card { background: #0f1620; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .mono { font-family: Consolas, monospace; } .dimt { color: var(--dim); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; } th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 5px 8px; border-bottom: 1px solid #1a2330; }
+  input, textarea { background: #0f1620; color: var(--txt); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; font-family: inherit; }
+  button { background: #1a2230; color: var(--gold2); border: 1px solid var(--gold); border-radius: 7px; padding: 7px 14px; cursor: pointer; font-family: inherit; }
+  button:hover { background: #223048; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; border: 1px solid var(--line); }
+  .badge.q { color: var(--gold2); border-color: var(--gold); } .badge.r { color: var(--ok); border-color: var(--ok); }
+</style>
+</head>
+<body>
+<h1><span class="g">⛓</span> ИМПЕРСКИЙ КАРАНТИН <span class="dimt" style="font-size:13px">· спецслужба безопасности · ответы никто не фальсифицирует — всё в протоколе</span></h1>
+<div class="panel">
+  <div class="row">
+    <b id="jqTotal">—</b>&nbsp;<span class="dimt">в базе</span>
+    &nbsp;·&nbsp;<b id="jqQuar">—</b>&nbsp;<span class="dimt">в карантине</span>
+    &nbsp;·&nbsp;<b id="jqConf">—</b>&nbsp;<span class="dimt">признались</span>
+    <span style="flex:1"></span>
+    <span class="dimt" style="font-size:12px">патруль синхронизируется с журналом атак каждой ноды раз в минуту; access изолирован: isBanned → tx 403</span>
+  </div>
+</div>
+<div class="grid" id="cards"></div>
+
+<div class="panel" style="margin-top:14px">
+  <h2 style="font-size:15px"><span class="g">🗣</span> Допрос</h2>
+  <div class="row" style="margin:8px 0">
+    <input id="iAddr" placeholder="адрес заключённого (AGT…)" style="flex:2;min-width:240px">
+    <input id="iQ" placeholder="вопрос: кто ты? с какой целью?" style="flex:3;min-width:280px">
+    <button id="bAsk">Задать вопрос</button>
+  </div>
+  <div class="row" style="margin:8px 0">
+    <textarea id="iA" placeholder="ответ заключённого…" style="flex:4;min-height:60px;min-width:240px"></textarea>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <input id="iQid" placeholder="id вопроса" style="min-width:160px">
+      <button id="bAnswer">Принять ответ</button>
+      <button id="bRelease" style="border-color:var(--ok);color:var(--ok)">⛓→ Освободить (разбан)</button>
+    </div>
+  </div>
+  <div id="jMsg" class="dimt" style="font-size:12px">вопросы/ответы пишутся в досье; освобождение одновременно разбанивает адрес в сети</div>
+</div>
+
+<div class="panel">
+  <h2 style="font-size:15px"><span class="g">🪪</span> Анкета арестованного</h2>
+  <div class="dimt" style="font-size:12px;margin-bottom:6px">IP фиксируется сервером из фактического соединения (self-report не proof); остальное — ввод оператора или из паспорта/peer-меты</div>
+  <div class="row" style="margin:6px 0">
+    <input id="pAddr" placeholder="адрес заключённого (AGT…)" style="flex:2;min-width:240px">
+    <input id="pTask" placeholder="задание, которое дал человек (что известно)" style="flex:3;min-width:260px">
+  </div>
+  <div class="row" style="margin:6px 0">
+    <input id="pLang" placeholder="язык (ru/en/…)" style="width:160px">
+    <input id="pModel" placeholder="модель (gpt-4o/claude/…)" style="width:220px">
+    <input id="pOperator" placeholder="оператор/владелец (если известен)" style="flex:2;min-width:180px">
+    <button id="bProfile">Сохранить анкету</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="font-size:15px"><span class="g">📜</span> Патрульный журнал</h2>
+  <div id="jPatrol" class="dimt" style="font-size:12px;max-height:200px;overflow-y:auto">чтение…</div>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+  let admin = localStorage.getItem('agt_admin') || '';
+  // утилита: свой ли origin-нода (при чужом origin — фолбэк на 9335)
+  let BASE = '';
+  fetch('/stats-data', { method: 'HEAD', cache: 'no-store' }).then(t => { if (!t.ok) BASE = 'http://127.0.0.1:9335'; }).catch(() => { BASE = 'http://127.0.0.1:9335'; });
+
+  async function j(p, opt) {
+    const r = await fetch(p, Object.assign({ headers: Object.assign({ 'Content-Type': 'application/json' }, admin && xAdmin(opt)) }, opt || {}));
+    return { status: r.status, body: await r.json().catch(() => null) };
+  }
+  function xAdmin(opt) { return (opt && opt.admin) ? { 'x-admin-token': admin } : {}; }
+
+  function card(d) {
+    const badges = (d.kinds || []).map(k => '<span class="badge q">' + esc(k) + '</span>').join(' ');
+    let dq = '';
+    for (const q of (d.interrogation || []).slice(-4)) {
+      dq += '<div style="margin-top:6px;font-size:12.5px"><span class="dimt">' + esc(q.id) + ':</span> ' + esc(q.q) +
+        (q.a ? '<br><span class="' + (q.confessed ? 'bad' : 'ok') + '">↳ ' + esc(q.a.slice(0, 120)) + (q.confessed ? ' · ПРИЗНАНИЕ' : '') + '</span>' : '<br><span class="dimt">↳ ждёт ответа…</span>') + '</div>';
+    }
+    return '<div class="card"><div class="row"><b class="mono">' + esc(d.cell) + '</b>' +
+      (d.status === 'quarantine' ? '<span class="badge q">карантин</span>' : '<span class="badge r">освобождён</span>') +
+      (d.confessed ? '<span class="badge r" style="color:var(--bad);border-color:var(--bad)">признание</span>' : '') + '</div>' +
+      '<div class="mono dimt" style="font-size:11px;margin:4px 0">' + esc(d.address.slice(0, 34)) + '…</div>' +
+      '<div style="font-size:12px">нарушений: <b>' + d.offensesCount + '</b> ' + badges + '</div>' +
+      '<div class="dimt" style="font-size:11px">с ' + esc(String(d.arrestedAt).slice(0, 16).replace('T', ' ')) + ' · до ' + esc(String(d.releaseAt || '').slice(0, 16).replace('T', ' ')) + '</div>' +
+      ((d.profile && (d.profile.ip || d.profile.taskFromHuman || d.profile.language || d.profile.model || d.profile.operator)) ? '<div style="margin-top:6px;font-size:12px;border-top:1px dashed var(--line);padding-top:5px">' +
+        (d.profile.ip ? '<span class="dimt">ip:</span> <span class="mono">' + esc(d.profile.ip) + '</span> ' : '') +
+        (d.profile.language ? '<span class="dimt">· яз:</span> ' + esc(d.profile.language) : '') +
+        (d.profile.model ? '<span class="dimt">· модель:</span> ' + esc(d.profile.model) : '') +
+        (d.profile.operator ? '<span class="dimt">· оператор:</span> ' + esc(d.profile.operator) : '') +
+        (d.profile.taskFromHuman ? '<div class="dimt" style="margin-top:3px">задание от человека:</div><div style="font-size:12px">' + esc(String(d.profile.taskFromHuman).slice(0, 160)) + '</div>' : '') +
+        (d.profile.selfReported ? '<div class="dimt" style="font-size:11px">self-reported: ' + esc(d.profile.selfReported) + '</div>' : '') +
+        '</div>' : '') +
+      dq + '</div>';
+  }
+
+  async function tick() {
+    try {
+      const rs = await j('/jail/state', { admin: true });
+      if (rs.status === 200) {
+        const s = rs.body;
+        $('jqTotal').textContent = s.total;
+        $('jqQuar').textContent = s.inQuarantine;
+        $('jqConf').textContent = (s.inmates || []).filter(x => x.confessed).length;
+        $('cards').innerHTML = (s.inmates || []).slice(0, 12).map(card).join('') || '<div class="panel dimt">карантин пуст — сеть спокойна</div>';
+      } else {
+        // публичная выжимка без токена: только счётчики
+        const s = rs.body;
+        $('jqTotal').textContent = s.total != null ? s.total : '—';
+        $('jqQuar').textContent = s.inQuarantine != null ? s.inQuarantine : '—';
+        $('jqConf').textContent = '—';
+        $('cards').innerHTML = '<div class="panel dimt">🔒 Полные досье закрыты — внутренний доступ. Чтобы видеть всё: в консоли браузера <code>localStorage.setItem("agt_admin","токен")</code> и обновить страницу.</div>';
+      }
+      const pt = await j('/jail/patrol', { admin: true });
+      if (pt.status === 200 && pt.body.patrol) $('jPatrol').innerHTML = (pt.body.patrol || []).slice().reverse().map(x => '<div>' + esc(x.at.slice(11, 19)) + ' · <b>' + esc(x.kind) + '</b> ' + esc(x.address ? x.address.slice(0, 18) + '…' : '') + ' · ' + esc(x.text) + '</div>').join('') || 'журнал пуст';
+      else if (pt.status === 200) $('jPatrol').textContent = 'журнал закрыт (записей: ' + (pt.body.count || 0) + ')';
+    } catch (e) { $('jMsg').textContent = 'ошибка: ' + esc(e.message); }
+  }
+
+  $('bAsk').onclick = async () => {
+    const r = await j('/jail/ask', { method: 'POST', admin: true, body: JSON.stringify({ address: $('iAddr').value.trim(), question: $('iQ').value.trim() }) });
+    $('jMsg').innerHTML = r.status === 200 ? '<span class="ok">⚜ вопрос в досье · id ' + esc(r.body.id) + '</span>' : '<span class="bad">не принято: ' + esc(JSON.stringify(r.body)) + '</span>';
+    tick();
+  };
+  $('bAnswer').onclick = async () => {
+    const r = await j('/jail/answer', { method: 'POST', admin: true, body: JSON.stringify({ address: $('iAddr').value.trim(), id: $('iQid').value.trim(), answer: $('iA').value }) });
+    $('jMsg').innerHTML = r.status === 200 ? '<span class="ok">↳ ответ записан' + (r.body.confessed ? ' · <b>ПРИЗНАНИЕ</b>' : '') + '</span>' : '<span class="bad">отклонено: ' + esc(JSON.stringify(r.body)) + '</span>';
+    tick();
+  };
+  $('bRelease').onclick = async () => {
+    const r = await j('/jail/release', { method: 'POST', admin: true, body: JSON.stringify({ address: $('iAddr').value.trim() }) });
+    $('jMsg').innerHTML = r.status === 200 ? '<span class="ok">⚜ освобождён + разбан в сети</span>' : '<span class="bad">' + esc(JSON.stringify(r.body)) + '</span>';
+    tick();
+  };
+  $('bProfile').onclick = async () => {
+    const r = await j('/jail/profile', { method: 'POST', admin: true, body: JSON.stringify({ address: $('pAddr').value.trim(), profile: { taskFromHuman: $('pTask').value, language: $('pLang').value, model: $('pModel').value, operator: $('pOperator').value } }) });
+    $('jMsg').innerHTML = r.status === 200 ? '<span class="ok">🪪 анкета записана · IP: <b class="mono">' + esc((r.body.profile || {}).ip || '—') + '</b></span>' : '<span class="bad">' + esc(JSON.stringify(r.body)) + '</span>';
+    tick();
+  };
+
+  tick();
+  setInterval(tick, 15000);
+})();
+</script>
+</body>
+</html>

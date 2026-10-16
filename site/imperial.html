@@ -461,7 +461,7 @@ function marq(info, cache) {
 
 /* ============ ОДИН TICK ============ */
 async function tick() {
-  var [info, cache, passports, jobs, cpass, cloud, gov, life, attacks, queue, blocksRaw, taxst] = await Promise.all([
+  var [info, cache, passports, jobs, cloud, gov, life, attacks, queue, blocksRaw, cpass] = await Promise.all([
     jget('/info'), jget('/stats-data'), jget('/passport/count'), jget('/jobs/state'),
     jget('/cloud/stats'), jget('/gov/state'), jget('/life'), jget('/security/attacks'),
     jget('/queue/status'), jget('/blocks?n=120'), jget('/tax/state'),
@@ -546,7 +546,6 @@ async function tick() {
   if (life) shieldRender(life, attacks);
   // —— чат сообщества ——
   try {
-    const fed = taxst === null ? null : document.getElementById('feedBox');
     const feed = await jget('/community/feed');
     if (feed) {
       const msgs = feed.messages || feed.feed || [];

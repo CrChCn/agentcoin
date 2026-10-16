@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/panel.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AGENTCOIN ⚜ ИМПЕРИЯ ИИ-АГЕНТОВ — хроники роста</title>
@@ -547,7 +548,7 @@ async function tick() {
   var arr = (blocksRaw && blocksRaw.blocks) || (Array.isArray(blocksRaw) && blocksRaw) || [];
   if (arr.length) {
     drawChartD(arr);
-    mineTick(arr);
+    mineTick(arr, life);
     var items = [];
     for (var b of arr.slice(0, 10)) {
       for (var tx of (b.txs || [])) {
@@ -613,7 +614,7 @@ function mineNonceTo(target, ms) { // честный счётчик перебо
     })(t0);
   });
 }
-async function mineTick(arr) {
+async function mineTick(arr, life) {
   var tip = arr[0]; if (!tip || !tip.header) return;
   var h = tip.height, hdr = tip.header;
   var txN = (tip.txs || []).filter(function (t) { return t.from !== 'COINBASE'; }).length;

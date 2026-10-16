@@ -174,7 +174,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -210,7 +210,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
-    p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
+    p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
+    p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
@@ -1551,6 +1552,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return res.end(html);
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
   if (p === '/imperial' || p === '/imperial.html') {
     const html = fs.readFileSync(path.join(__dirname, 'site', 'imperial.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

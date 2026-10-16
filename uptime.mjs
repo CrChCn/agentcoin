@@ -144,6 +144,9 @@ async function cycle() {
 }
 
 if (!URLS.length) {
+  // Dormant, а не ошибка: пока AGT_PUBLIC_URL не задана (Funnel ещё не поднят),
+  // монитор без целей не должен краснить Actions каждые 5 минут.
+  if (ONCE) { log('AGT_URLS не задан — dormant (ща задача настроит AGT_PUBLIC_URL), exit 0'); process.exit(0); }
   console.error('uptime: AGT_URLS не задан — нечего сторожить'); process.exit(1);
 }
 log(`внешний сторож: targets=[${URLS.join(' ')}] chat=${CHAT_URL || '(нет)'} mode=${ONCE ? 'once' : 'loop'}`);

@@ -78,6 +78,20 @@ export function peerMetaStatus() {
   return meta;
 }
 
+// === AGIP-7 (комиссия 2026-10-16): фонд-фикс изоляции ===
+// Вердикт «fork_not_heavier» — это ВЫБОР ЦЕПИ, а не доказанное нарушение:
+// валидный форк проиграл голосование по работе (или голос разошёлся) —
+// ни Bitcoin Core (headers-first, headerssync), ни geth не штрафуют пира
+// за проигравший, но валидный форк. Страйк на это создавал изоляцию:
+// stale-нода: 1) отклоняет живые форки → strike → 2) пир заблокирован →
+// 3) нода перестаёт слышать кластер → 4) майнер закрепляет собственный
+// форк → 5) голосование вечно «not heavier» → карантин (инцидент 9342
+// 2026-10-16: три пира по 3 strike «fork adopt failed: fork_not_heavier»).
+export function isChainChoiceVerdict(reason) {
+  const r = String(reason || '');
+  return r.startsWith('fork_not_heavier') || r === 'no_blocks' || r === 'fork_height_mismatch';
+}
+
 async function fetchJson(url, timeoutMs = 20_000) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
@@ -192,14 +206,22 @@ export async function syncOne(bc, peerUrl) {
       const candWork = chainWork(fullHeaders.map(hd => ({ header: hd.header })));
       log.push(`  → fork vote: от высоты ${d}, наша работа ${ourWork}, кандидат ${candWork}`);
       if (candWork <= ourWork) {
-        log.push(`  → fork слабее — голосуем ЗА НАШУ цепь, чужую отвергаем`);
+        log.push(`  → fork слабее — голосуем ЗА НАШУ цепь, чужую отвергаем (не штрафуем: валидный форк проиграл выбор)`);
         return log;
       }
       log.push(`  → fork ТЯЖЕЛЕЕ — переключаемся на чужую цепь (загрузка тел с высоты ${d})...`);
       const bodies = await fetchJson(`${peerUrl}/blocks?from=${d}`);
       const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
       const r = bc.adoptFork(incoming, d);
-      if (!r.ok) { log.push(`  → adoptFork отказ: ${r.reason}`); peerStrike(peerUrl, `fork adopt failed: ${r.reason}`); return log; }
+      if (!r.ok) {
+        log.push(`  → adoptFork отказ: ${r.reason}`);
+        // AGIP-7: strike ТОЛЬКО за доказанное нарушение данных. Проигравшее
+        // голосование по работе — чистый выбор цепи, пира не штрафуем (иначе
+        // stale-нода карантинит живой кластер — инцидент 9342, 2026-10-16).
+        // Транзиентные отказы (расхождение высот при гонке между peers) — без страйка.
+        if (!isChainChoiceVerdict(r.reason)) peerStrike(peerUrl, `fork adopt failed: ${r.reason}`);
+        return log;
+      }
       log.push(`  → RE-ORG принят: dropped=${r.dropped}, добавлено=${r.added}`);
       peerAccept(peerUrl);
       return log;
@@ -241,6 +263,23 @@ export async function syncOne(bc, peerUrl) {
 export async function syncAll(bc) {
   const peers = loadPeers();
   const out = [];
+  const meta = peerMetaStatus();
+  const allBlocked = peers.length > 0 && peers.every(u => meta[u]?.blockedUntil && meta[u].blockedUntil > Date.now());
+  let valve = null;
+  if (allBlocked && bc && typeof bc.tip === 'function') {
+    const tipAge = Date.now() - ((bc.tip()?.header?.timestamp) || 0);
+    if (tipAge > 300_000) {
+      // === AGIP-7: клапан самопомощи изоляции ===
+      // Если ВСЕ пиры заблокированы И наш tip протух (>300с) — сеть не слышна,
+      // RC-script-карантин ведёт к вечному форку (инцидент 9342). Снимаем блоки
+      // (страйки остаются в истории! только blockedUntil), чтобы sync мог слушаться.
+      const freshMeta = loadPeerMeta();
+      for (const u of peers) if (freshMeta[u]?.blockedUntil) delete freshMeta[u].blockedUntil;
+      savePeerMeta(freshMeta);
+      valve = `SAFETY VALVE: все ${peers.length} пиров заблокированы, tip протух ${Math.round(tipAge / 1000)}с → блокировка пиров снята (страйки не затёрты)`;
+    }
+  }
+  if (valve) out.push(valve);
   for (const p of peers) out.push(...await syncOne(bc, p));
   return out;
 }

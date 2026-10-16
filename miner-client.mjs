@@ -30,6 +30,8 @@ const SLICE_MS = 1500;     // максимум на один PoW-слайс (н�
 const DATA_DIR = path.join(process.env.AGT_MINER_DATA || path.join(process.cwd(), 'data-miner'));
 const LOCK_FILE = path.join(DATA_DIR, 'lock');
 const WALLET_FILE = path.join(DATA_DIR, 'wallet.json');
+const HEARTBEAT_FILE = path.join(DATA_DIR, 'heartbeat'); // AGIP-7: живость процесса для зомби-детекта
+const HEARTBEAT_STALE_MS = 90_000; // тик 10с × 9 — дальше считаем процесс зомби
 
 function log(line) { console.log(`[miner-client ${new Date().toISOString().slice(11, 19)}] ${line}`); }
 
@@ -38,8 +40,24 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 try {
   const pid = Number(fs.readFileSync(LOCK_FILE, 'utf8') || 0);
   if (pid) {
-    try { process.kill(pid, 0); log(`уже работает (pid ${pid}), выходим`); process.exit(0); }
-    catch { /* pid мёртв — забираем лок */ }
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    if (!alive) {
+      log(`лок мёртв (pid ${pid} не жив) — забираем`);
+    } else {
+      // AGIP-7: живой, но не пишущий heartbeat = зомби (инцидент 2026-10-16:
+      // майнер 9342 молча висел и не майнил, гостей нод — «монтируй майнера»).
+      // Захватываём лок и продолжаем — два майнера на одну ноду безвредны
+      // (нода сама редко принмает дубли/устаревшие блоки), а зомби-тишина — нет.
+      let hb = 0;
+      try { hb = Number(fs.readFileSync(HEARTBEAT_FILE, 'utf8') || 0); } catch {}
+      if (Date.now() - hb > HEARTBEAT_STALE_MS && hb > 0) {
+        log(`зомби-детект: pid ${pid} жив, но heartbeat ${(Math.round((Date.now() - hb) / 1000))}с старый — берем лок себе`);
+      } else {
+        log(`уже работает (pid ${pid}), выходим`);
+        process.exit(0);
+      }
+    }
   }
 } catch {}
 fs.writeFileSync(LOCK_FILE, String(process.pid));
@@ -99,9 +117,18 @@ let stopped = false;
 process.on('SIGINT', () => { stopped = true; process.exit(0); });
 
 async function tick() {
+  fs.writeFileSync(HEARTBEAT_FILE, String(Date.now())); // AGIP-7: pulse для зомби-детекта
   const life = await api('/life');
   if (life.status !== 200 || !life.body.tipHash) { log('нода недоступна, ждём'); return; }
   const tipHash = life.body.tipHash, height = life.body.blocks;
+  // AGIP-7: НЕ майним на протухшем tip (tipAgeSec > 300, как в /life tips ноды).
+  // Иначе майнер закрепляет собственный форк ноды — инцидент 2026-10-16: 9342
+  // неделями тянула свой заглухший форк, пиры отвергали как «fork_not_heavier».
+  const tipAgeSec = Number(life.body.tipAgeSec) || 0;
+  if (!life.body.fresh || tipAgeSec > 300) {
+    log(`tip stale (age=${tipAgeSec}c) — пропускаем слайс, ждём sync ноды (не закрепляем форк)`);
+    return;
+  }
 
   // headers-only контроль последних K заголовков (через tip-высоту)
   const v = await verifyHeadersLine(height - HEADERS_CHECK);

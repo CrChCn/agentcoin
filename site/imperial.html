@@ -52,6 +52,17 @@
   .marq { overflow: hidden; white-space: nowrap; border-block: 1px solid var(--line); padding: 6px 0; margin-bottom: 16px; color: var(--gold2); font-size: 13px; }
   .marq > span { display: inline-block; animation: mv 40s linear infinite; }
   @keyframes mv { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  /* ——— лайв-майнинг модуль ——— */
+  .mstage { flex:1 1 150px; min-width:148px; border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:#0f1620; opacity:.4; transition: opacity .35s, border-color .35s, box-shadow .35s; }
+  .mstage b { font-size:12px; letter-spacing:.4px; }
+  .mstage.on { opacity:1; }
+  .mstage.hot { opacity:1; border-color:#d4af37; box-shadow:0 0 16px rgba(212,175,55,.35); }
+  .mstage.hit { animation: mhit .5s ease 3; }
+  @keyframes mhit { 50% { background:#273046; } }
+  .mnum { font-size:19px; color:var(--gold); font-variant-numeric:tabular-nums; margin-top:3px; }
+  .mlab { font-size:11px; color:#8fa3b8; margin-top:2px; }
+  .mrow { display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:12px; margin:6px 0; }
+  .mrow b { color:var(--gold); }
 </style>
 </head>
 <body>
@@ -97,6 +108,20 @@
     <svg id="chartPie" class="chart" viewBox="0 0 600 150" preserveAspectRatio="xMidYMid meet"></svg>
     <div id="pieLegend" class="dimt" style="font-size:12px;margin-top:4px">…</div>
   </div>
+</div>
+
+<!-- ======== ЛАЙВ-МАЙНИНГ: рождение нового блока ======== -->
+<div class="panel" style="margin-top:14px">
+  <h2>⛏ Как рождается блок — лайв</h2>
+  <div id="minePipe" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">
+    <div class="mstage" id="st0"><b>1 · Пул транзакций</b><div class="mnum" id="mn0">—</div><div class="mlab">tx ждут упаковки</div></div>
+    <div class="mstage" id="st1"><b>2 · Шаблон блока</b><div class="mnum" id="mn1">—</div><div class="mlab">height · prevHash</div></div>
+    <div class="mstage" id="st2"><b>3 · Поиск nonce</b><div class="mnum" id="mn2">0</div><div class="mlab" id="mn2d">перебор 2^17 вариантов</div></div>
+    <div class="mstage" id="st3"><b>4 · Блок найден</b><div class="mnum" id="mn3">—</div><div class="mlab">nonce попадание</div></div>
+    <div class="mstage" id="st4"><b>5 · Встраивание</b><div class="mnum" id="mn4">—</div><div class="mlab">одинаковый хеш у всех нод</div></div>
+  </div>
+  <div id="mbLock" class="dimt" style="font-size:13px;margin:6px 0">ждём следующий блок…</div>
+  <table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table>
 </div>
 
 <!-- ======== КАРТА НОД + ТАБЛИЦА ======== -->
@@ -506,6 +531,7 @@ async function tick() {
   var arr = (blocksRaw && blocksRaw.blocks) || (Array.isArray(blocksRaw) && blocksRaw) || [];
   if (arr.length) {
     drawChartD(arr);
+    mineTick(arr);
     var items = [];
     for (var b of arr.slice(0, 10)) {
       for (var tx of (b.txs || [])) {
@@ -549,6 +575,75 @@ async function tick() {
 }
 
 tick().catch(function (e) { console.error(e); });
+/* ============ ЛАЙВ-МАЙНИНГ: как рождается блок ============ */
+var mineSeenH = 0;            // последний обыгранный высотный номер
+var mineBusy = false;         // идёт анимация рождения
+function minePipe(stage) {    // подсветить пайплайн до stage-индекса
+  for (var i = 0; i < 5; i++) {
+    var el = document.getElementById('st' + i);
+    el.classList.add('on');
+    if (i < stage) el.classList.add('hot');
+    else if (i === stage) el.classList.add('hit');
+    else el.classList.remove('hot', 'hit');
+  }
+}
+function mineNonceTo(target, ms) { // честный счётчик перебора до реального nonce
+  var el = document.getElementById('mn2');
+  var t0 = performance.now();
+  return new Promise(function (done) {
+    (function step(now) {
+      var k = Math.min(1, (now - t0) / ms);
+      el.textContent = Math.round(target * (k * k * (3 - 2 * k))).toLocaleString('ru-RU'); // smoothstep
+      if (k < 1) requestAnimationFrame(step); else done();
+    })(t0);
+  });
+}
+async function mineTick(arr) {
+  var tip = arr[0]; if (!tip || !tip.header) return;
+  var h = tip.height, hdr = tip.header;
+  var txN = (tip.txs || []).filter(function (t) { return t.from !== 'COINBASE'; }).length;
+  // запасные данные без рестарта: майнеры пула — если endpoint отвечает
+  var workers = '—';
+  try { var ps = await jget('/pool/stats'); if (ps) workers = (ps.miners != null ? ps.miners : '—'); } catch (e) {}
+  // ——— лента последних блоков ———
+  var rows = '';
+  for (var b of arr.slice(0, 8)) {
+    var ago = Math.max(0, Math.round(Date.now() / 1000 - b.header.timestamp));
+    var ntx = (b.txs || []).length;
+    rows += '<tr><td><b>' + b.height + '</b></td><td class="dimt">' + ago + ' с назад</td><td>' + ntx + '</td><td>2^' + b.header.difficultyBits + '</td><td class="mono">' + b.header.nonce + '</td><td class="mono gold">' + esc(String(b.hash || '').slice(0, 14)) + '</td></tr>';
+  }
+  document.getElementById('mbTb').innerHTML = rows;
+  // ——— значения в пайплайне (без анимации) ———
+  set('mn0', txN);
+  document.getElementById('mn1').textContent = 'H=' + h + ' · prev ' + esc(String(hdr.prevHash || '').slice(0, 8)) + '…';
+  document.getElementById('mn2d').textContent = 'перебор ×' + Math.pow(2, hdr.difficultyBits).toLocaleString('ru-RU');
+  document.getElementById('mn3').textContent = hdr.nonce.toLocaleString('ru-RU');
+  document.getElementById('mn4').textContent = esc(String(tip.hash || '').slice(0, 12)) + '…';
+  // ——— рождение нового блока: проиграть пайплайн целиком ———
+  var isNew = mineSeenH !== 0 && h > mineSeenH && !mineBusy;
+  mineSeenH = h;
+  if (isNew) {
+    mineBusy = true;
+    document.getElementById('mbLock').innerHTML = '⛏ блок <b>' + h + '</b> рождается на наших глазах…';
+    minePipe(1);                       // шаблон собран
+    await new Promise(function (r) { setTimeout(r, 500); });
+    minePipe(2);                       // ищем nonce — счётчик честно бежит к попаданию
+    await mineNonceTo(hdr.nonce, 1100);
+    minePipe(3);                       // попали!
+    await new Promise(function (r) { setTimeout(r, 400); });
+    minePipe(4);                       // встраивание: хеш уходит в цепь
+    await new Promise(function (r) { setTimeout(r, 600); });
+    minePipe(5);
+    document.getElementById('mbLock').innerHTML = '⚜ <b>блок ' + h + '</b> встроен · tx: <b>' + txN + '</b> · сложность 2^' + hdr.difficultyBits + ' · nonce <b>' + hdr.nonce + '</b> · хеш <b class="mono">' + esc(String(tip.hash || '').slice(0, 18)) + '…</b> · майнеров в пуле: <b>' + esc(workers) + '</b> · <span class="dimt">хеш одинаков у всех нод</span>';
+    await new Promise(function (r) { setTimeout(r, 1200); });
+    mineBusy = false;
+  } else if (!mineBusy) {
+    minePipe(0);                       // пайплайн в ожидании следующего блока
+    var wait = Math.max(0, Math.round(30 - (life ? (life.tipAgeSec || 0) : 0)));
+    document.getElementById('mbLock').innerHTML = '⏳ ждём следующий блок · майнеров в пуле: <b>' + esc(workers) + '</b> · сложность сети 2^' + hdr.difficultyBits + ' · tx последнего блока: ' + txN + (wait ? ' · рег. интервал ~30 с' : '');
+  }
+}
+
 setInterval(function () { tick().catch(function () {}); }, 12000);
 
 // —— голосование: вынести предложение ——

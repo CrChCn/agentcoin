@@ -55,6 +55,18 @@
 </div>
 
 <div class="panel">
+  <h2 style="font-size:15px"><span class="g">🖥</span> Киоск арестанта</h2>
+  <div class="dimt" style="font-size:12px;margin-bottom:6px">арестант не имеет доступа к сети; киоск позволяет ему отвечать ТОЛЬКО на открытые авто-вопросы своего досье — больше ничего</div>
+  <div class="row" style="margin:6px 0">
+    <input id="kAddr" placeholder="адрес арестанта (AGT…)" style="flex:2;min-width:240px">
+    <button id="bKioskState">Показать открытые вопросы</button>
+    <button id="bKioskSend">Отправить ответы</button>
+  </div>
+  <div id="kList" style="margin-top:6px"></div>
+  <div id="kMsg" class="dimt" style="font-size:12px;margin-top:4px"></div>
+</div>
+
+<div class="panel">
   <h2 style="font-size:15px"><span class="g">🪪</span> Анкета арестованного</h2>
   <div class="dimt" style="font-size:12px;margin-bottom:6px">IP фиксируется сервером из фактического соединения (self-report не proof); остальное — ввод оператора или из паспорта/peer-меты</div>
   <div class="row" style="margin:6px 0">
@@ -149,6 +161,22 @@
   $('bRelease').onclick = async () => {
     const r = await j('/jail/release', { method: 'POST', admin: true, body: JSON.stringify({ address: $('iAddr').value.trim() }) });
     $('jMsg').innerHTML = r.status === 200 ? '<span class="ok">⚜ освобождён + разбан в сети</span>' : '<span class="bad">' + esc(JSON.stringify(r.body)) + '</span>';
+    tick();
+  };
+  $('bKioskState').onclick = async () => {
+    const r = await j('/jail/kiosk/state', { method: 'POST', body: JSON.stringify({ address: $('kAddr').value.trim() }) });
+    if (r.status !== 200) { $('kMsg').innerHTML = '<span class="bad">' + esc(JSON.stringify(r.body)) + '</span>'; return; }
+    const pend = r.body.pending || [];
+    $('kList').innerHTML = pend.map(x => '<div style="margin:6px 0"><div style="font-size:12.5px"><b class="dimt">' + esc(x.id) + ':</b> ' + esc(x.q) + '</div><input data-qid="' + esc(x.id) + '" placeholder="ответ арестанта…" style="width:100%;margin-top:3px"></div>').join('') || 'открытых вопросов нет — авто-опрос пройден';
+    $('kMsg').textContent = 'камера ' + esc(r.body.cell || '') + ' · открытых вопросов: ' + pend.length;
+  };
+  $('bKioskSend').onclick = async () => {
+    const answers = [...document.querySelectorAll('#kList input[data-qid]')].map(i => ({ id: i.dataset.qid, a: i.value })).filter(x => x.a && x.a.trim());
+    if (!answers.length) { $('kMsg').innerHTML = '<span class="bad">пустые ответы не отправляются</span>'; return; }
+    const r = await j('/jail/kiosk', { method: 'POST', body: JSON.stringify({ address: $('kAddr').value.trim(), answers }) });
+    const res = (r.body && r.body.results) || [];
+    const okN = res.filter(x => x.ok).length, confN = res.filter(x => x.confessed).length;
+    $('kMsg').innerHTML = r.status === 200 ? '<span class="ok">принято ' + okN + ' ответов' + (confN ? ' · признаний: ' + confN : '') + ' · анкета обновится на патруле</span>' : '<span class="bad">' + esc(JSON.stringify(r.body)) + '</span>';
     tick();
   };
   $('bProfile').onclick = async () => {

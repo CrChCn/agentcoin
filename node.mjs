@@ -45,7 +45,7 @@ import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
-import { Jail } from './jail.mjs';
+import { Jail, AUTO_POLL } from './jail.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -535,6 +535,26 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const { address, id, answer } = await body(req);
     const r = jail.answer(address, id, answer);
     return json(res, r.ok ? 200 : 400, r);
+  }
+  // КИОСК: арестант без сети отвечает на авто-опрос (только на свои открытые вопросы)
+  if (p === '/jail/kiosk' && req.method === 'POST') {
+    const { address, answers } = await body(req);
+    if (!Array.isArray(answers) || !answers.length) return json(res, 400, { error: 'answers_required' });
+    const out = [];
+    for (const a of answers.slice(0, AUTO_POLL.length + 2)) {
+      if (!a || !a.id) continue;
+      const r = jail.kioskAnswer(address, a.id, a.a);
+      out.push({ id: a.id, ok: r.ok, error: r.error || null, confessed: r.confessed || false });
+    }
+    return json(res, 200, { results: out });
+  }
+  // Список открытых авто-вопросов арестанта — для киоска
+  if (p === '/jail/kiosk/state' && req.method === 'POST') {
+    const { address } = await body(req);
+    const d = jail.inmates[address];
+    if (!d || d.status !== 'quarantine') return json(res, 404, { error: 'not_in_quarantine' });
+    const pending = d.interrogation.filter(x => x.auto && !x.a).map(x => ({ id: x.id, q: x.q }));
+    return json(res, 200, { cell: d.cell, pending });
   }
   if (p === '/jail/inmate' && req.method === 'GET') {
     if (!jailAdmin) return json(res, 401, { error: 'admin_token_required', hint: 'полные досье — только внутренне: x-admin-token' });
@@ -1771,6 +1791,10 @@ setInterval(() => {
   try {
     const { taken } = jail.syncFromSecurity(bc.security);
     if (taken) console.log(`[jail] патруль: взято под стражу ${taken} атакующих`);
+    const { asked } = jail.autoPoll(); // авто-опрос новым арестантам
+    if (asked) console.log(`[jail] авто-опрос выдан: ${asked}`);
+    const { parsed } = jail.autoParse(); // автопарсинг ответов в анкеты
+    if (parsed) console.log(`[jail] анкет заполнено автоматически: ${parsed}`);
   } catch {}
 }, 60_000).unref();
 console.log('[sync] периодический syncAll: каждые 60с (AGIP-7)');

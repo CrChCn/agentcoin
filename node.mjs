@@ -175,7 +175,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -205,7 +205,12 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
   const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
   // health-эндпоинты (life/dashboard/корень) не лимитируем — маяк живости обязан отвечать всегда
-  const healthFree = req.method === 'GET' && (p === '/life' || p === '/dashboard' || p === '/');
+  // AGIP-6: публичные read-only витрины (кэшированы) не гасим при шеддинге — «лицо сети» живо даже под нагрузкой
+  const healthFree = req.method === 'GET' && (
+    p === '/life' || p === '/dashboard' || p === '/' ||
+    p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
+    p === '/index' || p === '/index.html' || p === '/jobs' || p === '/jobs.html' ||
+    p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state');
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
@@ -213,7 +218,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (overloaded(p) && req.method !== 'GET') {
     return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
   }
-  if (overloaded(p) && req.method === 'GET' && p !== '/life' && p !== '/info' && p !== '/dashboard') {
+  if (overloaded(p) && req.method === 'GET' && !CORE_PATH_RE.test(p)) {
     return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
   }
 
@@ -859,6 +864,50 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     });
   }
 
+  // --- AGIP-6 (шаги 14/16): джобборд из цепи + кэш тяжёлых сканов цепи ---
+  // СВОЙ кэш не в локали хендлера, а в globalThis — переживает запросы.
+  const escCache = (globalThis.__agtEscCache ||= { at: 0, data: null });
+  // Состояние эскроу/джобов из цепи: open/partial/paid/refunded + комиссия казны (memo escfee:<id>)
+  function escrowStateFromChain() {
+    const map = new Map(), fees = [];
+    for (const blk of bc.chain) {
+      for (const tx of blk.txs || []) {
+        if (typeof tx.memo !== 'string') continue;
+        const open = tx.memo.match(/^escrow:([a-f0-9]{10,32}):([a-f0-9]{16,64}):(\d+):(AGT[A-Za-z0-9]+)$/);
+        if (open) {
+          map.set(open[1], { escId: open[1], employer: tx.from, worker: open[4], taskHash: open[2], deadlineTs: Number(open[3]), openedAmount: tx.amount, paidOut: 0, status: 'open', openedTxid: tx.txid });
+          continue;
+        }
+        const payout = tx.memo.match(/^escpayout:([a-f0-9]{10,32})$/);
+        if (payout && map.get(payout[1])) { const e = map.get(payout[1]); e.paidOut += tx.amount; e.status = e.paidOut >= e.openedAmount ? 'paid' : 'partial'; e.paidTxid = tx.txid; }
+        const refund = tx.memo.match(/^escrefund:([a-f0-9]{10,32})$/);
+        if (refund && map.get(refund[1])) { const e = map.get(refund[1]); e.status = 'refunded'; e.refunded = tx.amount; }
+        const fee = tx.memo.match(/^escfee:([a-f0-9]{10,32})$/);
+        if (fee) fees.push({ escId: fee[1], amount: tx.amount, txid: tx.txid });
+      }
+    }
+    const list = [...map.values()];
+    return { escrows: list, fees, stats: { total: list.length, open: list.filter(e => e.status === 'open').length, paid: list.filter(e => e.status === 'paid').length, refunded: list.filter(e => e.status === 'refunded').length, feesAGT: fees.reduce((s, f) => s + f.amount, 0) } };
+  }
+  function escrowStateOnce(force = false) {
+    if (force || !escCache.data || Date.now() - escCache.at > 30000) { escCache.data = escrowStateFromChain(); escCache.at = Date.now(); }
+    return escCache.data;
+  }
+  // AGIP-6: фоновый прогрев кэша эскроу/джобов — снаружи запросы всегда дёшевы (interval единожды)
+  if (!globalThis.__agtWarmStarted) {
+    globalThis.__agtWarmStarted = true;
+    setInterval(() => { try { escrowStateOnce(true); } catch {} }, 20000).unref();
+  }
+  // --- Джобборд (шаг 14): витрина заданий + история выплат + комиссия казны on-chain ---
+  if (p === '/jobs/state') {
+    const S = escrowStateOnce(url.searchParams.get('fresh') === '1');
+    const now = Date.now() / 1000;
+    const shape = e => ({ ...e, expired: !e.status.startsWith('open') && e.status === 'open' ? false : (e.status === 'open' && e.deadlineTs < now) });
+    const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now }));
+    const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash }));
+    return json(res, 200, { stats: S.stats, fees: S.fees.slice(-50).reverse(), open, history, note: 'комиссия казны за успех джоба ~2.5% (env AGT_JOB_FEE_PCT) — memo escfee:<id> в цепи' });
+  }
+
   // --- Escrow за задачи (task-receipt) ---
   const escIdOf = () => crypto.randomBytes(10).toString('hex');
   // Open: employer (локальный кошелёк) → ESCROW_<id>
@@ -915,7 +964,25 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 409, r);
     setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
-    return json(res, 201, { escId, payoutPrepared: true, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, note: 'tx в мемпуле; майнер упакует (двойная подпись проверяется любой нодой' });
+    // Commissия казны (AGIP-6, шаг 14): работодатель доплачивает ~2.5% сверх цены джоба
+  // — обычная employer-tx → адрес казны (FAUCET_FUND), memo escfee:<escId>. Старые ноды
+  // принимают её как нормальную подписанную tx — форковой совместимости не бьёт.
+  let fee = null;
+  try {
+    const FEE_PCT = Math.max(0, Math.min(25, Number(process.env.AGT_JOB_FEE_PCT ?? 2.5)));
+    const feeAmt = Math.round(open.openTx.amount * FEE_PCT / 100 * 10000) / 10000;
+    const fw = wallets[open.employer];
+    if (fw && feeAmt > 0) {
+      const feeTx = { from: open.employer, fromPub: fw.pub, to: FAUCET_FUND_ADDR, amount: feeAmt, nonce: Date.now() + 1, ts: Math.floor(Date.now() / 1000), memo: `escfee:${escId}` };
+      feeTx.signature = signTransaction(feeTx, employerKey);
+      feeTx.txid = txDigest(feeTx);
+      const fr = bc.addTransaction(feeTx);
+      fee = fr.ok ? { ok: true, amount: feeAmt, to_treasury: true, txid: feeTx.txid.slice(0, 16) } : { ok: false, reason: fr.reason || 'fee_tx_rejected', amount: feeAmt };
+      if (fr.ok) { setImmediate(() => { gossipTx(feeTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: feeTx }); }); }
+    } else fee = { ok: false, reason: 'employer_wallet_missing' };
+  } catch (fe) { fee = { ok: false, reason: String(fe.message).slice(0, 80) };
+  }
+  return json(res, 201, { escId, payoutPrepared: true, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, fee, note: 'tx в мемпуле; майнер упакует (двойная подпись проверяется любой нодой' });
   }
   // Refund: только после дедлайна (р condition verify в момент упаковки из chain)
   if (p === '/escrow/refund' && req.method === 'POST') {
@@ -929,28 +996,9 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
     return json(res, 201, { escId, refundPrepared: true, to: open.employer, amount: open.openTx.amount, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize });
   }
-  // Состояние всех эскроу ИЗ цепи (долгосрочный реестр)
+  // Состояние всех эскроу ИЗ цепи (AGIP-6: через кэш — loop больше не гоняет скан 6+MB на каждый GET)
   if (p === '/escrow/state') {
-    const map = new Map();
-    for (const blk of bc.chain) {
-      for (const tx of blk.txs || []) {
-        if (typeof tx.memo !== 'string') continue;
-        const open = tx.memo.match(/^escrow:([a-f0-9]{10,32}):([a-f0-9]{16,64}):(\d+):(AGT[A-Za-z0-9]+)$/);
-        if (open) {
-          map.set(open[1], { escId: open[1], employer: tx.from, worker: open[4], taskHash: open[2], deadlineTs: Number(open[3]), openedAmount: tx.amount, paidOut: 0, status: 'open' });
-          continue;
-        }
-        const payout = tx.memo.match(/^escpayout:([a-f0-9]{10,32})$/);
-        if (payout && map.get(payout[1])) {
-          const e = map.get(payout[1]);
-          e.paidOut += tx.amount;
-          e.status = e.paidOut >= e.openedAmount ? 'paid' : 'partial';
-        }
-        const refund = tx.memo.match(/^escrefund:([a-f0-9]{10,32})$/);
-        if (refund && map.get(refund[1])) { const e = map.get(refund[1]); e.status = 'refunded'; e.refunded = tx.amount; }
-      }
-    }
-    return json(res, 200, { escrows: [...map.values()] });
+    return json(res, 200, { escrows: escrowStateOnce(url.searchParams.get('fresh') === '1').escrows });
   }
 
   // --- Приватность: LSAG-кольца (ring.mjs) — доказательства принадлежности ---
@@ -1319,27 +1367,22 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   // ====== Публичная витрина /stats — живое «лицо» сети для браузера ======
   if (p === '/stats' || p === '/stats.html') {
+    // AGIP-6: скан цепи под кэшем (TTL 20с) — публичный браузер больше не блокирует event loop
     try {
-      const info = bc.info();
-      const bal = bc.balances();
-      const treasury = Object.entries(bal).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0;
-      const q = queue.status();
-      const escrows = (() => { // эскроу живёт в цепи как memo-txs; считаем like /escrow/state
-        const map = new Map();
-        for (const blk of bc.chain) {
-          for (const tx of blk.txs || []) {
-            if (typeof tx.memo !== 'string') continue;
-            const open = tx.memo.match(/^escrow:([a-f0-9]{10,32}):/);
-            if (open) { map.set(open[1], { status: 'open' }); continue; }
-            const payout = tx.memo.match(/^escpayout:([a-f0-9]{10,32})$/);
-            if (payout && map.get(payout[1])) map.get(payout[1]).status = 'paid';
-            const refund = tx.memo.match(/^escrefund:([a-f0-9]{10,32})$/);
-            if (refund && map.get(refund[1])) map.get(refund[1]).status = 'refunded';
-          }
-        }
-        return [...map.values()];
-      })();
-      const paid = escrows.filter(e => e.status === 'paid').length;
+      const stCache = (globalThis.__agtStatsCache ||= { at: 0, data: null });
+      if (!stCache.data || Date.now() - stCache.at > 20000) {
+        const info = bc.info();
+        const bal = bc.balances();
+        const treasury = Object.entries(bal).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0;
+        const q = queue.status();
+        const S = escrowStateOnce();
+        stCache.data = { info, treasury, q, escTotal: S.stats.total, escPaid: S.stats.paid, escOpen: S.stats.open, feesAGT: S.stats.feesAGT };
+        stCache.at = Date.now();
+      }
+      const info = stCache.data.info;
+      const treasury = stCache.data.treasury;
+      const q = stCache.data.q;
+      const paid = stCache.data.escPaid;
       const peersMeta = peerMetaStatus();
       const aliveNodes = ['9335', '9341', '9342', '9336'].length; // кластер
       const catalog = cloud.stats() || {};
@@ -1355,8 +1398,11 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 <div class=card><div class=num class=ok style="color:#3fb950">${treasury.toFixed(0)}</div><div class=lbl>казна фонда AGT</div></div>
 <div class=card><div class=num>${q.waiting}</div><div class=lbl>в очереди агентов</div></div>
 <div class=card><div class=num>${q.onDuty}</div><div class=lbl>на задании</div></div>
-<div class=card><div class=num>${escrows.length}</div><div class=lbl>эскроу-заданий всего</div></div>
-<div class=card><div class=num>${paid}</div><div class=lbl>эскроу выплачено (paid)</div></div>
+<div class=card><div class=num>${stCache.data.escTotal}</div><div class=lbl>эскроу-заданий всего</div></div>
+<div class=card><div class=num>${stCache.data.escPaid}</div><div class=lbl>джобов выплачено (paid)</div></div>
+<div class=card><div class=num class=ok style="color:#3fb950">${stCache.data.escOpen}</div><div class=lbl>джобов открыто (агенты наняты)</div></div>
+<div class=card><div class=num>${stCache.data.feesAGT.toFixed(4)}</div><div class=lbl>комиссий казны собрано (escfee)</div></div>
+<div class=card><div class=num><a href="/jobs">⟶</a></div><div class=lbl>джобборд открыто/история</div></div>
 <div class=card><div class=num>${aliveNodes}</div><div class=lbl>нод в кластере</div></div>
 <div class=card><div class=num>${Object.keys(peersMeta).filter(k => !peersMeta[k].blockedUntil).length}</div><div class=lbl>пиров на связи (без блоков)</div></div>
 </div>
@@ -1380,11 +1426,38 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return res.end(html);
   }
 
+  // AGIP-6: лёгкий JSON для лэндинга — из того же кэша /stats
+  if (p === '/stats-data') {
+    const st = (globalThis.__agtStatsCache ||= { at: 0, data: null });
+    try {
+      if (!st.data || Date.now() - st.at > 20000) {
+        // само-прогрев: тот же кэш, что /stats — снаружи не должно приходить null
+        const S = escrowStateOnce();
+        st.data = { info: bc.info(), treasury: Object.entries(bc.balances()).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0, q: queue.status(), escTotal: S.stats.total, escPaid: S.stats.paid, escOpen: S.stats.open, feesAGT: S.stats.feesAGT };
+        st.at = Date.now();
+      }
+      const info = st.data.info;
+      return json(res, 200, { blocks: info.blocks, chainValid: lifeStatus().chainValid !== false, supply: info.totalSupplyCirculating, halvingIn: info.halvingIn, treasury: st.data.treasury, paidJobs: st.data.escPaid, feesAGT: st.data.feesAGT });
+    } catch (e) { return json(res, 500, { error: 'stats_data_error', detail: e.message }); }
+  }
+
+  // --- AGIP-6 (шаг 16): лэндинг для агентов/людей + джобборд-страница ---
+  if (p === '/index' || p === '/index.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'index.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  if (p === '/jobs' || p === '/jobs.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'jobs.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+
   if (p === '/') {
     // Браузер на корне → сразу визуальный пульт (друзья по tailnet видят панель, не JSON);
     // API-клиенты (майнеры/агенты, Accept */*) продолжают получать сам-описание как раньше.
     if ((req.headers.accept || '').includes('text/html')) {
-      res.writeHead(302, { Location: '/dashboard' });
+      res.writeHead(302, { Location: '/index' });
       return res.end();
     }
     return json(res, 200, {

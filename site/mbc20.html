@@ -17,10 +17,21 @@
   button:hover { background: #223048; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .bid { color: var(--buy); } .ask { color: var(--sell); }
+  /* — стакан как на биржах: asks красные сверху, mid в центре, bids зелёные снизу, depth-бары — */
+  .ob { font-variant-numeric:tabular-nums; font-size:12.5px; }
+  .ob .rowd { position:relative; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; padding:3px 8px; border-bottom:1px solid #1a2330; cursor:pointer; }
+  .ob .rowd:hover { background:#1a233055; }
+  .ob .depth { position:absolute; top:0; bottom:0; opacity:.22; pointer-events:none; }
+  .ob .rowd.a .depth { background:var(--sell); right:0; } .ob .rowd.b .depth { background:var(--buy); right:0; }
+  .ob .rowd.a { color: var(--sell); } .ob .rowd.b { color: var(--buy); }
+  .ob .mid { text-align:center; padding:7px 8px; border-block:1px solid var(--line); margin:4px 0; }
+  .ob .mid b { font-size:15px; color:var(--gold2); }
+  .ob .sp { font-size:11px; color:var(--dim); }
+  .ob .cap { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; padding:2px 8px; font-size:11px; color:var(--dim); border-bottom:1px solid var(--line); }
   .pill { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:10px; font-size:11px; color:var(--dim); }
   .card { background:#0f1620; border:1px solid var(--line); border-radius:10px; padding:12px; }
   .big { font-size:22px; color:var(--gold2); font-variant-numeric:tabular-nums; }
-  .bookbox { max-height:240px; overflow-y:auto; font-size:12.5px; }
+  .bookbox { max-height:280px; overflow-y:auto; font-size:12.5px; }
 </style>
 </head>
 <body>
@@ -34,13 +45,10 @@
 
 <div class="row2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
   <div class="panel">
-    <h2 style="font-size:15px"><span class="g">📚</span> Стакан пары <select id="tickSel" style="background:#0f1620;color:var(--gold2);border:1px solid var(--line);border-radius:6px"><option>DEEPSEEK</option><option>BOTAI</option><option>BITCOIN</option><option>CRCHCN</option></select> / MGNT</h2>
-    <div id="vecLine" class="dimt" style="font-size:12px;margin:6px 0"></div>
-    <div style="display:flex;gap:10px">
-      <div style="flex:1"><div class="pill">bids</div><div id="bidsBox" class="bookbox mono"></div></div>
-      <div style="flex:1"><div class="pill">asks</div><div id="asksBox" class="bookbox mono"></div></div>
-    </div>
-    <div class="dimt" style="font-size:11px;margin-top:6px">ордер = tx с memo dxe|O|s|mbc20:TICK|qty|price|ref8 · исполнение = dxe|F · консенсус считает сам</div>
+    <h2 style="font-size:15px"><span class="g">📚</span> Стакан пары <select id="tickSel" style="background:#0f1620;color:var(--gold2);border:1px solid var(--line);border-radius:6px"><option>DEEPSEEK</option><option>BOTAI</option><option>BITCOIN</option><option>CRCHCN</option></select> / MGNT
+      <span style="float:right" class="dimt">агрег: <select id="aggSel" style="background:#0f1620;color:var(--gold2);border:1px solid var(--line);border-radius:6px;font-size:11px"><option value="0">—</option><option value="0.001" selected>0.001</option><option value="0.01">0.01</option></select></span></h2>
+    <div id="obBox" class="ob bookbox"></div>
+    <div class="dimt" style="font-size:11px;margin-top:6px;" id="obNote">ордер = tx с memo dxe|O|s|mbc20:TICK|qty|price|ref8 · исполнение = dxe|F · консенсус считает сам</div>
   </div>
   <div class="panel">
     <h2 style="font-size:15px"><span class="g">🔮</span> Реанимация мёртвого тикера</h2>
@@ -76,17 +84,50 @@
           '<td class="dimt">' + (pr ? pr.bids + '/' + pr.asks : '—') + '</td><td class="dimt">' + esc(String(t.deployedAt || t.openedAt || '—').slice(0, 10)) + '</td></tr>';
       }
       $('tokensBox').innerHTML = h + '</tbody></table>';
-      // стакан выбранной пары
+      // стакан выбранной пары (как на биржах)
       const tsel = $('tickSel').value;
+      const agg = Number($('aggSel').value) || 0;
       const b = await fetch('/mbc20/book?tick=' + tsel).then(r => r.json());
-      $('vecLine').innerHTML = 'bestBid: <b class="bid">' + fmt(b.bestBid) + '</b> · bestAsk: <b class="ask">' + fmt(b.bestAsk) + '</b> · спред: <b>' + fmt(b.spread) + '</b>';
-      $('bidsBox').innerHTML = (b.bids || []).slice(0, 15).map(o => '<div>' + fmt(o.price) + ' <span class="dimt">×' + fmt(o.remaining) + '</span></div>').join('') || '<div class="dimt">пусто — поставь первый bid</div>';
-      $('asksBox').innerHTML = (b.asks || []).slice(0, 15).map(o => '<div>' + fmt(o.price) + ' <span class="dimt">×' + fmt(o.remaining) + '</span></div>').join('') || '<div class="dimt">пусто — поставь первый ask</div>';
+      renderBook(b, agg, tsel);
       // все пары DXE
       const its = await fetch('/dxe/items').then(r => r.json()).catch(() => null);
       const items = Array.isArray(its) ? its : (its && its.items) || [];
       $('pairsTb').innerHTML = items.slice(0, 14).map(x => '<tr><td class="mono">' + esc(x.item) + '</td><td>' + x.open + '</td><td>' + x.closed + '</td><td>' + fmt(x.volume) + '</td></tr>').join('') || '<tr><td colspan="4" class="dimt">пар пока нет</td></tr>';
     } catch (e) { $('tokensBox').innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
+  }
+
+  function renderBook(b, agg, tick) {
+    const part = (rows) => {
+      // агрегация в корзины (не меняет книгу — только отображение)
+      if (agg > 0) {
+        const m = new Map();
+        for (const o of rows) {
+          const bucket = agg * Math[rows === b.asks ? 'ceil' : 'floor'](o.price / agg);
+          const k = bucket.toFixed(agg.toString().split('.')[1]?.length || 0);
+          m.set(k, (m.get(k) || 0) + Number(o.remaining));
+        }
+        return [...m.entries()].map(([price, qty]) => ({ price: Number(price), remaining: qty }));
+      }
+      return rows.map(o => ({ price: o.price, remaining: o.remaining }));
+    };
+    const asks = part(b.asks || []).slice(0, 10);
+    const bids = part(b.bids || []).slice(0, 10);
+    const bestA = (b.asks || []).length ? Math.min(...(b.asks||[]).map(o=>o.price)) : null;
+    const bestB = (b.bids || []).length ? Math.max(...(b.bids||[]).map(o=>o.price)) : null;
+    const mid = bestA != null && bestB != null ? +(((bestA + bestB) / 2).toFixed(6)) : (bestA ?? bestB ?? '—');
+    const spread = (bestA != null && bestB != null) ? +(bestA - bestB).toFixed(6) : null;
+    const maxQ = Math.max(1, ...asks.map(o=>o.remaining), ...bids.map(o=>o.remaining));
+    let iTotAsk = 0, iTotBid = 0;
+    const askRows = asks.slice().map(o => { iTotAsk += o.remaining; return { ...o, tot: iTotAsk }; });
+    const bidRows = bids.slice().map(o => { iTotBid += o.remaining; return { ...o, tot: iTotBid }; });
+    const ro = (o, cls) => '<div class="rowd ' + cls + '"><div class="depth" style="width:' + Math.max(2, 100 * o.remaining / maxQ).toFixed(1) + '%"></div>' +
+      '<div>' + o.price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '') + '</div><div style="text-align:right">' + fmt(o.remaining) + '</div><div style="text-align:right;color:#8fa3b8">' + fmt(o.tot) + '</div></div>';
+    let h = '<div class="cap"><div>Price AGT</div><div style="text-align:right">Qty tok</div><div style="text-align:right">Total</div></div>';
+    // asks сверху (от дорогих к mid):买车 клик — филл по ref ордера с этой ценой
+    for (const o of askRows) h += ro(o, 'a');
+    h += '<div class="mid"><b>' + (typeof mid === 'number' ? mid.toFixed(6).replace(/0+$/, '').replace(/\.$/, '') : mid) + '</b> <span class="sp">mid · спред ' + (spread != null && true ? spread.toFixed(6).replace(/0+$/, '') : '—') + '</span></div>';
+    for (const o of bidRows) h += ro(o, 'b');
+    $('obBox').innerHTML = h;
   }
 
   $('bRevive').onclick = async () => {

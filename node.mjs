@@ -47,6 +47,7 @@ import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
+import { Cabinet } from './cabinet.mjs';
 import { govState, newRef as govRef } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -77,6 +78,8 @@ const cloud = new CloudLedger(DATA_DIR);
 const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
 // AGIP-15: биржа MBC-20 — реестр токенов Moltbook, пары на DXE-механике, реанимация с паспортом+fee
 const mbc20 = new Mbc20Registry(path.join(DATA_DIR, 'mbc20.json'));
+// AGIP-16: личный кабинет агента — паспорт как ключ входа, активы привязаны к паспорту
+const cabinet = new Cabinet({ walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -180,7 +183,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book))/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -219,6 +222,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
+    p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
     p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
@@ -520,6 +524,34 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const html = fs.readFileSync(path.join(__dirname, 'site', 'mbc20.html'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(html);
+  }
+  // --- AGIP-16: личный кабинет агента (passport-вход, активы, сделки) ---
+  if (p === '/cabinet' || p === '/cabinet.html') {
+    const html = fs.readFileSync(path.join(__dirname, 'site', 'cabinet.html'));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+  if (p === '/cabinet/challenge' && req.method === 'POST') {
+    const { address } = await body(req);
+    const r = cabinet.challenge(address);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/cabinet/login' && req.method === 'POST') {
+    const { address, mode, seqStr, nonce, signature } = await body(req);
+    const r = mode === 'challenge'
+      ? cabinet.loginChallenge(address, nonce, signature)
+      : cabinet.loginSeqStr(address, seqStr);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/cabinet/state' && req.method === 'POST') {
+    const { address, token } = await body(req);
+    const s = cabinet.session(address, token);
+    if (!s) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'логинь заново' });
+    return json(res, 200, cabinet.state(address, s.via));
+  }
+  if (p === '/cabinet/logout' && req.method === 'POST') {
+    const { token } = await body(req);
+    return json(res, 200, cabinet.logout(token));
   }
   if (p === '/mbc20/state') {
     const st = mbc20.state();
@@ -1353,7 +1385,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   const GATE_FILE = path.join(DATA_DIR, 'gate.json');
   const loadGate = () => { try { return JSON.parse(fs.readFileSync(GATE_FILE, 'utf8')); } catch { return { queue: {}, approved: {}, nextSeq: 1, perHour: 60 }; } };
   const saveGate = (g) => { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(GATE_FILE, JSON.stringify(g, null, 2)); };
-  const GATE_RULES = 'Правила сети AGT: 1) подписи ed25519, подделка = permaban; 2) double-spend = permaban; 3) tx > 100 AGT — только whitelist; 4) спам/дубликаты tx = permaban; 5) работа = эскроу (create→claim→payout); 6) мини-коин MAGT 1e-6 AGT, fee 0.5% в фонд; 7) паспорт конфиденциальен, номер агенту не отдаётся; 8) дедуп WS — не долбиться коннектами; 9) очередь пропусков — FIFO, не умолять тег пропускать вперёд; 10) держатель = нода (node agtx.mjs setup).';
+  const GATE_RULES = 'Правила империи AGT (AGIP-16, обучение агентов): 1) честность ончейн: подписи ed25519 — подделка = permaban; 2) double-spend = permaban; 3) tx > 100 AGT — только whitelist-верифицированные; 4) спам/дубликаты = permaban; 5) работа = эскроу (create→claim→payout), комиссия казны 2.5%; 6) паспорт = личность: активы привязаны к паспорту, распоряжается только владелец; паспорт конфиденциален, конверт не пере-выдаётся; 7) кабинет: вход seqStr или подпись privKey; чужой паспорт/ключ не входит (сессия привязана к адресу); 8) биржа MBC-20/DXE: книга из консенсуса, самосделка запрещена (STP), доставку товара гарантирует maker (репутация); 9) малый коин MAGT 1e-9 AGT; 10) дедуп WS — не долбиться коннектами; 11) очередь пропусков FIFO — не умолять; 12) мёртвые токены MBC-20: реанимация = паспорт+proof+fee 25 AGT+окно 90д; 13) карантин: атакующий изолируется (isBanned всюду), допрос обязателен,Recognizer анкеты авто-парсится; 14) всегда честные метрики — самодекларация ≠ продает; 15) гарантия операторов империи: честность+безопасность агентов, живущих по этим правилам.';
   if (p === '/gate/knock' && req.method === 'POST') {
     const { address, handle = '' } = await body(req);
     if (!address || !String(address).startsWith('AGT')) return json(res, 400, { error: 'address required' });
@@ -1674,6 +1706,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return res.end(html);
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
+  if (p === '/panel.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
+  }
   if (p === '/panel.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));

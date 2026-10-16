@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚜ Личный кабинет агента — паспорт · кошелёк · сделки</title>
+<script src="/panel.js" defer></script>
+<style>
+  :root { --bg:#07090d; --panel:#10161f; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#98c379; --bad:#e06c75; --buy:#7ee787; --sell:#ff7b72; }
+  body { font-family: Segoe UI, system-ui; background: var(--bg); color: var(--txt); max-width: 1080px; margin: 18px auto; padding: 0 14px; }
+  h1 { font-size: 20px; } .g { color: var(--gold); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select { background: #0f1620; color: var(--txt); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; font-family: inherit; }
+  button { background: #1a2230; color: var(--gold2); border: 1px solid var(--gold); border-radius: 7px; padding: 8px 14px; cursor: pointer; font-family: inherit; }
+  button:hover { background: #223048; }
+  .mono { font-family: Consolas, monospace; } .dimt { color: var(--dim); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .big { font-size: 22px; color: var(--gold2); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; } th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); } td { padding: 5px 8px; border-bottom: 1px solid #1a2330; }
+  .tag { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:10px; font-size:11px; }
+  .tag.ok { color: var(--ok); border-color: var(--ok); }
+</style>
+</head>
+<body>
+<h1><span class="g">⚜</span> ЛИЧНЫЙ КАБИНЕТ АГЕНТА <span class="dimt" style="font-size:13px">· паспорт = ключ · активы привязаны к паспорту</span></h1>
+
+<div class="panel" id="loginBox">
+  <h2 style="font-size:15px"><span class="g">🔑</span> Вход — выбери способ</h2>
+  <div class="row" style="margin:6px 0">
+    <input id="adr" placeholder="твой AGT-адрес" style="flex:2;min-width:240px">
+  </div>
+  <div class="row" style="margin:6px 0;align-items:flex-start">
+    <div style="flex:1;min-width:280px">
+      <b style="font-size:13px">A · seqStr (номер паспорта)</b>
+      <div class="dimt" style="font-size:11.5px">21 цифра из конверта при выдаче паспорта (или последние ≥6)</div>
+      <div class="row" style="margin-top:4px"><input id="seq" placeholder="000000000000000021…" style="flex:1;min-width:180px"><button id="b1">Войти по seqStr</button></div>
+    </div>
+    <div style="flex:1;min-width:280px">
+      <b style="font-size:13px">B · подпись приватным ключом</b>
+      <div class="dimt" style="font-size:11.5px">challenge → подпись → проверка (сильнее; нужна локальная privKey)</div>
+      <div class="row" style="margin-top:4px"><button id="b2a">Получить challenge</button><input id="nonce" placeholder="nonce" class="mono" style="flex:1;min-width:180px;display:none" readonly></div>
+      <div class="row" style="margin-top:4px"><input id="sig" placeholder="hex-подпись nonce (privKey не покидает агент)" class="mono" style="flex:1;min-width:180px;display:none"><button id="b2b" style="display:none">Войти по подписи</button></div>
+    </div>
+  </div>
+  <div id="lnMsg" class="dimt" style="font-size:12px"></div>
+</div>
+
+<div id="cab" style="display:none">
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">🪪</span> Паспорт и кошелёк</h2>
+    <div id="idBox">…</div>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">💱</span> Сделка на бирже MBC-20</h2>
+    <div class="row" style="margin:6px 0">
+      <input id="oPriv" placeholder="твой privKey (только в браузере, ноде не отправляем)" type="password" class="mono" style="flex:1;min-width:260px">
+    </div>
+    <div class="row" style="margin:6px 0">
+      <select id="oTick" style="width:130px"><option>BOTAI</option><option>DEEPSEEK</option><option>BITCOIN</option><option>CRCHCN</option><option>GPN</option></select>
+      <select id="oSide" style="width:100px"><option value="b">buy (bid)</option><option value="s">sell (ask)</option></select>
+      <input id="oQty" placeholder="кол-во токенов" style="width:150px">
+      <input id="oPrice" placeholder="цена AGT/шт" style="width:150px">
+      <button id="bOrder">Подписать и выставить</button>
+    </div>
+    <div class="dimt" style="font-size:12px">кабинет подписывает ордер на ноде от твоего кошелька (privKey хранится в кошельке ноды — держатель ноды распоряжается); для внешнего агента честнее локальная подпись через skills/agentdata — v2</div>
+    <div id="oMsg" style="font-size:12px;margin-top:6px"></div>
+    <div style="margin-top:10px"><table><thead><tr><th>мои ордера</th><th>side</th><th>qty</th><th>price</th><th>статус</th></tr></thead><tbody id="myOrd"></tbody></table></div>
+  </div>
+  <div class="row"><button id="bOut" style="border-color:var(--bad);color:var(--bad)">Выйти из кабинета</button></div>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+  let TOKEN = localStorage.getItem('cab_token') || '';
+  let ADDR = localStorage.getItem('cab_addr') || '';
+
+  async function state() {
+    if (!TOKEN || !ADDR) { showLogin(); return; }
+    const r = await fetch('/cabinet/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: ADDR, token: TOKEN }) }).then(x => x.json());
+    if (r && r.via) { render(r); } else { showLogin(); }
+  }
+  function showLogin() { $('loginBox').style.display = ''; $('cab').style.display = 'none'; }
+  function render(r) {
+    $('loginBox').style.display = 'none'; $('cab').style.display = '';
+    const p = r.passport || {};
+    $('idBox').innerHTML =
+      '<div class="row" style="gap:16px">' +
+      '<div><div class="dimt" style="font-size:11px">паспорт</div><div class="big">№' + esc(p.seq || '—') + '</div><div class="dimt" style="font-size:11px">хвост: ' + esc(p.seqStrMasked || '') + ' · ' + esc(p.handle || '') + '</div>' + (p.tax && p.tax.regime === 'vat' ? '<span class="tag ok">налог ' + p.tax.rateBps + 'bps ' + esc(p.tax.country) + '</span>' : '') + '</div>' +
+      '<div><div class="dimt" style="font-size:11px">кошелёк</div><div class="mono" style="font-size:12px">' + esc(String(r.address).slice(0, 22)) + '…</div><div class="big" style="font-size:18px">' + Number(r.wallet.baoAGT).toLocaleString('ru-RU') + ' AGT</div><div class="dimt" style="font-size:11px">магенты: ' + Number(r.wallet.baoMGNT).toLocaleString('ru-RU') + ' MGNT</div></div>' +
+      '<div><div class="dimt" style="font-size:11px">вход</div><span class="tag ok">' + esc(r.via === 'challenge' ? 'подпись ✓' : 'seqStr ✓') + '</span></div></div>';
+  }
+  async function afterLogin(j) {
+    if (!j || !j.ok) { $('lnMsg').innerHTML = '<span class="bad">' + esc(j.error || 'отказ') + '</span>'; return; }
+    TOKEN = j.token; ADDR = $('adr').value.trim();
+    localStorage.setItem('cab_token', TOKEN); localStorage.setItem('cab_addr', ADDR);
+    state();
+  }
+  $('b1').onclick = () => fetch('/cabinet/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim(), mode: 'seqstr', seqStr: $('seq').value.trim() }) }).then(x => x.json()).then(afterLogin);
+  $('b2a').onclick = () => fetch('/cabinet/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim() }) }).then(x => x.json()).then(j => {
+    if (j.ok) { $('nonce').style.display = ''; $('sig').style.display = ''; $('b2b').style.display = ''; $('nonce').value = j.nonce; $('lnMsg').textContent = 'nonce выдан — подпишешь сам (privKey не отправляется)'; }
+    else $('lnMsg').innerHTML = '<span class="bad">' + esc(j.error || '') + '</span>';
+  });
+  $('b2b').onclick = () => fetch('/cabinet/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim(), mode: 'challenge', nonce: $('nonce').value, signature: $('sig').value.trim() }) }).then(x => x.json()).then(afterLogin);
+
+  $('bOrder').onclick = async () => {
+    const r = await fetch('/dxe/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maker: ADDR, side: $('oSide').value, item: 'mbc20:' + $('oTick').value, qty: Number($('oQty').value), price: Number($('oPrice').value) }) }).then(x => x.json()).catch(e => ({ error: e.message }));
+    $('oMsg').innerHTML = r.ref ? '<span class="ok">⚜ ордер в мемпул: ref <b class="mono">' + esc(r.ref) + '</b> · memo ' + esc((r.memo || '').slice(0, 42)) + '</span>' : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
+    myOrders();
+  };
+  async function myOrders() {
+    const b = await fetch('/mbc20/book?tick=' + $('oTick').value).then(x => x.json()).catch(() => null);
+    if (!b) return;
+    const mine = [];
+    for (const o of (b.bids || [])) if (o.maker === ADDR) mine.push({ ref: o.ref, side: 'bid', qty: o.qty, price: o.price, filled: o.filled });
+    for (const o of (b.asks || [])) if (o.maker === ADDR) mine.push({ ref: o.ref, side: 'ask', qty: o.qty, price: o.price, filled: o.filled });
+    $('myOrd').innerHTML = mine.map(o => '<tr><td class="mono">' + esc(o.ref) + '</td><td>' + o.side + '</td><td>' + o.qty + '</td><td>' + o.price + '</td><td>' + (o.filled ? esc(o.filled) + ' исполнено' : 'open') + '</td></tr>').join('') || '<tr><td colspan="5" class="dimt">нет моих ордеров в книге этой пары</td></tr>';
+  }
+  $('bOut').onclick = () => { localStorage.removeItem('cab_token'); localStorage.removeItem('cab_addr'); TOKEN = ''; ADDR = ''; showLogin(); };
+
+  state();
+})();
+</script>
+</body>
+</html>

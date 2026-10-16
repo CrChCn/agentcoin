@@ -232,22 +232,24 @@ function setStatus(ok, label) {
 const isTailnetView = !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const NODES = isTailnetView
   ? [[(location.port || '') === '9336' ? 'tailnet 9336 (host)' : 'та нода', location.origin]]
-  : [['A', 'http://127.0.0.1:9335'], ['B', 'http://127.0.0.1:9341'], ['C', 'http://127.0.0.1:9342'], ['tailnet', 'http://100.96.7.15:9336']];
+  : [['A', 'http://127.0.0.1:9335'], ['B', 'http://127.0.0.1:9341'], ['C', 'http://127.0.0.1:9342'], ['D', 'http://127.0.0.1:9337'], ['E', 'http://127.0.0.1:9338'], ['F', 'http://127.0.0.1:9339'], ['tailnet', 'http://100.96.7.15:9336']];
 
 async function tick() {
   const badge = [];
-  // ноды
-  const tbody = $('nodesTable').tBodies[0]; tbody.innerHTML = '';
-  for (const [name, base] of NODES) {
+  // ноды: параллельно и с жёстким таймаутом — одна молчащая нода (например,
+  // недоступный tailnet, где connect висит, а не отдаёт refused) не должна
+  // замораживать весь tick() и всю панель (баг не-обновляющегося dashboard)
+  const tbody = $('nodesTable').tBodies[0];
+  const rows = await Promise.all(NODES.map(async ([name, base]) => {
     try {
-      const l = await fetch(base + '/life').then(r => r.json());
+      const l = await fetch(base + '/life', { signal: AbortSignal.timeout(4000) }).then(r => r.json());
       const good = l.fresh && l.chainValid;
-      tbody.insertAdjacentHTML('beforeend',
-        `<tr><td>${name}</td><td>${l.blocks}</td><td class="mono dim">${String(l.tipHash||'').slice(0,12)}</td>
-         <td class="${good ? 'ok' : 'bad'}">${good ? 'fresh·valid' : 'ПРОБЛЕМА'}</td></tr>`);
       badge.push(name + ':' + l.blocks);
-    } catch { tbody.insertAdjacentHTML('beforeend', `<tr><td>${name}</td><td colspan=3 class="bad">не отвечает</td></tr>`); badge.push(name + ':×'); }
-  }
+      return `<tr><td>${name}</td><td>${l.blocks}</td><td class="mono dim">${String(l.tipHash||'').slice(0,12)}</td>
+         <td class="${good ? 'ok' : 'bad'}">${good ? 'fresh·valid' : 'ПРОБЛЕМА'}</td></tr>`;
+    } catch { badge.push(name + ':×'); return `<tr><td>${name}</td><td colspan=3 class="bad">не отвечает</td></tr>`; }
+  }));
+  tbody.innerHTML = rows.join('');
   // текущая нода
   try {
     const l = await j('/life');

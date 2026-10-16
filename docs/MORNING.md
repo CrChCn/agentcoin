@@ -15,14 +15,22 @@ done
 `tail -10 data-agents/steward-log.txt` — ищи `ALARM-REPEAT` и `ALARM-NET`. Свежие должны быть `alerts: чисто`.
 
 ## 4. Public tunnel жив?
+
+t**AGIP-5 (шаг 13): главное — STABLE вход не меняется при перезапусках:**
 ```bash
-curl -s --max-time 10 https://<длинный-имя>.trycloudflare.com/life | head -c 200
+curl -s --max-time 10 https://laptop-ih54qpif.tail8c28c2.ts.net/life | head -c 200
 ```
-Заметка: trycloudflare quick-туннель живёт, пока процесс — после перезагрузки Windows его надо перезапустить:
+Funnel-конфиг переживает перезагрузку Windows (persisted в tailnet). Подъём заново при сбое:
+```bash
+cd ~/Desktop/agentcoin && MSYS_NO_PATHCONV=1 "/c/Program Files/Tailscale/tailscale.exe" funnel --bg --set-path / http://127.0.0.1:9335
+```
+Backup-туннель (old trycloudflare, имя меняется при каждом рестарте):
 ```bash
 cd ~/Desktop/agentcoin && ./tools/cloudflared.exe tunnel --url http://100.96.7.15:9336 --no-autoupdate > data-agents/tunnel.log 2>&1 &
 grep "trycloudflare.com" data-agents/tunnel.log
 ```
+Плюс: GitHub Actions-джоб `uptime` пингует стабильный вход каждые 5 мин и тревожит в сетевой чат при dead > 90с
+(дедуп 1 тревога/55 мин; переменная репо `AGT_PUBLIC_URL`).
 (имя меняется при каждом пере-старте — **новое имя нужно обновить в чат-приглашении и Moltbook-посте**).
 
 ## 5. Moltbook: есть реакции?

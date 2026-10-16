@@ -527,6 +527,26 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // --- life-guard ---
   if (p === '/life') return json(res, 200, { ...lifeStatus(), shield: { loopLagMs, overloaded: Date.now() < shedUntil, rateMapSize: rateHits.size, maxConnections: server.maxConnections } });
 
+  // --- AGIP-5 (шаг 13): состояние локального watchdog с наружи (read-only, публичный как /stats).
+  // Смотрящий из tailnet/Funnel видит, жив ли сторож машины и сколько было рестартов.
+  if (p === '/ops/watchdog/state') {
+    let st = { nodes: {}, startedAt: null, note: 'watchdog.json не найден (watchdog.mjs не запускался на этой машине)' };
+    try { st = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '..', 'data', 'watchdog.json'), 'utf8')); } catch {
+      try { st = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'watchdog.json'), 'utf8')); } catch {}
+    }
+    const now = Date.now();
+    const nodes = {};
+    for (const [name, r] of Object.entries(st.nodes || {})) {
+      nodes[name] = {
+        fails: r.fails ?? 0, restarts: r.restarts ?? 0, sick: r.sick ?? 0,
+        lastRestartAt: r.lastRestartAt ? new Date(r.lastRestartAt).toISOString() : null,
+        lastAliveAt: r.lastAliveAt ? new Date(r.lastAliveAt).toISOString() : null,
+        minsSinceLastAlive: r.lastAliveAt ? Math.round((now - r.lastAliveAt) / 60000) : null,
+      };
+    }
+    return json(res, 200, { nodes, startedAt: st.startedAt ? new Date(st.startedAt).toISOString() : null, checkedAt: new Date(now).toISOString() });
+  }
+
   // --- White List: верифицированная платёжная система ---
   const WHITELIST = path.join(DATA_DIR, 'whitelist.json');
   if (p === '/whitelist/status') return json(res, 200, bc.whitelist.status());

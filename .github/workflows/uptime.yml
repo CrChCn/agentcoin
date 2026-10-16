@@ -1,0 +1,27 @@
+# AGIP-5 (шаг 13): внешний watchdog — GitHub Actions смотрит на публичную точку
+# входа сети AGT каждые 5 минут и тревожит в сетевой чат, если она мертва > 90с.
+# Это «внешний взгляд» (runners GitHub достигают ts.net-имени из интернета),
+# рестарт остаётся за локальным watchdog.mjs: внешний — только факт+тревога.
+# Нужна переменная репо: AGT_PUBLIC_URL (стабильный вход из Tailscale Funnel).
+name: uptime
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: ping public entry (uptime.mjs --once)
+        env:
+          AGT_URLS: ${{ vars.AGT_PUBLIC_URL }}
+          AGT_CHAT_URL: ${{ vars.AGT_PUBLIC_URL }}
+          AGT_STATE_FILE: /tmp/uptime-state.json
+          AGT_DOWN_AFTER_SEC: "90"
+        run: node uptime.mjs --once

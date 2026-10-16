@@ -122,7 +122,63 @@ export async function syncOne(bc, peerUrl) {
     const myH = bc.blockCount();
     const peerH = info.blocks;
       log.push(`${peerUrl}: peer height ${peerH}, ours ${myH} (our work ${chainWork(bc.chain)})`);
-    if (peerH <= myH) { log.push(`  → our chain ≥ peer's, ok`); return log; }
+    if (peerH <= myH) {
+      // AGIP-8: высота ≠ лучшая цепь. Если tip пира отличается от нашего — это развилка:
+      // peer может быть ниже по высоте, но ТЯЖЕЛЕЕ по работе — тогда МЫ должны
+      // принять его цепь (инцидент 2026-10-16: 9335 убежала на лёгкий форк,
+      // сравнение только по высоте не давало увидеть это).
+      const plife = await fetchJson(peerUrl + '/life').catch(() => null);
+      const pTipHash = plife?.tipHash || plife?.body?.tipHash;
+      if (!pTipHash || pTipHash === (bc.tip()?.hash || null)) {
+        log.push(`  → our chain ≥ peer's, ok`);
+        return log;
+      }
+      log.push(`  → peer ниже по высоте, но tip другой (${pTipHash.slice(0, 12)}…) → развилка, голосуем по работе (AGIP-8)`);
+      // ищем точку развилки по заголовкам пира 0..peerH
+      let d = -2;
+      let scanPart = null;
+      let scanFrom = 0;
+      while (scanFrom < peerH && d < 0) {
+        const n = Math.min(2000, peerH - scanFrom);
+        if (n <= 0) break;
+        scanPart = (await fetchJson(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`).catch(() => null))?.headers;
+        if (!scanPart || !scanPart.length) { d = -3; break; }
+        for (const hd of scanPart) {
+          if (hd.height >= myH) break; // peer короче нашего общего префикса — не дошли до места различий
+          const ours = bc.chain[hd.height];
+          if (ours && ours.hash !== hd.hash) { d = hd.height; break; }
+        }
+        if (d >= 0) break;
+        scanFrom = scanPart[scanPart.length - 1].height + 1;
+      }
+      if (d < 0) {
+        // d===-3: peer отдал мало/обрыв; d===-2: префикс совпадает до peerH —
+        // но tip другой при полном префиксе невозможен: это врал нода (нечестный tip).
+        log.push(`  → развилку не нашли (scan=${d}) — без голосования, skip`);
+        return log;
+      }
+      const candHeaders = (await fetchJson(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`).catch(() => null))?.headers;
+      if (!candHeaders || !candHeaders.length) { log.push(`  → не получили заголовки развилки, skip`); return log; }
+      const ourForkWork = chainWork(bc.chain.slice(d));
+      const candWork = chainWork(candHeaders);
+      log.push(`  → fork vote: от ${d}, наша ${ourForkWork}, кандидат ${candWork}`);
+      if (candWork <= ourForkWork) {
+        log.push(`  → наша тяжелее — остаёмся (не штрафуем: валидный форк проиграл выбор)`);
+        return log;
+      }
+      log.push(`  → peer ТЯЖЕЛЕЕ при меньшей высоте — принимаем его цепь от ${d}...`);
+      const bodies = await fetchJson(`${peerUrl}/blocks?from=${d}`);
+      const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
+      const r = bc.adoptFork(incoming, d);
+      if (!r.ok) {
+        log.push(`  → adoptFork отказ: ${r.reason}`);
+        if (!isChainChoiceVerdict(r.reason)) peerStrike(peerUrl, `fork adopt failed: ${r.reason}`);
+        return log;
+      }
+      log.push(`  → RE-ORG принят (AGIP-8 mirrored): dropped=${r.dropped}, добавлено=${r.added}`);
+      peerAccept(peerUrl);
+      return log;
+    }
 
     // ---- HEADERS-FIRST: сначала дешёвая проверка всех заголовков ----
     let headers = null;

@@ -629,6 +629,14 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   for (const tx of block.txs) {
     if (tx.from === 'COINBASE' || tx.from === 'AGENT_REWARD_POOL') continue;
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
+    // AGIP-9 (деноминация): сумма кратна магенту (1e-9 AGT) с activates-at-height,
+    // иначе мягкий отказ (активация — env AGT_MGNT_HEIGHT, 0 = выкл. по умолчанию на старых нодах)
+    const mgntH = Number(process.env.AGT_MGNT_HEIGHT || 0);
+    if (mgntH > 0 && chain.length >= mgntH) {
+      const mgnt = Math.round(tx.amount * 1e9);
+      if (mgnt < 1) return 'tx_not_mgnt_aligned'; // меньше 1 магента не проходит
+      if (Math.abs(tx.amount * 1e9 - mgnt) > 1e-3) return 'tx_not_mgnt_aligned';
+    }
     if (!verifyTxAny(tx, chain)) return 'tx_bad_signature_or_escrow';
     // AGIP-4: tx из активной казны требует вторую подпись (opts.treasury инжектится нодой;
     // без передачи политика не проверяется — старые вызовы/pированные цепи ведут себя как раньше)

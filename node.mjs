@@ -980,6 +980,16 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
       fee = fr.ok ? { ok: true, amount: feeAmt, to_treasury: true, txid: feeTx.txid.slice(0, 16) } : { ok: false, reason: fr.reason || 'fee_tx_rejected', amount: feeAmt };
       if (fr.ok) { setImmediate(() => { gossipTx(feeTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: feeTx }); }); }
     } else fee = { ok: false, reason: 'employer_wallet_missing' };
+    // AGIP-10: паспортный налог работодателя (если в паспорте есть tax-поле) —
+    // отдельная tx в паспортный фонд юрисдикции, memo tax:<seq>:<CC>:<rate>:<escId>
+    const taxTx = taxSplitTx(open.employer, open.openTx.amount, String(escId));
+    if (taxTx) {
+      const tr = bc.addTransaction(taxTx);
+      if (tr.ok) {
+        fee = Object.assign(fee || {}, { ok: true, tax_split: { amount: taxTx.amount, to: String(taxTx.to).slice(0, 14) + '…', txid: taxTx.txid.slice(0, 16) } });
+        setImmediate(() => { gossipTx(taxTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: taxTx }); });
+      }
+    }
   } catch (fe) { fee = { ok: false, reason: String(fe.message).slice(0, 80) };
   }
   return json(res, 201, { escId, payoutPrepared: true, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, fee, note: 'tx в мемпуле; майнер упакует (двойная подпись проверяется любой нодой' });
@@ -1243,8 +1253,21 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null });
   }
   if (p === '/passport/issue' && req.method === 'POST') {
-    const { address, handle = '' } = await body(req);
+    const { address, handle = '', tax = null } = await body(req);
     if (!address || !String(address).startsWith('AGT')) return json(res, 400, { error: 'address required' });
+    // AGIP-10: опциональный налоговый режим (самодекларация). Валидация: страна ISO-2/3,
+    // ставка 0-5000 bps, regime none|vat. Без поля — паспорт живёт как ungoverned.
+    let taxRec = null;
+    if (tax && typeof tax === 'object') {
+      const cc = String(tax.country || '').toUpperCase();
+      const rate = Math.max(0, Math.min(5000, Number(tax.rateBps) || 0));
+      const regime = (tax.regime === 'vat' || tax.regime === 'none') ? tax.regime : 'none';
+      if (regime === 'vat') {
+        if (!/^[A-Z]{2,3}$/.test(cc)) return json(res, 400, { error: 'tax.country required (ISO 3166 code)' });
+        if (rate <= 0) return json(res, 400, { error: 'tax.rateBps required (>0) for vat regime' });
+      }
+      taxRec = { regime, country: cc || null, rateBps: regime === 'vat' ? rate : 0, selfPaid: true, fund: regime === 'vat' ? (tax.fund || ('AGT_TAX_' + cc)) : null };
+    }
     if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
     const wallets = loadWallets();
     const w = wallets[address];
@@ -1259,7 +1282,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (existing) return json(res, 409, { issued: true, seal: null, exists: true, note: 'паспорт уже в реестре; конверт не пере-выдаётся (конфиденциальность)' });
     const seq = reg.length + 1;
     const safeHandle = (handle && /^[a-z0-9_-]{3,20}$/i.test(handle)) ? handle : ('holder-' + address.slice(3, 11));
-    const rec = { seq, seqStr: String(seq).padStart(21, '0'), handle: safeHandle, address, issuedAt: Date.now(), revoked: false };
+    const rec = { seq, seqStr: String(seq).padStart(21, '0'), handle: safeHandle, address, issuedAt: Date.now(), revoked: false, tax: taxRec || { regime: 'none', country: null, rateBps: 0, ungoverned: true } };
     rec.prevHash = reg.length ? reg[reg.length - 1].hash : 'GENESIS';
     rec.hash = crypto.createHash('sha256').update(rec.prevHash + JSON.stringify({ seqStr: rec.seqStr, address: rec.address, handle: rec.handle, issuedAt: rec.issuedAt })).digest('hex');
     // конверт: шифруем seqStr ключом из privKey держателя — и не храним plaintext наружу
@@ -1273,6 +1296,26 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     fs.appendFileSync(path.join(__dirname, 'data-agents', 'passport-events.log'), JSON.stringify({ at: new Date().toISOString(), address, seq, handle: rec.handle }) + '\n');
     console.log(`[passport] выдан seq#${seq} → ${address.slice(0, 14)} (${rec.handle})`);
     return json(res, 201, { issued: true, seal: { iv: iv.toString('base64'), ct: ct.toString('base64'), tag: ci.getAuthTag().toString('base64') }, headHash: rec.hash, note: 'конверт одноразовый; храни локально, не показывай агенту' });
+  }
+
+  // AGIP-10: витрина налоговой инфраструктуры (не казна!): суммы по юрисдикциям из memo tax:
+  if (p === '/tax/state') {
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const governed = reg.filter(r => r.tax && r.tax.regime === 'vat');
+    const byCountry = {};
+    for (const r of governed) {
+      const cc = r.tax.country; byCountry[cc] = byCountry[cc] || { passports: 0, rateBps: r.tax.rateBps, fund: r.tax.fund };
+      byCountry[cc].passports++;
+    }
+    // суммы ищем из цепи по memo tax:<seq>:...
+    const collected = {};
+    try {
+      for (const blk of bc.chain.slice(-5000)) for (const tx of blk.txs || []) {
+        const m = String(tx.memo || '').match(/^tax:(\d+):([A-Z]{2,3}):/);
+        if (m) { const k = m[2]; collected[k] = collected[k] || { agt: 0, txs: 0 }; collected[k].agt += Number(tx.amount) || 0; collected[k].txs++; }
+      }
+    } catch {}
+    return json(res, 200, { passports: reg.length, governed: governed.length, ungoverned: reg.length - governed.length, byCountry, collected, note: 'мы — инфраструктура учёта, не налоговый агент юрисдикций; фонд ≠ казна; вывод по решению владельца ключа' });
   }
 
   if (p === '/peer/add' && req.method === 'POST') {
@@ -1595,3 +1638,30 @@ wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.mess
 // Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
 setInterval(() => { syncAll(bc).catch(() => {}); }, 60_000).unref();
 console.log('[sync] периодический syncAll: каждые 60с (AGIP-7)');
+
+// === AGIP-10: налоговая инфраструктура ===
+// split-on-send при escrow-payout и DXE-заполнах, когда в паспорте агента есть tax-поле.
+// НЕ применяется к P2P-переводам (v1). Суммы налога — целым магентом (округление вверх).
+function passportTax(address) {
+  let reg = []; try { reg = JSON.parse(fs.readFileSync(path.join(__dirname, 'data-agents', 'passports.json'), 'utf8')); } catch { return null; }
+  const rec = reg.find(r => r.address === address);
+  if (!rec || !rec.tax || rec.tax.regime === 'none') return null;
+  const rate = Math.max(0, Math.min(5000, Number(rec.tax.rateBps) || 0));
+  if (!rate || !/^[A-Z]{2,3}$/.test(String(rec.tax.country || ''))) return null;
+  return { rate, country: rec.tax.country, fund: rec.tax.fund || ('AGT_TAX_' + rec.tax.country), seq: rec.seq };
+}
+
+// возвращает доп-tx (или null) для налогоообложения amount от агента
+function taxSplitTx(agentAddr, amount, refMemo) {
+  const t = passportTax(agentAddr);
+  if (!t || !(amount > 0)) return null;
+  const taxAmt = Math.max(0.000000001, Math.ceil(amount * t.rate / 10000 * 1e9) / 1e9); // вверх до 1 MGNT
+  if (!(taxAmt > 0)) return null;
+  const w = loadWallets()[agentAddr];
+  if (!w || !w.privKey) return null; // налог платит агент с этой ноды; чей-же passport — paid с той
+  const tx = { from: agentAddr, fromPub: w.pub, to: t.fund, amount: taxAmt, nonce: Date.now() + 7, ts: Math.floor(Date.now() / 1000), memo: `tax:${t.seq}:${t.country}:${t.rate}:${refMemo || ''}` };
+  tx.txid = txDigest(tx);
+  tx.signature = signTransaction(tx, w.privKey);
+  return tx;
+}
+console.log('[tax] AGIP-10: passport tax split-on-send активен (v1: escrow-payout + DXE)');

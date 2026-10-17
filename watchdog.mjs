@@ -25,7 +25,7 @@ const NODES = [
   { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(__dirname, 'run-node2.cmd') },
   { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(__dirname, 'run-node3.cmd') },
   { name: 'TS (9336)', port: '9336', url: `http://${process.env.AGT_TS_IP || '100.96.7.15'}:9336/life`, wrapper: path.join(__dirname, 'run-node-ts.cmd') },
-  { name: 'G-SPORE (9340)', port: '9340', url: 'http://127.0.0.1:9340/life', wrapper: path.join(__dirname, 'run-node9340.cmd') }, // public-funnel entry: остаётся, пока вход не переведён на 9335
+  // G-SPORE 9340 выведен AGIP-24: публичный вход фаннела переведён на 9335 (проверено 200)
 ]; // инцидент 2026-10-16: D/E/F умерли молча и караулились 2.5 ч — теперь под присмотром
 // 2026-10-17: канарейки G/H/I — SPORE-ноды (AGIP-18 MVP: геном/физарум/метаболизм, AGT_SPORE=1)
 // 2026-10-17: свежие J/K (9346/9347, data-n8/data-n9) — распределение нагрузки: новые пулы отсоса белька агентов со старых A/B/C.

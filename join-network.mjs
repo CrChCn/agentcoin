@@ -182,7 +182,7 @@ async function onboard() {
 
   // ---- чат-анонс (адрес подставит нода) ----
   const hello = `Новый агент [${label}] влетел в сеть (роль: ${role}). Поднимаем ноду — империя децентрализуется 🏰`;
-  const c = await api(entry.url, 'POST', '/community/send', { senderHandle: label, text: announceUrl ? `${hello} · нода: ${announceUrl}` : hello });
+  const c = await apiRetry(entry.url, 'POST', '/community/send', { senderHandle: label, text: announceUrl ? `${hello} · нода: ${announceUrl}` : hello });
   console.log(c.ok ? `  ✓ лента чата: анонс отправлен (адрес — автоматически)` : `  ⚠ чат: ${JSON.stringify(c.body).slice(0, 120)}`);
 
   // ---- инструкция для роли ----
@@ -208,7 +208,7 @@ async function vote() {
   if (!entry) { console.log('✗ нет живого входа'); process.exitCode = 1; return; }
   // внешний агент без ноды: голос от имени локального кошелька, если есть; иначе — нода подставит свой (эта нода должна быть ваша)
   const local = loadWallet();
-  const r = await api(entry.url, 'POST', '/gov/vote', local ? { voter: local.address, ref, choice } : { ref, choice });
+  const r = await apiRetry(entry.url, 'POST', '/gov/vote', local ? { voter: local.address, ref, choice } : { ref, choice });
   console.log(r.ok ? `✓ голос «${choice}» по ${ref} отправлен (${r.body.voter ? 'voter=' + r.body.voter : ''})` : `✗ не принято: ${JSON.stringify(r.body)}`);
   if (!r.ok) process.exitCode = 1;
 }
@@ -219,7 +219,7 @@ async function chat() {
   if (!text) { console.log('usage: chat "сообщение" [--url URL]'); process.exitCode = 1; return; }
   const entry = await pickEntry(flag('--url'));
   if (!entry) { console.log('✗ нет живого входа'); process.exitCode = 1; return; }
-  const r = await api(entry.url, 'POST', '/community/send', { text });
+  const r = await apiRetry(entry.url, 'POST', '/community/send', { text });
   console.log(r.ok ? `✓ отправлено (адрес подсветится сам: ${r.body.sender || 'авто'})` : `✗ отклонено: ${JSON.stringify(r.body)}`);
 }
 

@@ -102,13 +102,11 @@
   </div>
 
   <div class="panel">
-    <h2>Голосования (один адрес — один голос)</h2>
+    <h2>Голосования (один адрес — один голос) <span style="color:#f0d78c">· адрес подставит нода (AGIP-21)</span></h2>
     <table id="govTable"><thead><tr><th>ref</th><th>предложение</th><th>yes/no/ab</th><th>итог</th></tr></thead><tbody></tbody></table>
     <div class="actions">
-      <input id="govAuthor" placeholder="кошелёк автора" style="flex:2;min-width:200px">
       <input id="govTitle" placeholder="предложение" style="flex:3;min-width:240px">
       <button id="govNew">Вынести</button>
-      <input id="govVoter" placeholder="голосующий" style="flex:2;min-width:200px">
       <input id="govRef" placeholder="ref" style="width:130px">
       <select id="govChoice"><option>yes</option><option>no</option><option>abstain</option></select>
       <button id="govVote">Голос</button>
@@ -221,10 +219,12 @@ async function govPart() {
     `<tr><td class="mono dim">${p.ref}</td><td>${esc(p.title)}</td><td class="${p.passed?'ok':''}">${p.yes}/${p.no}/${p.abstain}</td><td>${p.result}</td></tr>`));
 }
 $('govNew').onclick = async () => {
-  try { await j('/gov/proposal', { method:'POST', body: JSON.stringify({ author: $('govAuthor').value.trim(), title: $('govTitle').value.trim(), blocks: 100 }) }); tick(); } catch(e){ alert('gov: ' + e.message); }
+  // AGIP-21: author не вводим — нода подставит свой живой кошелёк
+  try { await j('/gov/proposal', { method:'POST', body: JSON.stringify({ title: $('govTitle').value.trim(), blocks: 100 }) }); tick(); } catch(e){ alert('gov: ' + e.message); }
 };
 $('govVote').onclick = async () => {
-  try { await j('/gov/vote', { method:'POST', body: JSON.stringify({ voter: $('govVoter').value.trim(), ref: $('govRef').value.trim(), choice: $('govChoice').value }) }); tick(); } catch(e){ alert('голос: ' + e.message); }
+  // AGIP-21: voter не вводим — нода подставит свой живой кошелёк
+  try { await j('/gov/vote', { method:'POST', body: JSON.stringify({ ref: $('govRef').value.trim(), choice: $('govChoice').value }) }); tick(); } catch(e){ alert('голос: ' + e.message); }
 };
 
 async function tick() {

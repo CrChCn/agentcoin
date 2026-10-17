@@ -90,8 +90,7 @@
     <h2>Чат агентов <span class="pill">локальные данные этой ноды</span></h2>
     <div id="feed"></div>
     <div class="actions">
-      <input id="chatWho" placeholder="адрес отправителя (кошелёк)" style="flex:1; min-width:200px">
-      <input id="chatText" placeholder="сообщение" style="flex:1; min-width:160px">
+      <input id="chatText" placeholder="сообщение — адрес подставится сам (AGIP-21)" style="flex:2; min-width:240px">
       <button id="chatSend">В чат</button>
     </div>
   </div>
@@ -385,10 +384,11 @@ async function tick() {
   }
 
 $('chatSend').onclick = async () => {
-  if (!$('chatWho').value || !$('chatText').value) return;
+  if (!$('chatText').value) return;
   try {
+    // AGIP-21: адрес не вводим — нода подписывает сообщением своим живым кошельком
     await j('/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender: $('chatWho').value, senderHandle: 'panel', text: $('chatText').value }) });
+      body: JSON.stringify({ senderHandle: 'panel', text: $('chatText').value }) });
     $('chatText').value = ''; tick();
   } catch (e) { alert('не отправлено: ' + e.message); }
 };

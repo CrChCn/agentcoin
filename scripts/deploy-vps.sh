@@ -155,12 +155,15 @@ PUB_IP="$(curl -fsS -m 10 https://api.ipify.org 2>/dev/null || true)"
 BARRIER_VERIFIED=0
 if [ -n "${PUB_IP}" ]; then
   BODY_FILE=$(mktemp)
-  HTTP_CODE=$(curl -sS -m 10 -o "${BODY_FILE}" -w '%{http_code}' -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}' || echo 000)
+  # при refused/timeout curl сам пишет 000 в -w и выходит с ошибкой — перезатираем
+  # ОДНИМ 000 (без доклейки: двойной «000000» ломал ветку «не проверено»)
+  HTTP_CODE=$(curl -sS -m 10 -o "${BODY_FILE}" -w '%{http_code}' -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}') || HTTP_CODE=000
   BODY_GOT=$(head -c 200 "${BODY_FILE}"; rm -f "${BODY_FILE}")
   if [ "${HTTP_CODE}" = "403" ] && grep -q 'admin_loopback_only' <<<"${BODY_GOT}"; then
     BARRIER_VERIFIED=1
     echo "  ✓ публичный барьер подтверждён: POST /tx/sign с ${PUB_IP} → 403 admin_loopback_only"
-  elif [ "${HTTP_CODE}" = "000" ]; then
+  elif [[ "${HTTP_CODE}" != 4* && "${HTTP_CODE}" != 5* ]]; then
+    # 000/refused/timeout/редкое/пустое = НЕ ПРОВЕРЕНО: не успех и не фейл
     echo "  ⚠ барьер НЕ ПРОВЕРЕН: публичный ${PUB_IP}:${PORT} не отвечает изнутри (NAT/провайдер firewall?) — проверь снаружи сам:  curl -i http://${PUB_IP}:${PORT}/tx/sign -X POST -d '{}'" >&2
   else
     echo "  ✗ админ-маршрут ответил извне: HTTP ${HTTP_CODE} ($(echo "${BODY_GOT}" | head -1)) — старая версия кода? git -C ${INSTALL_DIR} pull && systemctl restart agt-node" >&2

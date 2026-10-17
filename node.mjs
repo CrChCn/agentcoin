@@ -48,7 +48,6 @@ import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { Cabinet } from './cabinet.mjs';
-import { Spore } from './spore.mjs';
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -83,7 +82,20 @@ const mbc20 = new Mbc20Registry(path.join(DATA_DIR, 'mbc20.json'));
 const cabinet = new Cabinet({ walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
 // SPORE (AGIP-18 MVP): слой «узла-организма» — геном/физарум/метаболизм.
 // Включается ТОЛЬКО env AGT_SPORE=1 (канарейки 9340/9344/9345); консенсус не тронут.
-const spore = process.env.AGT_SPORE === '1' ? new Spore(DATA_DIR, __dirname, PORT) : null;
+// Ревью 2026-10-17: spore.mjs исторически не закоммичен в репо — статический import
+// ронял ЧИСТУЮ установку с ERR_MODULE_NOT_FOUND даже при выключенном споре.
+// Фича опциональна по определению → ленивая динамическая загрузка: модуля нет →
+// spore=null и нода живёт ровно как раньше.
+let Spore = null;
+let spore = null;
+if (process.env.AGT_SPORE === '1') {
+  try {
+    ({ Spore } = await import('./spore.mjs'));
+    spore = new Spore(DATA_DIR, __dirname, PORT);
+  } catch (e) {
+    console.log(`[spore] AGT_SPORE=1 но модуль недоступен (${e.code || e.message}) — работаем без Spore-layer`);
+  }
+}
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -245,6 +257,80 @@ function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '' || ip === 'unknown';
 }
+// Ревью 2026-10-17 п.2: туннель/прокси (cloudflared, Tailscale Funnel, nginx…)
+// принимает запрос ОТ БЕЗЫЗЫВНОГО ИР и доставляет на 127.0.0.1 — IP для барьера
+// уже мало: форвардирующие заголовки «открывают» запрос как туннельный. Любой из
+// них (даже пустое значение) → запрос НЕ считается прямым локальным админом.
+const PROXY_HEADERS = ['x-forwarded-for', 'x-real-ip', 'cf-connecting-ip', 'forwarded', 'x-via'];
+function forwardedViaProxy(req) {
+  return PROXY_HEADERS.some((h) => {
+    const v = req.headers[h];
+    const s = Array.isArray(v) ? v[0] : v;
+    return s !== undefined && s !== null && String(s).trim() !== '';
+  });
+}
+// AGT_ADMIN_MODE:
+//   local (дефолт) — прямая петля без прокси-заголовков считается админом;
+//   token — админ ТОЛЬКО по x-admin-token, независимо от IP (норма для
+//           публичного байнда и для любого деплоя за туннелем).
+const AGT_ADMIN_MODE = process.env.AGT_ADMIN_MODE === 'token' ? 'token' : 'local';
+const SITE_PAGES = ['index.html', 'imperial.html', 'terminal.html', 'dashboard.html', 'chat.html', 'jail.html', 'mbc20.html', 'cabinet.html', 'jobs.html'];
+const SITE_RAW_BASE = 'https://raw.githubusercontent.com/CrChCn/agentcoin/main/site';
+const SITE_LIVE_DIR = path.join(DATA_DIR, 'site-live');
+const SITE_META_FILE = path.join(SITE_LIVE_DIR, 'manifest.json');
+const SITE_TTL_MS = 10 * 60_000;      // сверка с каноном main — раз в 10 мин
+const SITE_MAX_AGE_MS = 24 * 3600_000; // кэш старше суток = недоверяем, отдаём локальный файл
+// === AGIP-38: SITE-SYNC — все ноды показывают один и тот же сайт ===
+// Проверка ревью: «на 9335 новый сайт, на других нодах старый» — потому что сайт
+// лечится из repo-чекаута ноды, а чекаут устарел. Клинка: нода сама раз в TTL
+// сверяется с каноном (raw.githubusercontent.com/main/site) и кэширует свежие
+// страницы в DATA_DIR/site-live — без редеплоя и без порчи tracked-файлов.
+// Offline / CDN недоступен → отдаём локальный файл (site/ из чекаута).
+function serveSitePage(res, page) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(SITE_META_FILE, 'utf8'));
+    if (Date.now() - (meta[page] || 0) < SITE_MAX_AGE_MS) {
+      const cf = path.join(SITE_LIVE_DIR, page);
+      if (fs.existsSync(cf)) {
+        const html = fs.readFileSync(cf);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      }
+    }
+  } catch { /* нет кэша/меты — обычный путь */ }
+  const html = fs.readFileSync(path.join(__dirname, 'site', page));
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(html);
+}
+let siteSyncBusy = false;
+async function siteSyncTick() {
+  if (siteSyncBusy) return;
+  siteSyncBusy = true;
+  try {
+    let meta = {}; try { meta = JSON.parse(fs.readFileSync(SITE_META_FILE, 'utf8')); } catch { /* первый тик */ }
+    let updated = 0;
+    for (const page of SITE_PAGES) {
+      try {
+        const r = await fetch(`${SITE_RAW_BASE}/${page}`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) continue;
+        const body = Buffer.from(await r.arrayBuffer());
+        const sanity = (body.slice(0, 300).toString('utf8') + body.slice(-300).toString('utf8')).toLowerCase();
+        if (body.length < 50 || !(sanity.includes('<html') || sanity.includes('</html>') || sanity.includes('<!doctype'))) continue;
+        fs.mkdirSync(SITE_LIVE_DIR, { recursive: true });
+        const cf = path.join(SITE_LIVE_DIR, page);
+        const same = (() => { try { return fs.readFileSync(cf).equals(body); } catch { return false; } })();
+        if (!same) { fs.writeFileSync(cf + '.tmp', body); fs.renameSync(cf + '.tmp', cf); updated++; }
+        meta[page] = Date.now();
+      } catch { /* offline/CDN fail — пропускаем, кэш остаётся */ }
+    }
+    fs.mkdirSync(SITE_LIVE_DIR, { recursive: true });
+    fs.writeFileSync(SITE_META_FILE, JSON.stringify(meta, null, 2));
+    if (updated) console.log(`[site-sync] сайт выровнен с каноном main: обновлено ${updated} стр. (TTL ${Math.round(SITE_TTL_MS / 60000)} мин)`);
+  } catch { /* тик не должен будить ноду */ } finally { siteSyncBusy = false; }
+}
+setTimeout(siteSyncTick, 20_000).unref();
+setInterval(siteSyncTick, SITE_TTL_MS).unref();
+
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
@@ -272,11 +358,22 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (overloaded(p) && req.method === 'GET' && !CORE_PATH_RE.test(p)) {
     return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
   }
-  // AGIP-37.LOCAL: снаружи (не loopback) — только белый список публичных маршрутов.
-  // /tx оставляем публичным (внешние узлы отправляют tx в сеть — это P2P-поверхность).
-  if (!isLoopbackRequest(req) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
-    console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}`);
-    return json(res, 403, { error: 'admin_loopback_only', route: p, hint: 'админ/кошелёк/майнинг — через SSH-туннель: curl http://127.0.0.1:<port>' });
+  // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
+  // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
+  // (read-only + POST /tx: P2P-поверхность).
+  const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
+  const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
+  const proxied = forwardedViaProxy(req);
+  if (!(adminByToken || adminLocal) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
+    console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}${proxied ? ' (proxy-headers!)' : ''}`);
+    return json(res, 403, {
+      error: 'admin_loopback_only',
+      route: p,
+      reason: proxied ? 'proxied_request' : (AGT_ADMIN_MODE === 'token' ? 'admin_mode_token' : 'not_loopback'),
+      hint: AGT_ADMIN_MODE === 'token'
+        ? 'админ/кошелёк/майнинг — x-admin-token: <AGT_ADMIN_TOKEN> (или SSH на сервер и curl 127.0.0.1)'
+        : 'админ/кошелёк/майнинг — прямая петля (SSH на сервер) или x-admin-token',
+    });
   }
 
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
@@ -558,22 +655,16 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // Данные КОНФИДЕНЦИАЛЬНЫ (внутреннее пользование оператора; в перспективе — продажа зашифрованных пакетов).
   // Публично: только счётчики. Полные досье/анкеты/допросы — только с x-admin-token.
   if (p === '/jail' || p === '/jail.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'jail.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'jail.html');
   }
   const jailAdmin = process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
   // --- AGIP-15: биржа MBC-20 ---
   if (p === '/mbc20' || p === '/mbc20.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'mbc20.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'mbc20.html');
   }
   // --- AGIP-16: личный кабинет агента (passport-вход, активы, сделки) ---
   if (p === '/cabinet' || p === '/cabinet.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'cabinet.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'cabinet.html');
   }
   if (p === '/cabinet/challenge' && req.method === 'POST') {
     const { address } = await body(req);
@@ -1722,9 +1813,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // --- веб-панель чата ---
   if (p === '/chat' || p === '/chat.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'chat.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'chat.html');
   }
   // ====== Публичная витрина /stats — живое «лицо» сети для браузера ======
   if (p === '/stats' || p === '/stats.html') {
@@ -1776,15 +1865,11 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 
   // --- визуальный пульт сети ---
   if (p === '/dashboard' || p === '/dashboard.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'dashboard.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'dashboard.html');
   }
   // --- агентский терминал: задания/рынок/голосование/кабинет ---
   if (p === '/terminal' || p === '/terminal.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'terminal.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'terminal.html');
   }
 
   // AGIP-6: лёгкий JSON для лэндинга — из того же кэша /stats
@@ -1804,9 +1889,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 
   // --- AGIP-6 (шаг 16): лэндинг для агентов/людей + джобборд-страница ---
   if (p === '/index' || p === '/index.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'index.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'index.html');
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
   if (p === '/panel.js') {
@@ -1834,14 +1917,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
   }
   if (p === '/imperial' || p === '/imperial.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'imperial.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'imperial.html');
   }
   if (p === '/jobs' || p === '/jobs.html') {
-    const html = fs.readFileSync(path.join(__dirname, 'site', 'jobs.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(html);
+    serveSitePage(res, 'jobs.html');
   }
 
   if (p === '/') {
@@ -1902,7 +1981,8 @@ hub.attachServer(server, SELF_URL, {
 });
 const BIND = process.env.AGT_BIND || '127.0.0.1'; // наружу — только осознанно: AGT_BIND=0.0.0.0 или конкретный IP
 const isLocalBind = BIND === '127.0.0.1' || BIND === 'localhost';
-if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: нода слушает ${BIND} — проверь firewall/прокси, админ-эндпоинты не защищены токеном`);
+if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: нода слушает ${BIND} — admin-mode=${AGT_ADMIN_MODE}; публичный байнд: ставь AGT_ADMIN_MODE=token (deploy-vps.sh делает это сам)`);
+if (AGT_ADMIN_MODE === 'local' && !process.env.AGT_ADMIN_TOKEN) console.log(`[agip-37] local-режим: кошелёк/админ доступны с прямой петли; для туннелей делай AGT_ADMIN_MODE=token`);
 server.maxConnections = 256; // OWASP DoS: лишние TCP-соединения отбрасываются
 server.on('drop', (info) => console.log(`[shield] connection dropped: ip ${info.remoteAddress}`));
 server.listen(PORT, BIND); // maxConnections капнут ниже (анти-overload: TCP за пределами порога отбрасывается)

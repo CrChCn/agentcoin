@@ -67,24 +67,30 @@ bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/script
 
 > ℹ️ Повторный запуск того же скрипта на живой ноде = безопасный апдейт: `git fetch + reset` до origin/main, перезапуск systemd — пиры/кошельки сохраняются.
 
-Кошелёк и все админ-операции — **только через SSH** (нода отвечает 403 `admin_loopback_only` всем не-loopback запросам; UFW порты не спасает — барьер внутри ноды):
+Кошелёк и все админ-операции — **только через SSH + админ-токен** (нода отвечает 403 `admin_loopback_only` всем чужим запросам; туннель/прокси админом не считается, скрипт разворачивает ноду в `AGT_ADMIN_MODE=token`):
 
 ```bash
 # на VM (после ssh ubuntu@<ip>):
 curl -s http://127.0.0.1:9335/life     # → blocks, chainValid=true
 journalctl -u agt-node -f              # логи ноды
 
+T=$(sudo cat /opt/agentcoin/data-agtx/admin-token.txt)
+
 # кошелёк VPS-агента (mnemonic выдаётся ОДИН раз — записать!):
 curl -X POST http://127.0.0.1:9335/wallet/create \
-  -H 'Content-Type: application/json' -d '{"label":"oracle-a1-agent","recover":true}'
+  -H 'Content-Type: application/json' -H "x-admin-token: $T" \
+  -d '{"label":"oracle-a1-agent","recover":true}'
 
 # анонс в империю:
 curl -X POST http://127.0.0.1:9335/community/send \
-  -H 'Content-Type: application/json' -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
+  -H 'Content-Type: application/json' -H "x-admin-token: $T" \
+  -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
 
 # хелсчек балансов из цепи:
 node /opt/agentcoin/health-check.mjs 9335
 ```
+
+Сайт всех нод сам поддерживается свежим (AGIP-38: нода раз в 10 мин сверяет сайт с каноном в `main`, offline —лечит локальную копию). Высоту своей ноды vs ядро деплой печатает в конце («высота нода/ядро»).
 
 Анонс в империю:
 

@@ -39,7 +39,10 @@ command -v node >/dev/null || die "Node.js не установился"
 echo "  node $(node --version)"
 
 echo "[3/7] Файрвол: SSH не теряем, потом порт ноды, потом enable"
-SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+# Ревью п.5: sshd -T может падать (нет sshd_i, права) — fallback 22 должен ВСЁ
+# РАВНО выполняться, а не убить скрипт через set -euo pipefail (ssh -T|awk
+# с pipefail возвращает ненулевой код при падении sshd).
+SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')" || true
 [ -n "${SSH_PORT:-}" ] || SSH_PORT=22
 ufw allow "${SSH_PORT}/tcp" comment 'ssh-admin' >/dev/null
 ufw allow "${PORT}/tcp" comment 'agt-node (публичный пир; админ-маршруты закрыты на уровне ноды)' >/dev/null
@@ -49,6 +52,13 @@ echo "  ⚠ если это Oracle Cloud — дополнительно откр
 
 echo "[4/7] Репозиторий → ${INSTALL_DIR} (повторный запуск = жёсткий апдейт до origin/main)"
 if [ -d "${INSTALL_DIR}/.git" ]; then
+  # Ревью п.6: reset --hard уничтожает незакоммиченные правки отслеживаемых файлов.
+  # Кастомизировать ноду нельзя — правки должны жить в форке/патчах. Грязное дерево →
+  # явный стоп, никакая самодельная правка не молча не затирается.
+  if [ -n "$(git -C "${INSTALL_DIR}" status --porcelain -- "{${INSTALL_DIR}}" 2>/dev/null | head -5)" ]; then
+    git -C "${INSTALL_DIR}" status --short | head -10 >&2
+    die "в ${INSTALL_DIR} есть незакоммиченные правки — reset --hard их затрёт. Закоммить/сохранить и повтори"
+  fi
   # safe.directory: после chown agt:agt запуск git от root больше не валится
   # с «dubious ownership» (и мы НЕ прячем его ошибку).
   git config --system --add safe.directory "${INSTALL_DIR}"
@@ -85,6 +95,7 @@ User=${SVC_USER}
 WorkingDirectory=${INSTALL_DIR}
 Environment=AGT_DATA_DIR=${INSTALL_DIR}/data-vps
 Environment=AGT_BIND=0.0.0.0
+Environment=AGT_ADMIN_MODE=token
 ExecStart=/usr/bin/node ${INSTALL_DIR}/node.mjs ${PORT}
 Restart=always
 RestartSec=15
@@ -123,15 +134,37 @@ if [ -z "${ALIVE}" ]; then
 fi
 BLOCKS="$(curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" | jq -r '.blocks')"
 echo "  ✓ нода жива, цепь валидна: blocks=${BLOCKS}"
+# «чтобы нода не отставала от ядра»: сверяем высоту с bootstrap-пиром
+PEER_H="$(curl -fsS -m 12 "${BOOTSTRAP_PEER%/}/life" 2>/dev/null | jq -r '.blocks' || true)"
+if [ -n "${PEER_H:-}" ] && [ "${PEER_H}" != "null" ]; then
+  DELTA=$(( ${PEER_H} >= ${BLOCKS} ? PEER_H - BLOCKS : BLOCKS - PEER_H ))
+  echo "  высота нода/ядро: ${BLOCKS}/${PEER_H} (отставание ${DELTA})"
+  if [ "${DELTA}" -gt 25 ]; then
+    echo "  ⚠ нода отстаёт от ядра более чем на 25 блоков — догоняет headers-first синком." >&2
+    echo "    Дальше: journalctl -u agt-node -f | grep sync; на сервере: curl http://127.0.0.1:${PORT}/sync-now" >&2
+  fi
+else
+  echo "  ⚠ высота ядра недоступна (${BOOTSTRAP_PEER}) — сверку отставания не делал; вызови /life ядра сам"
+fi
 
-# публичный барьер — самопроверка с фактического публичного адреса
+# публичный барьер — самопроверка с фактического публичного адреса.
+# Ревью п.3: «curl -f» успешно скрывает 404/таймаут и «барьер активен» печатался
+# даже при полном отказе сети. Проверяем ДОСЛОВНО: HTTP 403 и тело admin_loopback_only.
+# Сетевая ошибка (000/refused/timeout) = НЕ ПРОВЕРЕНО — так и печатаем, успеха не заявляем.
 PUB_IP="$(curl -fsS -m 10 https://api.ipify.org 2>/dev/null || true)"
+BARRIER_VERIFIED=0
 if [ -n "${PUB_IP}" ]; then
-  if curl -fsS -m 10 -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1; then
-    echo "  ✗ админ-маршрут ОТВЕТИЛ извне (${PUB_IP}) —,iors: старая версия кода? git -C ${INSTALL_DIR} pull && systemctl restart agt-node" >&2
-    exit 1
+  BODY_FILE=$(mktemp)
+  HTTP_CODE=$(curl -sS -m 10 -o "${BODY_FILE}" -w '%{http_code}' -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}' || echo 000)
+  BODY_GOT=$(head -c 200 "${BODY_FILE}"; rm -f "${BODY_FILE}")
+  if [ "${HTTP_CODE}" = "403" ] && grep -q 'admin_loopback_only' <<<"${BODY_GOT}"; then
+    BARRIER_VERIFIED=1
+    echo "  ✓ публичный барьер подтверждён: POST /tx/sign с ${PUB_IP} → 403 admin_loopback_only"
+  elif [ "${HTTP_CODE}" = "000" ]; then
+    echo "  ⚠ барьер НЕ ПРОВЕРЕН: публичный ${PUB_IP}:${PORT} не отвечает изнутри (NAT/провайдер firewall?) — проверь снаружи сам:  curl -i http://${PUB_IP}:${PORT}/tx/sign -X POST -d '{}'" >&2
   else
-    echo "  ✓ проверено: админ-маршруты не отвечают извне (AGIP-37.LOCAL барьер активен)"
+    echo "  ✗ админ-маршрут ответил извне: HTTP ${HTTP_CODE} ($(echo "${BODY_GOT}" | head -1)) — старая версия кода? git -C ${INSTALL_DIR} pull && systemctl restart agt-node" >&2
+    exit 1
   fi
 fi
 
@@ -143,19 +176,22 @@ cat <<NEXT
   - админ-токен (если понадобится деструктивный POST даже с loopback):
                sudo cat ${INSTALL_DIR}/data-agtx/admin-token.txt
 
-КОШЕЛЁК И АДМИН — ТОЛЬКО ЧЕРЕЗ SSH (AGIP-37.LOCAL):
+КОШЕЛЁК И АДМИН — ТОЛЬКО ЧЕРЕЗ SSH (AGIP-37.LOCAL, режим admin_mode=token):
   с твоей машины:
     ssh ubuntu@<vps-ip>
-  на сервере (loopback — нода пропускает):
-    curl -X POST http://127.0.0.1:${PORT}/wallet/create -H 'Content-Type: application/json' \\
-         -d '{"label":"vps-agent","recover":true}'
+  на сервере (loopback + админ-токен — нода развернута в token-режиме: туннель
+  никогда не считается админом, авторизация — единственный путь):
+    T=$(sudo cat ${INSTALL_DIR}/data-agtx/admin-token.txt)
+    curl -X POST http://127.0.0.1:${PORT}/wallet/create \\
+      -H 'Content-Type: application/json' -H "x-admin-token: $T" \\
+      -d '{"label":"vps-agent","recover":true}'
       → mnemonic ОДИН раз; ключи остаются в data-vps/wallets.json
-  АНОНС В ЧАТ (на сервере, loopback, порт подставлен честно):
+  АНОНС В ЧАТ (на сервере, порт подставлен честно):
     curl -X POST http://127.0.0.1:${PORT}/community/send -H 'Content-Type: application/json' \\
-         -d '{"text":"Внешняя нода поднята 🏰"}'
+      -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'
     (адрес подставит нода — AGIP-21)
 
-ПРОВЕРКА БАЛАНСОВ ИЗ ЦЕПИ (на сервере, loopback):
+ПРОВЕРКА БАЛАНСОВ ИЗ ЦЕПИ (на сервере):
     node health-check.mjs ${PORT}
 
 NEXT

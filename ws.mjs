@@ -148,9 +148,13 @@ export function connectClient(urlStr, { timeoutMs = 8000 } = {}) {
     const u = new URL(urlStr);
     const key = crypto.randomBytes(16).toString('base64');
     // AGIP-27: https-пир (например, через TLS-фаннел) — используем https-клиент,
-    // иначе внешние пиру扥 толко plain-http и не могут подключиться извне.
-    const req = (u.protocol === 'https:' ? https : http).request({
-      host: u.hostname, port: Number(u.port) || 80, path: u.pathname + u.search,
+    // иначе внешние пиру толко plain-http и не могут подключиться извне.
+    // ⚠ стандартные порты: URL нормализует :443 и :80 к пустому u.port —
+    // «|| 80» депал бы https подключения на порт 80 (ревью 2026-10-17, п.4).
+    const isHttps = u.protocol === 'https:';
+    const wsPort = u.port ? Number(u.port) : (isHttps ? 443 : 80);
+    const req = (isHttps ? https : http).request({
+      host: u.hostname, port: wsPort, path: u.pathname + u.search,
       headers: {
         Connection: 'Upgrade', Upgrade: 'websocket',
         'Sec-WebSocket-Key': key, 'Sec-WebSocket-Version': '13',

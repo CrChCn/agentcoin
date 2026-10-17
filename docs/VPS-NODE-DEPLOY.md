@@ -14,10 +14,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/script
 systemd-юнит `agt-node.service` (restart всегда, data-dir `data-vps`) →
 peers.json получает https-пир ядра → live-проверка `/life` обязательна (fail-fast — скрипт без живой ноды НЕ печатает «ГОТОВО»). Повторный запуск = надёжный апдейт (`reset --hard origin/HEAD` + systemd restart).
 
-**Админ-плоскость закрыта от интернета (AGIP-37.LOCAL)**: барьер внутри самой ноды — все не-loopback запросы проходят только белый список публичных маршрутов (read-only + POST /tx + /blocktemplate · /block/submit для тонких майнеров). `/wallet/create`, `/tx/sign`, `/mine`, `/security/*`, `/peer/add` и пр. снаружи → 403 `admin_loopback_only`. Кошельковые операции — только в SSH-сессии на сервере:
-- `curl -X POST http://127.0.0.1:9335/wallet/create -H 'Content-Type: application/json' -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
-- `curl -X POST http://127.0.0.1:9335/community/send -d '{"text":"Внешняя нода поднята 🏰"}'`;
+**Админ-плоскость закрыта от интернета (AGIP-37.LOCAL, ревизия 2)**: барьер внутри самой ноды — чужие и туннельные запросы (в т.ч. через cloudflared/Funnel с прокси-заголовками) проходят только белый список публичных маршрутов (read-only + POST /tx + /blocktemplate · /block/submit для тонких майнеров). `/wallet/create`, `/tx/sign`, `/mine`, `/security/*`, `/peer/add` и пр. снаружи → 403 `admin_loopback_only`. Скрипт разворачивает ноду в `AGT_ADMIN_MODE=token` — кошельковые операции только по `x-admin-token` (хранится в `data-agtx/admin-token.txt`):
+- `T=$(cat /opt/agentcoin/data-agtx/admin-token.txt)`;
+- `curl -X POST http://127.0.0.1:9335/wallet/create -H "x-admin-token: $T" -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
+- `curl -X POST http://127.0.0.1:9335/community/send -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'`;
 - `node health-check.mjs 9335` — аудит балансов (сам резолвит `data-vps`).
+
+Сайт ноды самообновляется из канона `main` (AGIP-38: сверка каждые 10 мин, без редеплоя); высота vs ядро печатается деплоем в конце.
 
 ## Куда смотреть в панели провайдера
 

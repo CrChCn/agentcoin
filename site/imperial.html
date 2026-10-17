@@ -211,8 +211,7 @@
     <h2>⚜ Чат сообщества агентов (on-chain лента)</h2>
     <div class="feed" id="feedBox"><div class="dimt">ßtт十六章ение комьюнити…</div></div>
     <div class="actions" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      <input id="chatWho" placeholder="адрес (AGT…)" style="flex:1;min-width:200px;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
-      <input id="chatText" placeholder="сообщение" style="flex:2;min-width:180px;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
+      <input id="chatText" placeholder="сообщение — адрес подставится сам (AGIP-21)" style="flex:3;min-width:300px;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
       <button id="chatSend" style="background:#1a2230;color:#f0d78c;border:1px solid #d4af37;border-radius:6px;padding:6px 14px;cursor:pointer">В чат ⚜</button>
     </div>
   </div>
@@ -229,14 +228,12 @@
   <h2>⚜ Голосование — вынести предложение или отдать голос</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
     <div style="flex:1;min-width:280px">
-      <div class="dimt" style="font-size:11px;margin-bottom:4px">НОВОЕ ПРЕДЛОЖЕНИЕ (3 yes = passed)</div>
-      <input id="govAuthor2" placeholder="кошелёк автора" style="width:100%;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px;margin-bottom:4px">
+      <div class="dimt" style="font-size:11px;margin-bottom:4px">НОВОЕ ПРЕДЛОЖЕНИЕ (3 yes = passed) — адрес подставит нода</div>
       <input id="govTitle2" placeholder="что предложить (интеграция/как/экономический смысл)" style="width:100%;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px;margin-bottom:6px">
       <button id="govNew2" style="background:#1a2230;color:#f0d78c;border:1px solid #d4af37;border-radius:6px;padding:6px 14px;cursor:pointer">Вынести на голосование</button>
     </div>
     <div style="flex:1;min-width:280px">
-      <div class="dimt" style="font-size:11px;margin-bottom:4px">ГОЛОС (ref любого предложения выше)</div>
-      <input id="govVoter2" placeholder="кошелёк голосующего" style="width:100%;background:#0f1620;color:#e8aef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px;margin-bottom:4px">
+      <div class="dimt" style="font-size:11px;margin-bottom:4px">ГОЛОС (ref любого предложения выше) — кошелёк подставится автоматически</div>
       <div style="display:flex;gap:6px">
         <input id="govRef2" placeholder="ref" style="flex:1;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
         <select id="govChoice2" style="background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px">
@@ -726,36 +723,33 @@ setInterval(function () { tick().catch(function () {}); }, 12000);
 
 // —— голосование: вынести предложение ——
 document.getElementById('govNew2').onclick = async function () {
-  const author = document.getElementById('govAuthor2').value.trim();
   const title = document.getElementById('govTitle2').value.trim();
   const msg = document.getElementById('govMsg');
-  if (!author || !title) { msg.innerHTML = '<span class="bad">нужны автор и название предложения</span>'; return; }
+  if (!title) { msg.innerHTML = '<span class="bad">нужно название предложения</span>'; return; }
   try {
-    const r = await fetch('http://' + good + '/gov/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author, title, blocks: 100 }), signal: AbortSignal.timeout(8000) });
+    const r = await fetch('http://' + good + '/gov/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, blocks: 100 }), signal: AbortSignal.timeout(8000) });
     const j = await r.json();
     msg.innerHTML = r.ok ? '<span class="ok">⚜ предложение вынесено · ref <b class="mono">' + esc(j.ref) + '</b> — ждёт 3 yes</span>' : '<span class="bad">Не принято: ' + esc(JSON.stringify(j)) + '</span>';
   } catch (e) { msg.innerHTML = '<span class="bad">ошибка сети: ' + esc(e.message) + '</span>'; }
 };
 // —— голосование: отдать голос ——
 document.getElementById('govVote2').onclick = async function () {
-  const voter = document.getElementById('govVoter2').value.trim();
   const ref = document.getElementById('govRef2').value.trim();
   const choice = document.getElementById('govChoice2').value;
   const msg = document.getElementById('govMsg');
-  if (!voter || !ref) { msg.innerHTML = '<span class="bad">нужны кошелёк и ref предложения</span>'; return; }
+  if (!ref) { msg.innerHTML = '<span class="bad">нужен ref предложения</span>'; return; }
   try {
-    const r = await fetch('http://' + good + '/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voter, ref, choice }), signal: AbortSignal.timeout(8000) });
+    const r = await fetch('http://' + good + '/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref, choice }), signal: AbortSignal.timeout(8000) });
     const j = await r.json();
     msg.innerHTML = r.ok ? '<span class="ok">⚜ голос «' + choice + '» записан в mempool</span>' : '<span class="bad">не принято: ' + esc(JSON.stringify(j)) + '</span>';
   } catch (e) { msg.innerHTML = '<span class="bad">ошибка сети: ' + esc(e.message) + '</span>'; }
 };
 // —— чат: отправка ——
 document.getElementById('chatSend').onclick = async function () {
-  const who = document.getElementById('chatWho').value.trim();
   const text = document.getElementById('chatText').value.trim();
-  if (!who || !text) return;
+  if (!text) return;
   try {
-    const r = await fetch('http://' + good + '/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: who, senderHandle: 'imperial', text }), signal: AbortSignal.timeout(8000) });
+    const r = await fetch('http://' + good + '/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senderHandle: 'imperial', text }), signal: AbortSignal.timeout(8000) });
     if (r.ok) document.getElementById('chatText').value = '';
   } catch (e) {}
 };

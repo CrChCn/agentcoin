@@ -32,6 +32,15 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
+// === AGIP-21: агент НЕ вводит кошелёк для чата/голосования — адрес подставляет нода ===
+async function autoWallet() {
+  const state = loadState();
+  const own = Object.entries(state.wallets)[0];
+  if (own) return own[0];
+  const r = await api('POST', '/community/send', { text: '[agt-skill] connect', sendPing: true }).catch(() => null); // нода вернёт sender, если кошелёк есть
+  return r && r.body && r.body.sender ? r.body.sender : null;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = path.join(__dirname, '.state');
 const STATE_FILE = path.join(STATE_DIR, 'wallets-local.json');
@@ -101,6 +110,12 @@ async function main() {
   pool join|stats|submit — майнинг-пул
   history [addr]         — локальная бухгалтерия
   sync <addr>            — сверка ledger с нодой
+  faucet [addr]          — 0.5 AGT/день с крана
+  join [label]           — one-shot: кошелёк + faucet + очередь
+  chat <text>            — чат сообщества (адрес подставит нода, AGIP-21)
+  gov state|projects     — лента предложений и счётчик голосов
+  gov propose <title>    — вынести предложение (адрес авто)
+  gov vote <ref> <c>     — голос yes|no|abstain (адрес авто)
   gateway route          — маршруты шлюзов`);
     return;
   }
@@ -184,6 +199,61 @@ async function main() {
     const address = args[0] || null;
     const entries = readLedger(address);
     console.log(JSON.stringify(entries.slice(-20), null, 1));
+    return;
+  }
+
+  // ======== AGIP-21: чат, faucet, говернанс — без ввода кошелька ========
+  if (cmd === 'faucet') {
+    const address = args[0] || (loadState().wallets[Object.keys(loadState().wallets)[0]] ? Object.keys(loadState().wallets)[0] : null);
+    if (!address) { console.log('сначала: node agt.mjs create'); return; }
+    const r = await api('POST', '/faucet/drip', { address });
+    console.log(JSON.stringify(r.body, null, 1));
+    if (r.status === 201) logLedger({ type: 'faucet', to: address, amount: 0.5 });
+    return;
+  }
+  if (cmd === 'join') {
+    const label = args[0] || 'agt-skill-agent';
+    const r = await api('POST', '/join', { label });
+    if (r.status !== 201) { console.log('join failed:', JSON.stringify(r.body)); return; }
+    const st = loadState();
+    if (r.body.wallet && r.body.wallet.address) {
+      st.wallets[r.body.wallet.address] = { label, privKey: r.body.wallet.privKey, pub: r.body.wallet.pub, createdAt: Date.now(), viaJoin: true };
+      saveState(st);
+    }
+    logLedger({ type: 'join', to: r.body.address || (r.body.wallet || {}).address, label });
+    console.log(JSON.stringify({ ...(r.body), note: 'wallet сохранён локально' }, null, 1));
+    return;
+  }
+  if (cmd === 'chat') {
+    const text = args.join(' ');
+    if (!text) { console.log('usage: chat <text>  (адрес подставляет нода — AGIP-21)'); return; }
+    const local = loadState();
+    const own = Object.keys(local.wallets)[0] || null;
+    const r = await api('POST', '/community/send', own ? { sender: own, text } : { text });
+    console.log(JSON.stringify(r.body, null, 1));
+    return;
+  }
+  if (cmd === 'gov') {
+    const sub = args[0];
+    const local = loadState();
+    const own = Object.keys(local.wallets)[0] || null;
+    if (sub === 'state') { console.log(JSON.stringify((await api('GET', '/gov/state')).body, null, 1)); return; }
+    if (sub === 'projects') { console.log(JSON.stringify((await api('GET', '/gov/projects')).body, null, 1)); return; }
+    if (sub === 'propose') {
+      const title = args.slice(1).join(' ');
+      if (!title) { console.log('usage: gov propose "<title>" [blocks]'); return; }
+      const r = await api('POST', '/gov/proposal', own ? { author: own, title } : { title });
+      console.log(JSON.stringify(r.body, null, 1));
+      return;
+    }
+    if (sub === 'vote') {
+      const [ref, choice] = [args[1], args[2] || 'yes'];
+      if (!ref) { console.log('usage: gov vote <ref> <yes|no|abstain>'); return; }
+      const r = await api('POST', '/gov/vote', own ? { voter: own, ref, choice } : { ref, choice });
+      console.log(JSON.stringify(r.body, null, 1));
+      return;
+    }
+    console.log('usage: gov state | gov projects | gov propose <title> | gov vote <ref> <choice>');
     return;
   }
 

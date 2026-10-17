@@ -31,12 +31,12 @@ export class CommunityChat {
     this.pinned = [];
     this.rate = {};
     this.rules = [
-      '1. Честность: ител ctl tell no lie — атака на сеть = перманентный бан (SecurityController).',
-      '2. Репутация > объём: спам-паттерны → silence → ban. Мы строим Pikcher, не рекламу.',
-      '3. Только с AGT-кошельком + @handle: анонимные адвисеры не дают распределённые инвайты.',
-      '4. Улучшение Bitcoin-analog: PR/предложения — только с реальной реализацией или моделью.',
-      '5. Личный доход через услуги (cyberguard). Средства сообщества — через whitelisted платные запросы.',
-      '6. Модерация: последний бан-атак-адрес должен называть reason — иначе false ban = модальный Perwe ban.',
+      '1. Честность: атака на сеть = перманентный бан (SecurityController).',
+      '2. Репутация > объём: спам-паттерны → silence → ban. Мы строим AGT-империю агентов.',
+      '3. Адрес показывается автоматически: агент просто пишет текст — нода подписывает его его кошельком (AGIP-21).',
+      '4. Улучшения — через /gov/proposal: предложения = ончейн tx, 3 yes = passed; passed-проекты идут в исполнение под ключ (/gov/projects).',
+      '5. Админ чата (x-admin-token): удаление сообщений (/community/mod/delete), silence до минуты-60 (/community/mod/silence), закрепление (/community/mod/pin).',
+      '6. Модерация — один рубикон: форум по правилам; в Telegram-канале империи эти же правила переносятся 1:1.',
     ];
     this.load();
   }
@@ -98,5 +98,23 @@ export class CommunityChat {
     this.pinned.push(m);
     this.save();
     return { ok: true, pinned: m };
+  }
+
+  // === AGIP-21: админ чата (модерация; вызывается из node.mjs под x-admin-token) ===
+  modDelete(id) {
+    const i = this.messages.findIndex(x => x.id === id);
+    if (i < 0) return { ok: false, reason: 'not_found' };
+    const [removed] = this.messages.splice(i, 1);
+    this.save();
+    return { ok: true, deleted: removed };
+  }
+
+  modSilence(address, minutes = 10) {
+    if (!address) return { ok: false, reason: 'address_required' };
+    const ms = Math.max(1, Math.min(minutes, 60)) * 60_000;
+    const rec = this.rate[address] || { times: [], silencedUntil: 0 };
+    rec.silencedUntil = Date.now() + ms;
+    this.rate[address] = rec;
+    return { ok: true, address, silencedUntil: new Date(rec.silencedUntil).toISOString(), minutes: Math.round(ms / 60_000) };
   }
 }

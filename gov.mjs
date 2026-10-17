@@ -21,6 +21,8 @@
    ============================================================ */
 'use strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const REF_LEN = 8;
 const TITLE_MAX = 60;
@@ -108,4 +110,52 @@ export function govState(bc) {
 
 export function newRef() {
   return crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, '').padEnd(REF_LEN, '0').slice(0, REF_LEN);
+}
+
+/* ============================================================
+   AGIP-21 — учёт одобренных проектов (исполнение под ключ).
+   Одобрение это ончейн-fact: passed-предложение из govState() — его
+   НИКАК нельзя подделать со стороны ноды. Исполнение — операционная
+   реальность (назначение исполнителя, прогресс): оно живёт в node-local
+   файле data/projects.json со стадиями 0..3:
+     0 approved (одобрено голосованием) → 1 assigned (исполнитель назначен)
+     → 2 executing (в работе) → 3 delivered (выполнено под ключ).
+   Это ровно направляет всё для будущей Telegram-ленты: ref/title/дивизы
+   голоса из цепи + стадия из data/projects.json.
+   ============================================================ */
+const STAGE_NAMES = ['одобрено', 'исполнитель назначен', 'в работе', 'выполнено'];
+export const PROJECT_STAGES = STAGE_NAMES;
+
+function projectsStoreFile(dir) { return path.join(dir, 'projects.json'); }
+function loadStage(dir, ref) {
+  try {
+    const d = JSON.parse(fs.readFileSync(projectsStoreFile(dir), 'utf8'));
+    const rec = d && d[ref];
+    return rec && Number.isInteger(rec.stage) ? rec : null;
+  } catch { return null; }
+}
+export function saveProjectStage(dir, ref, stage, note = '') {
+  let d = {};
+  try { d = JSON.parse(fs.readFileSync(projectsStoreFile(dir), 'utf8')) || {}; } catch {}
+  d[ref] = { stage, note: String(note || '').slice(0, 200), at: new Date().toISOString() };
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(projectsStoreFile(dir), JSON.stringify(d, null, 2));
+  return { ref, stage, stageName: STAGE_NAMES[stage], note: d[ref].note, at: d[ref].at };
+}
+
+export function govProjectsState(bc, dataDir) {
+  const st = govState(bc);
+  const approved = st.proposals.filter(p => p.passed);
+  const projects = approved.map(p => {
+    const rec = loadStage(dataDir, p.ref);
+    const stage = rec ? Math.min(rec.stage, STAGE_NAMES.length - 1) : 0;
+    return {
+      ref: p.ref, title: p.title, author: p.author,
+      votesAtClose: `${p.yes}/${p.no}/${p.abstain}`,
+      closesAt: p.closesAt, height: p.height,
+      stage, stageName: STAGE_NAMES[stage],
+      note: rec ? rec.note : null, updatedAt: rec ? rec.at : null,
+    };
+  }).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '') || b.height - a.height);
+  return { height: st.height, stageNames: STAGE_NAMES, projects, note: 'approved = passed-предложение из цепи; стадии исполнения — операционная реальность ноды (data/projects.json)' };
 }

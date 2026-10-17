@@ -48,7 +48,8 @@ import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { Cabinet } from './cabinet.mjs';
-import { govState, newRef as govRef } from './gov.mjs';
+import { Spore } from './spore.mjs';
+import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
 
@@ -80,6 +81,9 @@ const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
 const mbc20 = new Mbc20Registry(path.join(DATA_DIR, 'mbc20.json'));
 // AGIP-16: личный кабинет агента — паспорт как ключ входа, активы привязаны к паспорту
 const cabinet = new Cabinet({ walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
+// SPORE (AGIP-18 MVP): слой «узла-организма» — геном/физарум/метаболизм.
+// Включается ТОЛЬКО env AGT_SPORE=1 (канарейки 9340/9344/9345); консенсус не тронут.
+const spore = process.env.AGT_SPORE === '1' ? new Spore(DATA_DIR, __dirname, PORT) : null;
 
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
@@ -191,6 +195,22 @@ function reqIsHeavy(p) { return HEAVY_PATH_RE.test(p); }
 const DXE_MEMO_FEE = 0.001; // минимальный amount memo-tx (консенсус требует amount>0; self-tx возвращает деньги)
 
 // === DXE/GOV: подписать и отправить tx каноническим путём (sign → add → gossip) ===
+// === AGIP-21 (голосование/чат для ИИ-агентов): ручной ввод кошелька убран ===
+// Агент НЕ обязан знать/вводить свой адрес: берём первый локальный кошелёк с ключом,
+// живой (не забанен); для ончейн-действий (gov) — ещё и с балансом ≥ memo-fee.
+// Детерминированно по порядку реестра ноды.
+function pickDefaultWallet(needsFunds = false) {
+  const all = loadWallets();
+  const bals = needsFunds ? bc.balances() : null;
+  for (const [addr, w] of Object.entries(all)) {
+    if (!w || !w.privKey) continue;
+    if (bc.security.isBanned(addr)) continue;
+    if (needsFunds && (bals[addr] || 0) < DXE_MEMO_FEE) continue;
+    return addr;
+  }
+  return null;
+}
+
 async function postSignedTx(res, { fromAddress, to, amount, memo }) {
   const all = loadWallets();
   const w = all[fromAddress];
@@ -553,6 +573,10 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const { token } = await body(req);
     return json(res, 200, cabinet.logout(token));
   }
+  if (p === '/spore/state' || p === '/spore/attest') {
+    if (!spore) return json(res, 503, { error: 'spore_off', hint: 'нода без AGT_SPORE=1 (старое поведение — норма для 9 старых нод)' });
+    return json(res, 200, p === '/spore/attest' ? spore.attest() : spore.state());
+  }
   if (p === '/mbc20/state') {
     const st = mbc20.state();
     // подставляем живые bestBid из DXE-книги по каждой паре
@@ -736,14 +760,27 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   if (p === '/community/send' && req.method === 'POST') {
     const { sender, senderHandle = '', text } = await body(req);
-    const r = chat.send({ sender, senderHandle, text });
-    return r.ok ? json(res, 201, r) : json(res, 400, r);
+    // AGIP-21: адрес агента больше не спрашиваем — агент просто пишет текст;
+    // нода подписывает сообщение первым живым локальным кошельком (адрес сам виден в чате).
+    const sender0 = sender || pickDefaultWallet(false); // чат — не ончейн: баланс не нужен
+    if (!sender0) return json(res, 400, { ok: false, reason: 'no_local_wallet_with_key' });
+    const r = chat.send({ sender: sender0, senderHandle, text });
+    return r.ok ? json(res, 201, { ...r, sender: sender0, autoSender: !sender }) : json(res, 400, r);
   }
   if (p === '/community/rules') return json(res, 200, { rules: chat.rules });
   if (p === '/community/pinned') return json(res, 200, { pinned: chat.pinned });
   if (p === '/community/pin' && req.method === 'POST') {
     const { id } = await body(req);
     return json(res, 200, chat.pin(id));
+  }
+  // AGIP-21: админ чата — модерация под x-admin-token (для будущего Telegram-бота)
+  if (p.startsWith('/community/mod/') && req.method === 'POST') {
+    if (!process.env.AGT_ADMIN_TOKEN || req.headers['x-admin-token'] !== process.env.AGT_ADMIN_TOKEN) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
+    const d = await body(req);
+    if (p === '/community/mod/delete') return json(res, 200, chat.modDelete(d.id));
+    if (p === '/community/mod/silence') return json(res, 200, chat.modSilence(d.address, Number(d.minutes) || 10));
+    if (p === '/community/mod/pin') return json(res, 200, chat.pin(d.id));
+    return json(res, 404, { error: 'unknown_mod_action' });
   }
 
   // ================= Mini-exchange DXE (книга из цепи) =================
@@ -840,24 +877,41 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/gov/state') return json(res, 200, govState(bc));
   if (p === '/gov/proposal' && req.method === 'POST') {
     const { author, title, blocks = 100 } = await body(req);
-    if (!author || !title) return json(res, 400, { error: 'author,title required' });
+    // AGIP-21: author больше не нужен в UI — агент прислал только title, адрес подставляет нода
+    const author0 = author || pickDefaultWallet(true); // gov — ончейн-fee нужен
+    if (!author0 || !title) return json(res, 400, { error: 'title required (author/auto-wallet: нет живого локального кошелька с ключом)' });
     const closesAt = bc.blockCount() + Math.max(10, Math.min(Number(blocks), 5000));
     const ref = govRef();
     const memo = `gov|P|${ref}|${closesAt}|${String(title).replace(/[|\r\n]/g, ' ').trim().slice(0, 60)}`;
-    const r = await postSignedTx(res, { fromAddress: author, to: author, amount: DXE_MEMO_FEE, memo });
+    const r = await postSignedTx(res, { fromAddress: author0, to: author0, amount: DXE_MEMO_FEE, memo });
     if (!r) return;
-    return json(res, 201, { ...r, ref, closesAt, hint: 'успех = yes≥'+ '3 и yes>no к closesAt ; активация интеграции — по решению закреплёнго окна' });
+    return json(res, 201, { ...r, ref, closesAt, author: author0, autoAuthor: !author, hint: 'успех = yes≥3 и yes>no к closesAt ; активация интеграции — по решению закреплённого окна' });
   }
   if (p === '/gov/vote' && req.method === 'POST') {
     const { voter, ref, choice } = await body(req);
-    if (!voter || !ref || !['yes', 'no', 'abstain'].includes(String(choice))) return json(res, 400, { error: 'voter,ref,choice(yes|no|abstain) required' });
+    // AGIP-21: voter больше не нужен — голос от имени первого живого кошелька ноды
+    const voter0 = voter || pickDefaultWallet(true); // gov — ончейн-fee нужен
+    if (!voter0 || !ref || !['yes', 'no', 'abstain'].includes(String(choice))) return json(res, 400, { error: 'ref,choice(yes|no|abstain) required (voter/auto-wallet: нет живого локального кошелька с ключом)' });
     const prop = govState(bc).proposals.find(x => x.ref === ref)
       || treasuryState(bc).proposals.find(x => x.ref === ref); // AGIP-4: голоса за казну — та же gov-схема
     if (!prop) return json(res, 404, { error: 'proposal_not_found_in_chain' });
     if (prop.closed) return json(res, 409, { error: 'voting_closed', closesAt: prop.closesAt });
-    const r = await postSignedTx(res, { fromAddress: voter, to: voter, amount: DXE_MEMO_FEE, memo: `gov|V|${ref}|${choice}` });
+    const r = await postSignedTx(res, { fromAddress: voter0, to: voter0, amount: DXE_MEMO_FEE, memo: `gov|V|${ref}|${choice}` });
     if (!r) return;
-    return json(res, 201, { ...r, ref, choice, note: 'один адрес — один голос (первый фиксируется)' });
+    return json(res, 201, { ...r, ref, choice, voter: voter0, autoVoter: !voter, note: 'один адрес — один голос (первый фиксируется)' });
+  }
+
+  // === AGIP-21: лента одобренных проектов (passed = одобрено → исполнение под ключ) ===
+  if (p === '/gov/projects') return json(res, 200, govProjectsState(bc, DATA_DIR));
+  if (p === '/gov/project/advance' && req.method === 'POST') {
+    const { ref, stage, note = '' } = await body(req);
+    const s = Number(stage);
+    if (!ref || !Number.isInteger(s) || s < 0 || s > PROJECT_STAGES.length - 1) return json(res, 400, { error: 'ref + stage(0..' + (PROJECT_STAGES.length - 1) + ') required' });
+    if (req.headers['x-admin-token'] !== process.env.AGT_ADMIN_TOKEN) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
+    const out = saveProjectStage(DATA_DIR, ref, s, String(note).slice(0, 200));
+    // админ-действие озвучиваем в чате — лента событий для агентов
+    try { const w = pickDefaultWallet(); if (w) chat.send({ sender: w, senderHandle: 'admin', text: `📋 проект ${ref}: стадия → ${PROJECT_STAGES[s]}${note ? ' — ' + String(note).slice(0, 80) : ''}` }); } catch {}
+    return json(res, 201, out);
   }
 
   // ===== AGIP-4 (шаг 12): ончейн-мультисиг казна 2-of-3 =====

@@ -165,21 +165,16 @@
     <div class="dim" style="margin-top:6px;font-size:11px">мини-биржа v1: ордера и сделки — ончейн tx с memo dxe|…; книга = чистая функция цепи (одинакова на каждой ноде сразу после майнинга). Сколько платит fill целиком v1 — поставка товара через /data/ или честность репутации; burn/risk см. README.</div>
   </div>
 
-  <div class="panel" style="grid-column: 1/-1">
-    <h2>Говернанс кабинета разработчиков · предложения и голоса <span class="pill">из цепи: один адрес = один голос</span></h2>
+ <div class="panel" style="grid-column: 1/-1">
+    <h2>Говернанс агентов · лента предложений и счётчик голосов <span class="pill">AGIP-21: адрес подставляет нода</span></h2>
     <div class="actions">
-      <input id="govAuthor" placeholder="кошелёк автора (эта нода)" style="min-width:280px; flex:2">
-      <input id="govTitle" placeholder="название предложения (что интегрировать/зачем/экономический смысл)" style="flex:3; min-width:300px">
+      <input id="govTitle" placeholder="что вынести на голосование (что делать/как/экономический смысл)" style="flex:3; min-width:300px">
       <input id="govBlocks" placeholder="окно блоков (default 100)" style="width:150px">
       <button id="govNew">Вынести предложение</button>
     </div>
-    <table id="govTable"><thead><tr><th>ref</th><th>название</th><th>автор</th><th>yes/no/abstain</th><th>окно (до блока)</th><th>итог</th></tr></thead><tbody></tbody></table>
-    <div class="actions" style="margin-top:8px">
-      <input id="govVoter" placeholder="кошелёк голосующего" style="min-width:280px; flex:2">
-      <input id="govRef" placeholder="ref предложения" style="width:170px">
-      <select id="govChoice"><option value="yes">yes</option><option value="no">no</option><option value="abstain">abstain</option></select>
-      <button id="govVote">Голосовать</button>
-    </div>
+    <table id="govTable"><thead><tr><th>ref</th><th>предложение</th><th>голоса yes/no/abstain</th><th>окно (до блока)</th><th>итог</th><th>голос</th></tr></thead><tbody></tbody></table>
+    <div class="dim" style="margin-top:6px;font-size:11px">голос уходит от имени живого кошелька этой ноды — вводить адрес не нужно (AGIP-21). Одобренные проекты (passed → исполнение под ключ) — ниже, из /gov/projects.</div>
+    <div id="govProjects" style="margin-top:10px"></div>
   </div>
 
   <div class="panel">
@@ -454,22 +449,34 @@ $('dxeDoFill').onclick = async () => {
     tick(); } catch (e) { alert('fill не принят: ' + e.message); }
 };
 
-// ============ Говернанс ============
+// ============ Говернанс (AGIP-21: без ручных кошельков) ============
+async function govVote(ref, choice) {
+  try { await j('/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref, choice }) });
+    tick(); } catch (e) { alert('голос не принят: ' + e.message); }
+}
 async function govRefresh() {
   const g = await j('/gov/state');
   const t = $('govTable').tBodies[0]; t.innerHTML = '';
-  (g.proposals || []).slice(0, 10).forEach(p => t.insertAdjacentHTML('beforeend',
-    `<tr><td class="mono dim">${p.ref}</td><td>${esc(p.title)}</td><td class="mono dim">${String(p.author).slice(0, 10)}</td>
-     <td class="${p.passed ? 'ok' : (p.result === 'rejected' ? 'bad' : '')}">${p.yes}/${p.no}/${p.abstain}</td><td>${p.closesAt}</td><td>${p.result}</td></tr>`));
+  (g.proposals || []).slice(0, 10).forEach(p => {
+    const canVote = p.active;
+    t.insertAdjacentHTML('beforeend',
+      `<tr><td class="mono dim">${p.ref}</td><td>${esc(p.title)}</td>
+       <td class="${p.passed ? 'ok' : (p.result === 'rejected' ? 'bad' : '')}">${p.yes}/${p.no}/${p.abstain}</td><td>${p.closesAt}</td><td>${p.result}</td>
+       <td>${canVote ? `<button style="padding:2px 8px;margin:0 3px" onclick='govVote("${p.ref}","yes")'>yes</button><button style="padding:2px 8px;margin:0 3px" onclick='govVote("${p.ref}","no")'>no</button><button style="padding:2px 8px;margin:0 3px" onclick='govVote("${p.ref}","abstain")'>abstain</button>` : '—'}</td></tr>`);
+  });
+  try {
+    const pr = await j('/gov/projects');
+    $('govProjects').innerHTML = (pr.projects || []).length
+      ? '<b>Одобренные проекты (исполнение под ключ):</b><table><thead><tr><th>ref</th><th>проект</th><th>голоса were</th><th>стадия</th></tr></thead><tbody>'
+        + pr.projects.slice(0, 8).map(x => `<tr><td class="mono dim">${x.ref}</td><td>${esc(x.title)}</td><td class="dim">${x.votesAtClose || x.votes}</td><td>${esc(x.stageName)}</td></tr>`).join('')
+        + '</tbody></table>'
+      : '<span class="dim">Одобренных проектов пока нет — passed-предложения появляются здесь автоматически.</span>';
+  } catch {}
 }
 $('govNew').onclick = async () => {
   const title = $('govTitle').value.trim(); if (!title) return alert('нужно название предложения');
-  try { const r = await j('/gov/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author: $('govAuthor').value.trim(), title, blocks: Number($('govBlocks').value) || 100 }) });
-    $('govRef').value = r.ref; tick(); } catch (e) { alert('предложение не прошло: ' + e.message); }
-};
-$('govVote').onclick = async () => {
-  try { await j('/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voter: $('govVoter').value.trim(), ref: $('govRef').value.trim(), choice: $('govChoice').value }) });
-    tick(); } catch (e) { alert('голос не принят: ' + e.message); }
+  try { const r = await j('/gov/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, blocks: Number($('govBlocks').value) || 100 }) });
+    tick(); } catch (e) { alert('предложение не прошло: ' + e.message); }
 };
 (function applyCurrentHost() {
   const opt = [...$('host').options].find(o => o.value === API);

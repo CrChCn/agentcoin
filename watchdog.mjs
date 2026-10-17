@@ -106,6 +106,10 @@ function portOwnerPid(port) {
 }
 
 async function cycle() {
+  // AGIP-23 (анти-CPU-шторм): максимум ОДНА реанимация за цикл — каждая = полная
+  // загрузка 9-МБ chain.json (CPU-спайк). Инцидент: несколько RESTART за цикл =
+  // ферма топит сама себя и разваливается. Пропущенные ноды догоняю со следующих циклов.
+  let respawnsThisCycle = 0;
   for (const n of NODES) {
     const rec = state.nodes[n.name];
     const ok = await probe(n.url);
@@ -124,18 +128,26 @@ async function cycle() {
           log(`${n.name}: /life таймаут, но /health=overloaded — жду без рестарта (shed ${rec.shed}/${SHED_LIMIT})`);
           if (rec.shed >= SHED_LIMIT) {
             rec.restarts += 1; escalateRestart(rec);
-            log(`HARD-RESTART ${n.name} (застряла в shedding): taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-            exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
-            launchWrapper(n.wrapper).then(() => save());
+            if (respawnsThisCycle >= 1) { rec.shed = 0; log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`); }
+            else {
+              respawnsThisCycle++;
+              log(`HARD-RESTART ${n.name} (застряла в shedding): taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
+              exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
+              launchWrapper(n.wrapper).then(() => save());
+            }
           }
         } else {
           rec.sick = (rec.sick || 0) + 1;
           log(`${n.name}: /life мёртв, но порт ${n.port} слушает pid ${owner} — не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
           if (rec.sick >= SICK_LIMIT) {
             rec.sick = 0; rec.restarts += 1; escalateRestart(rec);
-            log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-            exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
-            launchWrapper(n.wrapper).then(() => save());
+            if (respawnsThisCycle >= 1) { log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`); }
+            else {
+              respawnsThisCycle++;
+              log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
+              exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
+              launchWrapper(n.wrapper).then(() => save());
+            }
           }
         }
       } else {
@@ -147,8 +159,12 @@ async function cycle() {
         if (owner2) {
           rec.sick = (rec.sick || 0) + 1; rec.fails = 0;
           log(`${n.name}: повторный netstat нашёл pid ${owner2} — порт всё же слушает, не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
+        } else if (respawnsThisCycle >= 1) {
+          rec.fails = 0;
+          log(`${n.name}: RESTART отложен — одна реанимация за цикл (AGIP-23)`);
         } else {
           rec.sick = 0; rec.fails = 0; rec.restarts += 1; escalateRestart(rec);
+          respawnsThisCycle++;
           log(`RESTART ${n.name} → ${n.wrapper} (всего рестартов: ${rec.restarts})`);
           launchWrapper(n.wrapper).then(() => save());
         }

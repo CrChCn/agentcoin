@@ -1924,10 +1924,37 @@ const hubMsgHandlers = {
 };
 const wsCooldown = new Map(); // peerUrl → untilMs (после close(1008) не перерываемся)
 const WS_COOLDOWN_MS = 5 * 60 * 1000;
+const wsRetry = new Map(); // peerUrl → { fails, nextAt } (AGIP-23: бэк-off неудач)
+const WS_RETRY_BASE_MS = 30_000, WS_RETRY_MAX_MS = 5 * 60_000;
+function wsNextRetry(peerUrl) {
+  const r = wsRetry.get(peerUrl) || { fails: 0, nextAt: 0 };
+  r.fails = Math.min(r.fails + 1, 10);
+  r.nextAt = Date.now() + Math.min(WS_RETRY_BASE_MS * 2 ** (r.fails - 1), WS_RETRY_MAX_MS) + Math.floor(Math.random() * 10_000);
+  wsRetry.set(peerUrl, r);
+}
+function wsRetryReady(peerUrl) { const r = wsRetry.get(peerUrl); return !r || r.nextAt <= Date.now(); }
+function wsRetryClear(peerUrl) { wsRetry.delete(peerUrl); }
+
+// AGIP-23: авто-мердж bootstrap.json → peers.json — свежие ноды находятся сетью сами
+// (инцидент: форк 7597/7742 — 9347 достала цепь, но её не знали в peers.json).
+const BOOTSTRAP_FILE = path.join(__dirname, 'bootstrap.json');
+function mergeBootstrapPeers() {
+  try {
+    const d = JSON.parse(fs.readFileSync(BOOTSTRAP_FILE, 'utf8'));
+    const list = (d.bootstrap || []).filter(u => typeof u === 'string' && /^http/.test(u));
+    let added = 0;
+    const have = loadPeers();
+    for (const u of list) if (!have.includes(u)) { addPeer(u); added++; }
+    if (added) console.log(`[peers] bootstrap-merge: +${added} пир(ов)`);
+  } catch {}
+}
+
 async function wsConnectLoop() {
+  mergeBootstrapPeers();
   const peers = loadPeers();
   if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
   for (const peerUrl of peers) {
+    if (!wsRetryReady(peerUrl)) continue; // AGIP-23: экспоненциальный бэк-off на неудачи
     const until = wsCooldown.get(peerUrl);
     if (until && until > Date.now()) continue;
     if (until) wsCooldown.delete(peerUrl);
@@ -1946,14 +1973,22 @@ async function wsConnectLoop() {
       client.onClose = () => {
         console.log(`[ws] отсоединён: ${peerUrl}`);
         wsCooldown.set(peerUrl, Date.now() + WS_COOLDOWN_MS); // не метнуть в дедуп-сервер, уйти в бэк-off
+        wsNextRetry(peerUrl);
       };
+      wsRetryClear(peerUrl);
       wsCooldown.delete(peerUrl);
       console.log(`[ws] подключены к ${peerUrl}`);
-    } catch (e) { console.log(`[ws] не подключился ${peerUrl}: ${e.message}`); /* HTTP-синк продолжит работу */ }
+    } catch (e) {
+      wsNextRetry(peerUrl); // AGIP-23: без-умного шторма больше нет — backoff ×fails
+      console.log(`[ws] не подключился ${peerUrl}: ${e.message} (backoff ×${(wsRetry.get(peerUrl) || {}).fails})`); /* HTTP-синк продолжит работу */
+    }
   }
 }
-setInterval(() => wsConnectLoop().catch(() => {}), 30_000);
-console.log('[ws] ws-модуль инициализирован (server + outbound loop)');
+// AGIP-23: рассинхрон циклов нод (±10с jitter) — synchronized retry-storm больше нет
+(function wsLoopStagger() {
+  setTimeout(() => { wsConnectLoop().catch(() => {}); wsLoopStagger(); }, 30_000 + Math.floor(Math.random() * 10_000));
+})();
+console.log('[ws] ws-модуль инициализирован (server + outbound loop, AGIP-23 backoff+jitter+bootstrap-merge)');
 wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.message || e));
 
 // === AGIP-7: периодический syncAll (60с) — не полагаемся только на WS-события.

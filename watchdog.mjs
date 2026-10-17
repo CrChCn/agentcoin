@@ -128,7 +128,11 @@ async function cycle() {
           log(`${n.name}: /life таймаут, но /health=overloaded — жду без рестарта (shed ${rec.shed}/${SHED_LIMIT})`);
           if (rec.shed >= SHED_LIMIT) {
             rec.restarts += 1; escalateRestart(rec);
-            if (respawnsThisCycle >= 1) { rec.shed = 0; log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`); }
+            if (respawnsThisCycle >= 1) {
+              // AGIP-23-испр.: счётчик shed НЕ обнуляем при отложении — иначе нода снова
+              // высидела бы SHED_LIMIT (10 мин). Отложенная реанимация = первый слот.
+              log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
+            }
             else {
               respawnsThisCycle++;
               log(`HARD-RESTART ${n.name} (застряла в shedding): taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
@@ -140,10 +144,12 @@ async function cycle() {
           rec.sick = (rec.sick || 0) + 1;
           log(`${n.name}: /life мёртв, но порт ${n.port} слушает pid ${owner} — не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
           if (rec.sick >= SICK_LIMIT) {
-            rec.sick = 0; rec.restarts += 1; escalateRestart(rec);
-            if (respawnsThisCycle >= 1) { log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`); }
-            else {
-              respawnsThisCycle++;
+            rec.restarts += 1; escalateRestart(rec);
+            if (respawnsThisCycle >= 1) {
+              // AGIP-23-испр.: sick НЕ обнуляем при отложении — первый слот цикла.
+              log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
+            } else {
+              rec.sick = 0; respawnsThisCycle++;
               log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
               exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
               launchWrapper(n.wrapper).then(() => save());
@@ -160,7 +166,8 @@ async function cycle() {
           rec.sick = (rec.sick || 0) + 1; rec.fails = 0;
           log(`${n.name}: повторный netstat нашёл pid ${owner2} — порт всё же слушает, не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
         } else if (respawnsThisCycle >= 1) {
-          rec.fails = 0;
+          // AGIP-23-испр.: fails сохраняем — счетчик уже ≥ FAIL_LIMIT, отложенный
+          // RESTART администрируется в ближайший свободный слот без повторного высиживания.
           log(`${n.name}: RESTART отложен — одна реанимация за цикл (AGIP-23)`);
         } else {
           rec.sick = 0; rec.fails = 0; rec.restarts += 1; escalateRestart(rec);

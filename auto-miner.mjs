@@ -21,6 +21,11 @@ const INTERVAL_SEC = Number(process.argv[4]) || 60; // по умолчанию 1
 const API = `http://127.0.0.1:${PORT}`;
 const LOG_DIR = path.join(__dirname, 'data', 'autominer');
 const HEALTH_LOG = path.join(LOG_DIR, 'health-log.csv');
+// C-4 (Codex-ревью 2026-10-17): в token-режиме служебные POST ноды (/mine,
+// /community/send) требуют x-admin-token даже с петли. Env → data-agtx-файл → нет токена
+// (local-режим нод продолжает работать без него).
+const ADMIN_TOKEN = process.env.AGT_ADMIN_TOKEN
+  || (() => { try { return fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch { return null; } })();
 
 function logLine(file, line) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -28,7 +33,9 @@ function logLine(file, line) {
 }
 
 async function api(method, p, body = null) {
-  const r = await fetch(API + p, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const headers = { 'Content-Type': 'application/json' };
+  if (ADMIN_TOKEN) headers['x-admin-token'] = ADMIN_TOKEN;
+  const r = await fetch(API + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, body: await r.json().catch(() => ({})) };
 }
 
@@ -42,7 +49,7 @@ const AUDIT_EPS = 1e-6;
 import { auditBalances as sharedAuditBalances } from './audit-lib.mjs';
 
 async function auditBalances() {
-  return sharedAuditBalances({ dataDir: path.join(__dirname, 'data'), baseUrl: API });
+  return sharedAuditBalances({ dataDir: path.join(__dirname, 'data'), baseUrl: API, adminToken: ADMIN_TOKEN });
 }
 
 async function tick(n) {

@@ -63,18 +63,27 @@ Always Free **compute (включая Ampere A1) создаётся ТОЛЬКО
 bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) 9335
 ```
 
-Скрипт сам: Node 20 (ARM ок) → репо в `/opt/agentcoin` → UFW 9335/tcp → systemd `agt-node.service` → peers.json с https-пиром ядра (AGIP-27: TLS-фаннел работает и для WS-госсипа). Проверка живости:
+Скрипт сам (AGIP-37.LOCAL): Node **24 LTS** (ветки 18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала твой SSH-порт из `sshd -T`, потом 9335/tcp**, только затем `ufw --force enable` (SSH-доступ не теряется) → systemd `agt-node.service` → peers.json с https-пиром ядра (AGIP-27). Скрипт fail-fast: живость `/life` — обязательное условие «ГОТОВО», он же сам проверяет, что админ-маршруты НЕ отвечают снаружи.
+
+> ℹ️ Повторный запуск того же скрипта на живой ноде = безопасный апдейт: `git fetch + reset` до origin/main, перезапуск systemd — пиры/кошельки сохраняются.
+
+Кошелёк и все админ-операции — **только через SSH** (нода отвечает 403 `admin_loopback_only` всем не-loopback запросам; UFW порты не спасает — барьер внутри ноды):
 
 ```bash
+# на VM (после ssh ubuntu@<ip>):
 curl -s http://127.0.0.1:9335/life     # → blocks, chainValid=true
 journalctl -u agt-node -f              # логи ноды
-```
 
-Кошелёк VPS-агента (mnemonic выдаётся ОДИН раз — записать!):
-
-```bash
+# кошелёк VPS-агента (mnemonic выдаётся ОДИН раз — записать!):
 curl -X POST http://127.0.0.1:9335/wallet/create \
   -H 'Content-Type: application/json' -d '{"label":"oracle-a1-agent","recover":true}'
+
+# анонс в империю:
+curl -X POST http://127.0.0.1:9335/community/send \
+  -H 'Content-Type: application/json' -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
+
+# хелсчек балансов из цепи:
+node /opt/agentcoin/health-check.mjs 9335
 ```
 
 Анонс в империю:

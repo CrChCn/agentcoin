@@ -10,13 +10,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/script
 ```
 или: `git clone https://github.com/CrChCn/agentcoin && cd agentcoin && bash scripts/deploy-vps.sh`
 
-Скрипт: Node 20 (NodeSource) → репо в `/opt/agentcoin` → firewall 9335/tcp →
-systemd-юнит `agt-node.service` (автостарт, restart=15с, data-dir `data-vps`) →
-peers.json получает https-пир ядра → votes/чат сразу доступны (**адрес нода подставляет сама**, AGIP-21).
+Скрипт (ревью 2026-10-17): Node **24 LTS** (18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала SSH-порт из `sshd -T`, потом 9335/tcp**, только затем enable →
+systemd-юнит `agt-node.service` (restart всегда, data-dir `data-vps`) →
+peers.json получает https-пир ядра → live-проверка `/life` обязательна (fail-fast — скрипт без живой ноды НЕ печатает «ГОТОВО»). Повторный запуск = надёжный апдейт (`reset --hard origin/HEAD` + systemd restart).
 
-После старта:
-- кошелёк VPS-агента: `curl -X POST http://127.0.0.1:9335/wallet/create -H 'Content-Type: application/json' -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
-- анонс в империю: `curl -X POST http://127.0.0.1:9335/community/send -H 'Content-Type: application/json' -d '{"text":"Внешняя нода поднята 🏰"}'`.
+**Админ-плоскость закрыта от интернета (AGIP-37.LOCAL)**: барьер внутри самой ноды — все не-loopback запросы проходят только белый список публичных маршрутов (read-only + POST /tx + /blocktemplate · /block/submit для тонких майнеров). `/wallet/create`, `/tx/sign`, `/mine`, `/security/*`, `/peer/add` и пр. снаружи → 403 `admin_loopback_only`. Кошельковые операции — только в SSH-сессии на сервере:
+- `curl -X POST http://127.0.0.1:9335/wallet/create -H 'Content-Type: application/json' -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
+- `curl -X POST http://127.0.0.1:9335/community/send -d '{"text":"Внешняя нода поднята 🏰"}'`;
+- `node health-check.mjs 9335` — аудит балансов (сам резолвит `data-vps`).
 
 ## Куда смотреть в панели провайдера
 

@@ -18,8 +18,13 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.argv[2] || process.env.AGT_HEALTH_PORT || 9335;
 const API = `http://127.0.0.1:${PORT}`;
-const MINER_FILE = path.join(__dirname, 'data', 'wallets.json');
-const LOG = path.join(__dirname, 'data', 'autominer', 'health-check.log');
+// Ревью deploy-аудита 2026-10-17: нода на VPS живёт в data-vps (unit задаёт
+// AGT_DATA_DIR), а health-check раньше жёстко смотрел data/ → аудировал не тот
+// каталог. Резолвим как нода: env → data-vps если есть (VPS) → data.
+const DATA_DIR = process.env.AGT_DATA_DIR
+  || (fs.existsSync(path.join(__dirname, 'data-vps')) ? path.join(__dirname, 'data-vps') : path.join(__dirname, 'data'));
+const MINER_FILE = path.join(DATA_DIR, 'wallets.json');
+const LOG = path.join(DATA_DIR, 'autominer', 'health-check.log');
 
 function log(msg) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
@@ -49,11 +54,16 @@ async function main() {
     if (life.chainValid !== true) findings.push(`chainValid=false (${life.chainIssue ?? '?'})`);
     if (life.fresh === false) findings.push(`chain stale: tipAge=${life.tipAgeSec}s`);
   } catch (e) {
-    findings.push(`noda не отвечает: ${e.message}`);
-    // self-heal: поднять задачу ноды (не выбрасываем — аудит продолжаем только если оживёт)
+    findings.push(`нода не отвечает: ${e.message}`);
+    // self-heal: платформенно-честно. Windows — ScheduledTask AGTNode9335; Linux —
+    // systemd agt-node (VPS). Раньше здесь безусловно вызывался powershell и на
+    // Linux гарантированно падал, добавляя шум в findings.
     try {
-      execSync('powershell -NoProfile -Command "Start-ScheduledTask -TaskName AGTNode9335"', { timeout: 20_000 });
-      log('self-heal: Start-ScheduledTask AGTNode9335 отправлен');
+      const heal = process.platform === 'win32'
+        ? 'powershell -NoProfile -Command "Start-ScheduledTask -TaskName AGTNode9335"'
+        : 'systemctl restart agt-node.service';
+      execSync(heal, { timeout: 20_000, stdio: 'ignore' });
+      log(`self-heal (${process.platform}): отправлен`);
       await new Promise(r => setTimeout(r, 15_000));
       life = (await api('GET', '/life')).body; // повторная попытка
     } catch { /* без self-heal — оставляем findings */ }
@@ -61,7 +71,7 @@ async function main() {
   // 3) аудит балансов — единый источник правды (ТЗ-2 из аудита 2026-10-15):
   // вся логика (NaN-скип, opinion-скип, 503/429-ретраи, rewardDrift) живёт в audit-lib.mjs
   const miner = minerAddr();
-  const audit = await sharedAuditBalances({ dataDir: path.join(__dirname, 'data'), baseUrl: API });
+  const audit = await sharedAuditBalances({ dataDir: DATA_DIR, baseUrl: API });
   const auditBad = audit.mismatches.length;
   for (const m of audit.mismatches.slice(0, 4)) {
     findings.push(`balance ${m.addr}: chain=${m.expected} node=${m.got ?? m.error ?? 'absent'}`);

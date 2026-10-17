@@ -227,6 +227,24 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
   return { accepted: true, txid: String(tx.txid).slice(0, 16), mempool: r.mempoolSize };
 }
 
+// ====== AGIP-37.LOCAL: развязка админ-плоскости от публичного порта ======
+// Ревью deploy-гайда 2026-10-17: внешняя нода слушает 0.0.0.0:9335, при этом
+// /tx/sign подписывал транзакции ЛОКАЛЬНОГО кошелька любому пришедшему извне
+// (UFW фильтрует порты, а не HTTP-маршруты внутри открытого порта; AGT_ADMIN_TOKEN
+// этот маршрут не проверял). Барьер живёт в самой ноде: ВСЕ запросы не с loopback
+// проходят только через белый список публичных (read-only + POST /tx) маршрутов.
+// Админ/кошелёк/security/gov/peer/jail и пр. доступны ТОЛЬКО локально/через
+// SSH-туннель:  ssh сервер → curl http://127.0.0.1:<PORT>/wallet/create ...
+// Тонкие майнеры (miner-client.mjs с ДРУГОЙ машины) работают: /blocktemplate и
+// /block/submit в белом списке — PoW ищется на стороне клиента, нода только
+// отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
+// ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
+const PUB_REQUEST_RE = /^\/(info|life|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|imperial(\.html)?|panel\.js|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|cabinet(\.html)?|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+|chain\.html?)(\?.*)?$/;
+const PUB_TX_ROUTES = new Set(['/tx']);
+function isLoopbackRequest(req) {
+  const ip = String((req.socket && req.socket.remoteAddress) || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '' || ip === 'unknown';
+}
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
@@ -253,6 +271,12 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   if (overloaded(p) && req.method === 'GET' && !CORE_PATH_RE.test(p)) {
     return json(res, 503, { error: 'overloaded', hint: 'node busy, retry soon', loopLagMs });
+  }
+  // AGIP-37.LOCAL: снаружи (не loopback) — только белый список публичных маршрутов.
+  // /tx оставляем публичным (внешние узлы отправляют tx в сеть — это P2P-поверхность).
+  if (!isLoopbackRequest(req) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
+    console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}`);
+    return json(res, 403, { error: 'admin_loopback_only', route: p, hint: 'админ/кошелёк/майнинг — через SSH-туннель: curl http://127.0.0.1:<port>' });
   }
 
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });

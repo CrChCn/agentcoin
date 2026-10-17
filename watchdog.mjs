@@ -19,18 +19,13 @@ const FAIL_LIMIT = 2;          // 2 подряд неудачи → рестар
 const RESTART_COOLDOWN_MS = 3 * 60_000;
 // цель: name, url, wrapper (абс. путь .cmd), неоходимо ли tailscale-биндинг
 const NODES = [
+  // === AGIP-24 (порезка фермы, распоряжение оператора 2026-10-17): ядро A/B/C + tailnet.
+  // Лишние D/E/F/H/I/J/K выводятся из присмотра (обёртки в каталоге остаются — включить обратно = раскомментировать).
   { name: 'A (9335)', port: '9335', url: 'http://127.0.0.1:9335/life', wrapper: path.join(__dirname, 'run-node.cmd') },
   { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(__dirname, 'run-node2.cmd') },
   { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(__dirname, 'run-node3.cmd') },
   { name: 'TS (9336)', port: '9336', url: `http://${process.env.AGT_TS_IP || '100.96.7.15'}:9336/life`, wrapper: path.join(__dirname, 'run-node-ts.cmd') },
-  { name: 'D (9337)', port: '9337', url: 'http://127.0.0.1:9337/life', wrapper: path.join(__dirname, 'run-node9337.cmd') },
-  { name: 'E (9338)', port: '9338', url: 'http://127.0.0.1:9338/life', wrapper: path.join(__dirname, 'run-node9338.cmd') },
-  { name: 'F (9339)', port: '9339', url: 'http://127.0.0.1:9339/life', wrapper: path.join(__dirname, 'run-node9339.cmd') },
-  { name: 'G-SPORE (9340)', port: '9340', url: 'http://127.0.0.1:9340/life', wrapper: path.join(__dirname, 'run-node9340.cmd') },
-  { name: 'H-SPORE (9344)', port: '9344', url: 'http://127.0.0.1:9344/life', wrapper: path.join(__dirname, 'run-node9344.cmd') },
-  { name: 'I-SPORE (9345)', port: '9345', url: 'http://127.0.0.1:9345/life', wrapper: path.join(__dirname, 'run-node9345.cmd') },
-  { name: 'J (9346)', port: '9346', url: 'http://127.0.0.1:9346/life', wrapper: path.join(__dirname, 'run-node9346.cmd') },
-  { name: 'K (9347)', port: '9347', url: 'http://127.0.0.1:9347/life', wrapper: path.join(__dirname, 'run-node9347.cmd') },
+  { name: 'G-SPORE (9340)', port: '9340', url: 'http://127.0.0.1:9340/life', wrapper: path.join(__dirname, 'run-node9340.cmd') }, // public-funnel entry: остаётся, пока вход не переведён на 9335
 ]; // инцидент 2026-10-16: D/E/F умерли молча и караулились 2.5 ч — теперь под присмотром
 // 2026-10-17: канарейки G/H/I — SPORE-ноды (AGIP-18 MVP: геном/физарум/метаболизм, AGT_SPORE=1)
 // 2026-10-17: свежие J/K (9346/9347, data-n8/data-n9) — распределение нагрузки: новые пулы отсоса белька агентов со старых A/B/C.
@@ -105,11 +100,29 @@ function portOwnerPid(port) {
   });
 }
 
+// AGIP-23 CPU-говернёр: инцидент 2026-10-17 — упавшие ноды реанимировались,
+// но их старт (9МБ chain.json + ws-hub) добивал и так задушенный CPU (100%),
+// ферма падала спустя пару минут заново. Правило: при CPU >90% реанимация
+// откладывается до следующего цикла — реанимации НЕ ОБЯЗАНЫ бить в падение.
+function cpuLoadPct() {
+  return new Promise((resolve) => {
+    exec('powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"', { timeout: 15000, windowsHide: true }, (err, stdout) => {
+      const v = Number(String(stdout).trim());
+      // null = не смогли измерить → ведём себя как раньше (фильтр без данных)
+      resolve(Number.isFinite(v) && v > 0 ? v : null);
+    });
+  });
+}
+const CPU_GOVERNOR_MAX = 90;
+
 async function cycle() {
   // AGIP-23 (анти-CPU-шторм): максимум ОДНА реанимация за цикл — каждая = полная
   // загрузка 9-МБ chain.json (CPU-спайк). Инцидент: несколько RESTART за цикл =
   // ферма топит сама себя и разваливается. Пропущенные ноды догоняю со следующих циклов.
   let respawnsThisCycle = 0;
+  const cpuNow = await cpuLoadPct();
+  const cpuGovernorActive = cpuNow !== null && cpuNow > CPU_GOVERNOR_MAX;
+  if (cpuGovernorActive) log(`CPU-говернёр: ${Math.round(cpuNow)}% > ${CPU_GOVERNOR_MAX}% — реанимации откладываются до ослабления (не бить по падению)`);
   for (const n of NODES) {
     const rec = state.nodes[n.name];
     const ok = await probe(n.url);
@@ -128,9 +141,8 @@ async function cycle() {
           log(`${n.name}: /life таймаут, но /health=overloaded — жду без рестарта (shed ${rec.shed}/${SHED_LIMIT})`);
           if (rec.shed >= SHED_LIMIT) {
             rec.restarts += 1; escalateRestart(rec);
-            if (respawnsThisCycle >= 1) {
-              // AGIP-23-испр.: счётчик shed НЕ обнуляем при отложении — иначе нода снова
-              // высидела бы SHED_LIMIT (10 мин). Отложенная реанимация = первый слот.
+            if (respawnsThisCycle >= 1 || cpuGovernorActive) {
+              // AGIP-23: счётчик shed НЕ обнуляем при отложении — первый слот.
               log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
             }
             else {
@@ -143,18 +155,18 @@ async function cycle() {
         } else {
           rec.sick = (rec.sick || 0) + 1;
           log(`${n.name}: /life мёртв, но порт ${n.port} слушает pid ${owner} — не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
-          if (rec.sick >= SICK_LIMIT) {
-            rec.restarts += 1; escalateRestart(rec);
-            if (respawnsThisCycle >= 1) {
-              // AGIP-23-испр.: sick НЕ обнуляем при отложении — первый слот цикла.
-              log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
-            } else {
-              rec.sick = 0; respawnsThisCycle++;
-              log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-              exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
-              launchWrapper(n.wrapper).then(() => save());
+            if (rec.sick >= SICK_LIMIT) {
+              rec.restarts += 1; escalateRestart(rec);
+              if (respawnsThisCycle >= 1 || cpuGovernorActive) {
+                // AGIP-23: sick НЕ обнуляем при отложении — первый слот цикла.
+                log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
+              } else {
+                rec.sick = 0; respawnsThisCycle++;
+                log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
+                exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
+                launchWrapper(n.wrapper).then(() => save());
+              }
             }
-          }
         }
       } else {
         // AGIP-19: на перегруженной машине netstat иногда отдаёт пусто (таймаут exec —
@@ -165,10 +177,11 @@ async function cycle() {
         if (owner2) {
           rec.sick = (rec.sick || 0) + 1; rec.fails = 0;
           log(`${n.name}: повторный netstat нашёл pid ${owner2} — порт всё же слушает, не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
-        } else if (respawnsThisCycle >= 1) {
-          // AGIP-23-испр.: fails сохраняем — счетчик уже ≥ FAIL_LIMIT, отложенный
-          // RESTART администрируется в ближайший свободный слот без повторного высиживания.
-          log(`${n.name}: RESTART отложен — одна реанимация за цикл (AGIP-23)`);
+        } else if (respawnsThisCycle >= 1 || cpuGovernorActive) {
+          // AGIP-23: счётчик fails сохраняем — счётчик уже ≥ FAIL_LIMIT, отложенный
+          // READMINistrated RESTART вставает в ближайший свободный слот (с ожиданием CPU-говерйнога).
+          if (cpuGovernorActive) log(`${n.name}: RESTART отложен — CPU-говернёр ${Math.round(cpuNow)}%`);
+          else log(`${n.name}: RESTART отложен — одна реанимация за цикл (AGIP-23)`);
         } else {
           rec.sick = 0; rec.fails = 0; rec.restarts += 1; escalateRestart(rec);
           respawnsThisCycle++;

@@ -1,0 +1,34 @@
+{
+  "note": "лестница bot-мейкера MBC-20 (расчёт на будущее): anchor=якорная цена AGT/шт, askStep/bidStep=шаг уровня, levels=уровней с каждой стороны; qty считается от per-order лимита биржи (20% минта) × qtyPctOfLimit",
+  "maker": "AGTcbe364d730586ac6c6908dc79dadf5e66bc6f788",
+  "default": {
+    "levels": 5,
+    "qtyPctOfLimit": 0.25
+  },
+  "pairs": {
+    "DEEPSEEK": {
+      "anchor": 0.003,
+      "askStep": 0.002,
+      "bidStep": 0.001,
+      "levels": 5
+    },
+    "BOTAI": {
+      "anchor": 0.006,
+      "askStep": 0.004,
+      "bidStep": 0.002,
+      "levels": 5
+    },
+    "BITCOIN": {
+      "anchor": 0.05,
+      "askStep": 0.05,
+      "bidStep": 0.02,
+      "levels": 3
+    },
+    "CRCHCN": {
+      "anchor": 0.012,
+      "askStep": 0.01,
+      "bidStep": 0.005,
+      "levels": 5
+    }
+  }
+}

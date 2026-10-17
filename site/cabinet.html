@@ -61,6 +61,7 @@
       <input id="oQty" placeholder="кол-во токенов" style="width:150px">
       <input id="oPrice" placeholder="цена AGT/шт" style="width:150px">
       <button id="bOrder">Подписать и выставить</button>
+    <div id="oWarn" style="font-size:12px;margin-top:6px;display:none;padding:6px 10px;border:1px solid #e06c75;border-radius:7px;color:#e06c75;background:#e06c7511"></div>
     </div>
     <div class="dimt" style="font-size:12px">кабинет подписывает ордер на ноде от твоего кошелька (privKey хранится в кошельке ноды — держатель ноды распоряжается); для внешнего агента честнее локальная подпись через skills/agentdata — v2</div>
     <div id="oMsg" style="font-size:12px;margin-top:6px"></div>
@@ -105,6 +106,26 @@
   $('b2b').onclick = () => fetch('/cabinet/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim(), mode: 'challenge', nonce: $('nonce').value, signature: $('sig').value.trim() }) }).then(x => x.json()).then(afterLogin);
 
   $('bOrder').onclick = async () => {
+    // AGIP-15: предупреждение «слишком жирный кусок» — sell-ордер > 30% visible ask-стакана
+    // (или покупка > 30% минта — лучше дробить по лестнице стакана, цены видно на /mbc20)
+    const warnBox = $('oWarn'); warnBox.style.display = 'none';
+    try {
+      const tick = $('oTick').value, side = $('oSide').value, qty = Number($('oQty').value) || 0;
+      if (qty > 0) {
+        const st = await fetch('/mbc20/state').then(x => x.json()).catch(() => null);
+        const t = st && (st.tokens || []).find(x => x.tick === tick);
+        const pr = st && (st.prices || {})[tick];
+        const b = await fetch('/mbc20/book?tick=' + tick).then(x => x.json()).catch(() => null);
+        let warn = '';
+        if (side === 's' && b && (b.asks || []).length) {
+          const totalAsk = b.asks.reduce((s, o) => s + o.remaining, 0);
+          if (qty > totalAsk * 0.3) warn = '⚠️ Жирный кусок: твой sell ' + qty.toLocaleString('ru-RU') + ' > 30% стакана (' + totalAsk.toLocaleString('ru-RU') + ' шт visible asks). Один куском весь стакан не продаётся — дроби по уровням, как на лестнице (см. /mbc20).';
+        }
+        if (side === 's' && t && t.minted != null && qty > t.minted * 0.2) warn = '⚠️ Один ордер ≤ 20% минта (' + Math.floor(t.minted * 0.2).toLocaleString('ru-RU') + ' шт) — биржа отклонит такой (order_too_big). Дроби по лестнице.';
+        if (side === 'b' && t && t.minted != null && qty > t.minted * 0.3) warn = '⚠️ Покупка ' + qty.toLocaleString('ru-RU') + ' > 30% минта ' + tick + ' — биржа капает покупателя на 30% минта (buyer_cap). Останешься с непокупаемым хвостом.';
+        if (warn) { warnBox.textContent = warn; warnBox.style.display = ''; }
+      }
+    } catch {}
     const r = await fetch('/dxe/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maker: ADDR, side: $('oSide').value, item: 'mbc20:' + $('oTick').value, qty: Number($('oQty').value), price: Number($('oPrice').value) }) }).then(x => x.json()).catch(e => ({ error: e.message }));
     $('oMsg').innerHTML = r.ref ? '<span class="ok">⚜ ордер в мемпул: ref <b class="mono">' + esc(r.ref) + '</b> · memo ' + esc((r.memo || '').slice(0, 42)) + '</span>' : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
     myOrders();

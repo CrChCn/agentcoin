@@ -778,6 +778,19 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!['b', 's'].includes(String(side))) return json(res, 400, { error: 'side must be b or s' });
     const q = fmtNum(qty), pr = fmtNum(price);
     if (!q || !pr) return json(res, 400, { error: 'qty/price should be finite numbers' });
+    // AGIP-15: защита ликвидности — один ордер не скупает токеномятику
+    if (String(item).startsWith('mbc20:')) {
+      const chk = mbc20.checkTradeSize(String(item).slice(6), Number(q));
+      if (!chk.ok) return json(res, 409, chk);
+      // весь visible ask-стакан ≤ 40% минта (проверяем только sell-сторону; bids свободны)
+      if (String(side) === 's') {
+        const ds = dxeState(bc);
+        const totalAsk = ds.orders.filter(o => o.status === 'open' && o.item === String(item) && o.side === 's')
+          .reduce((s, o) => s + (o.qty - o.filled), 0);
+        const depth = mbc20.checkAskDepth(String(item).slice(6), Number(q), totalAsk);
+        if (!depth.ok) return json(res, 409, depth);
+      }
+    }
     const ref = dxeRef();
     const memo = `dxe|O|${side}|${String(item).slice(0, 40)}|${q}|${pr}|${ref}`;
     // несу\u0000ный amount — требование консенсуса; self-tx 0.001 AGT = «плата за вписание в книгу», деньги остаются у makerа
@@ -794,6 +807,18 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const remaining = +(o.qty - o.filled).toFixed(6);
     if (remaining <= 1e-9) return json(res, 409, { error: 'order_closed_fully_filled' });
     if (buyer === o.from) return json(res, 400, { error: 'self_trade_stp', note: 'STP: сделки с собой запрещены' });
+    // AGIP-15: филлы mbc20-пар тоже ограничены (один buyer за один сервис-вызов не забирает всё)
+    if (String(o.item || '').startsWith('mbc20:')) {
+      const chk = mbc20.checkTradeSize(String(o.item).slice(6), Math.min(Number(qty), remaining));
+      if (!chk.ok) return json(res, 409, chk);
+      // per-buyer кап: покупатель не может накопить >30% минта (все его филлы этой пары)
+      const ds = dxeState(bc);
+      const buyerGot = ds.fills
+        .filter(f => f.accepted && f.from === buyer && (ds.orders.find(z => z.ref === f.orderRef) || {}).item === o.item)
+        .reduce((s, f) => s + (f.qtyFill ?? f.qty), 0);
+      const cap = mbc20.checkBuyerSize(String(o.item).slice(6), buyerGot, Math.min(Number(qty), remaining));
+      if (!cap.ok) return json(res, 409, cap);
+    }
     const qtyFill = Math.min(Number(qty), remaining);
     const due = +(o.price * qtyFill).toFixed(6);
     const memo = `dxe|F|${ref}|${fmtNum(qtyFill)}`;

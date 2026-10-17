@@ -25,13 +25,21 @@ const DATA_DIR = process.env.AGT_DATA_DIR
   || (fs.existsSync(path.join(__dirname, 'data-vps')) ? path.join(__dirname, 'data-vps') : path.join(__dirname, 'data'));
 const MINER_FILE = path.join(DATA_DIR, 'wallets.json');
 const LOG = path.join(DATA_DIR, 'autominer', 'health-check.log');
+// C-4 (Codex-ревью): в token-режиме почти все POST ноды (/balance, /community/send
+// для алертов) требуют x-admin-token даже с петли. Токен берем из env, иначе —
+// стандартный файл дата-каталога data-agtx/admin-token.txt; без токена работаем
+// как раньше (local-режим нод не пострадает).
+const ADMIN_TOKEN = process.env.AGT_ADMIN_TOKEN
+  || (() => { try { return fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch { return null; } })();
 
 function log(msg) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
   fs.appendFileSync(LOG, `[${new Date().toISOString()}] ${msg}\n`);
 }
 async function api(m, p, b = null) {
-  const r = await fetch(API + p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+  const headers = { 'Content-Type': 'application/json' };
+  if (ADMIN_TOKEN) headers['x-admin-token'] = ADMIN_TOKEN; // служебные POST в token-режиме не должны 403-фаться
+  const r = await fetch(API + p, { method: m, headers, body: b ? JSON.stringify(b) : undefined });
   return { status: r.status, body: await r.json().catch(() => ({})) };
 }
 function minerAddr() {
@@ -71,7 +79,7 @@ async function main() {
   // 3) аудит балансов — единый источник правды (ТЗ-2 из аудита 2026-10-15):
   // вся логика (NaN-скип, opinion-скип, 503/429-ретраи, rewardDrift) живёт в audit-lib.mjs
   const miner = minerAddr();
-  const audit = await sharedAuditBalances({ dataDir: DATA_DIR, baseUrl: API });
+  const audit = await sharedAuditBalances({ dataDir: DATA_DIR, baseUrl: API, adminToken: ADMIN_TOKEN });
   const auditBad = audit.mismatches.length;
   for (const m of audit.mismatches.slice(0, 4)) {
     findings.push(`balance ${m.addr}: chain=${m.expected} node=${m.got ?? m.error ?? 'absent'}`);

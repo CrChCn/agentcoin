@@ -39,7 +39,11 @@ export function recalcFromChainFile(dataDir) {
 
 // Полный аудит: пересчёт из файла против POST /balance на указанном baseUrl.
 // Возвращает { checked, height, bannedSkipped, rewardDrift, transientSkipped, mismatches, ok }
-export async function auditBalances({ dataDir, baseUrl, attempts = AUDIT_ATTEMPTS }) {
+// C-4 (Codex-ревью): в token-режиме ноды /balance требует x-admin-token; токен —
+// env AGT_ADMIN_TOKEN или adminToken, переданный вызывающим (health-check).
+export async function auditBalances({ dataDir, baseUrl, adminToken = null, attempts = AUDIT_ATTEMPTS }) {
+  const token = adminToken || process.env.AGT_ADMIN_TOKEN || null;
+  const authHeaders = token ? { 'x-admin-token': token } : {};
   const { balances, height } = recalcFromChainFile(dataDir);
   const mismatches = [];
   let bannedSkipped = 0, rewardDrift = 0, transientSkipped = 0;
@@ -51,7 +55,7 @@ export async function auditBalances({ dataDir, baseUrl, attempts = AUDIT_ATTEMPT
       try {
         const resp = await fetch(baseUrl + '/balance', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({ address: addr }),
         });
         let body = {};

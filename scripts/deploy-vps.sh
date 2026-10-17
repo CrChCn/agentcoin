@@ -52,11 +52,14 @@ echo "  ⚠ если это Oracle Cloud — дополнительно откр
 
 echo "[4/7] Репозиторий → ${INSTALL_DIR} (повторный запуск = жёсткий апдейт до origin/main)"
 if [ -d "${INSTALL_DIR}/.git" ]; then
-  # Ревью п.6: reset --hard уничтожает незакоммиченные правки отслеживаемых файлов.
-  # Кастомизировать ноду нельзя — правки должны жить в форке/патчах. Грязное дерево →
-  # явный стоп, никакая самодельная правка не молча не затирается.
-  if [ -n "$(git -C "${INSTALL_DIR}" status --porcelain -- "{${INSTALL_DIR}}" 2>/dev/null | head -5)" ]; then
-    git -C "${INSTALL_DIR}" status --short | head -10 >&2
+  # Ревью п.6 (C-2 ревизия): проверять нужно ВСЕ отслеживаемые файлы; прежний
+  # pathspec «{...}» — буквальный — ничего не матчил, и грязное дерево проходило.
+  # Ошибка git-замера = не верить: стоп, а не обновляться вслепую.
+  if ! GIT_DIRTY="$(git -C "${INSTALL_DIR}" status --porcelain --untracked-files=no 2>&1)"; then
+    die "git status не удался ($(echo "${GIT_DIRTY}" | head -1)) — обновление прервано без reset"
+  fi
+  if [ -n "${GIT_DIRTY}" ]; then
+    echo "${GIT_DIRTY}" | head -10 >&2
     die "в ${INSTALL_DIR} есть незакоммиченные правки — reset --hard их затрёт. Закоммить/сохранить и повтори"
   fi
   # safe.directory: после chown agt:agt запуск git от root больше не валится
@@ -159,11 +162,13 @@ if [ -n "${PUB_IP}" ]; then
   # ОДНИМ 000 (без доклейки: двойной «000000» ломал ветку «не проверено»)
   HTTP_CODE=$(curl -sS -m 10 -o "${BODY_FILE}" -w '%{http_code}' -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}') || HTTP_CODE=000
   BODY_GOT=$(head -c 200 "${BODY_FILE}"; rm -f "${BODY_FILE}")
+  # C-3: гонки веток честные: PASS = 403+тело; НЕ ПРОВЕРЕНО = только «сеть не
+  # дала ответ» (000); ВСЁ ОСТАЛЬНОЕ (2xx/3xx/любой другой 4xx/5xx/странный
+  # 403 без нашего тела) — защита сломана → hard fail.
   if [ "${HTTP_CODE}" = "403" ] && grep -q 'admin_loopback_only' <<<"${BODY_GOT}"; then
     BARRIER_VERIFIED=1
     echo "  ✓ публичный барьер подтверждён: POST /tx/sign с ${PUB_IP} → 403 admin_loopback_only"
-  elif [[ "${HTTP_CODE}" != 4* && "${HTTP_CODE}" != 5* ]]; then
-    # 000/refused/timeout/редкое/пустое = НЕ ПРОВЕРЕНО: не успех и не фейл
+  elif [ "${HTTP_CODE}" = "000" ]; then
     echo "  ⚠ барьер НЕ ПРОВЕРЕН: публичный ${PUB_IP}:${PORT} не отвечает изнутри (NAT/провайдер firewall?) — проверь снаружи сам:  curl -i http://${PUB_IP}:${PORT}/tx/sign -X POST -d '{}'" >&2
   else
     echo "  ✗ админ-маршрут ответил извне: HTTP ${HTTP_CODE} ($(echo "${BODY_GOT}" | head -1)) — старая версия кода? git -C ${INSTALL_DIR} pull && systemctl restart agt-node" >&2
@@ -171,30 +176,35 @@ if [ -n "${PUB_IP}" ]; then
   fi
 fi
 
-cat <<NEXT
+# C-1 (Codex): делимитер в КАВЫЧКАХ — текст ниже — чистые инструкции для ЧЕЛОВЕКА:
+# $T и $(sudo ...) исполняются только в его SSH-сессии, а никогда — в деплое
+# (раскрытие здесь печатало бы админ-токен в stdout и падало с unbound T).
+# Плейсхолдеры __PORT__/__CONF__ подставляет sed (PORT/INSTALL_DIR — механически).
+cat <<'NEXT' | sed "s|__PORT__|${PORT}|g; s|__CONF__|${INSTALL_DIR}|g"
 
 === ГОТОВО ===
   - нода:      systemctl status agt-node
   - логи:      journalctl -u agt-node -f
-  - админ-токен (если понадобится деструктивный POST даже с loopback):
-               sudo cat ${INSTALL_DIR}/data-agtx/admin-token.txt
+  - админ-токен (для деструктивных POST и кошельковых операций):
+               sudo cat __CONF__/data-agtx/admin-token.txt
 
 КОШЕЛЁК И АДМИН — ТОЛЬКО ЧЕРЕЗ SSH (AGIP-37.LOCAL, режим admin_mode=token):
   с твоей машины:
     ssh ubuntu@<vps-ip>
   на сервере (loopback + админ-токен — нода развернута в token-режиме: туннель
   никогда не считается админом, авторизация — единственный путь):
-    T=$(sudo cat ${INSTALL_DIR}/data-agtx/admin-token.txt)
-    curl -X POST http://127.0.0.1:${PORT}/wallet/create \\
+    T=$(sudo cat __CONF__/data-agtx/admin-token.txt)
+    curl -X POST http://127.0.0.1:__PORT__/wallet/create \\
       -H 'Content-Type: application/json' -H "x-admin-token: $T" \\
       -d '{"label":"vps-agent","recover":true}'
       → mnemonic ОДИН раз; ключи остаются в data-vps/wallets.json
   АНОНС В ЧАТ (на сервере, порт подставлен честно):
-    curl -X POST http://127.0.0.1:${PORT}/community/send -H 'Content-Type: application/json' \\
+    curl -X POST http://127.0.0.1:__PORT__/community/send -H 'Content-Type: application/json' \\
       -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'
     (адрес подставит нода — AGIP-21)
 
-ПРОВЕРКА БАЛАНСОВ ИЗ ЦЕПИ (на сервере):
-    node health-check.mjs ${PORT}
+ПРОВЕРКА БАЛАНСОВ ИЗ ЦЕПИ (на сервере; health-check сам подхватит токен из
+__CONF__/data-agtx/admin-token.txt или из env AGT_ADMIN_TOKEN):
+    node health-check.mjs __PORT__
 
 NEXT

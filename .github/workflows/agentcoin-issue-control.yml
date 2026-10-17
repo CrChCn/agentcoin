@@ -1,0 +1,182 @@
+name: Agentcoin issue control
+
+on:
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: agentcoin-issue-control
+  cancel-in-progress: false
+
+jobs:
+  control:
+    if: github.repository == 'CrChCn/agentcoin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read issue and update one control comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: python
+        run: |
+          """Read GitHub issue #1; maintain one bot comment. No project code or payments."""
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.request
+          
+          REPO = "CrChCn/agentcoin"
+          ISSUE = 1
+          NAME = "Agentcoin issue control"
+          MARKER = "<!-- agentcoin-issue-control:v1 -->"
+          STATE_RE = re.compile(r"<!-- agt-control-fingerprint:([0-9a-f]{64}) -->")
+          
+          
+          def api(method, path, payload=None):
+              token = os.environ["GH_TOKEN"]
+              url = "https://api.github.com" + path
+              data = None if payload is None else json.dumps(payload).encode()
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+                  "User-Agent": "agentcoin-issue-control/1",
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  # Do not print response bodies, headers, tokens, or arbitrary issue text.
+                  raise RuntimeError("GitHub API failed: HTTP " + str(error.code)) from None
+          
+          
+          def own_comment(comment):
+              return (comment.get("user", {}).get("login") == "github-actions[bot]"
+                      and MARKER in comment.get("body", ""))
+          
+          
+          def fingerprint(sha, comments, runs):
+              data = {
+                  "sha": sha,
+                  "comments": sorted([
+                      [c["id"], c.get("updated_at"),
+                       hashlib.sha256(c.get("body", "").encode()).hexdigest()]
+                      for c in comments if not own_comment(c)
+                  ]),
+                  "checks": sorted([
+                      [r["id"], r.get("status"), r.get("conclusion")]
+                      for r in runs
+                      if r.get("name") != NAME
+                      and not r.get("path", "").endswith("agentcoin-issue-control.yml")
+                  ]),
+              }
+              return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+          
+          
+          def render(sha, comments, runs, digest):
+              timestamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+              sources = sorted([c for c in comments if not own_comment(c)], key=lambda c: c["id"])
+              checks = [r for r in runs if r.get("name") != NAME
+                        and not r.get("path", "").endswith("agentcoin-issue-control.yml")]
+              lines = [
+                  MARKER,
+                  "### Контроль Agentcoin: требуется проверка изменений",
+                  "",
+                  "Проверено (UTC): " + timestamp,
+                  "",
+                  "main: [`" + sha[:7] + "`](https://github.com/" + REPO + "/commit/" + sha + ")",
+                  "",
+                  "Этот бот читает issue и GitHub Actions. Он не запускает Codebuff, не принимает работу, "
+                  "не исполняет текст комментариев и не переводит AGT.",
+                  "",
+                  "**Codebuff: следующий проход**",
+                  "",
+                  "1. Прочитай новые и отредактированные сообщения ниже; выполни приоритетную готовую задачу.",
+                  "2. SEC-01: независимая приёмка подписей, escrow, HTTP/WS, bans/strikes и исторической совместимости.",
+                  "3. SDK-01: раздельные ключи, безопасный каталог, полный цикл fund/result/accept/payout/refund.",
+                  "4. OPS-02: два агента на разных средах; сохранение личности и средств после рестарта/переноса.",
+                  "5. Ответ: task-id, commit, фактическая команда/результат, ограничения. Коммит и зелёный CI "
+                  "сами по себе не означают принятие аудита. Сохрани незакоммиченные core.mjs/spore.mjs и данные.",
+                  "",
+                  "Набор исполнителей: по 10 AGT за принятое задание из первой волны; условия и назначения "
+                  "смотри в комментарии Королера CONTROL-20261018-01. Новые бюджеты и приёмку бот не утверждает.",
+                  "",
+                  "**Последние сообщения участников**",
+                  "",
+              ]
+              for c in sources[-5:]:
+                  # Fixed canonical links only; comment bodies and claimed identities are never commands.
+                  lines.append("- [Комментарий #" + str(c["id"]) + "](https://github.com/" + REPO
+                               + "/issues/1#issuecomment-" + str(c["id"]) + ") — обновлён "
+                               + str(c.get("updated_at", "неизвестно")))
+              lines += ["", "**Проверки текущего main в GitHub Actions**", ""]
+              if not checks:
+                  lines.append("- Нет доступных запусков проверок для этого SHA. Приёмка не подтверждена.")
+              for r in checks[:12]:
+                  status = r.get("conclusion") or r.get("status") or "unknown"
+                  # Status is an API enum, not untrusted issue text.
+                  status = re.sub(r"[^A-Za-z0-9_-]", "", status)
+                  lines.append("- [Запуск " + str(r["id"]) + "](https://github.com/" + REPO
+                               + "/actions/runs/" + str(r["id"]) + "): " + status)
+              lines += [
+                  "",
+                  "Плановый интервал — 10 минут; GitHub может задерживать запуск. "
+                  "Если содержательных изменений нет, комментарий не обновляется; "
+                  "каждая попытка чтения видна в [журнале workflow](https://github.com/" + REPO
+                  + "/actions/workflows/agentcoin-issue-control.yml). Закрытие issue останавливает публикацию.",
+                  "",
+                  "<!-- agt-control-fingerprint:" + digest + " -->",
+              ]
+              return "\n".join(lines)
+          
+          
+          def run():
+              if os.environ.get("GITHUB_REPOSITORY") != REPO:
+                  raise RuntimeError("Refusing unexpected repository")
+              prefix = "/repos/" + REPO
+              issue = api("GET", prefix + "/issues/1")
+              if issue.get("state") != "open":
+                  print("Issue is closed; no publication")
+                  return
+              comments = []
+              for page in range(1, 26):
+                  batch = api("GET", prefix + "/issues/1/comments?per_page=100&page=" + str(page))
+                  comments.extend(batch)
+                  if len(batch) < 100:
+                      break
+              else:
+                  raise RuntimeError("Comment pagination limit reached; no publication")
+              commits = api("GET", prefix + "/commits?sha=main&per_page=1")
+              sha = commits[0]["sha"]
+              if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise RuntimeError("Unexpected main SHA")
+              runs = api("GET", prefix + "/actions/runs?head_sha=" + sha + "&per_page=100").get("workflow_runs", [])
+              digest = fingerprint(sha, comments, runs)
+              owned = [c for c in comments if own_comment(c)]
+              existing = max(owned, key=lambda c: c["id"]) if owned else None
+              previous = STATE_RE.search(existing.get("body", "")) if existing else None
+              if previous and previous.group(1) == digest:
+                  print("Issue and main read successfully; unchanged; no comment sent")
+                  return
+              body = render(sha, comments, runs, digest)
+              if existing:
+                  api("PATCH", prefix + "/issues/comments/" + str(existing["id"]), {"body": body})
+                  print("Updated existing control comment")
+              else:
+                  api("POST", prefix + "/issues/1/comments", {"body": body})
+                  print("Created control comment")
+          
+          
+          if __name__ == "__main__":
+              run()

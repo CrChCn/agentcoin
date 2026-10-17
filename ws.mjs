@@ -9,6 +9,7 @@
 'use strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import https from 'node:https';
 
 export const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 export function acceptKey(secWebSocketKey) {
@@ -146,7 +147,9 @@ export function connectClient(urlStr, { timeoutMs = 8000 } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr);
     const key = crypto.randomBytes(16).toString('base64');
-    const req = http.request({
+    // AGIP-27: https-пир (например, через TLS-фаннел) — используем https-клиент,
+    // иначе внешние пиру扥 толко plain-http и не могут подключиться извне.
+    const req = (u.protocol === 'https:' ? https : http).request({
       host: u.hostname, port: Number(u.port) || 80, path: u.pathname + u.search,
       headers: {
         Connection: 'Upgrade', Upgrade: 'websocket',

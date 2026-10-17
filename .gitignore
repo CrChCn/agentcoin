@@ -16,6 +16,10 @@ log-*.txt
 log-*.log
 
 # --- 3) State скиллов/кошельки вне data/ ---
+# Императорский холодный кошелёк: файлы с ключами НИКОГДА не в git
+*.empw
+emperor-wallet*.json
+data-emperor/
 agt-skill/.state/
 
 # --- 4) Отчёты и служебные артефакты ---

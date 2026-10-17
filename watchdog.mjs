@@ -57,7 +57,7 @@ function probeShed(url) {
     http.get(url, (res) => {
       let body = '';
       res.on('data', (c) => { body += c; if (body.length > 4096) res.destroy(); });
-      res.on('end', () => { clearTimeout(t); resolve(String(body).includes('overloaded') ? 'shedding' : 'ok'); });
+      res.on('end', () => { clearTimeout(t); resolve(res.statusCode === 200 ? (String(body).includes('overloaded') ? 'shedding' : 'ok') : 'down'); });
     }).on('error', () => { clearTimeout(t); resolve('timeout'); });
   });
 }
@@ -75,13 +75,32 @@ function launchWrapper(wrapper) {
   // и для будущих рестартов watchdog-ом). Без файла — env не трогаем, охрана неактивна.
   let adminToken = null;
   try { adminToken = fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch { adminToken = null; }
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32'
-      ? `cmd /c "${wrapper}"`
-      : wrapper;
-    const env = adminToken ? { ...process.env, AGT_ADMIN_TOKEN: adminToken } : process.env;
-    exec(cmd, { cwd: __dirname, windowsHide: true, env }, () => resolve());
-  });
+  const env = adminToken ? { ...process.env, AGT_ADMIN_TOKEN: adminToken } : process.env;
+  // A-6 (Codex-ревизия 2026-10-18): exec() ждал exit живой ноды ВЕЧНО — save() не доезжал,
+  // kill→launch ломался. Detached-spawn: обёртка стартует немедленно.
+  const cmd = process.platform === 'win32' ? 'cmd' : wrapper;
+  const args = process.platform === 'win32' ? ['/c', wrapper] : [];
+  try {
+    const child = spawn(cmd, args, { cwd: __dirname, windowsHide: true, env, detached: process.platform === 'win32', stdio: 'ignore' });
+    if (typeof child.unref === 'function') child.unref();
+    log(`wrapper запущен: ${wrapper} (pid ${child.pid ?? '?'} )`);
+    return Promise.resolve(true);
+  } catch (e) {
+    log(`wrapper не запустился: ${e.message}`);
+    return Promise.resolve(false);
+  }
+};
+
+// A-6: синхронная остановка владельца порта + ЖДАТЬ освобождения (раньше taskkill
+// был fire-and-forget — обёртка стартовала на занятый порт → зомби-клоны).
+async function killPidAwaitFree(pid, port) {
+  await new Promise((r) => exec(`taskkill /PID ${pid} /F`, { windowsHide: true }, () => r()));
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const owner = await portOwnerPid(port);
+    if (!owner) return true;
+  }
+  return false;
 }
 
 // Инцидент 2026-10-15: watchdog при коротком провале /life (мгновенная перегрузка,
@@ -115,7 +134,11 @@ function cpuLoadPct() {
 }
 const CPU_GOVERNOR_MAX = 90;
 
+let cycleBusy = false;
 async function cycle() {
+  if (cycleBusy) return;
+  cycleBusy = true;
+  try {
   // AGIP-23 (анти-CPU-шторм): максимум ОДНА реанимация за цикл — каждая = полная
   // загрузка 9-МБ chain.json (CPU-спайк). Инцидент: несколько RESTART за цикл =
   // ферма топит сама себя и разваливается. Пропущенные ноды догоняю со следующих циклов.
@@ -126,14 +149,14 @@ async function cycle() {
   for (const n of NODES) {
     const rec = state.nodes[n.name];
     const ok = await probe(n.url);
-    if (ok) { rec.fails = 0; rec.shed = 0; rec.cdMul = 1; rec.lastAliveAt = Date.now(); continue; }
+    if (ok) { rec.fails = 0; rec.shed = 0; rec.sick = 0; rec.cdMul = 1; rec.lastAliveAt = Date.now(); continue; }
     rec.fails += 1;
     log(`${n.name} не отвечает (${rec.fails}/${FAIL_LIMIT}, url ${n.url})`);
     const cooldown = RESTART_COOLDOWN_MS * (rec.cdMul || 1); // AGIP-19: эскалация
     if (rec.fails >= FAIL_LIMIT && Date.now() - rec.lastRestartAt > cooldown) {
       const owner = await portOwnerPid(n.port);
       if (owner) {
-        const shed = await probeShed(`http://127.0.0.1:${n.port}/health`);
+        const shed = await probeShed(n.url.replace(/\/life$/, '/health')); // A-6: probe по фактическому адресу цели
         if (shed === 'shedding') {
           // ЖИВАЯ, НО ПЕРЕГРУЖЕНА: не спавню дубликат и не убиваю — это безрезультатный
           // рестарт-шторм. Жду до SHED_LIMIT, потом разово откапываю жёстким рестартом.
@@ -148,8 +171,12 @@ async function cycle() {
             else {
               respawnsThisCycle++;
               log(`HARD-RESTART ${n.name} (застряла в shedding): taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-              exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
-              launchWrapper(n.wrapper).then(() => save());
+              if (!(await killPidAwaitFree(owner, n.port))) {
+              log(`${n.name}: порт ${n.port} не освободился после taskkill — НЕ спавню дубликат (A-6)`);
+            } else {
+              rec.sick = 0; rec.shed = 0; respawnsThisCycle++;
+              launchWrapper(n.wrapper); save();
+            }
             }
           }
         } else {
@@ -163,8 +190,12 @@ async function cycle() {
               } else {
                 rec.sick = 0; respawnsThisCycle++;
                 log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-                exec(`taskkill /PID ${owner} /F`, { windowsHide: true }, () => {});
-                launchWrapper(n.wrapper).then(() => save());
+                if (!(await killPidAwaitFree(owner, n.port))) {
+              log(`${n.name}: порт ${n.port} не освободился после taskkill — НЕ спавню дубликат (A-6)`);
+            } else {
+              rec.sick = 0; rec.shed = 0; respawnsThisCycle++;
+              launchWrapper(n.wrapper); save();
+            }
               }
             }
         }
@@ -186,12 +217,13 @@ async function cycle() {
           rec.sick = 0; rec.fails = 0; rec.restarts += 1; escalateRestart(rec);
           respawnsThisCycle++;
           log(`RESTART ${n.name} → ${n.wrapper} (всего рестартов: ${rec.restarts})`);
-          launchWrapper(n.wrapper).then(() => save());
+          launchWrapper(n.wrapper);
         }
       }
     }
   }
   save();
+  } finally { cycleBusy = false; }
 }
 log('сторож вышел на пост. Цели: ' + NODES.map(n => n.name).join(', '));
 save();

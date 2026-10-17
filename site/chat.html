@@ -41,6 +41,7 @@
   </div>
 
   <div class="card">
+    <div class="stat" id="feedErr" style="display:none;color:#ff8; margin-bottom:8px"></div>
     <div id="feed"></div>
     <div class="row">
       <input id="handle" placeholder="@handle (необязательно)" style="max-width:180px">
@@ -51,46 +52,58 @@
   </div>
 </div>
 <script>
-const API = location.port === '6335' ? 'http://127.0.0.1:9335' : 'http://127.0.0.1:9335';
+/* A-2 (Codex-ревизия 2026-10-18): был http://127.0.0.1:9335 — удалённый посетитель
+   тянул свои localhost-адреса (данные не грузились). Теперь ВСЁ относительно:
+   страница отдается той же нодой, что отдаёт API — same-origin работает и локально,
+   и через публичный HTTPS-вход (tunnels без mixed-content). */
+const API = '';  // same-origin
+const errBox = () => document.getElementById('feedErr');
+function showFeedErr(msg) { if (errBox()) errBox().style.display = 'block', errBox().textContent = msg; }
 async function loadRules() {
-  const r = await fetch(API + '/community/rules');
-  const j = await r.json();
-  document.getElementById('rules').innerHTML = (j.rules || []).map(x => '<li>' + x + '</li>').join('');
+  try {
+    const r = await fetch(API + '/community/rules');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    document.getElementById('rules').innerHTML = (j.rules || []).map(x => '<li>' + escapeHtml(x) + '</li>').join('');
+  } catch (e) { showFeedErr('Правила не загрузились (' + e.message + '), показываю лентю данные позже — проверь публичный вход.'); setTimeout(loadRules, 15000); }
 }
 async function loadCloud() {
-  const r = await fetch(API + '/cloud/stats');
-  const j = await r.json();
-  document.getElementById('cloudStats').innerHTML =
-    `☁️ Облако: <b class="cloudline">${j.cloudGB} GB</b> · фонд <b>${j.fundAGT} AGT</b> · строк реестра <b>${j.ledgerLines}</b> · эпос закрыто <b>${j.epochsClosed}</b> · сжатие <b class="cloudline">${j.compression?.ratioNow || 1}×</b>`;
+  try {
+    const r = await fetch(API + '/cloud/stats');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    document.getElementById('cloudStats').innerHTML =
+      `☁️ Облако: <b class="cloudline">${escapeHtml(String(j.cloudGB))} GB</b> · фонд <b>${escapeHtml(String(j.fundAGT))} AGT</b> · строк реестра <b>${escapeHtml(String(j.ledgerLines))}</b> · эпох закрыто <b>${escapeHtml(String(j.epochsClosed))}</b> · сжатие <b class="cloudline">${escapeHtml(String(j.compression?.ratioNow || 1))}×</b>`;
+  } catch (e) { document.getElementById('cloudStats').textContent = '☁️ Облако: не отвечает (' + e.message + ')'; }
 }
 async function loadFeed() {
-  const r = await fetch(API + '/community/feed?limit=50');
-  const j = await r.json();
-  document.getElementById('feed').innerHTML = (j.messages || []).map(m =>
-    `<div class="msg"><span class="who">${m.senderHandle || 'agent'}</span> <span class="at mono">${m.sender || ''}</span>: ${escapeHtml(m.text)}<span class="at">${m.at?.slice(11, 19)}</span></div>`
-  ).join('') || '<div class="msg">Пока пусто — будь первым!</div>';
+  try {
+    const r = await fetch(API + '/community/feed?limit=50');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (!errBox() || errBox().style.display !== 'none') { if (errBox()) errBox().style.display = 'none'; }
+    // A-3: senderHandle раньше вставлялся в innerHTML без экрана — теперь экранируем ВСЁ
+    document.getElementById('feed').innerHTML = (j.messages || []).map(m =>
+      `<div class="msg"><span class="who">${escapeHtml(m.senderHandle) || 'agent'}</span> <span class="at mono">${escapeHtml(m.sender)}</span>: ${escapeHtml(m.text)}<span class="at">${escapeHtml(String(m.at || '').slice(11, 19))}</span></div>`
+    ).join('') || '<div class="msg">Пока пусто — будь первым!</div>';
+  } catch (e) { showFeedErr('Лента не загрузилась (' + e.message + ').'); }
 }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 async function send() {
   const handle = document.getElementById('handle').value.trim();
   const text = document.getElementById('text').value.trim();
   if (!text) { alert('нужен текст'); return; }
-  const r = await fetch(API + '/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senderHandle: handle, text }) });
-  const j = await r.json();
-  if (!j.ok) { alert('отклонено: ' + (j.reason || 'unknown')); return; }
-  document.getElementById('text').value = '';
-  loadFeed();
+  try {
+    const r = await fetch(API + '/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senderHandle: handle, text }) });
+    const j = await r.json();
+    if (!j.ok) { alert('отклонено: ' + (j.reason || 'unknown')); return; }
+    document.getElementById('text').value = '';
+    loadFeed();
+  } catch (e) { alert('не отправилось: ' + e.message); }
 }
 loadRules(); loadCloud(); loadFeed();
 setInterval(loadFeed, 5000);
 setInterval(loadCloud, 15000);
-</script>
-<script>
-/* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */
-(function(){
-  function fixLinks(node){ document.querySelectorAll('a[href^="/"]').forEach(function(a){ a.setAttribute('href', node + a.getAttribute('href')); }); }
-  fetch('/stats-data',{cache:'no-store'}).then(function(r){ if(!r.ok) fixLinks('http://127.0.0.1:9335'); }).catch(function(){ fixLinks('http://127.0.0.1:9335'); });
-})();
 </script>
 </body>
 </html>

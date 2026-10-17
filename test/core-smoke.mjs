@@ -38,18 +38,17 @@ let ok = 0, skipped = 0;
 
 // ---------- 2) подписи транзакций ----------
 {
-  // используем фактически существующий кошелёк из data/wallets.json (не создаем новые, не трогаем файл)
-  let keyPair = null;
-  try {
-    const walletsPath = path.join(root, 'data', 'wallets.json');
-    const w = Object.values(JSON.parse(fs.readFileSync(walletsPath, 'utf8')))[0];
-    if (w && w.privKey && w.pub) keyPair = w;
-  } catch { keyPair = null; }
-
-  if (!keyPair) {
-    console.log('skip: тест 2 требует кошелёк data/wallets.json (на машине исполнителя CI его нет)');
-    skipped++;
-  } else {
+  // A-8 (аудит 2026-10-18): на чистом CI data/wallets.json отсутствовал — тест пропускал
+  // подписи целиком (ok=2/4). Теперь генерируем собственную синтетическую пару ключей —
+  // никогда не пишем data/wallets.json, реальные ключи не используем.
+  {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+    const keyPair = {
+      privKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      pub: publicKey.export({ type: 'spki', format: 'pem' }),
+      address: null,
+    };
+    keyPair.address = core.addressFromPub(keyPair.pub);
     const tx = keyPair; // only to derive digest format
     void tx;
     // минимальный штампованный tx (отправитель — владелец ключа)
@@ -57,7 +56,7 @@ let ok = 0, skipped = 0;
     const signed = core.signTransaction(sample, keyPair.privKey);
     assert.equal(core.verifyTransaction({ ...sample, signature: signed }), true, 'verify(sync signed) must pass');
     assert.notEqual(signed, null, 'signature produced');
-    console.log('ok: sign→verify транзакции (реальный кошелёк, образец 0.001 AGT)');
+    console.log('ok: sign→verify транзакции (свертка синтетической пары, образец 0.001 AGT)');
     ok++;
 
     // 2b) честное примечание: ЗНАЧЕНИЕ тампер-теста подписанного дайджеста.

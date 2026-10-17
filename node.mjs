@@ -126,10 +126,12 @@ function lifeStatus() {
   const age = tip ? now - tip.header.timestamp : null;
   const blocksHealthy = bc.blockCount() > 0;
   const freshTip = age !== null && age < BLOCK_INTERVAL_SEC * 10;
-  const chainOk = bc.validate().ok;
+  // A-9 (Codex-ревизия 2026-10-18): было chainOk=bc.validate().ok — boolean, а дальше
+  // читали chainOk.ok → undefined (поле alive исчезало из JSON.stringify). Плюс двойной
+  // проход валидации на каждый /life. Теперь одиночный вызов и явные булевы свойства.
   const v = bc.validate();
   return {
-    alive: blocksHealthy && chainOk.ok,
+    alive: blocksHealthy && v.ok,
     blocks: bc.blockCount(),
     tipHash: tip ? tip.hash : null,
     tipAgeSec: age,
@@ -139,7 +141,7 @@ function lifeStatus() {
     tips: [
       blocksHealthy ? null : 'chain empty',
       freshTip ? null : `tip stale (${age}s > 300s): монтируй майнера`,
-      chainOk.ok ? null : v.reason,
+      v.ok ? null : v.reason,
     ].filter(Boolean),
     security: { banned: bc.security.banList().length, attacks: bc.security.attacks.length },
     checkedAt: new Date().toISOString(),
@@ -251,8 +253,13 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(info|life|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|imperial(\.html)?|panel\.js|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|cabinet(\.html)?|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+|chain\.html?)(\?.*)?$/;
-const PUB_TX_ROUTES = new Set(['/tx']);
+const PUB_REQUEST_RE = /^\/(?:|info|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|imperial(\.html)?|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+// A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
+// ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
+// подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
+// /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
+const PUB_TX_ROUTES = new Set(['/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout']);
+// cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '' || ip === 'unknown';
@@ -523,7 +530,10 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/tx' && req.method === 'POST') {
     const tx = await body(req);
     if (!verifyTransaction(tx)) {
-      bc.security.registerAttack('spoof_signature', tx.from || 'unknown', 'bad signature at /tx');
+      // P0-2 (аудит AUDIT-20261018-01, воспроизведено): раньше registerAttack('spoof_signature',
+      // tx.from) банил ЗАЯВЛЕННЫЙ (неподтверждённый) адрес — любой мог забанить чужой кошелёк
+      // одним запросом с плохой подписью. Теперь отказ без банов/санкций к from.
+      // Транспортный контроль мусора — rate-limit выше по стеку + лимит mempool.
       return json(res, 400, { error: 'bad_signature' });
     }
     const r = bc.addTransaction(tx);
@@ -825,6 +835,22 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // --- life-guard ---
   if (p === '/life') return json(res, 200, { ...lifeStatus(), shield: { loopLagMs, overloaded: Date.now() < shedUntil, rateMapSize: rateHits.size, maxConnections: server.maxConnections } });
+  // A-6 (Codex-ревизия): дешёвый liveness для watchdog/мониторов — БЕЗ bc.validate()
+  // (иначе его 9-МБ проход вешал монитор). Публичный контракт: 200 = порт жив + поле
+  // overloaded для различения «порушено» от «мёртв»; /life остаётся глубоким.
+  if (p === '/health' && req.method === 'GET') {
+    const tip = bc.tip();
+    const now = Math.floor(Date.now() / 1000);
+    return json(res, 200, {
+      ok: true,
+      service: 'agt-node',
+      blocks: bc.blockCount(),
+      tipAgeSec: tip ? now - tip.header.timestamp : null,
+      overloaded: Date.now() < shedUntil,
+      loopLagMs,
+      checkedAt: new Date().toISOString(),
+    });
+  }
 
   // --- AGIP-5 (шаг 13): состояние локального watchdog с наружи (read-only, публичный как /stats).
   // Смотрящий из tailnet/Funnel видит, жив ли сторож машины и сколько было рестартов.
@@ -1888,7 +1914,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
 
   // --- AGIP-6 (шаг 16): лэндинг для агентов/людей + джобборд-страница ---
-  if (p === '/index' || p === '/index.html') {
+  if (p === '/index' || p === '/index.html' || p === '/') {
     serveSitePage(res, 'index.html');
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)

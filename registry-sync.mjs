@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /* ============================================================
    registry-sync.mjs — межузловая синхронизация реестров AGT
-   Что синхронизируем (в обе стороны, по longest-registry правилу):
-     1) ban-list (SecurityController) — консенсус безопасности
-     2) WhiteList — платёжная верификация
-     3) Чат (последние сообщения) — comunidad flujos
-   Механизм:
-     - каждая нода отдаёт GET /registry/export (json + registryHash)
-     - принимающая валидирует: merkle-hash совпадает, записи не удаляются
-       (append-only для ban/whitelist), чат merge по id
-     - POST /registry/import применяет, возвращает принявшее количество
+
+   ============================================================
+   A-1 (Codex-ревизия 2026-10-18): пир НЕ ЯВЛЯЕТСЯ ПОЛНОМОЧНЫМ источником
+   решений безопасности/казны. До фикса applyRegistryImport автоматом вливал
+   remote.bans/whitelist/gatewayHops — вредоносный (скомпрометированный) пир мог
+   навязать поддельный «бан» чужого кошелька (hash он же и «подтверждал»).
+   Теперь импортируется ТОЛЬКО:
+     · chat — с жёсткой структурой (см. validChatMsg); рендер экранирует.
+   Баны/whitelist/шлюзы — локальные решения (оператор, onchain, jail-патруль).
+   bindRegistryHash из peer-экспорта НЕ проверяется и НЕ влияет — сознательно:
+   «одна псевдо-проверка hash от того же пира» аутентичность не даёт.
+   Когда появится подписанный/консенсусный ban-канал (AGIP-?), включим обратно
+   с проверкой ПОДПИСИ решений, а не хеша.
    ============================================================ */
 'use strict';
 
@@ -37,43 +41,41 @@ export function buildRegistryExport(bc, chat) {
   };
 }
 
+// A-1: структурная валидация чат-записей из peer-экспорта (сообщения читаются
+// браузерами — структура/размер/поля проверяем ДО merge; рендер экранирует всё).
+export function validChatMsg(m) {
+  if (!m || typeof m !== 'object') return false;
+  if (typeof m.id !== 'string' || m.id.length === 0 || m.id.length > 40) return false;
+  if (typeof m.sender !== 'string' || !/^AGT[0-9a-z]{8,64}$/i.test(m.sender)) return false;
+  if (m.senderHandle != null && (typeof m.senderHandle !== 'string' || m.senderHandle.length > 48)) return false;
+  if (typeof m.text !== 'string' || !m.text.trim() || m.text.length > 500) return false;
+  if (m.at != null && (typeof m.at !== 'string' || m.at.length > 40)) return false;
+  // HTML-инъекция A-3: целые тегм спек не храним — разрешаем только текст без <>
+  if (/[<>\u0000-\u001f]/.test(m.senderHandle ?? '')) return false;
+  if (/[<>\u0000-\u001f]/.test(m.text)) return false;
+  return true;
+}
+
 // merge на принимающей стороне
 export function applyRegistryImport(bc, chat, remote) {
   const log = [];
-  const now = Date.now();
-  // баны: append-only (у него + у нас merge по ключу; revoke невозможен через sync)
-  let bansAdded = 0;
-  for (const [addr, info] of Object.entries(remote.bans || {})) {
-    if (!bc.security.bans[addr]) { bc.security.bans[addr] = { ...info, syncedFrom: 'peer', syncedAt: now }; bansAdded++; }
-  }
-  // whitelist: конфликт по handle — приоритет у более ранней verifiedAt (кто раньше, тот честно)
-  let wlAdded = 0, wlConflicts = 0;
-  for (const [handle, entry] of Object.entries(remote.whitelist || {})) {
-    const mine = bc.whitelist.list[handle];
-    if (!mine) { bc.whitelist.list[handle] = { ...entry, syncedFrom: 'peer', syncedAt: now }; wlAdded++; }
-    else if (mine.address !== entry.address) { wlConflicts++; /* остаётся наша — первая */ }
-  }
-  // шлюзы + hops: append-only merge по id — реестр маршрутов общий у всей сети
-  let gwAdded = 0, hopsAdded = 0;
-  for (const [gwId, gw] of Object.entries(remote.gateways || {})) {
-    if (!bc.gateways.map[gwId]) { bc.gateways.map[gwId] = { ...gw, syncedFrom: 'peer' }; gwAdded++; }
-  }
-  const haveHops = new Set(bc.gateways.hops.map(h => `${h.txid}@${h.at ?? ''}`));
-  for (const h of remote.gatewayHops || []) {
-    const key = `${h.txid}@${h.at ?? ''}`;
-    if (!haveHops.has(key)) { bc.gateways.hops.push({ ...h, syncedFrom: 'peer' }); hopsAdded++; }
-  }
-  if (gwAdded || hopsAdded) bc.gateways.save();
-  // чат: merge по id
-  let chatAdded = 0;
+  // A-1 REJECTED ПОЛИТИКА: bans/whitelist/gateways/gatewayHops из peer-реестра НЕ ИМПОРТИРУЮТСЯ.
+  // Счётчики оставлены в отчёте (сколько отвергнуто) — видимость аудиту.
+  let bansRejected = Object.keys(remote?.bans || {}).length;
+  let wlRejected = Object.keys(remote?.whitelist || {}).length;
+  let gwRejected = Object.keys(remote?.gateways || {}).length + (Array.isArray(remote?.gatewayHops) ? remote.gatewayHops.length : 0);
+  // чат: merge по id, с валидацией структуры
+  let chatAdded = 0, chatRejected = 0;
   const haveIds = new Set(chat.messages.map(m => m.id));
-  for (const m of remote.chat || []) {
-    if (!haveIds.has(m.id)) { chat.messages.push(m); chatAdded++; }
+  for (const m of Array.isArray(remote?.chat) ? remote.chat : []) {
+    if (!validChatMsg(m)) { chatRejected++; continue; }
+    if (haveIds.has(m.id)) continue;
+    chat.messages.push(m);
+    chatAdded++;
+    haveIds.add(m.id);
   }
-  if (bansAdded) bc.security.save();
-  if (wlAdded) bc.whitelist.save();
   if (chatAdded) chat.save();
-  log.push(`bans +${bansAdded}, whitelist +${wlAdded} (conflicts ${wlConflicts}), gateways +${gwAdded}, hops +${hopsAdded}, chat +${chatAdded}`);
+  log.push(`PEER-TRUST: bans отклонено ${bansRejected}, whitelist отклонено ${wlRejected}, шлюзы/hops отклонено ${gwRejected} (A-1: бан-решения теперь только локальные/onchain), chat +${chatAdded}, chat отклонено ${chatRejected}`);
   return { ok: true, log };
 }
 

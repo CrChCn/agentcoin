@@ -339,6 +339,12 @@ export function verifyEscrowTx(tx, chain) {
   if (!/^(escpayout|escrefund):/.test(tx.memo || '')) return { ok: false, reason: 'missing_escrow_memo' };
   const open = findEscrowOpen(chain, escId);
   if (!open) return { ok: false, reason: `escrow_open_tx_not_found_in_chain:${escId}` };
+  // P0-1 (аудит 2026-10-18): оборона эскроу-контура от той же «потерянной адресной” привязки:
+  // ключ открывшего эскроу должен РАЗВОРАЧИВАТЬСЯ в адрес работодателя (defense-in-depth:
+  // openTx уже проверен verifyTransaction, но эскроу-сумма слишком велика для тождественного доверия).
+  if (open.openTx?.fromPub && addressFromPub(open.openTx.fromPub) !== open.employer) {
+    return { ok: false, reason: 'escrow_open_pub_mismatch' };
+  }
   const isOpenPayout = tx.memo.startsWith('escpayout:');
   if (isOpenPayout && !tx.memo.endsWith(escId)) return { ok: false, reason: 'escpayout_memo_mismatch' };
 
@@ -348,7 +354,9 @@ export function verifyEscrowTx(tx, chain) {
 
   if (isOpenPayout) {
     if (tx.to !== open.worker) return { ok: false, reason: 'payout_to_wrong_worker', expected: open.worker };
+    // P0-1: ключ приёмщика выписки должен принадлежать ВИЧТЕЛЬНО worker-адресу из открытия эскроу
     const p = tx.escProof || {};
+    try { if (addressFromPub(p.workerPub || '') !== open.worker) return { ok: false, reason: 'worker_pub_mismatch' }; } catch { return { ok: false, reason: 'worker_pub_invalid' }; }
     if (p.taskHash !== open.taskHash) return { ok: false, reason: 'taskHash_mismatch' };
     let okReceipt = false, okConfirm = false;
     try {
@@ -572,6 +580,12 @@ export function signTransaction(tx, privKey) {
 
 export function verifyTransaction(tx) {
   if (!tx.signature || !tx.from || !tx.fromPub) return false;
+  if (typeof tx.from !== 'string' || typeof tx.fromPub !== 'string' || typeof tx.signature !== 'string') return false;
+  // P0-1 (аудит AUDIT-20261018-01, воспроизведено): подпись проверялась переданным
+  // fromPub БЕЗ свертки адреса — чужим ключом можно подписать расход с ЧУЖОГО адреса.
+  // Теперь ДО crypto.verify требуем строгой адресной привязки anchored к канонической
+  // addressFromPub(). Исключений для обычных tx нет; эскроу-адрес проверяет verifyEscrowTx.
+  if (addressFromPub(tx.fromPub) !== tx.from) return false;
   try {
     return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature, 'hex'));
   } catch { return false; }
@@ -665,16 +679,23 @@ export class Blockchain {
   }
 
   load() {
-    try {
-      if (fs.existsSync(this.file)) {
-        const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-        this.chain = d.chain || [];
-        this.difficultyBits = d.difficultyBits ?? INITIAL_DIFFICULTY_BITS;
-        this.genesisHeader = d.genesisHeader || null;
+    // AGIP-17 (разгрузка): если основной файл повреждён (kill во время записи) —
+    // фолбэк на .tmp: crash при записи больше не означает потерю цепи.
+    const readChain = () => {
+      for (const f of [this.file, this.file + '.tmp']) {
+        try {
+          if (!fs.existsSync(f)) continue;
+          const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+          this.chain = d.chain || [];
+          this.difficultyBits = d.difficultyBits ?? INITIAL_DIFFICULTY_BITS;
+          this.genesisHeader = d.genesisHeader || null;
+          return true;
+        } catch { /* битый или не существует — следующий */ }
       }
-      this.loadMempool();
-      this.loadForks();
-    } catch { /* новый файл */ }
+      return false;
+    };
+    readChain();
+    try { this.loadMempool(); this.loadForks(); } catch { /* новый каталог */ }
     if (!this.chain) this.chain = [];
   }
 
@@ -774,10 +795,15 @@ export class Blockchain {
 
   save() {
     fs.mkdirSync(this.dataDir, { recursive: true });
-    fs.writeFileSync(this.file, JSON.stringify({
+    // AGIP-17 (разгрузка): 1) компактный JSON — pretty-print съедал ~40% объёма
+    // и лишний CPU на stringify на каждом блоке (это заметная доля loopLag);
+    // 2) атомарная запись .tmp → rename: kill/crash во время записи не рвёт chain.json.
+    const tmp = this.file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({
       chainId: CHAIN_ID, chain: this.chain, difficultyBits: this.difficultyBits,
       genesisHeader: this.genesisHeader,
-    }, null, 2));
+    }));
+    fs.renameSync(tmp, this.file);
   }
 
   blockCount() { return this.chain.length; }
@@ -830,8 +856,10 @@ export class Blockchain {
       if (typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) {
         return { ok: false, reason: 'escrow_tx_invalid', detail: String(verifyEscrowTx(tx, this.chain)?.reason || '') };
       }
-      this.security.registerAttack('spoof_signature', tx.from, 'signature mismatch — spoofing attempt');
-      return { ok: false, reason: 'bad_signature_permaban' };
+      // P0-2 (аудит 2026-10-18): registerAttack('spoof_signature', tx.from) тут был той же
+      // дырой, что и в HTTP /tx: забанить можно ЛЮБОЙ заявленный адрес одним подделанным tx.
+      // Отказ без санкций к from; ratelimit/spam остаётся транспортным уровнем.
+      return { ok: false, reason: 'bad_signature' };
     }
     // txid вычисляем сразу (для coinbase он уже задан) — иначе undefined===undefined
     // даёт ложные duplicate_tx на любую вторую транзакцию в mempool (баг multihop leg2)

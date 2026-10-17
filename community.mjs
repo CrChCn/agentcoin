@@ -73,15 +73,27 @@ export class CommunityChat {
   }
 
   send({ sender, senderHandle = '', text }) {
+    // A-3 (Codex-ревизия 2026-10-18): раньше senderHandle/sender сохранялись как есть
+    // и рендер их вставляет в innerHTML без экранирования → HTML-инъекция от имени чата.
+    // Теперь hostile-символы НЕ проходят в хранение (защита sâuже рендера).
     if (!sender) return { ok: false, reason: 'sender_required' };
+    if (typeof sender !== 'string' || !/^AGT[0-9a-z]{8,64}$/i.test(sender)) return { ok: false, reason: 'bad_sender' };
     if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT_LEN) {
       return { ok: false, reason: 'bad_text', maxLen: MAX_TEXT_LEN };
+    }
+    // текст — без control-символов (рендер экранирует <>&, но NUL и transfer-символы не надо не хранить)
+    if (/[\u0000-\u001f]/.test(text)) return { ok: false, reason: 'bad_text_control' };
+    let handle = null;
+    if (senderHandle && typeof senderHandle === 'string') {
+      const clean = senderHandle.replace(/[<>`"'\\\u0000-\u001f]/g, '').trim().slice(0, 24);
+      if (!clean) return { ok: false, reason: 'bad_handle' };
+      handle = clean + '@agt';
     }
     const reg = this.canSend(sender);
     if (!reg.ok) return reg;
     const msg = {
       id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      sender, senderHandle: senderHandle ? senderHandle + '@agt' : null,
+      sender, senderHandle: handle,
       text: text.trim().slice(0, MAX_TEXT_LEN),
       at: new Date().toISOString(),
     };

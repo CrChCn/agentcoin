@@ -187,7 +187,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -1985,8 +1985,10 @@ async function wsConnectLoop() {
   }
 }
 // AGIP-23: рассинхрон циклов нод (±10с jitter) — synchronized retry-storm больше нет
+// AGIP-25: на задушенной машине (CPU 100%) интервал WS-циклы поднят 30с→45с,
+// джиттер ±10с→±15с — меньше синхронных всплесков между нодами.
 (function wsLoopStagger() {
-  setTimeout(() => { wsConnectLoop().catch(() => {}); wsLoopStagger(); }, 30_000 + Math.floor(Math.random() * 10_000));
+  setTimeout(() => { wsConnectLoop().catch(() => {}); wsLoopStagger(); }, 45_000 + Math.floor(Math.random() * 15_000));
 })();
 console.log('[ws] ws-модуль инициализирован (server + outbound loop, AGIP-23 backoff+jitter+bootstrap-merge)');
 wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.message || e));
@@ -1995,7 +1997,8 @@ wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.mess
 // Инцидент 2026-10-16: при живой WS-разнице нода оставалась со stale-tip жд лотно,
 // потому что sync стартовал только по внешним событиям/ручному /sync-now.
 // Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
-setInterval(() => { syncAll(bc).catch(() => {}); }, 60_000).unref();
+// AGIP-25: syncAll 60с→90с (CPU-щадящий ритм; форки всё равно ловятся WS-событиями)
+setInterval(() => { syncAll(bc).catch(() => {}); }, 90_000).unref();
 // AGIP-12: патруль карантина — раз в минуту синхронизируем базу злоумышленников с журналом атак
 setInterval(() => {
   try {

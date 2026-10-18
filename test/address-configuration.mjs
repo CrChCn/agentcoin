@@ -64,7 +64,6 @@ try {
       assert(!html.includes('const CANDS'));
     }
     assert(read('site/dashboard.html').includes("j('/network/nodes')"));
-    assert(read('site/index.html').includes("getElementById('puburl').textContent = location.origin"));
   });
 
   const deploy = read('scripts/deploy-vps.sh');

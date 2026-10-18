@@ -40,9 +40,6 @@ self-serve-gate.mjs
 moltbook-watch.mjs
 support.mjs
 network-guard.mjs
-run-node2.cmd
-run-node3.cmd
-run-node-ts.cmd
 run-node-ts.ps1
 run-thin-*.cmd
 run-miner-c.cmd

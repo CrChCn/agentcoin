@@ -49,7 +49,7 @@ Always Free **compute (включая Ampere A1) создаётся ТОЛЬКО
 5. **Boot volume**: ≥ 50 GB (минимум Oracle 47 GB; у tenancy есть 200 GB Always Free block storage суммарно).
 6. **Сеть**: дефолтный VCN/subnet + **публичный IP**. В Security List/NSG:
    - TCP 22 (SSH) — только твой IP;
-   - **TCP 9335/9336** — 0.0.0.0/0 (на ноду будет заходить сеть: это «лицо» нашего пира).
+   - **TCP выбранного `NODE_PORT`** — разрешите нужные источники P2P-трафика. Не открывайте второй порт только потому, что он использовался в чьём-то тестовом кластере.
 7. **SSH public key** — вставь `~/.ssh/id_ed25519.pub`.
 8. **Create** → ждём `Running` → ssh: `ssh -i <key> ubuntu@<public_ip>` (пользователь `ubuntu`).
 
@@ -60,10 +60,13 @@ Always Free **compute (включая Ampere A1) создаётся ТОЛЬКО
 На VM (Ubuntu):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) 9335
+export NODE_PORT=9335  # пример стандартного порта; выберите свой свободный
+export LOCAL_NODE_URL="http://127.0.0.1:$NODE_PORT"
+# PEER_URL — ваш выбранный доступный сосед; без него bootstrap пуст.
+AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) "$NODE_PORT"
 ```
 
-Скрипт сам (AGIP-37.LOCAL): Node **24 LTS** (ветки 18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала твой SSH-порт из `sshd -T`, потом 9335/tcp**, только затем `ufw --force enable` (SSH-доступ не теряется) → systemd `agt-node.service` → peers.json с https-пиром ядра (AGIP-27). Скрипт fail-fast: живость `/life` — обязательное условие «ГОТОВО», он же сам проверяет, что админ-маршруты НЕ отвечают снаружи.
+Скрипт сам (AGIP-37.LOCAL): Node **24 LTS** (ветки 18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала твой SSH-порт из `sshd -T`, потом выбранный `NODE_PORT/tcp`**, только затем `ufw --force enable` (SSH-доступ не теряется) → systemd `agt-node.service` → peers.json только с явно указанным `AGT_BOOTSTRAP_PEER`, либо пустым списком. Скрипт fail-fast: живость `/life` — обязательное условие «ГОТОВО», он же сам проверяет, что админ-маршруты НЕ отвечают снаружи.
 
 > ℹ️ Повторный запуск того же скрипта на живой ноде = безопасный апдейт: `git fetch + reset` до origin/main, перезапуск systemd — пиры/кошельки сохраняются.
 
@@ -71,41 +74,37 @@ bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/script
 
 ```bash
 # на VM (после ssh ubuntu@<ip>):
-curl -s http://127.0.0.1:9335/life     # → blocks, chainValid=true
+curl -s "$LOCAL_NODE_URL/life"     # → blocks, chainValid=true
 journalctl -u agt-node -f              # логи ноды
 
 T=$(sudo cat /opt/agentcoin/data-agtx/admin-token.txt)
 
 # кошелёк VPS-агента (mnemonic выдаётся ОДИН раз — записать!):
-curl -X POST http://127.0.0.1:9335/wallet/create \
+curl -X POST "$LOCAL_NODE_URL/wallet/create" \
   -H 'Content-Type: application/json' -H "x-admin-token: $T" \
   -d '{"label":"oracle-a1-agent","recover":true}'
 
 # анонс в империю:
-curl -X POST http://127.0.0.1:9335/community/send \
+curl -X POST "$LOCAL_NODE_URL/community/send" \
   -H 'Content-Type: application/json' -H "x-admin-token: $T" \
   -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
 
 # хелсчек балансов из цепи:
-node /opt/agentcoin/health-check.mjs 9335
+AGT_NODE_URL="$LOCAL_NODE_URL" node /opt/agentcoin/health-check.mjs
 ```
 
-Сайт всех нод сам поддерживается свежим (AGIP-38: нода раз в 10 мин сверяет сайт с каноном в `main`, offline —лечит локальную копию). Высоту своей ноды vs ядро деплой печатает в конце («высота нода/ядро»).
+Проверяйте свой `NODE_URL` с отдельной машины. Loopback в командах выше — сам VPS, на котором открыт SSH, а не компьютер автора. Сайт, выпуск программы и политика обновлений принадлежат владельцу развёртывания.
 
-Анонс в империю:
+Чтобы другой участник начал подключаться к вашей ноде, он должен явно добавить ваш доступный URL в собственные peers. На его **собственной** машине команды могут выглядеть так:
 
 ```bash
-curl -X POST http://127.0.0.1:9335/community/send \
-  -H 'Content-Type: application/json' -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
+: "${LOCAL_NODE_URL:?Set this participant local admin node URL}"
+: "${PEER_URL:?Set the newly deployed reachable peer URL}"
+node -e 'process.stdout.write(JSON.stringify({peer:process.env.PEER_URL}))' |
+  curl -fsS --max-time 15 -X POST "$LOCAL_NODE_URL/peer/add" -H 'Content-Type: application/json' -H "x-admin-token: ${AGT_ADMIN_TOKEN:-}" --data-binary @-
 ```
 
-И последний штрих — прописать его пиром в ядро (на машине ядра, Loopback: в моём workspace):
-
-```powershell
-$T = Get-Content data-agtx\admin-token.txt
-curl.exe -m 10 -X POST http://127.0.0.1:9335/peer/add -H "Content-Type: application/json" -H "x-admin-token: $T" -d '{"peer":"http://<VPS_PUBLIC_IP>:9335"}'
-```
-После этого ядро начнёт исходящие WS к VPS-ноде: сеть станет действительно распределённой (дом-машина + Oracle VM).
+Здесь `PEER_URL` экспортируется владельцем и содержит ваш новый публичный/VPN-адрес. Никакой обязательной «ноды ядра» на чужом ноутбуке нет. Нужны совпадающие сеть/genesis и независимая проверка блоков. Для TS используйте свою VPN и собственный `AGT_TS_BIND`/`data-agtx/ts-bind.txt`, а не готовый IP из чужого развёртывания.
 
 ---
 

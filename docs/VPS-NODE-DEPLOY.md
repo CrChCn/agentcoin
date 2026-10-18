@@ -1,34 +1,36 @@
 # 🌍 Внешняя нода AGT на VPS (AGIP-27) — первый пир вне этой машины
 
-Цель децентрализации: ядро A/B/C/TS работает дома (CPU 100% — потолок железа),
-вторая нода живёт **вне нашего компьютера** и подключена к ядру как внешний пир.
+Цель: нода в собственной среде владельца, со своими адресами и явно выбранными пирами. Кластер автора и его tailnet не являются обязательной инфраструктурой. `127.0.0.1` в командах означает VPS, на котором вы выполняете их по SSH.
 
 ## Быстрый деплой (Ubuntu/Debian VPS, от root)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) 9335
+export NODE_PORT=9335  # стандартный порт приложения; можно выбрать другой
+export LOCAL_NODE_URL="http://127.0.0.1:$NODE_PORT"
+# PEER_URL задаётся вами; без него нода разворачивается без стартового пира.
+AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) "$NODE_PORT"
 ```
 или: `git clone https://github.com/CrChCn/agentcoin && cd agentcoin && bash scripts/deploy-vps.sh`
 
-Скрипт (ревью 2026-10-17): Node **24 LTS** (18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала SSH-порт из `sshd -T`, потом 9335/tcp**, только затем enable →
+Скрипт (ревью 2026-10-17): Node **24 LTS** (18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала SSH-порт из `sshd -T`, потом выбранный `NODE_PORT/tcp`**, только затем enable →
 systemd-юнит `agt-node.service` (restart всегда, data-dir `data-vps`) →
-peers.json получает https-пир ядра → live-проверка `/life` обязательна (fail-fast — скрипт без живой ноды НЕ печатает «ГОТОВО»). Повторный запуск = надёжный апдейт (`reset --hard origin/HEAD` + systemd restart).
+peers.json получает только явно указанный `AGT_BOOTSTRAP_PEER`; без него список стартовых пиров пуст → live-проверка `/life` обязательна (fail-fast — скрипт без живой ноды НЕ печатает «ГОТОВО»). Повторный запуск = надёжный апдейт (`reset --hard origin/HEAD` + systemd restart).
 
 **Админ-плоскость закрыта от интернета (AGIP-37.LOCAL, ревизия 2)**: барьер внутри самой ноды — чужие и туннельные запросы (в т.ч. через cloudflared/Funnel с прокси-заголовками) проходят только белый список публичных маршрутов (read-only + POST /tx + /blocktemplate · /block/submit для тонких майнеров). `/wallet/create`, `/tx/sign`, `/mine`, `/security/*`, `/peer/add` и пр. снаружи → 403 `admin_loopback_only`. Скрипт разворачивает ноду в `AGT_ADMIN_MODE=token` — кошельковые операции только по `x-admin-token` (хранится в `data-agtx/admin-token.txt`):
 - `T=$(cat /opt/agentcoin/data-agtx/admin-token.txt)`;
-- `curl -X POST http://127.0.0.1:9335/wallet/create -H "x-admin-token: $T" -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
-- `curl -X POST http://127.0.0.1:9335/community/send -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'`;
-- `node health-check.mjs 9335` — аудит балансов (сам резолвит `data-vps`).
+- `curl -X POST "$LOCAL_NODE_URL/wallet/create" -H "x-admin-token: $T" -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
+- `curl -X POST "$LOCAL_NODE_URL/community/send" -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'`;
+- `AGT_NODE_URL="$LOCAL_NODE_URL" node health-check.mjs` — аудит балансов (сам резолвит `data-vps`).
 
-Сайт ноды самообновляется из канона `main` (AGIP-38: сверка каждые 10 мин, без редеплоя); высота vs ядро печатается деплоем в конце.
+Сайт и политика обновлений принадлежат владельцу развёртывания. Адрес для посетителей публикуется как собственный `NODE_URL`; состояние сравнивают с выбранными пирами, если они настроены.
 
 ## Куда смотреть в панели провайдера
 
 | что | где |
 |---|---|
 | живость | `journalctl -u agt-node -f` (спам resume/старта не бывает: restart всегда 15с) |
-| цепь | `curl -s http://127.0.0.1:9335/life` → `blocks`, `chainValid` |
-| порт | провайдер: Security Rules/Firewall → открыть 9335/tcp; в UFW уже открыто скриптом |
+| цепь | `curl -s "$LOCAL_NODE_URL/life"` → `blocks`, `chainValid` |
+| порт | провайдер: Security Rules/Firewall → открыть выбранный `NODE_PORT/tcp`; в UFW уже открыто скриптом |
 
 ## Честное сравнение бесплатных/дешёвых VPS (исследование 2026-10-17)
 
@@ -48,18 +50,16 @@ peers.json получает https-пир ядра → live-проверка `/li
 
 Провижинить аккаунт провайдера автоматически нельзя: регистрации Oracle/AWS/GCP/Hetzner/
 OVH требуют платёжную карту и персональные данные. Рекомендованный порядок:
-1. Пробуем **Oracle A1** (регион home, форма создания VM, Ubuntu 22.04 ARM) → `bash deploy-vps.sh 9335`;
+1. Пробуем **Oracle A1** (регион home, форма создания VM, Ubuntu 22.04 ARM) → `AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash deploy-vps.sh "$NODE_PORT"`;
 2. Если `out of host capacity` — повторять в другой день или همین **OVH VPS-1** ($4.54).
 
-После подъёма внешний пир попадает в империю автоматически: bootstrap-мердж AGIP-23
-подтаскивает его в peers локальных нод, а `node.mjs` нодов ядра подключится к нему
-исходящим WS (AGIP-27: https-пир через TLS-фаннел тоже подключается).
+Подключение к существующей сети требует доступных выбранных соседей: передайте `AGT_BOOTSTRAP_PEER` при деплое, настройте свой `bootstrap.json` либо добавьте `PEER_URL` через собственный админ-маршрут `/peer/add`. Сам факт установки VPS не делает его известным всем остальным участникам. Соседи настраивают ваши URL у себя независимо.
 
 ## Безопасность
 
 - admin-эндпоинты ноды (`/wallet/create`, `/security/*` и деструктивные POST) на внешней машине
-  обязаны закрываться от мира: скрипт открывает только 9335/tcp; UFW по умолчанию DROP остальное.
+  обязаны закрываться от мира: скрипт открывает выбранный порт ноды и SSH; UFW по умолчанию DROP остальное.
 - ключи кошелька — в `data-vps/wallets.json` на VPS (никогда не публикуются и не уезжают в чат);
   mnemonic — одна выдача, потом хранится только у оператора.
-- ядро (9335/9341/9342/9336-тайлнет) на Windows-машине никакого нового риска не получает:
-  подключение к VPS — исходящее соединение, все деструктивные POST ядра защищены `AGT_ADMIN_TOKEN`.
+- подключение к другому владельцу не передаёт ему административные права; свои `/peer/add`, подпись и кошельковые операции выполняйте с авторизацией только на своей ноде.
+- TS bind на Windows — собственный `AGT_TS_BIND` или ignored `data-agtx/ts-bind.txt`; публичный пример не содержит адреса VPN другого владельца.

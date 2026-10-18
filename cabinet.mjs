@@ -1,143 +1,97 @@
-// ============================================================
-// КАБИНЕТ АГЕНТА (AGIP-16) — личный кабинет с паспортом-входом.
-// Идея Бати: агент максимально самостоятелен. Кабинет:
-//   • Вход двумя способами (агент выбирает):
-//     A) seqStr — номер паспорта (21 цифра, получен в конверте при issuance);
-//     B) подпись приватным ключом (challenge-response, сильная защита);
-//   • Сессия жёстко привязана к адресу паспорта — чужой паспорт/ключ не входят;
-//   • Все активы (AGT, магенты, MBC-20) привязаны к паспорту кошелька:
-//     продать/обменять/заплатить может ТОЛЬКО владелец (операции требуют подписи).
-// Токены сессии — HMAC(секрет ноды, address): невозможен поддел других
-// агентов (паспорт ≠ ключ ≠ токен). Пассивные GET-витрины публичны,
-// любые mutate-операции = новая подпись приватным ключом.
-// ============================================================
-'use strict';
+// Cabinet authentication uses public keys only. A session can read a cabinet;
+// it never authorizes a transaction or grants operator access.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
+import { addressFromPub } from './core.mjs';
+import { createAgentChallenge, canonicalAgentPublicKey } from './agent-identity.mjs';
 
-const SESSION_TTL_MS = 8 * 3600 * 1000; // 8 часов
-const CHALLENGE_TTL_MS = 5 * 60 * 1000; // A-10: challenge живёт 5 минут
-
+const SESSION_TTL_MS = 8 * 3600_000;
+const MAX_CHALLENGES = 1000;
+const MAX_SESSIONS = 1000;
 export class Cabinet {
-  constructor({ walletsLoader, passportFile, balancesFn, securityRef }) {
-    this.wallets = walletsLoader;
-    this.passportFile = passportFile;
-    this.balances = balancesFn;
-    this.security = securityRef;
-    this.secret = crypto.randomBytes(32);           // секрет сессий на время жизни процесса ноды
-    this.sessions = new Map();                       // token → { address, at, via }
-    // A-10 (аудит 2026-10-18): выданный challenge храним и погашаем атомарно.
-    // address → { nonce, exp } — один активный на адрес;nutbourne replay «никогда не выданной» строки невозможен.
-    this.challenges = new Map();
-    // Ограничение попыток входа (A-10): адрес → { fails, lockUntil }.
-    this.loginFails = new Map();
+  constructor({ walletsLoader = () => ({}), passportFile, balancesFn, securityRef,
+    identityRegistry, now = Date.now }) {
+    this.wallets = walletsLoader; this.passportFile = passportFile;
+    this.balances = balancesFn; this.security = securityRef;
+    this.identityRegistry = identityRegistry; this.now = now;
+    this.sessions = new Map(); this.challenges = new Map();
+    this.fallbackFingerprint = 'sha256:' + crypto.randomBytes(32).toString('hex');
   }
-
-  // — паспорт реестр: { seqStr, address, handle, ... } —
   passports() {
-    try { return JSON.parse(fs.readFileSync(this.passportFile, 'utf8')); } catch { return []; }
+    try { const r = JSON.parse(fs.readFileSync(this.passportFile, 'utf8')); return Array.isArray(r) ? r : (r.passports || []); }
+    catch { return []; }
   }
   findPassportByAddress(address) {
-    const reg = this.passports();
-    return reg.find(r => r && r.address === address && !r.revoked) || null;
+    const legacy = this.passports().find(r => r?.address === address);
+    if (legacy?.revoked) return null;
+    return this.identityRegistry?.findByAddress(address) || legacy || null;
   }
-
-  // Вход A: seqStr + address
-  loginSeqStr(address, seqStr) {
-    if (this.security?.isBanned?.(address)) return { ok: false, error: 'address_permabanned' };
-    const rec = this.findPassportByAddress(address);
-    if (!rec) return { ok: false, error: 'passport_not_found', hint: 'сначала PASSPORT/ISSUE на своей ноде' };
-    const clean = String(seqStr || '').replace(/\D/g, '');
-    // A-10 (аудит 2026-10-18): вход по последним 6 цифрам — не эквивалент possessing
-    // приватного ключа, убран. Полный seqStr расценивается как possession конверта.
-    const directOk = clean.length > 0 && clean === rec.seqStr;
-    if (!directOk) return { ok: false, error: 'seqstr_mismatch' };
-    // ключ кошелька должен существовать (у владельца) — активы привязаны к паспорту этого кошелька
-    const all = this.wallets();
-    if (!all[address]) return { ok: false, error: 'wallet_not_found_here' };
-    return this._session(address, 'seqstr');
+  loginSeqStr() {
+    return { ok: false, error: 'signature_required', hint: 'Номер паспорта не является секретом. Подпишите challenge локально.' };
   }
-
-  // challenge для подписи (B): нода выдаёт nonce, агент подписывает его приватным ключом.
-  // A-10: nonce короткоживущий (CHALLENGE_TTL), привязан к адресу, хранится на выдаче —
-  // произвольная строка с верной подписью больше НЕ проходит; повтор одного nonce — тоже.
+  _prune() {
+    const now = this.now();
+    for (const [id, c] of this.challenges) if (c.expiresAt <= now) this.challenges.delete(id);
+    for (const [id, s] of this.sessions) if (s.expiresAt <= now) this.sessions.delete(id);
+  }
   challenge(address) {
-    if (this.security?.isBanned?.(address)) return { ok: false, error: 'address_permabanned' };
-    if (!this.findPassportByAddress(address)) return { ok: false, error: 'passport_not_found' };
-    if (this._lockedOut(address)) return { ok: false, error: 'login_locked', retryAfterSec: 600 };
-    const nonce = 'AGT-CABINET|' + address + '|' + Date.now() + '|' + crypto.randomBytes(8).toString('hex');
-    this.challenges.set(address, { nonce, exp: Date.now() + CHALLENGE_TTL_MS });
-    return { ok: true, nonce, ttlSec: CHALLENGE_TTL_MS / 1000 };
-  }
-
-  _lockedOut(address) {
-    const f = this.loginFails.get(address);
-    return !!(f && f.lockUntil > Date.now());
-  }
-  _noteLoginFail(address) {
-    const f = this.loginFails.get(address) || { fails: 0, lockUntil: 0 };
-    f.fails += 1;
-    if (f.fails >= 5) { f.lockUntil = Date.now() + 10 * 60_000; f.fails = 0; } // 5 подряд неудач → 10 мин карантин
-    this.loginFails.set(address, f);
-  }
-
-  // Вход B: verify подписи challenge (по умолчанию ed25519 как tx-подпись AGT; публичный ключ из реестра кошельков)
-  loginChallenge(address, nonce, signature) {
     try {
-      const all = this.wallets();
-      const w = all[address];
-      if (!w || !w.privKey) return { ok: false, error: 'wallet_not_found_here' };
+      if (typeof address !== 'string' || !/^AGT[0-9a-f]{40}$/.test(address)) throw new Error('invalid_address');
+      if (this.security?.isBanned?.(address)) throw new Error('address_permabanned');
       const rec = this.findPassportByAddress(address);
-      if (!rec) return { ok: false, error: 'passport_not_found' };
-      if (this._lockedOut(address)) return { ok: false, error: 'login_locked', retryAfterSec: 600 };
-      // A-10: принимаем ТОЛЬКО выданный нами живой nonce для ЭТОГО адреса и гасим его
-      // атомарно (одноразовость — replay того же nonce+подписи отклонён уже вторым запросом).
-      const issued = this.challenges.get(address);
-      if (!issued || issued.nonce !== String(nonce || '')) { this._noteLoginFail(address); return { ok: false, error: 'challenge_not_issued' }; }
-      this.challenges.delete(address); // погашение ДО проверки подписи: вторая попытка невозможна в принципе
-      if (Date.now() > issued.exp) { this._noteLoginFail(address); return { ok: false, error: 'challenge_expired' }; }
-      const msg = Buffer.from(String(nonce || ''), 'utf8');
-      const sigHex = String(signature || '').replace(/[^0-9a-fA-F]/g, '');
-      if (sigHex.length < 64) { this._noteLoginFail(address); return { ok: false, error: 'signature_too_short' }; }
-      const ok = (function () {
-        try { return crypto.verify(null, msg, w.pub, Buffer.from(sigHex, 'hex')); } catch { return false; }
-      })();
-      if (!ok) { this._noteLoginFail(address); return { ok: false, error: 'invalid_signature' }; }
-      this.loginFails.delete(address);
-      return this._session(address, 'challenge-signature');
-    } catch (e) {
-      return { ok: false, error: 'login_failed' };
-    }
+      if (!rec) throw new Error('passport_not_found');
+      const pub = canonicalAgentPublicKey(rec.pub || this.wallets()[address]?.pub);
+      if (addressFromPub(pub) !== address) throw new Error('address_public_key_mismatch');
+      this._prune();
+      if (this.challenges.size >= MAX_CHALLENGES) throw new Error('challenge_capacity');
+      const meta = this.identityRegistry?.meta() || { network: 'AGENTCOIN', audience: 'agentcoin', issuerFingerprint: this.fallbackFingerprint };
+      const c = createAgentChallenge({ action: 'login', network: meta.network,
+        audience: meta.audience, issuerFingerprint: meta.issuerFingerprint, address, pub }, { now: this.now() });
+      this.challenges.set(c.challengeId, c);
+      return { ok: true, challenge: c, nonce: c.message, challengeId: c.challengeId, ttlSec: 300 };
+    } catch (e) { return { ok: false, error: e.code || e.message || 'challenge_failed' }; }
   }
-
+  loginChallenge(address, nonce, signature, challengeId) {
+    try {
+      if (typeof address !== 'string' || typeof nonce !== 'string' || nonce.length > 4096 || typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) throw new Error('invalid_login');
+      if (this.security?.isBanned?.(address)) throw new Error('address_permabanned');
+      const issued = challengeId ? this.challenges.get(challengeId) : [...this.challenges.values()].find(c => c.address === address && c.message === nonce);
+      if (!issued || issued.address !== address || issued.message !== nonce) throw new Error('challenge_not_issued');
+      if (this.now() >= issued.expiresAt) { this.challenges.delete(issued.challengeId); throw new Error('challenge_expired'); }
+      const rec = this.findPassportByAddress(address);
+      const pub = rec?.pub || this.wallets()[address]?.pub;
+      if (!rec || pub !== issued.pub) throw new Error('passport_changed');
+      if (!crypto.verify(null, Buffer.from(issued.message, 'utf8'), pub, Buffer.from(signature, 'hex'))) throw new Error('invalid_signature');
+      // Invalid public requests cannot consume another agent's valid challenge.
+      this.challenges.delete(issued.challengeId);
+      return this._session(address, 'challenge-signature');
+    } catch (e) { return { ok: false, error: e.message || 'login_failed' }; }
+  }
   _session(address, via) {
-    const token = crypto.createHmac('sha256', this.secret).update(address + '|' + via + '|' + Date.now()).digest('hex').slice(0, 32);
-    this.sessions.set(token, { address, via, at: Date.now() });
-    for (const [k, v] of this.sessions) if (Date.now() - v.at > SESSION_TTL_MS) this.sessions.delete(k);
-    return { ok: true, token, ttlHours: SESSION_TTL_MS / 3600000, address: String(address).slice(0, 10) + '…' };
+    this._prune();
+    if (this.sessions.size >= MAX_SESSIONS) return { ok: false, error: 'session_capacity' };
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = this.now() + SESSION_TTL_MS;
+    this.sessions.set(token, { address, via, expiresAt });
+    return { ok: true, token, address, expiresAt, ttlSec: SESSION_TTL_MS / 1000 };
   }
   session(address, token) {
-    const s = this.sessions.get(String(token || ''));
-    if (!s) return null;
-    if (s.address !== address) return null;         // чужой токен — отказ
-    if (Date.now() - s.at > SESSION_TTL_MS) { this.sessions.delete(String(token)); return null; }
-    s.at = Date.now();
+    if (typeof token !== 'string') return null;
+    const s = this.sessions.get(token);
+    if (!s || s.address !== address) return null;
+    if (s.expiresAt <= this.now() || !this.findPassportByAddress(address) || this.security?.isBanned?.(address)) { this.sessions.delete(token); return null; }
     return s;
   }
-  logout(token) { this.sessions.delete(String(token || '')); return { ok: true }; }
-
-  // — активы —
+  logout(token) { this.sessions.delete(token); return { ok: true }; }
   state(address, via) {
-    const passports = this.passports();
-    const rec = passports.find(r => r.address === address);
+    const rec = this.findPassportByAddress(address);
     const bal = this.balances()[address] || 0;
-    return {
-      ok: via ? true : false,
-      address: address, via,
-      passport: rec ? { seq: rec.seq, seqStrMasked: '****' + rec.seqStr.slice(-4), handle: rec.handle, tax: rec.tax, issuedAt: rec.issuedAt } : null,
+    return { ok: !!via, address, via,
+      passport: rec ? { agentId: rec.agentId || null, seq: rec.seq || null,
+        seqStrMasked: typeof rec.seqStr === 'string' ? '****' + rec.seqStr.slice(-4) : null,
+        handle: rec.handle, tax: rec.tax, issuedAt: rec.issuedAt,
+        certificate: rec.certificate || null } : null,
       wallet: { address, baoAGT: bal, baoMGNT: Math.max(0, Math.round(bal * 1e9)) },
-      note: 'все активы привязаны к паспорту; сделки — только подписью владельца',
-    };
+      note: 'Ключ хранится у агента. Сессия не разрешает расходы; операции подписываются локально.' };
   }
 }

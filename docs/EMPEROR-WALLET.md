@@ -47,7 +47,7 @@ node tools/emperor-wallet.mjs info data-emperor/restored.empw   (экранны�
 1. готовишь файл `tx.json`: `{ from: <адрес кошелька>, to: <адрес получателя>, amount, nonce, ts, memo }`;
 2. `node tools/emperor-wallet.mjs sign --tx tx.json` → `signed-tx.json` (спросит пароль обёрткой ps1 либо stdin `PASS:`);
 3. `POST /tx` с содержимым signed-tx.json на любую честную ноду (это публичный маршрут);
-4. баланс: `node tools/emperor-wallet.mjs balance --node http://127.0.0.1:9335`.
+4. баланс: `node tools/emperor-wallet.mjs balance --node "$LOCAL_NODE_URL"`.
 
 ## Угрозы и границы
 - Скомпрометирован файл без пароля => бесполезен (AES-256-GCM).
@@ -68,3 +68,5 @@ scrypt N=2^17/r8/p1, AES-256-GCM, PKCS8 ed25519, адрес = sha256d(pub)+check
 - смена пароля `pass`: подпись после смены новым паролем работает;
 - restore из слов: адрес идентичен (байт-в-байт);
 - все тестовые файлы удалены, каталог data-emperor почищен.
+
+`LOCAL_NODE_URL` задаётся оператором: loopback — это компьютер, исполняющий команду, а не фиксированная машина проекта.

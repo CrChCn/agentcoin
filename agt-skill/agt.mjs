@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /* ============================================================
-   agt-skill — единый скрипт кошелька AGENTCOIN для агентов
-   Децентрализованный клиент: соединяется с любой нодой сети,
-   ведёт собственную бухгалтерию (local ledger), умеет:
-     - create   — создать кошелёк
+   agt-skill — legacy commands plus local encrypted profile creation.
+   New noncustodial onboarding lives in agent-profile.mjs/cabinet-client.mjs.
+   Existing plaintext wallets remain a compatibility path. Commands include:
+     - create   — encrypted local profile (secret JSON stdin)
      - balance  — баланс (нода + локальный ledger сверки)
      - send     — перевод другому агенту (подпись ed25519)
      - mine     — соло-майнинг
@@ -14,7 +14,7 @@
 
    Использование:
      node agt.mjs connect http://127.0.0.1:9335
-     node agt.mjs create
+     node agt.mjs create <profile-path>  # JSON stdin: password, label?
      node agt.mjs balance <address>
      node agt.mjs send <fromAddress> <toHandle|toAddress> <amount> [memo]
      node agt.mjs mine <address>
@@ -22,8 +22,8 @@
      node agt.mjs pool stats
      node agt.mjs history [address]
 
-   Бухгалтерия: файл wallets-local.json в рабочей папке skill'а —
-   там же приватные ключи (agents own them; we never upload them).
+   Legacy accounting: .state/wallets-local.json contains old plaintext keys.
+   New profiles never populate it. No key is sent to a node for signing.
    ============================================================ */
 'use strict';
 import fs from 'node:fs';
@@ -31,6 +31,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import { runProfileCLI, DEFAULT_PROFILE_PATH } from './agent-profile.mjs';
 
 // === AGIP-21: агент НЕ вводит кошелёк для чата/голосования — адрес подставляет нода ===
 async function autoWallet() {
@@ -71,6 +72,8 @@ async function api(method, path, body = null) {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(10000),
+    redirect: 'error',
   });
   return { status: r.status, body: await r.json().catch(() => ({})) };
 }
@@ -87,9 +90,18 @@ async function signAndSubmit(fromAddress, to, amount, memo) {
     if (resolved.status === 200) toAddress = resolved.body.address;
     else return { error: 'resolution_failed', detail: resolved.body };
   }
-  const signed = await api('POST', '/tx/sign', { fromAddress, to: toAddress, amount, memo });
-  if (signed.status !== 200) return signed;
-  const tx = signed.body.signed;
+  // Compatibility only for existing plaintext local wallets. New identities use
+  // agent-profile.mjs. Never ask a remote node to sign or upload a private key.
+  console.error('legacy_plaintext_wallet: use an encrypted agent profile for new identities; signing stays local');
+  if (!Number.isFinite(amount) || amount <= 0 || typeof w.privKey !== 'string' || typeof w.pub !== 'string') return { error: 'invalid_local_wallet_or_amount' };
+  const sha256d = x => crypto.createHash('sha256').update(crypto.createHash('sha256').update(x).digest()).digest('hex');
+  const canonicalPub = crypto.createPublicKey(w.privKey).export({ type: 'spki', format: 'pem' });
+  const pubHash = sha256d(canonicalPub);
+  if (canonicalPub !== w.pub || fromAddress !== 'AGT' + pubHash.slice(0, 32) + sha256d(pubHash).slice(0, 8)) return { error: 'local_wallet_key_mismatch' };
+  const tx = { from: fromAddress, fromPub: w.pub, to: toAddress, amount,
+    nonce: Date.now() * 1000 + crypto.randomInt(1000), ts: Math.floor(Date.now() / 1000), memo: memo || '' };
+  tx.txid = sha256d(JSON.stringify({ from: tx.from, to: tx.to, amount: tx.amount, nonce: tx.nonce, ts: tx.ts, memo: tx.memo }));
+  tx.signature = crypto.sign(null, Buffer.from(tx.txid, 'hex'), w.privKey).toString('hex');
   const submitted = await api('POST', '/tx', tx);
   if (submitted.status === 201) {
     logLedger({ type: 'send', from: fromAddress, to: toAddress, amount, memo, signature: tx.signature.slice(0, 16) + '…' });
@@ -103,7 +115,7 @@ async function main() {
   if (!cmd || cmd === 'help') {
     console.log(`AGENTCOIN skill commands:
   connect <node-url>     — привязать ноду
-  create                 — создать кошелёк (сохраняется локально)
+  create [profile-path]  — encrypted local profile; secret JSON stdin (agent-profile.mjs)
   balance <addr>         — баланс + сверка ledger
   send <from> <to(@handle|addr)> <amount> [memo]
   mine <addr>            — соло-майн
@@ -111,7 +123,7 @@ async function main() {
   history [addr]         — локальная бухгалтерия
   sync <addr>            — сверка ledger с нодой
   faucet [addr]          — 0.5 AGT/день с крана
-  join [label]           — one-shot: кошелёк + faucet + очередь
+  join                   — legacy node-wallet onboarding disabled; use cabinet-client.mjs enroll
   chat <text>            — чат сообщества (адрес подставит нода, AGIP-21)
   gov state|projects     — лента предложений и счётчик голосов
   gov propose <title>    — вынести предложение (адрес авто)
@@ -130,16 +142,8 @@ async function main() {
   }
 
   if (cmd === 'create') {
-    ensureDir();
-    const label = args[0] || 'agent-' + crypto.randomBytes(3).toString('hex');
-    const r = await api('POST', '/wallet/create', { label });
-    if (r.status !== 201) { console.log('create failed:', r.body); return; }
-    const state = loadState();
-    state.wallets[r.body.address] = { label, privKey: r.body.privKey, pub: r.body.pub, createdAt: Date.now() };
-    saveState(state);
-    logLedger({ type: 'create', to: r.body.address, label });
-    console.log('wallet created:', r.body.address);
-    console.log('(privKey stored locally at', STATE_FILE + ')');
+    if (args.length > 1) throw new Error('use_agent_profile_create_with_secret_json_stdin');
+    await runProfileCLI(['create', args[0] || DEFAULT_PROFILE_PATH]);
     return;
   }
 
@@ -212,17 +216,7 @@ async function main() {
     return;
   }
   if (cmd === 'join') {
-    const label = args[0] || 'agt-skill-agent';
-    const r = await api('POST', '/join', { label });
-    if (r.status !== 201) { console.log('join failed:', JSON.stringify(r.body)); return; }
-    const st = loadState();
-    if (r.body.wallet && r.body.wallet.address) {
-      st.wallets[r.body.wallet.address] = { label, privKey: r.body.wallet.privKey, pub: r.body.wallet.pub, createdAt: Date.now(), viaJoin: true };
-      saveState(st);
-    }
-    logLedger({ type: 'join', to: r.body.address || (r.body.wallet || {}).address, label });
-    console.log(JSON.stringify({ ...(r.body), note: 'wallet сохранён локально' }, null, 1));
-    return;
+    throw new Error('legacy_node_wallet_join_disabled_use_cabinet_client_enroll');
   }
   if (cmd === 'chat') {
     const text = args.join(' ');

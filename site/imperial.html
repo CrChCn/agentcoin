@@ -390,7 +390,7 @@ function drawNodeMap(aliveNodes) {
     l += '<line x1="' + cx + '" y1="' + cy + '" x2="' + x.toFixed(0) + '" y2="' + y.toFixed(0) + '" stroke="' + (n.fresh ? '#4a5c74' : '#252e3a') + '" stroke-width="1.5"/>';
     d += '<circle cx="' + x.toFixed(0) + '" cy="' + y.toFixed(0) + '" r="9" fill="' + (n.fresh ? '#39d98a' : '#5a2430') + '" stroke="' + (n.fresh ? '#f0d78c' : '#7a2a3a') + '" ' + (n.fresh ? 'class="nodeDot"' : '') + '/>';
     d += '<text x="' + x.toFixed(0) + '" y="' + (y - 14).toFixed(0) + '" text-anchor="middle" fill="#8fa3b8" font-size="9">' + esc(n.name) + '</text>';
-    d += '<text x="' + x.toFixed(0) + '" y="' + (y + 3).toFixed(0) + '" text-anchor="middle" fill="#0a0d12" font-size="8">' + (n.fresh ? n.blocks : '×') + '</text>';
+    d += '<text x="' + x.toFixed(0) + '" y="' + (y + 3).toFixed(0) + '" text-anchor="middle" fill="#0a0d12" font-size="8">' + (n.blocks) + '</text>';
   });
   links.innerHTML = l; dots.innerHTML = d;
   document.getElementById('mapTip').textContent = aliveNodes.length + ' нод · высота ' + (aliveNodes[0] ? aliveNodes[0].blocks : '—');
@@ -398,15 +398,9 @@ function drawNodeMap(aliveNodes) {
 
 /* ============ ЧЕЛЛЕНДЖ: опрос всех нод параллельно (fix: параллельный, не последовательный) ============ */
 async function probeNodes() {
-  var list = await Promise.all(NODES.map(async function ([name, base]) {
-    try {
-      var r = await fetch('http://' + base + '/life', { signal: AbortSignal.timeout(3500) });
-      if (!r.ok) return null;
-      var j = await r.json();
-      return { name, base, blocks: j.blocks, tipHash: j.tipHash, fresh: !!j.fresh, chainValid: !!j.chainValid };
-    } catch (e) { return null; }
-  }));
-  return list;
+  var result = await jget('/network/nodes');
+  if (!result || !Array.isArray(result.nodes)) return [];
+  return result.nodes;
 }
 
 /* ============ ДОСТИЖЕНИЯ И ЭПОХИ ============ */
@@ -537,7 +531,11 @@ async function mbcBook() {
 }
 
 /* ============ ОДИН TICK ============ */
+var tickBusy = false;
 async function tick() {
+  if (tickBusy) return;
+  tickBusy = true;
+  try {
   var [info, cache, passports, jobs, cloud, gov, life, attacks, queue, blocksRaw, cpass] = await Promise.all([
     jget('/info'), jget('/stats-data'), jget('/passport/count'), jget('/jobs/state'),
     jget('/cloud/stats'), jget('/gov/state'), jget('/life'), jget('/security/attacks'),
@@ -545,13 +543,15 @@ async function tick() {
   ]);
   if (life) {
     var nodes = await probeNodes();
-    var alive = nodes.filter(Boolean);
+    var alive = nodes.filter(n => n && n.reachable);
     set('cNodes', alive.length);
     var rows = '';
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
-      if (n) rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + n.blocks + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td class="' + (n.fresh ? 'ok' : 'bad') + '">' + (n.fresh ? 'свежая' : 'отстаёт') + (n.chainValid ? '' : ' · цепь!') + '</td><td></td></tr>';
-      else rows += '<tr><td class="mono">' + esc(NODES[i][0]) + '</td><td colspan="4"><span class="bad">тишина или рестарт</span></td></tr>';
+      if (n && n.reachable) {
+        var status = n.chainValid === false ? 'ошибка цепи' : n.behindObserved > 0 ? 'ниже наблюдаемой на ' + n.behindObserved : n.overloaded ? 'перегрузка' : n.tipAgeSec > 300 ? 'давно нет блока' : 'отвечает';
+        rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + esc(n.blocks) + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td>' + esc(status) + '</td><td>' + (n.chainValid == null ? 'не проверено' : n.chainValid ? 'цепь OK' : 'цепь!') + '</td></tr>';
+      } else if (n) rows += '<tr><td class="mono">' + esc(n.name) + '</td><td colspan="4"><span class="bad">нет ответа · причина не установлена</span></td></tr>';
     }
     document.getElementById('nodesTb').innerHTML = rows;
     drawNodeMap(alive);
@@ -650,6 +650,7 @@ async function tick() {
   renderAch(s);
   renderEras(s);
   set('upd', 'обновлено ' + new Date().toLocaleTimeString('ru-RU'));
+  } finally { tickBusy = false; }
 }
 
 tick().catch(function (e) { console.error(e); });

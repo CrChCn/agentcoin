@@ -2,7 +2,7 @@
 /* accept-AGIP-6.mjs — исполняемый критерий приёмки AGIP-6 (шаги 14/15/16).
    Запуск: node test/accept-AGIP-6.mjs [http://127.0.0.1:9343] [--ladder]
    Песочница: полный цикл эскроу с комиссией казны + сайт + кэш.
-   --ladder: только read-only проверки на живых нодах (9342→9341→9335→9336).
+   --ladder: read-only проверка выбранной ноды; AGT_MONITOR_TARGETS_FILE задаёт JSON [{name,url}].
    Exit: 0 зелёный / 1 FAIL. */
 import { spawn, execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -50,26 +50,35 @@ async function ensureNewCode(port) {
 
 // ---- режим ladder: только read-only витрина проверки на живых нодах ----
 if (LADDER) {
-  for (const [name, u] of [['C:9342', 'http://127.0.0.1:9342'], ['B:9341', 'http://127.0.0.1:9341'], ['A:9335', 'http://127.0.0.1:9335'], ['TS:9336', 'http://100.96.7.15:9336']]) {
+  const configured = process.env.AGT_MONITOR_TARGETS_FILE
+    ? JSON.parse(readFileSync(process.env.AGT_MONITOR_TARGETS_FILE, 'utf8'))
+    : [{name:'selected-node', url:BASE}];
+  if (!Array.isArray(configured) || !configured.length || configured.length > 16) throw new Error('invalid monitor targets');
+  const targets = configured.map(row => {
+    if (!row || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 64 || typeof row.url !== 'string') throw new Error('invalid monitor target');
+    const u = new URL(row.url);
+    if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error('invalid monitor URL');
+    return [row.name, u.origin];
+  });
+  const tips = [];
+  for (const [name, u] of targets) {
     const js = await j('GET', '/jobs/state', null, u);
     const sd = await j('GET', '/stats-data', null, u);
-    const lo = await raw('/life', u).then(r => r.status === 200);
-    if (js.status === 200 && sd.status === 200 && lo) ok(`лестница ${name}: /jobs/state + /stats-data + /life живы`);
-    else fails.push(`лестница ${name}: jobs=${js.status} stats-data=${sd.status} life=${lo}`);
+    const life = await j('GET', '/life', null, u);
+    if (js.status === 200 && sd.status === 200 && life.status === 200) ok(`выбранная нода ${name}: /jobs/state + /stats-data + /life живы`);
+    else fails.push(`${name}: jobs=${js.status} stats-data=${sd.status} life=${life.status}`);
+    tips.push(life.body?.tipHash || null);
   }
-  const tips = {};
-  for (const p of ['9335', '9341', '9342', '9336']) {
-    const base = p === '9336' ? 'http://100.96.7.15:9336' : `http://127.0.0.1:${p}`;
-    const l = await j('GET', '/life', null, base);
-    tips[p] = l.body?.tipHash || null;
+  const set = new Set(tips);
+  if (tips.every(t => typeof t === 'string' && t.length > 0) && set.size === 1) ok(`единый наблюдаемый tip ${tips[0].slice(0, 14)}… на ${targets.length} настроенных нодах`);
+  else fails.push('наблюдаемые tip не сходятся или недоступны: ' + JSON.stringify(tips));
+  if (process.env.AGT_PUBLIC_URL) {
+    const u = new URL(process.env.AGT_PUBLIC_URL);
+    if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error('invalid AGT_PUBLIC_URL');
+    const live = await raw('/life', u.origin).then(r => r.status === 200);
+    if (live) ok('явно заданная публичная точка отвечает 200');
+    else fails.push('явно заданная публичная точка не отвечает');
   }
-  if (Object.values(tips).some(v => !v)) { for (const p of Object.keys(tips)) { if (!tips[p]) { const base = p === '9336' ? 'http://100.96.7.15:9336' : `http://127.0.0.1:${p}`; const l = await j('GET', '/life', null, base, 25000); tips[p] = l.body?.tipHash || null; } } } // 9335 самый жирный по нагрузке — ретрай с долгим таймаутом
-  const set = new Set(Object.values(tips));
-  if (set.size === 1) ok(`единый tip ${[...set][0].slice(0, 14)}… на всех 4 нодах`);
-  else fails.push('tip не сходится: ' + JSON.stringify(tips));
-  const live = await raw('/life', 'https://laptop-ih54qpif.tail8c28c2.ts.net').then(r => r.status === 200).catch(() => false);
-  if (live) ok('публичная точка (ts.net Funnel) отвечает 200');
-  else fails.push('публичная точка ts.net не отвечает (Funnel?)');
 } else {
   if (!(await ensureNewCode(new URL(BASE).port))) fails.push('/jobs/state не отвечает даже после рестарта песочницы');
   // ---- 1. витрина/кэш/сайт ----

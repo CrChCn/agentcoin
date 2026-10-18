@@ -1,231 +1,263 @@
 #!/usr/bin/env node
-/* ============================================================
-   AGENTCOIN watchdog — чтобы сайт не падал, пока оператор спит.
-   Каждые CHECK_EVERY сек проверяет ноды (HTTP /life с таймаутом).
-   Кто не отвечает N раз подряд — нода перезапускается своей
-   обёрткой run-node*.cmd (как в штатном порядке, с своими логами).
-   Перезапуски пишутся в data/watchdog.json (счётчики + колдаун).
-   Запуск: node watchdog.mjs   (фоном, навсегда)
-   ============================================================ */
-'use strict';
+// Liveness supervision: stale blocks or a slow miner do not justify killing a
+// responsive node. Consensus/sync health belongs in diagnostics.
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, exec } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { spawn, execFile } from 'node:child_process';
+import { isIP } from 'node:net';
 
-const __dirname = path.dirname(process.argv[1] || '.');
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const CHECK_EVERY_MS = 40_000;
-const FAIL_LIMIT = 2;          // 2 подряд неудачи → рестарт
 const RESTART_COOLDOWN_MS = 3 * 60_000;
-// цель: name, url, wrapper (абс. путь .cmd), неоходимо ли tailscale-биндинг
-const NODES = [
-  // === AGIP-24 (порезка фермы, распоряжение оператора 2026-10-17): ядро A/B/C + tailnet.
-  // Лишние D/E/F/H/I/J/K выводятся из присмотра (обёртки в каталоге остаются — включить обратно = раскомментировать).
-  { name: 'A (9335)', port: '9335', url: 'http://127.0.0.1:9335/life', wrapper: path.join(__dirname, 'run-node.cmd') },
-  { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(__dirname, 'run-node2.cmd') },
-  { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(__dirname, 'run-node3.cmd') },
-  { name: 'TS (9336)', port: '9336', url: `http://${process.env.AGT_TS_IP || '100.96.7.15'}:9336/life`, wrapper: path.join(__dirname, 'run-node-ts.cmd') },
-  // G-SPORE 9340 выведен AGIP-24: публичный вход фаннела переведён на 9335 (проверено 200)
-]; // инцидент 2026-10-16: D/E/F умерли молча и караулились 2.5 ч — теперь под присмотром
-// 2026-10-17: канарейки G/H/I — SPORE-ноды (AGIP-18 MVP: геном/физарум/метаболизм, AGT_SPORE=1)
-// 2026-10-17: свежие J/K (9346/9347, data-n8/data-n9) — распределение нагрузки: новые пулы отсоса белька агентов со старых A/B/C.
-const SICK_LIMIT = 5; // подряд живой-порт-но-мёртвый-/life → жёсткий рестарт (5 × 40с = ~3.3 мин)
-const SHED_LIMIT = 15; // AGIP-19: подряд shedding (overloaded, но жива) — 15 тиков ≈ 10 мин, потом разово рестарт
-
-const stateFile = path.join(__dirname, 'data', 'watchdog.json');
-function loadState() { try { return JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch { return { nodes: {}, startedAt: new Date().toISOString() }; } }
-const state = loadState();
-for (const n of NODES) if (!state.nodes[n.name]) state.nodes[n.name] = { fails: 0, restarts: 0, lastRestartAt: 0, lastAliveAt: 0 };
-function save() { try { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify(state, null, 2)); } catch {} }
-function log(m) { console.log(`[watchdog ${new Date().toISOString()}] ${m}`); }
-
-function probe(url) {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => { resolve(false); }, 5000);
-    http.get(url, (res) => { res.resume(); clearTimeout(t); resolve(res.statusCode === 200); })
-      .on('error', () => { clearTimeout(t); resolve(false); });
-  });
-}
-
-// AGIP-19 (разгрузка): отличаем «живая, но перегружена» от «мёртвая».
-// /health отвечает 503 {error: overloaded} с loopLag — рестарт это НЕ лечит
-// (kill→spawn→загрузка 9-МБ цепи сам только продлевает шторм), поэтому считаем
-// её живой до излёта по比我чому SHED_LIMIT.
-function probeShed(url) {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => { resolve('timeout'); }, 6000);
-    http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => { body += c; if (body.length > 4096) res.destroy(); });
-      res.on('end', () => { clearTimeout(t); resolve(res.statusCode === 200 ? (String(body).includes('overloaded') ? 'shedding' : 'ok') : 'down'); });
-    }).on('error', () => { clearTimeout(t); resolve('timeout'); });
-  });
-}
-
-// AGIP-19: рестарт-шторм гасится растущим колдауном (идея PM2 exp_backoff):
-// рестарт чаще чем раз в 10 мин → cooldown растёт ×1.5 до 4×; редкий — сброс в 1.
-function escalateRestart(rec) {
-  rec.cdMul = (Date.now() - rec.lastRestartAt < 10 * 60_000) ? Math.min(4, +(((rec.cdMul || 1) * 1.5).toFixed(1))) : 1;
-  rec.lastRestartAt = Date.now();
-}
-
-function launchWrapper(wrapper) {
-  // ТЗ-1 (аудит 2026-10-15): токен охраны деструктивных POST читаем из gitignored-файла
-  // и пробрасываем в env ноды (работает и для обёрток, которые нельзя править прямоН и
-  // и для будущих рестартов watchdog-ом). Без файла — env не трогаем, охрана неактивна.
-  let adminToken = null;
-  try { adminToken = fs.readFileSync(path.join(__dirname, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch { adminToken = null; }
-  const env = adminToken ? { ...process.env, AGT_ADMIN_TOKEN: adminToken } : process.env;
-  // A-6 (Codex-ревизия 2026-10-18): exec() ждал exit живой ноды ВЕЧНО — save() не доезжал,
-  // kill→launch ломался. Detached-spawn: обёртка стартует немедленно.
-  const cmd = process.platform === 'win32' ? 'cmd' : wrapper;
-  const args = process.platform === 'win32' ? ['/c', wrapper] : [];
-  try {
-    const child = spawn(cmd, args, { cwd: __dirname, windowsHide: true, env, detached: process.platform === 'win32', stdio: 'ignore' });
-    if (typeof child.unref === 'function') child.unref();
-    log(`wrapper запущен: ${wrapper} (pid ${child.pid ?? '?'} )`);
-    return Promise.resolve(true);
-  } catch (e) {
-    log(`wrapper не запустился: ${e.message}`);
-    return Promise.resolve(false);
+export function readTailnetBind(env = process.env, read = fs.readFileSync) {
+  let configured = env.AGT_TS_BIND || env.AGT_TS_IP || '';
+  if (!configured) {
+    try { configured = read(path.join(ROOT, 'data-agtx', 'ts-bind.txt'), 'utf8'); } catch {}
   }
-};
+  const bind = String(configured).trim();
+  return isIP(bind) && bind !== '0.0.0.0' && bind !== '::' ? bind : null;
+}
+const tailnetBind = readTailnetBind();
+export const NODES = [
+  { name: 'A (9335)', port: '9335', url: 'http://127.0.0.1:9335/life', wrapper: path.join(ROOT, 'run-node.cmd') },
+  { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(ROOT, 'run-node2.cmd') },
+  { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(ROOT, 'run-node3.cmd') },
+  { name: 'TS (9336)', port: '9336', url: tailnetBind ? `http://${tailnetBind.includes(':') ? `[${tailnetBind}]` : tailnetBind}:9336/life` : null,
+    wrapper: path.join(ROOT, 'run-node-ts.cmd'), configurationError: 'Set AGT_TS_BIND or data-agtx/ts-bind.txt to this host tailnet IP' },
+];
 
-// A-6: синхронная остановка владельца порта + ЖДАТЬ освобождения (раньше taskkill
-// был fire-and-forget — обёртка стартовала на занятый порт → зомби-клоны).
+// The deadline covers headers AND body. Destroying the request on timeout is
+// essential: resolving alone leaves hanging sockets in every cycle.
+export function requestJson(url, { timeoutMs = 5000, maxBytes = 4096 } = {}) {
+  return new Promise((resolve) => {
+    let req, res, timer, settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+      res?.destroy();
+      req?.destroy();
+    };
+    timer = setTimeout(() => finish({ status: 0, error: 'timeout' }), timeoutMs);
+    try {
+      const transport = new URL(url).protocol === 'https:' ? https : http;
+      req = transport.get(url, { agent: false }, (response) => {
+        res = response;
+        const chunks = [];
+        let size = 0;
+        res.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > maxBytes) return finish({ status: res.statusCode, error: 'response_too_large' });
+          chunks.push(chunk);
+        });
+        res.on('error', (err) => finish({ status: res.statusCode, error: err.message }));
+        res.on('aborted', () => finish({ status: res.statusCode, error: 'response_aborted' }));
+        res.on('end', () => {
+          try { finish({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); }
+          catch { finish({ status: res.statusCode, error: 'invalid_json' }); }
+        });
+      });
+      req.on('error', (err) => finish({ status: 0, error: err.message }));
+    } catch (err) { finish({ status: 0, error: err.message }); }
+  });
+}
+
+export async function probeHealth(node, request = requestJson) {
+  if (!node.url) return { alive: false, disabled: true, error: node.configurationError || 'node URL is not configured' };
+  const url = new URL(node.url);
+  url.pathname = '/health';
+  url.search = '';
+  let result = await request(url.href);
+  // An explicit 404 alone selects the expensive legacy contract.
+  const legacy = result.status === 404;
+  if (legacy) result = await request(node.url);
+  const body = result.body;
+  if (!result.error && body && typeof body === 'object') {
+    const overloaded = body.overloaded === true || body.shield?.overloaded === true;
+    if (result.status === 503 && (overloaded || body.error === 'overloaded')) {
+      return { alive: true, overloaded: true, blocks: body.blocks, tipAgeSec: body.tipAgeSec };
+    }
+    const valid = result.status === 200 && (legacy
+      ? typeof body.alive === 'boolean' && typeof body.chainValid === 'boolean'
+      : body.ok === true && body.service === 'agt-node');
+    if (valid) return { alive: true, overloaded, chainValid: body.chainValid, blocks: body.blocks, tipAgeSec: body.tipAgeSec };
+  }
+  // A different/invalid HTTP 200 service on the configured port is not proof
+  // that its process belongs to us. Surface it, do not taskkill that listener.
+  return { alive: false, responsive: result.status === 200,
+    error: result.error || `invalid_health_http_${result.status}` };
+}
+
+// null = failed inspection; 0 = successful inspection found no listener.
+export function parsePortOwner(stdout, port) {
+  for (const line of String(stdout).split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields[0]?.toUpperCase() !== 'TCP' || fields[3] !== 'LISTENING') continue;
+    if (fields[1]?.slice(fields[1].lastIndexOf(':') + 1) !== String(port)) continue;
+    const pid = Number(fields[4]);
+    if (Number.isSafeInteger(pid) && pid > 0) return pid;
+  }
+  return 0;
+}
+
+function portOwnerPid(port) {
+  if (process.platform !== 'win32') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile('netstat', ['-ano', '-p', 'TCP'], { timeout: 10_000, windowsHide: true }, (err, stdout) => {
+      resolve(err ? null : parsePortOwner(stdout, port));
+    });
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function killPidAwaitFree(pid, port) {
-  await new Promise((r) => exec(`taskkill /PID ${pid} /F`, { windowsHide: true }, () => r()));
+  const current = await portOwnerPid(port);
+  if (current === 0) return true;
+  if (current !== pid) return false;
+  const killed = await new Promise((resolve) => {
+    execFile('taskkill', ['/PID', String(pid), '/F'], { timeout: 10_000, windowsHide: true }, (err) => resolve(!err));
+  });
+  if (!killed) return false;
   for (let i = 0; i < 20; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    const owner = await portOwnerPid(port);
-    if (!owner) return true;
+    await sleep(500);
+    if (await portOwnerPid(port) === 0) return true;
   }
   return false;
 }
 
-// Инцидент 2026-10-15: watchdog при коротком провале /life (мгновенная перегрузка,
-// 503 shedding) спавнил дубликат-обёртку — старый процесс продолжал держать порт,
-// новый зомбировал на EADDRINUSE (глобал-guard ноды глотал ошибку) → 18 клонов.
-// Правило: ЛИСТЕНЕР НА ПОРТУ ЕСТЬ → дубликат не спавним; устойчиво болен (>SICK_LIMIT)
-// → по-настоящему убиваем владелеца порта и на следующем цикле поднимаем заново.
-function portOwnerPid(port) {
+export function launchWrapper(wrapper, { spawnFn = spawn, exists = fs.existsSync, log = () => {} } = {}) {
+  if (!exists(wrapper)) { log(`wrapper отсутствует: ${wrapper}`); return Promise.resolve(false); }
+  let adminToken = null;
+  try { adminToken = fs.readFileSync(path.join(ROOT, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch {}
+  const env = adminToken ? { ...process.env, AGT_ADMIN_TOKEN: adminToken } : process.env;
   return new Promise((resolve) => {
-    exec(`netstat -ano -p TCP | findstr ":${port} " | findstr LISTENING`, { timeout: 10000, windowsHide: true }, (err, stdout) => {
-      if (err || !String(stdout).trim()) return resolve(0);
-      const parts = String(stdout).trim().split(/\s+/);
-      const pid = Number(parts[parts.length - 1]);
-      resolve(Number.isFinite(pid) ? pid : 0);
-    });
+    try {
+      const child = spawnFn(process.platform === 'win32' ? 'cmd' : wrapper,
+        process.platform === 'win32' ? ['/c', wrapper] : [],
+        { cwd: ROOT, windowsHide: true, env, detached: true, stdio: 'ignore' });
+      // ENOENT is normally asynchronous, outside try/catch.
+      child.once('error', (err) => { log(`wrapper не запустился: ${err.message}`); resolve(false); });
+      child.once('spawn', () => { child.unref?.(); log(`wrapper запущен: ${wrapper} (pid ${child.pid})`); resolve(true); });
+    } catch (err) { log(`wrapper не запустился: ${err.message}`); resolve(false); }
   });
 }
 
-// AGIP-23 CPU-говернёр: инцидент 2026-10-17 — упавшие ноды реанимировались,
-// но их старт (9МБ chain.json + ws-hub) добивал и так задушенный CPU (100%),
-// ферма падала спустя пару минут заново. Правило: при CPU >90% реанимация
-// откладывается до следующего цикла — реанимации НЕ ОБЯЗАНЫ бить в падение.
 function cpuLoadPct() {
+  if (process.platform !== 'win32') return Promise.resolve(null);
   return new Promise((resolve) => {
-    exec('powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"', { timeout: 15000, windowsHide: true }, (err, stdout) => {
-      const v = Number(String(stdout).trim());
-      // null = не смогли измерить → ведём себя как раньше (фильтр без данных)
-      resolve(Number.isFinite(v) && v > 0 ? v : null);
-    });
+    execFile('powershell', ['-NoProfile', '-Command', '(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average'],
+      { timeout: 15_000, windowsHide: true }, (err, stdout) => {
+        const value = Number(String(stdout).trim());
+        resolve(!err && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null);
+      });
   });
 }
-const CPU_GOVERNOR_MAX = 90;
 
-let cycleBusy = false;
-async function cycle() {
-  if (cycleBusy) return;
-  cycleBusy = true;
-  try {
-  // AGIP-23 (анти-CPU-шторм): максимум ОДНА реанимация за цикл — каждая = полная
-  // загрузка 9-МБ chain.json (CPU-спайк). Инцидент: несколько RESTART за цикл =
-  // ферма топит сама себя и разваливается. Пропущенные ноды догоняю со следующих циклов.
-  let respawnsThisCycle = 0;
-  const cpuNow = await cpuLoadPct();
-  const cpuGovernorActive = cpuNow !== null && cpuNow > CPU_GOVERNOR_MAX;
-  if (cpuGovernorActive) log(`CPU-говернёр: ${Math.round(cpuNow)}% > ${CPU_GOVERNOR_MAX}% — реанимации откладываются до ослабления (не бить по падению)`);
-  for (const n of NODES) {
-    const rec = state.nodes[n.name];
-    const ok = await probe(n.url);
-    if (ok) { rec.fails = 0; rec.shed = 0; rec.sick = 0; rec.cdMul = 1; rec.lastAliveAt = Date.now(); continue; }
-    rec.fails += 1;
-    log(`${n.name} не отвечает (${rec.fails}/${FAIL_LIMIT}, url ${n.url})`);
-    const cooldown = RESTART_COOLDOWN_MS * (rec.cdMul || 1); // AGIP-19: эскалация
-    if (rec.fails >= FAIL_LIMIT && Date.now() - rec.lastRestartAt > cooldown) {
-      const owner = await portOwnerPid(n.port);
-      if (owner) {
-        const shed = await probeShed(n.url.replace(/\/life$/, '/health')); // A-6: probe по фактическому адресу цели
-        if (shed === 'shedding') {
-          // ЖИВАЯ, НО ПЕРЕГРУЖЕНА: не спавню дубликат и не убиваю — это безрезультатный
-          // рестарт-шторм. Жду до SHED_LIMIT, потом разово откапываю жёстким рестартом.
-          rec.fails = 0; rec.shed = (rec.shed || 0) + 1;
-          log(`${n.name}: /life таймаут, но /health=overloaded — жду без рестарта (shed ${rec.shed}/${SHED_LIMIT})`);
-          if (rec.shed >= SHED_LIMIT) {
-            rec.restarts += 1; escalateRestart(rec);
-            if (respawnsThisCycle >= 1 || cpuGovernorActive) {
-              // AGIP-23: счётчик shed НЕ обнуляем при отложении — первый слот.
-              log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
-            }
-            else {
-              respawnsThisCycle++;
-              log(`HARD-RESTART ${n.name} (застряла в shedding): taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-              if (!(await killPidAwaitFree(owner, n.port))) {
-              log(`${n.name}: порт ${n.port} не освободился после taskkill — НЕ спавню дубликат (A-6)`);
-            } else {
-              rec.sick = 0; rec.shed = 0; respawnsThisCycle++;
-              launchWrapper(n.wrapper); save();
-            }
-            }
-          }
-        } else {
-          rec.sick = (rec.sick || 0) + 1;
-          log(`${n.name}: /life мёртв, но порт ${n.port} слушает pid ${owner} — не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
-            if (rec.sick >= SICK_LIMIT) {
-              rec.restarts += 1; escalateRestart(rec);
-              if (respawnsThisCycle >= 1 || cpuGovernorActive) {
-                // AGIP-23: sick НЕ обнуляем при отложении — первый слот цикла.
-                log(`${n.name}: HARD-RESTART отложен — одна реанимация за цикл (AGIP-23)`);
-              } else {
-                rec.sick = 0; respawnsThisCycle++;
-                log(`HARD-RESTART ${n.name}: taskkill pid ${owner} → подъём обёрткой (всего рестартов: ${rec.restarts})`);
-                if (!(await killPidAwaitFree(owner, n.port))) {
-              log(`${n.name}: порт ${n.port} не освободился после taskkill — НЕ спавню дубликат (A-6)`);
-            } else {
-              rec.sick = 0; rec.shed = 0; respawnsThisCycle++;
-              launchWrapper(n.wrapper); save();
-            }
-              }
-            }
+// Importing this module never starts supervision, writes state or kills a PID.
+export function createWatchdog({ nodes = NODES, state = { nodes: {} }, probe = probeHealth,
+  owner = portOwnerPid, kill = killPidAwaitFree, launch = launchWrapper, cpu = cpuLoadPct,
+  canLaunch = (node) => fs.existsSync(node.wrapper),
+  now = Date.now, pause = sleep, save = () => {}, log = () => {}, failLimit = 2,
+  sickLimit = 5, cooldownMs = RESTART_COOLDOWN_MS } = {}) {
+  if (!state.nodes || typeof state.nodes !== 'object') state.nodes = {};
+  for (const node of nodes) state.nodes[node.name] = {
+    fails: 0, sick: 0, shed: 0, restarts: 0, lastRestartAt: 0, lastAliveAt: 0,
+    ...(state.nodes[node.name] || {}),
+  };
+  let busy = false;
+  async function cycle() {
+    if (busy) return false;
+    busy = true;
+    try {
+      // Bounded parallel HTTP, serialized restart decisions: at most one attempt.
+      const checks = await Promise.all(nodes.map(async (node) => {
+        try { return await probe(node); } catch (err) { return { alive: false, error: err.message }; }
+      }));
+      let attempted = false, cpuNow;
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i], rec = state.nodes[node.name], check = checks[i];
+        rec.lastCheckedAt = now();
+        if (check.alive) {
+          rec.fails = 0; rec.sick = 0; rec.lastAliveAt = now(); rec.lastProbeError = null;
+          rec.shed = check.overloaded === true ? (rec.shed || 0) + 1 : 0;
+          rec.blocks = Number.isFinite(check.blocks) ? check.blocks : null;
+          rec.tipAgeSec = Number.isFinite(check.tipAgeSec) ? check.tipAgeSec : null;
+          rec.stale = rec.tipAgeSec !== null && rec.tipAgeSec >= 300;
+          rec.chainValid = typeof check.chainValid === 'boolean' ? check.chainValid : null;
+          rec.status = check.overloaded ? 'overloaded' : check.chainValid === false ? 'chain_invalid' : rec.stale ? 'stale' : 'healthy';
+          if (now() - rec.lastRestartAt >= 10 * 60_000) rec.cdMul = 1;
+          continue; // Staleness/overload is visible, never a liveness restart.
         }
-      } else {
-        // AGIP-19: на перегруженной машине netstat иногда отдаёт пусто (таймаут exec —
-        // 5с), а порт на самом деле слушает живой-but-overloaded процесс → спавн стал
-        // бы EADDRINUSE-клоном (инцидент «18 клонов»). Перепроверяем перед спавном.
-        await new Promise((r) => setTimeout(r, 3000));
-        const owner2 = await portOwnerPid(n.port);
-        if (owner2) {
-          rec.sick = (rec.sick || 0) + 1; rec.fails = 0;
-          log(`${n.name}: повторный netstat нашёл pid ${owner2} — порт всё же слушает, не спавню дубликат (sick ${rec.sick}/${SICK_LIMIT})`);
-        } else if (respawnsThisCycle >= 1 || cpuGovernorActive) {
-          // AGIP-23: счётчик fails сохраняем — счётчик уже ≥ FAIL_LIMIT, отложенный
-          // READMINistrated RESTART вставает в ближайший свободный слот (с ожиданием CPU-говерйнога).
-          if (cpuGovernorActive) log(`${n.name}: RESTART отложен — CPU-говернёр ${Math.round(cpuNow)}%`);
-          else log(`${n.name}: RESTART отложен — одна реанимация за цикл (AGIP-23)`);
+        rec.lastProbeError = check.error || 'unreachable';
+        if (check.disabled) { rec.status = 'configuration_required'; rec.fails = 0; continue; }
+        if (check.responsive) { rec.status = 'unexpected_health'; rec.fails = 0; continue; }
+        rec.fails += 1; rec.status = 'unreachable';
+        if (rec.fails < failLimit) continue;
+        const lastAttempt = Math.max(rec.lastRestartAt || 0, rec.lastRestartAttemptAt || 0);
+        if (lastAttempt && now() - lastAttempt < cooldownMs * (rec.cdMul || 1)) { rec.status = 'restart_cooldown'; continue; }
+        let pid = await owner(node.port);
+        if (pid === null || pid === undefined) { rec.status = 'owner_unknown'; continue; }
+        if (pid) {
+          rec.sick += 1;
+          if (rec.sick < sickLimit) continue;
         } else {
-          rec.sick = 0; rec.fails = 0; rec.restarts += 1; escalateRestart(rec);
-          respawnsThisCycle++;
-          log(`RESTART ${n.name} → ${n.wrapper} (всего рестартов: ${rec.restarts})`);
-          launchWrapper(n.wrapper);
+          await pause(3000);
+          pid = await owner(node.port);
+          if (pid === null || pid === undefined) { rec.status = 'owner_unknown'; continue; }
+          if (pid) { rec.sick += 1; rec.status = 'listener_detected'; continue; }
         }
+        // Missing wrappers in a clean checkout must be diagnosed BEFORE we
+        // terminate a process that we cannot then restore.
+        if (!(await canLaunch(node))) { rec.status = 'wrapper_missing'; continue; }
+        if (cpuNow === undefined) cpuNow = await cpu();
+        if (attempted || (cpuNow !== null && cpuNow > 90)) { rec.status = 'restart_deferred'; continue; }
+        attempted = true;
+        if (pid && !(await kill(pid, node.port))) { rec.status = 'stop_failed'; continue; }
+        const at = now();
+        rec.lastRestartAttemptAt = at;
+        rec.restartAttempts = (rec.restartAttempts || 0) + 1;
+        const started = await launch(node.wrapper);
+        if (!started) { rec.status = 'restart_failed'; log(`${node.name}: wrapper не запущен`); continue; }
+        rec.cdMul = rec.lastRestartAt && at - rec.lastRestartAt < 10 * 60_000
+          ? Math.min(4, Number(((rec.cdMul || 1) * 1.5).toFixed(1))) : 1;
+        rec.lastRestartAt = at; rec.restarts += 1; rec.fails = 0; rec.sick = 0; rec.shed = 0;
+        rec.status = 'starting';
+        log(`${node.name}: wrapper запущен, ожидаю /health`);
       }
-    }
+      state.checkedAt = new Date(now()).toISOString();
+      save(state);
+      return true;
+    } finally { busy = false; }
   }
-  save();
-  } finally { cycleBusy = false; }
+  return { state, cycle };
 }
-log('сторож вышел на пост. Цели: ' + NODES.map(n => n.name).join(', '));
-save();
-await cycle();
-setInterval(() => { cycle(); }, CHECK_EVERY_MS);
+
+async function main() {
+  const stateFile = path.join(ROOT, 'data', 'watchdog.json');
+  let state;
+  try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch { state = { nodes: {} }; }
+  if (!state || typeof state !== 'object' || Array.isArray(state)) state = { nodes: {} };
+  state.startedAt = new Date().toISOString();
+  state.supervisorVersion = 2;
+  const log = (msg) => console.log(`[watchdog ${new Date().toISOString()}] ${msg}`);
+  const supervisor = createWatchdog({ state, log, launch: (wrapper) => launchWrapper(wrapper, { log }), save: (value) => {
+    try {
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(stateFile + '.tmp', JSON.stringify(value, null, 2));
+      fs.renameSync(stateFile + '.tmp', stateFile);
+    } catch (err) { log(`state не сохранён: ${err.message}`); }
+  } });
+  log('Цели: ' + NODES.map((node) => node.name).join(', ') + '; дешёвый /health, stale не вызывает рестарт');
+  if (process.platform !== 'win32') log('Автозапуск .cmd поддерживается на Windows; без Windows PID inspection рестарты отключены');
+  const run = () => supervisor.cycle().catch((err) => log(`ошибка цикла: ${err.message}`));
+  await run();
+  setInterval(run, CHECK_EVERY_MS);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => { console.error(err); process.exitCode = 1; });
+}

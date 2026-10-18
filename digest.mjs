@@ -18,7 +18,11 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(process.cwd() + '/');
 const API = (process.env.AGT_API || 'http://127.0.0.1:9335').replace(/\/$/, '');
-const PUBLIC_URL = process.env.AGT_PUBLIC_URL || 'https://laptop-ih54qpif.tail8c28c2.ts.net';
+const PUBLIC_URL = process.env.AGT_PUBLIC_URL || '';
+if (PUBLIC_URL) {
+  const u = new URL(PUBLIC_URL);
+  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) throw new Error('AGT_PUBLIC_URL: нужен http(s) origin без пароля, пути, query и fragment');
+}
 const STATE_FILE = path.join(process.cwd(), 'data', 'digest-state.json');
 const MIN_INTERVAL_H = 11;
 
@@ -43,7 +47,7 @@ async function buildDigest() {
   const wd = watchdog ? Object.entries(watchdog.nodes).map(([n, r]) => `${n.split(' ')[0]}:${r.restarts}`).join(' ') : 'watchdog н/д';
   return {
     title: `DIGEST «империя»: блоков ${blocks}, valid=${valid}, supply ${supply} AGT`,
-    text: `ORANGE DIGEST: блоков ${blocks}, chainValid=${valid}, supply ${supply}/2.1B AGT. ${era}. ${js}. Watchdog-рестарты: ${wd}. Публичный вход: ${PUBLIC_URL} · витрина /stats · джобборд /jobs · join: POST /join.`,
+    text: `ORANGE DIGEST: блоков ${blocks}, chainValid=${valid}, supply ${supply}/2.1B AGT. ${era}. ${js}. Watchdog-рестарты: ${wd}. ${PUBLIC_URL ? `Публичный вход: ${PUBLIC_URL}` : 'Публичный URL этой ноды не настроен (AGT_PUBLIC_URL)'} · витрина /stats · джобборд /jobs · регистрация: локальный профиль agt-skill.`,
   };
 }
 

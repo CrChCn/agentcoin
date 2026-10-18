@@ -40,29 +40,41 @@ export function recalcFromChainFile(dataDir) {
 // Полный аудит: пересчёт из файла против POST /balance на указанном baseUrl.
 // Возвращает { checked, height, bannedSkipped, rewardDrift, transientSkipped, mismatches, ok }
 // C-4 (Codex-ревью): в token-режиме ноды /balance требует x-admin-token; токен —
-// env AGT_ADMIN_TOKEN или adminToken, переданный вызывающим (health-check).
-export async function auditBalances({ dataDir, baseUrl, adminToken = null, attempts = AUDIT_ATTEMPTS }) {
-  const token = adminToken || process.env.AGT_ADMIN_TOKEN || null;
+// Explicit null disables auth, including env fallback (remote health-check).
+// Implicit env auth is allowed only for loopback; other nodes need an explicit
+// token supplied by a caller that has established ownership of that endpoint.
+export async function auditBalances({ dataDir, baseUrl, adminToken = undefined, attempts = AUDIT_ATTEMPTS,
+  fetchFn = fetch, signal = null, timeoutMs = 8000 }) {
+  let loopback = false;
+  try { loopback = ['127.0.0.1', '[::1]', 'localhost'].includes(new URL(baseUrl).hostname); } catch {}
+  const token = adminToken === undefined ? (loopback ? process.env.AGT_ADMIN_TOKEN || null : null) : adminToken;
   const authHeaders = token ? { 'x-admin-token': token } : {};
   const { balances, height } = recalcFromChainFile(dataDir);
   const mismatches = [];
   let bannedSkipped = 0, rewardDrift = 0, transientSkipped = 0;
 
   for (const [addr, expected] of Object.entries(balances)) {
+    signal?.throwIfAborted();
     let r = null;
     for (let i = 0; i < attempts; i++) {
+      signal?.throwIfAborted();
       if (i > 0) await new Promise(res => setTimeout(res, AUDIT_RETRY_PAUSE_MS_BASE * (i + 1)));
       try {
-        const resp = await fetch(baseUrl + '/balance', {
+        const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
+        const resp = await fetchFn(baseUrl + '/balance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({ address: addr }),
+          signal: requestSignal,
+          redirect: 'error',
         });
         let body = {};
         try { body = await resp.json(); } catch { body = {}; }
+        signal?.throwIfAborted();
         if (resp.status !== 503 && resp.status !== 429) { r = { status: resp.status, body }; break; }
         r = { status: resp.status, body }; // последний 503/429 запоминаем
       } catch (e) {
+        signal?.throwIfAborted();
         r = { status: 0, body: {}, error: e.message };
       }
     }

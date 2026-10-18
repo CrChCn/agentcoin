@@ -34,3 +34,30 @@ jobs:
           test/watchdog-incident.mjs test/health-check-incident.mjs
           test/sync-concurrency.mjs test/node-monitor.mjs
           test/site-release.mjs test/agent-node-setup.mjs test/address-configuration.mjs
+      - name: Independent accounting and preventive mining guards
+        run: node --test test/ledger-audit.mjs test/audit-lib.mjs test/mining-guard.mjs
+  easy-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Isolated installer and web app acceptance
+        run: node --test test/easy-install.mjs test/web-app.mjs
+      - name: Parse Windows bootstrap
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $parseTokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'install/bootstrap.ps1'), [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
+      - name: Parse Unix bootstrap
+        if: runner.os != 'Windows'
+        run: sh -n install/bootstrap.sh

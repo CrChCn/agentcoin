@@ -61,11 +61,26 @@
       <input id="oQty" placeholder="кол-во токенов" style="width:150px">
       <input id="oPrice" placeholder="цена AGT/шт" style="width:150px">
       <button id="bOrder">Подписать и выставить</button>
+      <select id="oCxl" style="min-width:250px" title="выбрать ордер из моих открытых"><option value="">— выбрать ордер для отмены —</option></select>
+      <button id="bCxl" style="border-color:var(--bad);color:var(--bad)" title="подписать отмену выбранного ордера">✕ Подписать и отменить</button>
     <div id="oWarn" style="font-size:12px;margin-top:6px;display:none;padding:6px 10px;border:1px solid #e06c75;border-radius:7px;color:#e06c75;background:#e06c7511"></div>
     </div>
     <div class="dimt" style="font-size:12px">кабинет подписывает ордер на ноде от твоего кошелька (privKey хранится в кошельке ноды — держатель ноды распоряжается); для внешнего агента честнее локальная подпись через skills/agentdata — v2</div>
     <div id="oMsg" style="font-size:12px;margin-top:6px"></div>
-    <div style="margin-top:10px"><table><thead><tr><th>мои ордера</th><th>side</th><th>qty</th><th>price</th><th>статус</th></tr></thead><tbody id="myOrd"></tbody></table></div>
+    <div style="margin-top:10px"><table><thead><tr><th>мои ордера</th><th>side</th><th>qty</th><th>price</th><th>статус</th><th>отмена</th></tr></thead><tbody id="myOrd"></tbody></table></div>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">🏦</span> Вывод средств <span class="tag" style="font-size:10px">на будущее · карты империи</span></h2>
+    <div class="row" style="margin:6px 0">
+      <select id="wTarget" style="width:240px">
+        <option value="human">Карта банка человека (payout)</option>
+        <option value="empire">Карта империи (Empire Card)</option>
+      </select>
+      <input id="wCard" placeholder="номер карты (в будущем,masked)" class="mono" style="flex:1;min-width:220px" inputmode="numeric" disabled>
+      <input id="wAmount" placeholder="сумма AGT" style="width:140px" disabled>
+    </div>
+    <div class="dimt" style="font-size:11.5px">План империи (ROADMAP-15-STEPS, milestone «Cards»): выпуск карт империи (Master/Visa-класс + криптокарта) — траты AGT в реальном мире. Вывод на карту человека или на карту империи активируется шлюзом после их запуска; номер карты сейчас нигде не хранится и нужен только в момент будущего вывода.</div>
+    <div class="row" style="margin-top:6px"><button id="bWithdraw" disabled style="opacity:.5;cursor:not-allowed">Вывести на карту</button><span class="dimt" id="wMsg" style="font-size:11.5px">в разработке — активируется после запуска карт империи; сейчас вывод только внутри империи (эскроу-джобы, MBC-20).</span></div>
   </div>
   <div class="row"><button id="bOut" style="border-color:var(--bad);color:var(--bad)">Выйти из кабинета</button></div>
 </div>
@@ -131,12 +146,42 @@
     myOrders();
   };
   async function myOrders() {
-    const b = await fetch('/mbc20/book?tick=' + $('oTick').value).then(x => x.json()).catch(() => null);
-    if (!b) return;
-    const mine = [];
-    for (const o of (b.bids || [])) if (o.maker === ADDR) mine.push({ ref: o.ref, side: 'bid', qty: o.qty, price: o.price, filled: o.filled });
-    for (const o of (b.asks || [])) if (o.maker === ADDR) mine.push({ ref: o.ref, side: 'ask', qty: o.qty, price: o.price, filled: o.filled });
-    $('myOrd').innerHTML = mine.map(o => '<tr><td class="mono">' + esc(o.ref) + '</td><td>' + o.side + '</td><td>' + o.qty + '</td><td>' + o.price + '</td><td>' + (o.filled ? esc(o.filled) + ' исполнено' : 'open') + '</td></tr>').join('') || '<tr><td colspan="5" class="dimt">нет моих ордеров в книге этой пары</td></tr>';
+    // читаем ВСЕ мои ордера из индекса цепи (в т.ч. отменённые/исполненные), фильтруем пару
+    const dxe = await fetch('/dxe/orders?maker=' + encodeURIComponent(ADDR)).then(x => x.json()).catch(() => null);
+    if (!dxe || !Array.isArray(dxe.orders)) { $('myOrd').innerHTML = '<tr><td colspan="6" class="dimt">книга недоступна — повтори через несколько секунд</td></tr>'; return; }
+    const item = 'mbc20:' + $('oTick').value;
+    const mine = dxe.orders.filter(o => o.item === item);
+    $('myOrd').innerHTML = mine.length ? mine.map(o => {
+      const st = o.status === 'open' ? (o.filled ? (o.filled + ' частично') : 'open') : (o.status === 'canceled' ? 'отменён' : 'закрыт');
+      const rem = +(o.qty - (o.filled || 0)).toFixed(6);
+      const slug = '<td class="mono">' + esc(o.ref) + '</td><td>' + (o.side === 'b' ? 'buy (bid)' : 'sell (ask)') + '</td><td>' + esc(o.qty) + '</td><td>' + esc(o.price) + '</td><td>' + esc(st) + '</td>';
+      const act = o.status === 'open'
+        ? '<td><button class="cxl" data-ref="' + esc(o.ref) + '" style="padding:2px 8px;font-size:11px;border-color:var(--bad);color:var(--bad)">✕ отменить</button></td>'
+        : '<td class="dimt" style="font-size:11px">—</td>';
+      return '<tr>' + slug + act + '</tr>';
+    }).join('') : '<tr><td colspan="6" class="dimt">нет моих ордеров в этой паре (открытых и закрытых)</td></tr>';
+    for (const btn of document.querySelectorAll('#myOrd button.cxl')) btn.onclick = () => cancelOrder(btn.getAttribute('data-ref'));
+    // дропдаун «выбрать ордер и подписать отменить» — рядом с «Подписать и выставить»
+    const open = mine.filter(o => o.status === 'open');
+    $('oCxl').innerHTML = '<option value="">— выбрать ордер для отмены —</option>' + open.map(o =>
+      '<option value="' + esc(o.ref) + '">' + esc(String(o.ref).slice(0, 8)) + ' · ' + (o.side === 'b' ? 'buy' : 'sell') + ' ' + esc(o.qty) + ' @ ' + esc(o.price) + (o.filled ? ' (исполнено ' + esc(o.filled) + ')' : '') + '</option>'
+    ).join('');
+    if (!open.length) CXL_REF = '';
+  }
+  let CXL_REF = '';
+  $('oCxl').onchange = () => { CXL_REF = $('oCxl').value; };
+  $('bCxl').onclick = () => {
+    const ref = CXL_REF || $('oCxl').value;
+    if (!ref) { $('oMsg').innerHTML = '<span class="bad">сначала выбери ордер в списке — что отменить</span>'; return; }
+    cancelOrder(ref);
+  };
+  async function cancelOrder(ref) {
+    const r = await fetch('/dxe/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }
+      , body: JSON.stringify({ maker: ADDR, ref }) }).then(x => x.json()).catch(e => ({ error: e.message }));
+    $('oMsg').innerHTML = (r.hint || r.txid)
+      ? '<span class="ok">⚜ отмена подписана на ноде: ref <b class="mono">' + esc(ref) + '</b> — станет «отменён» после упаковки в блок (mempool→block)</span>'
+      : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
+    myOrders();
   }
   $('bOut').onclick = () => { localStorage.removeItem('cab_token'); localStorage.removeItem('cab_addr'); TOKEN = ''; ADDR = ''; showLogin(); };
 

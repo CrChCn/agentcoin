@@ -17,13 +17,27 @@ set -euo pipefail
 
 PORT="${1:-9335}"
 REPO_URL="https://github.com/CrChCn/agentcoin"
-BOOTSTRAP_PEER="${AGT_BOOTSTRAP_PEER:-https://laptop-ih54qpif.tail8c28c2.ts.net}"
+# Optional peer selected by this node's operator. No personal laptop is a seed.
+BOOTSTRAP_PEER="${AGT_BOOTSTRAP_PEER:-}"
 INSTALL_DIR="${AGT_INSTALL_DIR:-/opt/agentcoin}"
 SVC_USER="${AGT_SVC_USER:-agt}"
 UNIT=/etc/systemd/system/agt-node.service
 PEERS_FILE="${INSTALL_DIR}/data-vps/peers.json"
 
 die() { echo "✗ ОШИБКА: $*" >&2; exit 1; }
+
+# Validate before packages, firewall or repository changes. Accept an origin,
+# never credentials, paths, query strings, fragments or shell metacharacters.
+[[ "${PORT}" =~ ^[0-9]{1,5}$ ]] && (( 10#${PORT} >= 1 && 10#${PORT} <= 65535 )) || die "порт должен быть числом 1..65535"
+if [ -n "${BOOTSTRAP_PEER}" ]; then
+  [[ "${BOOTSTRAP_PEER}" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/?$ ]] || die "AGT_BOOTSTRAP_PEER: нужен http(s) origin без пароля, пути, query и fragment"
+  PEER_AUTHORITY="${BOOTSTRAP_PEER#*://}"; PEER_AUTHORITY="${PEER_AUTHORITY%/}"
+  PEER_PORT="${PEER_AUTHORITY##*:}"
+  if [[ "${PEER_PORT}" =~ ^[0-9]+$ ]]; then
+    (( 10#${PEER_PORT} >= 1 && 10#${PEER_PORT} <= 65535 )) || die "AGT_BOOTSTRAP_PEER: неверный порт"
+  fi
+  BOOTSTRAP_PEER="${BOOTSTRAP_PEER%/}"
+fi
 
 echo "[1/7] Пакеты: curl, git, ca-certificates, jq, ufw"
 apt-get update -qq
@@ -112,11 +126,11 @@ systemctl enable agt-node.service
 # ⚠ enable --now НЕ перезапускает уже работающую службу — restart всегда:
 systemctl restart agt-node.service
 
-# bootstrap-пир ядра в peers.json (без чужого рестарта: unit уже перезапущен,
+# Явно выбранный bootstrap-пир в peers.json (unit уже перезапущен,
 # нода мержит bootstrap.json сама и пересчитывает пиры посменно офлайн-конфига)
 install -d -o "${SVC_USER}" -g "${SVC_USER}" "$(dirname "${PEERS_FILE}")"
 [ -s "${PEERS_FILE}" ] || (echo '[]' | install -o "${SVC_USER}" -g "${SVC_USER}" /dev/stdin "${PEERS_FILE}")
-if ! grep -qF "${BOOTSTRAP_PEER}" "${PEERS_FILE}"; then
+if [ -n "${BOOTSTRAP_PEER}" ] && ! jq -e --arg p "${BOOTSTRAP_PEER}" 'index($p) != null' "${PEERS_FILE}" >/dev/null; then
   jq --arg p "${BOOTSTRAP_PEER}" '. + [$p]' "${PEERS_FILE}" > "${PEERS_FILE}.tmp"
   install -o "${SVC_USER}" -g "${SVC_USER}" "${PEERS_FILE}.tmp" "${PEERS_FILE}"
   rm -f "${PEERS_FILE}.tmp"
@@ -137,17 +151,21 @@ if [ -z "${ALIVE}" ]; then
 fi
 BLOCKS="$(curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" | jq -r '.blocks')"
 echo "  ✓ нода жива, цепь валидна: blocks=${BLOCKS}"
-# «чтобы нода не отставала от ядра»: сверяем высоту с bootstrap-пиром
-PEER_H="$(curl -fsS -m 12 "${BOOTSTRAP_PEER%/}/life" 2>/dev/null | jq -r '.blocks' || true)"
-if [ -n "${PEER_H:-}" ] && [ "${PEER_H}" != "null" ]; then
+# Local validity alone does not establish membership in a live network.
+if [ -n "${BOOTSTRAP_PEER}" ]; then
+PEER_H="$(curl -fsS -m 12 "${BOOTSTRAP_PEER}/life" 2>/dev/null | jq -r '.blocks' || true)"
+if [[ "${PEER_H:-}" =~ ^[0-9]{1,12}$ ]] && [[ "${BLOCKS}" =~ ^[0-9]{1,12}$ ]]; then
   DELTA=$(( ${PEER_H} >= ${BLOCKS} ? PEER_H - BLOCKS : BLOCKS - PEER_H ))
-  echo "  высота нода/ядро: ${BLOCKS}/${PEER_H} (отставание ${DELTA})"
+  echo "  высота нода/выбранный пир: ${BLOCKS}/${PEER_H} (разница ${DELTA}; это не проверка совпадения цепей)"
   if [ "${DELTA}" -gt 25 ]; then
-    echo "  ⚠ нода отстаёт от ядра более чем на 25 блоков — догоняет headers-first синком." >&2
+    echo "  ⚠ разница с выбранным пиром более 25 блоков — проверь синхронизацию." >&2
     echo "    Дальше: journalctl -u agt-node -f | grep sync; на сервере: curl http://127.0.0.1:${PORT}/sync-now" >&2
   fi
 else
-  echo "  ⚠ высота ядра недоступна (${BOOTSTRAP_PEER}) — сверку отставания не делал; вызови /life ядра сам"
+  echo "  ⚠ высота выбранного пира недоступна (${BOOTSTRAP_PEER}) — синхронизация сети НЕ ПРОВЕРЕНА"
+fi
+else
+  echo "  ⚠ bootstrap-пир не задан: своя нода работает, подключение к сети НЕ ПРОВЕРЕНО. Укажи AGT_BOOTSTRAP_PEER=http(s)://<свой-доверенный-пир>."
 fi
 
 # публичный барьер — самопроверка с фактического публичного адреса.

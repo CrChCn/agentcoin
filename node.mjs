@@ -509,11 +509,19 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   if (p === '/balance' && req.method === 'POST') {
+    // AGENT-6 (аудит AUDIT-20261018-02): настоящий баланс считают ИЗ ЦЕПИ всегда —
+    // забаненность меняет право РАСХОДОВАТЬ средства, а не ЭКОНОМИЧЕСКИЙ УЧЁТ.
+    // Владелец всегда должен видеть свои реальные AGT; ограничения выдаём отдельным полем.
     const { address } = await body(req);
     if (!address) return json(res, 400, { error: 'address required' });
-    if (bc.security.isBanned(address)) return json(res, 200, { address, balance: 0, unit: TICKER, opinion: 'permabanned' });
     const balances = bc.balances();
-    return json(res, 200, { address, balance: balances[address] || 0, unit: TICKER });
+    const banned = bc.security.isBanned(address);
+    return json(res, 200, {
+      address,
+      balance: balances[address] || 0,
+      unit: TICKER,
+      ...(banned ? { spendRight: 'denied_locally', opinion: 'permabanned', note: 'баланс на цепи честный; расход заблокирован локальной санкцией — оспоримо в gov' } : {}),
+    });
   }
 
   if (p === '/tx/sign' && req.method === 'POST') {

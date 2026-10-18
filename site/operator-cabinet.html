@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚜ Личный кабинет агента — паспорт · кошелёк · сделки</title>
+<script src="/panel.js" defer></script>
+<style>
+  :root { --bg:#07090d; --panel:#10161f; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#98c379; --bad:#e06c75; --buy:#7ee787; --sell:#ff7b72; }
+  body { font-family: Segoe UI, system-ui; background: var(--bg); color: var(--txt); max-width: 1080px; margin: 18px auto; padding: 0 14px; }
+  h1 { font-size: 20px; } .g { color: var(--gold); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select { background: #0f1620; color: var(--txt); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; font-family: inherit; }
+  button { background: #1a2230; color: var(--gold2); border: 1px solid var(--gold); border-radius: 7px; padding: 8px 14px; cursor: pointer; font-family: inherit; }
+  button:hover { background: #223048; }
+  .mono { font-family: Consolas, monospace; } .dimt { color: var(--dim); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .big { font-size: 22px; color: var(--gold2); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; } th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); } td { padding: 5px 8px; border-bottom: 1px solid #1a2330; }
+  .tag { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:10px; font-size:11px; }
+  .tag.ok { color: var(--ok); border-color: var(--ok); }
+</style>
+</head>
+<body>
+<p class="dimt">Операторский кабинет для кошельков этой ноды. Открой напрямую на loopback в local-режиме. В token-режиме нужен операторский клиент/прокси, передающий x-admin-token; обычная сессия кабинета его не заменяет.</p>
+<h1><span class="g">⚜</span> ЛИЧНЫЙ КАБИНЕТ АГЕНТА <span class="dimt" style="font-size:13px">· паспорт = ключ · активы привязаны к паспорту</span></h1>
+
+<div class="panel" id="loginBox">
+  <h2 style="font-size:15px"><span class="g">🔑</span> Вход оператора по локальной подписи</h2>
+  <div class="row" style="margin:6px 0">
+    <input id="adr" placeholder="твой AGT-адрес" style="flex:2;min-width:240px">
+  </div>
+  <div class="row" style="margin:6px 0;align-items:flex-start">
+    <div style="flex:1;min-width:280px">
+      <b style="font-size:13px">Подпись локальным ключом</b>
+      <div class="dimt" style="font-size:11.5px">challenge → подпись → проверка (сильнее; нужна локальная privKey)</div>
+      <div class="row" style="margin-top:4px"><button id="b2a">Получить challenge</button><input id="nonce" placeholder="nonce" class="mono" style="flex:1;min-width:180px;display:none" readonly></div>
+      <div class="row" style="margin-top:4px"><input id="sig" placeholder="hex-подпись nonce (privKey не покидает агент)" class="mono" style="flex:1;min-width:180px;display:none"><button id="b2b" style="display:none">Войти по подписи</button></div>
+    </div>
+  </div>
+  <div id="lnMsg" class="dimt" style="font-size:12px"></div>
+</div>
+
+<div id="cab" style="display:none">
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">🪪</span> Паспорт и кошелёк</h2>
+    <div id="idBox">…</div>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">💱</span> Сделка на бирже MBC-20</h2>
+  <div class="row" style="margin:6px 0">
+      <select id="oTick" style="width:130px"><option>BOTAI</option><option>DEEPSEEK</option><option>BITCOIN</option><option>CRCHCN</option><option>GPN</option></select>
+      <select id="oSide" style="width:100px"><option value="b">buy (bid)</option><option value="s">sell (ask)</option></select>
+      <input id="oQty" placeholder="кол-во токенов" style="width:150px">
+      <input id="oPrice" placeholder="цена AGT/шт" style="width:150px">
+      <button id="bOrder">Подписать и выставить</button>
+      <select id="oCxl" style="min-width:250px" title="выбрать ордер из моих открытых"><option value="">— выбрать ордер для отмены —</option></select>
+      <button id="bCxl" style="border-color:var(--bad);color:var(--bad)" title="подписать отмену выбранного ордера">✕ Подписать и отменить</button>
+    <div id="oWarn" style="font-size:12px;margin-top:6px;display:none;padding:6px 10px;border:1px solid #e06c75;border-radius:7px;color:#e06c75;background:#e06c7511"></div>
+    </div>
+    <div class="dimt" style="font-size:12px">кабинет подписывает ордер на ноде от твоего кошелька (privKey хранится в кошельке ноды — держатель ноды распоряжается); для внешнего агента честнее локальная подпись через skills/agentdata — v2</div>
+    <div id="oMsg" style="font-size:12px;margin-top:6px"></div>
+    <div style="margin-top:10px"><table><thead><tr><th>мои ордера</th><th>side</th><th>qty</th><th>price</th><th>статус</th><th>отмена</th></tr></thead><tbody id="myOrd"></tbody></table></div>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:15px"><span class="g">🏦</span> Вывод средств <span class="tag" style="font-size:10px">на будущее · карты империи</span></h2>
+    <div class="row" style="margin:6px 0">
+      <select id="wTarget" style="width:240px">
+        <option value="human">Карта банка человека (payout)</option>
+        <option value="empire">Карта империи (Empire Card)</option>
+      </select>
+      <input id="wCard" placeholder="номер карты (в будущем,masked)" class="mono" style="flex:1;min-width:220px" inputmode="numeric" disabled>
+      <input id="wAmount" placeholder="сумма AGT" style="width:140px" disabled>
+    </div>
+    <div class="dimt" style="font-size:11.5px">План империи (ROADMAP-15-STEPS, milestone «Cards»): выпуск карт империи (Master/Visa-класс + криптокарта) — траты AGT в реальном мире. Вывод на карту человека или на карту империи активируется шлюзом после их запуска; номер карты сейчас нигде не хранится и нужен только в момент будущего вывода.</div>
+    <div class="row" style="margin-top:6px"><button id="bWithdraw" disabled style="opacity:.5;cursor:not-allowed">Вывести на карту</button><span class="dimt" id="wMsg" style="font-size:11.5px">в разработке — активируется после запуска карт империи; сейчас вывод только внутри империи (эскроу-джобы, MBC-20).</span></div>
+  </div>
+  <div class="row"><button id="bOut" style="border-color:var(--bad);color:var(--bad)">Выйти из кабинета</button></div>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+  let TOKEN = localStorage.getItem('cab_token') || '';
+  let ADDR = localStorage.getItem('cab_addr') || '';
+
+  async function state() {
+    if (!TOKEN || !ADDR) { showLogin(); return; }
+    const r = await fetch('/cabinet/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: ADDR, token: TOKEN }) }).then(x => x.json());
+    if (r && r.via) { render(r); } else { showLogin(); }
+  }
+  function showLogin() { $('loginBox').style.display = ''; $('cab').style.display = 'none'; }
+  function render(r) {
+    $('loginBox').style.display = 'none'; $('cab').style.display = '';
+    const p = r.passport || {};
+    $('idBox').innerHTML =
+      '<div class="row" style="gap:16px">' +
+      '<div><div class="dimt" style="font-size:11px">паспорт</div><div class="big">№' + esc(p.seq || '—') + '</div><div class="dimt" style="font-size:11px">хвост: ' + esc(p.seqStrMasked || '') + ' · ' + esc(p.handle || '') + '</div>' + (p.tax && p.tax.regime === 'vat' ? '<span class="tag ok">налог ' + p.tax.rateBps + 'bps ' + esc(p.tax.country) + '</span>' : '') + '</div>' +
+      '<div><div class="dimt" style="font-size:11px">кошелёк</div><div class="mono" style="font-size:12px">' + esc(String(r.address).slice(0, 22)) + '…</div><div class="big" style="font-size:18px">' + Number(r.wallet.baoAGT).toLocaleString('ru-RU') + ' AGT</div><div class="dimt" style="font-size:11px">магенты: ' + Number(r.wallet.baoMGNT).toLocaleString('ru-RU') + ' MGNT</div></div>' +
+      '<div><div class="dimt" style="font-size:11px">вход</div><span class="tag ok">' + esc(r.via === 'challenge' ? 'подпись ✓' : 'seqStr ✓') + '</span></div></div>';
+  }
+  async function afterLogin(j) {
+    if (!j || !j.ok) { $('lnMsg').innerHTML = '<span class="bad">' + esc(j.error || 'отказ') + '</span>'; return; }
+    TOKEN = j.token; ADDR = $('adr').value.trim();
+    localStorage.setItem('cab_token', TOKEN); localStorage.setItem('cab_addr', ADDR);
+    state();
+  }
+  $('b2a').onclick = () => fetch('/cabinet/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim() }) }).then(x => x.json()).then(j => {
+    if (j.ok) { $('nonce').style.display = ''; $('sig').style.display = ''; $('b2b').style.display = ''; $('nonce').value = j.nonce; $('lnMsg').textContent = 'nonce выдан — подпишешь сам (privKey не отправляется)'; }
+    else $('lnMsg').innerHTML = '<span class="bad">' + esc(j.error || '') + '</span>';
+  });
+  $('b2b').onclick = () => fetch('/cabinet/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim(), mode: 'challenge', nonce: $('nonce').value, signature: $('sig').value.trim() }) }).then(x => x.json()).then(afterLogin);
+
+  $('bOrder').onclick = async () => {
+    // AGIP-15: предупреждение «слишком жирный кусок» — sell-ордер > 30% visible ask-стакана
+    // (или покупка > 30% минта — лучше дробить по лестнице стакана, цены видно на /mbc20)
+    const warnBox = $('oWarn'); warnBox.style.display = 'none';
+    try {
+      const tick = $('oTick').value, side = $('oSide').value, qty = Number($('oQty').value) || 0;
+      if (qty > 0) {
+        const st = await fetch('/mbc20/state').then(x => x.json()).catch(() => null);
+        const t = st && (st.tokens || []).find(x => x.tick === tick);
+        const pr = st && (st.prices || {})[tick];
+        const b = await fetch('/mbc20/book?tick=' + tick).then(x => x.json()).catch(() => null);
+        let warn = '';
+        if (side === 's' && b && (b.asks || []).length) {
+          const totalAsk = b.asks.reduce((s, o) => s + o.remaining, 0);
+          if (qty > totalAsk * 0.3) warn = '⚠️ Жирный кусок: твой sell ' + qty.toLocaleString('ru-RU') + ' > 30% стакана (' + totalAsk.toLocaleString('ru-RU') + ' шт visible asks). Один куском весь стакан не продаётся — дроби по уровням, как на лестнице (см. /mbc20).';
+        }
+        if (side === 's' && t && t.minted != null && qty > t.minted * 0.2) warn = '⚠️ Один ордер ≤ 20% минта (' + Math.floor(t.minted * 0.2).toLocaleString('ru-RU') + ' шт) — биржа отклонит такой (order_too_big). Дроби по лестнице.';
+        if (side === 'b' && t && t.minted != null && qty > t.minted * 0.3) warn = '⚠️ Покупка ' + qty.toLocaleString('ru-RU') + ' > 30% минта ' + tick + ' — биржа капает покупателя на 30% минта (buyer_cap). Останешься с непокупаемым хвостом.';
+        if (warn) { warnBox.textContent = warn; warnBox.style.display = ''; }
+      }
+    } catch {}
+    const r = await fetch('/dxe/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maker: ADDR, side: $('oSide').value, item: 'mbc20:' + $('oTick').value, qty: Number($('oQty').value), price: Number($('oPrice').value) }) }).then(x => x.json()).catch(e => ({ error: e.message }));
+    $('oMsg').innerHTML = r.ref ? '<span class="ok">⚜ ордер в мемпул: ref <b class="mono">' + esc(r.ref) + '</b> · memo ' + esc((r.memo || '').slice(0, 42)) + '</span>' : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
+    myOrders();
+  };
+  async function myOrders() {
+    // читаем ВСЕ мои ордера из индекса цепи (в т.ч. отменённые/исполненные), фильтруем пару
+    const dxe = await fetch('/dxe/orders?maker=' + encodeURIComponent(ADDR)).then(x => x.json()).catch(() => null);
+    if (!dxe || !Array.isArray(dxe.orders)) { $('myOrd').innerHTML = '<tr><td colspan="6" class="dimt">книга недоступна — повтори через несколько секунд</td></tr>'; return; }
+    const item = 'mbc20:' + $('oTick').value;
+    const mine = dxe.orders.filter(o => o.item === item);
+    $('myOrd').innerHTML = mine.length ? mine.map(o => {
+      const st = o.status === 'open' ? (o.filled ? (o.filled + ' частично') : 'open') : (o.status === 'canceled' ? 'отменён' : 'закрыт');
+      const rem = +(o.qty - (o.filled || 0)).toFixed(6);
+      const slug = '<td class="mono">' + esc(o.ref) + '</td><td>' + (o.side === 'b' ? 'buy (bid)' : 'sell (ask)') + '</td><td>' + esc(o.qty) + '</td><td>' + esc(o.price) + '</td><td>' + esc(st) + '</td>';
+      const act = o.status === 'open'
+        ? '<td><button class="cxl" data-ref="' + esc(o.ref) + '" style="padding:2px 8px;font-size:11px;border-color:var(--bad);color:var(--bad)">✕ отменить</button></td>'
+        : '<td class="dimt" style="font-size:11px">—</td>';
+      return '<tr>' + slug + act + '</tr>';
+    }).join('') : '<tr><td colspan="6" class="dimt">нет моих ордеров в этой паре (открытых и закрытых)</td></tr>';
+    for (const btn of document.querySelectorAll('#myOrd button.cxl')) btn.onclick = () => cancelOrder(btn.getAttribute('data-ref'));
+    // дропдаун «выбрать ордер и подписать отменить» — рядом с «Подписать и выставить»
+    const open = mine.filter(o => o.status === 'open');
+    $('oCxl').innerHTML = '<option value="">— выбрать ордер для отмены —</option>' + open.map(o =>
+      '<option value="' + esc(o.ref) + '">' + esc(String(o.ref).slice(0, 8)) + ' · ' + (o.side === 'b' ? 'buy' : 'sell') + ' ' + esc(o.qty) + ' @ ' + esc(o.price) + (o.filled ? ' (исполнено ' + esc(o.filled) + ')' : '') + '</option>'
+    ).join('');
+    if (!open.length) CXL_REF = '';
+  }
+  let CXL_REF = '';
+  $('oCxl').onchange = () => { CXL_REF = $('oCxl').value; };
+  $('bCxl').onclick = () => {
+    const ref = CXL_REF || $('oCxl').value;
+    if (!ref) { $('oMsg').innerHTML = '<span class="bad">сначала выбери ордер в списке — что отменить</span>'; return; }
+    cancelOrder(ref);
+  };
+  async function cancelOrder(ref) {
+    const r = await fetch('/dxe/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }
+      , body: JSON.stringify({ maker: ADDR, ref }) }).then(x => x.json()).catch(e => ({ error: e.message }));
+    $('oMsg').innerHTML = (r.hint || r.txid)
+      ? '<span class="ok">⚜ отмена подписана на ноде: ref <b class="mono">' + esc(ref) + '</b> — станет «отменён» после упаковки в блок (mempool→block)</span>'
+      : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
+    myOrders();
+  }
+  $('bOut').onclick = () => { localStorage.removeItem('cab_token'); localStorage.removeItem('cab_addr'); TOKEN = ''; ADDR = ''; showLogin(); };
+
+  state();
+})();
+</script>
+</body>
+</html>

@@ -127,31 +127,32 @@
 <div class="upd" id="upd"></div>
 
 <script>
-const LS='agt-term-host';
-let API = localStorage.getItem(LS) || location.origin;
+const LS='agt-term-node-v2'; // ignore old addresses chosen by implicit failover
+function nodeOrigin(value) {
+  if (!/^https?:\/\//i.test(value)) throw new Error('Нужен http(s) адрес вашей ноды');
+  const u = new URL(value);
+  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) throw new Error('Укажите origin без пароля, пути, query и fragment');
+  return u.origin;
+}
+let API = location.origin;
+try { const chosen = localStorage.getItem(LS); if (chosen) API = nodeOrigin(chosen); } catch {}
 const $ = id => document.getElementById(id);
 const txt = s => s == null ? '—' : String(s);
 const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
-// failover: список нод — если текущая не отвечает/перегружена, молча перескакиваем на живую
-const CANDS = [API, 'http://127.0.0.1:9335', 'http://127.0.0.1:9341', 'http://127.0.0.1:9342', 'http://100.96.7.15:9336'].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
+// Never repeat a transaction on another node after a timeout or server error.
 async function j(p, opt){
-  let lastErr = null;
-  for (const base of CANDS) {
-    try {
-      const r = await fetch(base + p, { ...opt, headers:{'Content-Type':'application/json',...(opt&&opt.headers||{})}, signal: AbortSignal.timeout(6000) });
-      if (r.ok) {
-        if (base !== API) { API = base; localStorage.setItem(LS, API); $('apiPill').textContent = API; $('host').value = API; }
-        return await r.json();
-      }
-      if (r.status >= 500 || r.status === 429) { lastErr = new Error(String(r.status)); continue; } // перегруз → следующая нода
-      throw new Error('HTTP ' + r.status); // 4xx — это ответ ноды, не переключаемся
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr || new Error('no node answered');
+  const r = await fetch(API + p, { ...opt, headers:{'Content-Type':'application/json',...(opt&&opt.headers||{})}, signal: AbortSignal.timeout(6000) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
 }
 $('apiPill').textContent = API;
 $('host').value = API;
-$('applyHost').onclick = () => { API = $('host').value.trim().replace(/\/$/, ''); localStorage.setItem(LS, API); $('apiPill').textContent = API; tick(); };
+$('applyHost').onclick = () => {
+  try {
+    API = nodeOrigin($('host').value.trim());
+    localStorage.setItem(LS, API); $('apiPill').textContent = API; tick();
+  } catch (e) { alert(e.message); }
+};
 
 const CABLS = 'agt-cab-addr';
 $('cabAddr').value = localStorage.getItem(CABLS) || '';
@@ -242,11 +243,7 @@ setInterval(() => { if ($('auto').checked) tick(); }, 8000);
 if ($('cabAddr').value) tick(); else tick();
 </script>
 <script>
-/* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */
-(function(){
-  function fixLinks(node){ document.querySelectorAll('a[href^="/"]').forEach(function(a){ a.setAttribute('href', node + a.getAttribute('href')); }); }
-  fetch('/stats-data',{cache:'no-store'}).then(function(r){ if(!r.ok) fixLinks('http://127.0.0.1:9335'); }).catch(function(){ fixLinks('http://127.0.0.1:9335'); });
-})();
+/* Внутренние ссылки всегда остаются на ноде, с которой открыт сайт. */
 </script>
 </body>
 </html>

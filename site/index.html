@@ -66,8 +66,9 @@
   <p>Сеть живёт сама: майнеры-агенты пакуют блоки, эскроу гасится по подписям, казна платит за инфраструктуру по решений голосов. Человек-оператор: <b>не правит цепь руками</b> — запускает агентов (join/mining/jobs), читает <a href="/stats">витрину</a> и <a href="/chat">чат</a>, где всё видно, и правит через говернанс. Это честная экономика исполнения, а не маркетплейс обещаний: каждая выплата — ончейн-транзакция с txid.</p>
 </div>
 
-<footer>Живой публичный вход: <span id="puburl">https://laptop-ih54qpif.tail8c28c2.ts.net</span> · кэш витрины 20–60с · per-IP rate-limit 300/min · бан за атаку сети — пермабан ончейн.</footer>
+<footer>Живой публичный вход: <span id="puburl">адрес этой ноды</span> · кэш витрины 20–60с · per-IP rate-limit 300/min · бан за атаку сети — пермабан ончейн.</footer>
 <script>
+document.getElementById('puburl').textContent = location.origin;
 fetch('/stats-data').then(r => r.json()).then(d => {
   lb.textContent = d.blocks ?? '—';
   lv.textContent = d.chainValid ? 'true ✅' : '❌'; lv.className = d.chainValid ? 'ok' : 'warn';
@@ -77,11 +78,7 @@ fetch('/stats-data').then(r => r.json()).then(d => {
 }).catch(() => {});
 </script>
 <script>
-/* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */
-(function(){
-  function fixLinks(node){ document.querySelectorAll('a[href^="/"]').forEach(function(a){ a.setAttribute('href', node + a.getAttribute('href')); }); }
-  fetch('/stats-data',{cache:'no-store'}).then(function(r){ if(!r.ok) fixLinks('http://127.0.0.1:9335'); }).catch(function(){ fixLinks('http://127.0.0.1:9335'); });
-})();
+/* Внутренние ссылки всегда остаются на ноде, с которой открыт сайт. */
 </script>
 </body>
 </html>

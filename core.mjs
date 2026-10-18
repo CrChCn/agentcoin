@@ -621,10 +621,56 @@ export function expectedDifficultyBits(chain) {
   return retarget(tip.header.difficultyBits, tip.header.timestamp - anchor.header.timestamp, RETARGET_INTERVAL * BLOCK_INTERVAL_SEC);
 }
 
+// ===== CORE-P0 (LEDGER-20261018-01, аудит 2026-10-18, task CORE-P0) =====
+// Единый детерминированный набор доп. правил консенсуса, применяемых к блокам
+// высотой >= порога активации. Порог: opts.activation (явный, для тестов) или
+// env AGT_CORE_P0_HEIGHT (по образцу AGT_MGNT_HEIGHT). Пусто/0/некорректно →
+// выключено: полное legacy-поведение, никакой несовместимости без явного решения.
+export const SYSTEM_TX_FROMS = new Set(['COINBASE', 'AGENT_REWARD_POOL']);
+
+export function coreP0ActivationHeight(opts = {}) {
+  const raw = opts.activation !== undefined ? opts.activation : process.env.AGT_CORE_P0_HEIGHT;
+  if (raw === undefined || raw === null || raw === '') return Infinity;
+  if (raw === false) return Infinity;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return Infinity;
+  return n;
+}
+
+// Единая арифметика tx-влияния на балансы (balancesOf, последовательный replay
+// блоков, Blockchain.balances). COINBASE только зачисляет (эмиссия), остальное
+// списывает. Одна функция = одна бухгалтерия, ноль расхождений между путями.
+export function applyTxToBalances(b, tx) {
+  if (!tx) return;
+  if (tx.from && tx.from !== 'COINBASE') b[tx.from] = (b[tx.from] || 0) - tx.amount;
+  if (tx.to) b[tx.to] = (b[tx.to] || 0) + tx.amount;
+}
+export function balancesOf(chain) {
+  const b = {};
+  for (const blk of chain || []) for (const tx of blk.txs || []) applyTxToBalances(b, tx);
+  return b;
+}
+function chainTxidsOf(chain) {
+  const s = new Set();
+  for (const blk of chain || []) for (const t of (blk.txs || [])) if (t && t.txid) s.add(t.txid);
+  return s;
+}
+
 // Строгая валидация блока, продолжающего chain на высоте chain.length.
 // Возвращает null если блок валиден, иначе строку-причину отказа.
 // Проверяет: высоту, prevHash, hash, PoW, ПРАВИЛО СЛОЖНОСТИ, merkle,
 // coinbase (наличие + без инфляции мимо blockReward).
+// При активации CORE-P0 (block.height >= порога) ДОБАВЛЯЕТ:
+//  · chainId заголовка === CHAIN_ID;
+//  · РОВНО ОДИН coinbase (двойной coinbase = эмиссия мимо blockReward закрывается);
+//  · coinbase с каноническим txid (txid === txDigest);
+//  · канонический txid КАЖДОЙ tx — merkleRoot привязан к содержимому (digest),
+//    а не к переданному id;
+//  · запрет произвольных системных расходов (AGENT_REWARD_POOL c "from");
+//  · конечные положительные суммы;
+//  · replay-защиту: txid уже в цепи и повтор txid/(from,nonce) внутри блока;
+//  · ПОСЛЕДОВАТЕЛЬНУЮ бухгалтерию: баланс отправителя не уходит в минус
+//    ни на одном шаге внутри блока (double-spend в одном блоке невозможен).
 export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (!block || !block.header || !Array.isArray(block.txs)) return 'bad_block_shape';
   if (typeof block.height !== 'number' || block.height !== chain.length) return 'height_mismatch';
@@ -635,14 +681,41 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (!hashMeetsDifficulty(block.hash, block.header.difficultyBits)) return 'pow_fail';
   if (block.header.difficultyBits !== expectedDifficultyBits(chain)) return 'difficulty_rule_violation';
   if (block.header.merkleRoot !== merkleRoot(block.txs)) return 'merkle_mismatch';
-  const cb = (block.txs || []).find(t => t && t.from === 'COINBASE');
-  if (!cb) return 'coinbase_missing';
+  const act = coreP0ActivationHeight(opts);
+  const coreP0 = typeof block.height === 'number' && block.height >= act;
+  if (coreP0 && block.header.chainId !== CHAIN_ID) return 'chainId_mismatch';
+  const cbs = (block.txs || []).filter(t => t && t.from === 'COINBASE');
+  if (cbs.length === 0) return 'coinbase_missing';
+  if (coreP0 && cbs.length > 1) return 'multiple_coinbase'; // доп. эмиссия мимо blockReward
+  const cb = cbs[0];
   const allowed = blockReward(block.height);
   if (!(cb.amount > 0 && cb.amount <= allowed + 1e-9)) return 'coinbase_inflation';
+  if (coreP0 && (typeof cb.txid !== 'string' || cb.txid !== txDigest(cb))) return 'coinbase_txid_not_canonical';
+  // replay-контекст: opts.knownTxids — множество txid префикса (вызывающий может
+  // поддерживать его инкрементально, см. adoptFork/sync); иначе строим из chain
+  const knownSet = opts.knownTxids instanceof Set ? opts.knownTxids : (coreP0 ? chainTxidsOf(chain) : null);
+  let balances = opts.prefixBalances && typeof opts.prefixBalances === 'object'
+    ? { ...opts.prefixBalances }
+    : (coreP0 ? balancesOf(chain) : null);
+  const seenTxids = new Set();
+  const seenNonceKeys = new Set();
   // обычные транзакции: подписи и базовые инварианты
   for (const tx of block.txs) {
-    if (tx.from === 'COINBASE' || tx.from === 'AGENT_REWARD_POOL') continue;
+    if (tx.from === 'COINBASE') continue; // coinbase (единственный) проверен выше
+    if (coreP0 && SYSTEM_TX_FROMS.has(tx.from)) return 'system_spend_forbidden';
+    if (!coreP0 && tx.from === 'AGENT_REWARD_POOL') continue; // legacy: до активации системные tx пропускались по имени
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
+    if (coreP0) {
+      if (!Number.isFinite(tx.amount)) return 'tx_bad_amount';
+      // merkle привязан к каноническому содержимому, не к переданному txid
+      if (typeof tx.txid !== 'string' || tx.txid !== txDigest(tx)) return 'txid_not_canonical';
+      if (seenTxids.has(tx.txid)) return 'duplicate_txid_block';
+      if (knownSet && knownSet.has(tx.txid)) return 'tx_replay_in_chain';
+      const nkey = String(tx.from) + '|' + String(tx.nonce);
+      if (seenNonceKeys.has(nkey)) return 'duplicate_nonce_block';
+      seenTxids.add(tx.txid);
+      seenNonceKeys.add(nkey);
+    }
     // AGIP-9 (деноминация): сумма кратна магенту (1e-9 AGT) с activates-at-height,
     // иначе мягкий отказ (активация — env AGT_MGNT_HEIGHT, 0 = выкл. по умолчанию на старых нодах)
     const mgntH = Number(process.env.AGT_MGNT_HEIGHT || 0);
@@ -653,11 +726,23 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     }
     if (!verifyTxAny(tx, chain)) return 'tx_bad_signature_or_escrow';
     // AGIP-4: tx из активной казны требует вторую подпись (opts.treasury инжектится нодой;
-    // без передачи политика не проверяется — старые вызовы/pированные цепи ведут себя как раньше)
+    // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше)
     if (opts.treasury && !verifySecondSig(tx, opts.treasury)) return 'tx_treasury_needs_2sig';
+    if (coreP0 && balances) {
+      // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия: списание/зачисление в порядке tx внутри блока —
+      // овердрафт/двойная трата внутри одного блока невозможны
+      balances[tx.from] = (balances[tx.from] || 0) - tx.amount;
+      if (!(balances[tx.from] >= -1e-9)) return 'insufficient_funds_block';
+      balances[tx.to] = (balances[tx.to] || 0) + tx.amount;
+    }
+  }
+  if (coreP0 && balances) {
+    // coinbase: зачисление награды в последовательность балансов
+    balances[cb.to] = (balances[cb.to] || 0) + cb.amount;
   }
   return null;
 }
+
 
 // ============ Цепь ============
 export class Blockchain {
@@ -776,9 +861,18 @@ export class Blockchain {
     const candWork = chainWork(blocks);
     if (candWork <= ourWork) return { ok: false, reason: 'fork_not_heavier', ourWork, candWork };
     const prefix = this.chain.slice(0, d);
+    // CORE-P0: инкрементальные replay/balance-контексты — одна цена на всю развилку:
+    // known = txid префикса + уже проверенных блоков; bal = последовательные балансы.
+    const known = new Set();
+    for (const b of prefix) for (const t of (b.txs || [])) if (t && t.txid) known.add(t.txid);
+    const bal = balancesOf(prefix);
     for (let i = 0; i < blocks.length; i++) {
-      const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)), { treasury: this.getTreasuryPolicy() });
+      const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)), {
+        treasury: this.getTreasuryPolicy(), knownTxids: known, prefixBalances: bal,
+      });
       if (reason) return { ok: false, reason: `block@${blocks[i].height}: ${reason}` };
+      for (const t of (blocks[i].txs || [])) if (t && t.txid) known.add(t.txid);
+      for (const t of (blocks[i].txs || [])) applyTxToBalances(bal, t);
     }
     // архивируем вытесненный хвост (аудит: ничего не молча удаляется)
     if (ourTail.length) {
@@ -910,7 +1004,10 @@ export class Blockchain {
   }
 
   coinbaseTxTemplate() {
-    return { txid: 'coinbase-' + Date.now(), from: 'COINBASE', to: 'AGENT_REWARD_POOL', amount: blockReward(this.blockCount()), nonce: this.blockCount(), ts: Math.floor(Date.now() / 1000), memo: 'block ' + this.blockCount() };
+    const t = { from: 'COINBASE', to: 'AGENT_REWARD_POOL', amount: blockReward(this.blockCount()), nonce: this.blockCount(), ts: Math.floor(Date.now() / 1000), memo: 'block ' + this.blockCount() };
+    // CORE-P0: coinbase с каноническим txid (txid === txDigest) — активированный валидатор требует этого от новых блоков
+    t.txid = txDigest(t);
+    return t;
   }
 
   nextDifficulty() {
@@ -933,6 +1030,7 @@ export class Blockchain {
   mineOnce(minerAddress, onProgress) {
     const t0 = Date.now();
     const coinbase = { ...this.coinbaseTxTemplate(), to: minerAddress };
+    coinbase.txid = txDigest(coinbase); // CORE-P0: txid каноничен по ИТОГОВОМУ получателю (шаблон считал до подмены to)
     const txs = [ ...this.usableMempoolTxs(), coinbase ];
     const header = this.headHeaderTemplate();
     header.merkleRoot = merkleRoot(txs);
@@ -958,6 +1056,7 @@ export class Blockchain {
   // merkleRoot изменится и PoW-хеш не совпадёт.
   mineTemplate(minerAddress) {
     const coinbase = { ...this.coinbaseTxTemplate(), to: minerAddress };
+    coinbase.txid = txDigest(coinbase); // CORE-P0: txid каноничен по ИТОГОВОМУ получателю (шаблон считал до подмены to)
     const txs = [ ...this.usableMempoolTxs(), coinbase ];
     const header = {
       version: 1,
@@ -978,7 +1077,7 @@ export class Blockchain {
   // фиктивные транзакции (minting-баг).
   commitMinedBlock(header, hash, txs, minerAddress, ms) {
     const block = { height: this.blockCount(), hash, header, txs: txs || [], minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
-    const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy() });
+    const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances() });
     if (reason) return { rejected: reason, block };
     this.chain.push(block);
     // убрать из мемпула всё, что упаковано, остальное — refilter
@@ -993,14 +1092,8 @@ export class Blockchain {
 
   // ---- Балансы (из транзакций блоков) ----
   balances() {
-    const b = {};
-    for (const blk of this.chain) {
-      for (const tx of blk.txs || []) {
-        if (tx.from && tx.from !== 'COINBASE') b[tx.from] = (b[tx.from] || 0) - tx.amount;
-        if (tx.to) b[tx.to] = (b[tx.to] || 0) + tx.amount;
-      }
-    }
-    return b;
+    // CORE-P0: одна арифметика tx-влияния (applyTxToBalances/balancesOf) для всех путей
+    return balancesOf(this.chain);
   }
 
   // ---- Валидация ----
@@ -1009,19 +1102,28 @@ export class Blockchain {
   // strict выключен по умолчанию: старые секции цепи майнились до ужесточений
   // (историческая совместимость), строгий режим применяется к СИНКУ новых блоков.
   validate(strict = false) {
-    for (let i = 1; i < this.chain.length; i++) {
-      const blk = this.chain[i], prev = this.chain[i - 1];
-      if (blk.header.prevHash !== prev.hash) return { ok: false, at: i, reason: 'prevHash mismatch' };
-      if (computeBlockHash(blk.header) !== blk.hash) return { ok: false, at: i, reason: 'hash mismatch' };
-      if (!hashMeetsDifficulty(blk.hash, blk.header.difficultyBits)) return { ok: false, at: i, reason: 'PoW fail' };
-      if (strict) {
-        if (expectedDifficultyBits(this.chain.slice(0, i)) !== blk.header.difficultyBits) return { ok: false, at: i, reason: 'difficulty rule violation' };
-        const cb = (blk.txs || []).find(t => t && t.from === 'COINBASE');
-        if (!cb || !(cb.amount > 0 && cb.amount <= blockReward(i) + 1e-9)) return { ok: false, at: i, reason: 'coinbase invalid' };
-        for (const tx of blk.txs) if (tx.from !== 'COINBASE' && !verifyTransaction(tx)) return { ok: false, at: i, reason: 'tx signature fail' };
+    if (!strict) {
+      for (let i = 1; i < this.chain.length; i++) {
+        const blk = this.chain[i], prev = this.chain[i - 1];
+        if (blk.header.prevHash !== prev.hash) return { ok: false, at: i, reason: 'prevHash mismatch' };
+        if (computeBlockHash(blk.header) !== blk.hash) return { ok: false, at: i, reason: 'hash mismatch' };
+        if (!hashMeetsDifficulty(blk.hash, blk.header.difficultyBits)) return { ok: false, at: i, reason: 'PoW fail' };
       }
+      return { ok: true, blocks: this.blockCount() };
     }
-    return { ok: true, blocks: this.blockCount() };
+    // CORE-P0: строгий полный проход теперь использует ЕДИНЫЙ сетевой верификатор
+    // (требование аудита: один verifier вместо расходящихся путей). Эскроу tx
+    // валидируются своими правилами против соответствующего префикса — историческая
+    // сверка h307 больше не падает; новые правила применяются только к высотам >=
+    // активации (env AGT_CORE_P0_HEIGHT / opts.activation).
+    for (let i = 1; i < this.chain.length; i++) {
+      const reason = validateBlockAgainstChain(this.chain[i], this.chain.slice(0, i), { treasury: this.getTreasuryPolicy() });
+      if (reason) return { ok: false, at: i, reason };
+    }
+    const bal = balancesOf(this.chain);
+    const neg = Object.entries(bal).filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && v < -1e-9);
+    const supply = Object.entries(bal).reduce((s, [, v]) => s + Math.max(0, v || 0), 0);
+    return { ok: true, blocks: this.blockCount(), negativeBalances: neg.length, totalSupply: supply };
   }
 
   info() {

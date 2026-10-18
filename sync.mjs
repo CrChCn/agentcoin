@@ -19,8 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,
-  chainWork, validateBlockAgainstChain, expectedDifficultyBits,
+  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits,
+  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
 } from './core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -314,19 +314,25 @@ export async function syncOne(bc, peerUrl) {
     // ---- Линейный append: грузим тела и валидируем КАЖДЫЙ блок строго ----
     const bodies = await fetchStable(`${peerUrl}/blocks?from=${myH}`);
     const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
-    let accepted = 0;
-    const interim = chainAtStart.slice();
+    let accepted = 0;    const interim = chainAtStart.slice();
+    // CORE-P0: инкрементальные replay/balance-контексты — одна цена на весь синк:
+    // known = txid стартовой цепи; bal = последовательные балансы, обновляются по мере приёмки.
+    const knownTx = new Set();
+    for (const b of chainAtStart) for (const t of (b.txs || [])) if (t && t.txid) knownTx.add(t.txid);
+    const bal = balancesOf(chainAtStart);
     for (const blk of incoming) {
       // дешёвая (headers-only) проверка уже была; здесь — полная, против нарастающего префикса
       const known = headers && headers.find(hd => hd.height === blk.height);
       if (known && known.hash !== blk.hash) { log.push(`  → hash заголовка/тела расходится на ${blk.height}`); peerStrike(peerUrl, `header/body hash divergence at ${blk.height}`); return log; }
-      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy() });
+      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy(), knownTxids: knownTx, prefixBalances: bal });
       if (reason) {
         log.push(`  → block ${blk.height} REJECTED: ${reason} — плохой блок от пира не примем`);
         peerStrike(peerUrl, `invalid block ${blk.height}: ${reason}`);
         return log; // дальше цепь не может быть консистентной
       }
       interim.push(blk);
+      for (const t of (blk.txs || [])) if (t && t.txid) knownTx.add(t.txid);
+      for (const t of (blk.txs || [])) applyTxToBalances(bal, t);
       accepted++;
     }
     if (accepted) {

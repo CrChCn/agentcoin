@@ -1,38 +1,36 @@
-name: Syntax CI
-
-# node --check по всем tracked .mjs файлам на каждый пуш.
-# Цель: синтаксические ошибки (напр. незакрытый блок) никогда не доезжают до main.
-
+name: Agentcoin checks
 on:
   push:
   pull_request:
-
 concurrency:
-  group: syntax-ci-${{ github.ref }}
+  group: agentcoin-ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   node-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-
-      - name: node --check all tracked .mjs files
+          node-version: 24
+      - name: Check every tracked module
+        run: git ls-files -z '*.mjs' | xargs -0 -r -n 1 node --check
+      - name: Check inline browser scripts
         run: |
-          set -o pipefail
-          files=$(git ls-files '*.mjs')
-          echo "checking $(echo "$files" | wc -l) files:"
-          echo "$files" | xargs --no-run-if-empty node --check
-          echo "OK: all tracked .mjs files pass node --check"
-
-      # ТЗ-4 (шаг 6): смоук-тесты ядра — halving-математика, подписи, эскроу-дайджесты.
-      # Тестов, требующих data/wallets.json, на CI нет — честный skip печатается в лог.
-      - name: core smoke tests
+          node tools/check-html-scripts.mjs
+          node tools/build-site-release.mjs --check
+      - name: Core security regressions
         run: |
-          set -o pipefail
           node test/core-smoke.mjs
+          node test/p0-signature-binding.mjs
+          node test/sec-01-escrow-p2p.mjs
+          node test/accept-A1-registry.mjs
+          node test/cabinet-cancel-unit.mjs
+      - name: Identity portability and node recovery
+        run: >-
+          node --test test/agent-identity.mjs test/agent-profile.mjs
+          test/cabinet-client.mjs test/cabinet-portability.mjs test/cabinet-auth.mjs
+          test/watchdog-incident.mjs test/health-check-incident.mjs
+          test/sync-concurrency.mjs test/node-monitor.mjs
+          test/site-release.mjs test/agent-node-setup.mjs test/address-configuration.mjs

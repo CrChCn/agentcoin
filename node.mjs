@@ -1995,6 +1995,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
   if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
+  // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
+  // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные
+  // релизы: _generation валидирует ВСЕ файлы списка).
+  if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }

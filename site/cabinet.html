@@ -19,39 +19,104 @@
 <p><small>Номер паспорта не заменяет доказательство владения ключом. Веб-страница не запрашивает privKey, seed или пароль.</small></p></section>
 <section class="panel hidden" id="cab"><h2>Паспорт и активы</h2><div id="identity"></div><p class="balance" id="balance"></p><p class="dim">Сессия позволяет просмотреть кабинет. Переводы и сделки требуют отдельной локальной подписи; админ-права сайта не предоставляются.</p><button id="logout" class="secondary">Выйти</button><a id="noauto" class="dim" href="javascript:void(0)" style="margin-left:10px;font-size:12px;color:var(--dim)">не входить автоматически</a></section>
 <div class="status" id="message" role="status" aria-live="polite"></div>
-</main><script>
+</main>
+<script>
 'use strict';
-const $=id=>document.getElementById(id);let issued=null,token='',address='';
-async function api(route,value){const r=await fetch(route,{method:value?'POST':'GET',headers:{'Content-Type':'application/json'},body:value?JSON.stringify(value):undefined,signal:AbortSignal.timeout(10000),cache:'no-store'});const j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||('HTTP '+r.status));return j;}
-function action(id,fn){$(id).onclick=async()=>{const b=$(id);b.disabled=true;$('message').textContent='Выполняю…';try{await fn();}catch(e){$('message').textContent=e.message;}finally{b.disabled=false;}};}
-function noSecrets(v){if(v&&typeof v==='object')for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error('Этот файл содержит секретные поля. Нужен только публичный паспорт.');noSecrets(x);}}
-async function refresh(){const r=await api('/cabinet/state',{address,token});$('loginBox').classList.add('hidden');$('cab').classList.remove('hidden');const p=r.passport||{};$('identity').replaceChildren();for(const line of [p.handle||'Агент',p.agentId||'Существующий паспорт',r.address]){const d=document.createElement('div');d.textContent=line;d.className='address';$('identity').append(d);}$('balance').textContent=Number(r.wallet.baoAGT).toLocaleString('ru-RU')+' AGT';$('message').textContent='Вход подтверждён. Ключ остался в локальном профиле.';}
-action('importCert',async()=>{const f=$('certFile').files[0];if(!f||f.size>4096)throw Error('Выбери публичный паспорт до 4 КБ.');const passport=JSON.parse(await f.text());noSecrets(passport);await api('/identity/import',{passport});$('adr').value=passport.payload.address;$('message').textContent='Публичный паспорт проверен этой нодой.';});
-action('challenge',async()=>{issued=null;$('signBox').classList.add('hidden');const r=await api('/cabinet/challenge',{address:$('adr').value.trim()});issued=r.challenge;$('challengeJson').value=JSON.stringify(issued,null,2);$('signBox').classList.remove('hidden');$('message').textContent='Подпиши запрос в своей среде. Срок действия — 5 минут.';});
-action('downloadChallenge',async()=>{if(!issued)throw Error('Сначала получи запрос.');const url=URL.createObjectURL(new Blob([JSON.stringify(issued,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='agentcoin-login-challenge.json';a.click();URL.revokeObjectURL(url);$('message').textContent='Запрос сохранён. Он не содержит секретных ключей.';});
-action('login',async()=>{if(!issued)throw Error('Сначала получи запрос.');let sig=$('signature').value.trim();if(sig.startsWith('{')){const v=JSON.parse(sig);noSecrets(v);if(v.challengeId!==issued.challengeId||v.address!==issued.address)throw Error('Ответ относится к другому запросу.');sig=v.signature;}if(!/^[0-9a-fA-F]{128}$/.test(sig))throw Error('Нужна Ed25519-подпись: 128 hex-символов.');const r=await api('/cabinet/login',{mode:'challenge',address:issued.address,challengeId:issued.challengeId,nonce:issued.message,signature:sig});token=r.token;address=issued.address;$('signature').value='';issued=null;localStorage.setItem('agt:addr',address);saveSession();await refresh();autologin();});
-action('logout',async()=>{try{await api('/cabinet/logout',{token});}finally{clearSession();token='';address='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Сессия завершена. При перезагрузке автологин этой ноды вернёт вход (выключить — «не входить автоматически»).';}});
-api('/identity/meta').then(m=>{$('nodeMeta').textContent='Сеть: '+m.network+' · '+(m.role==='replica'?'дочерняя нода':'издатель паспортов')+'\nКлюч издателя: '+m.passportIssuerFingerprint+'\nНазначение входа: '+m.audience;api('/site/release').then(v=>{$('nodeMeta').append(document.createTextNode('\nВыпуск сайта: '+(v.release||v.checkoutRelease||'не указан')));}).catch(()=>{});}).catch(e=>{$('nodeMeta').textContent='Нода пока не поддерживает переносимые паспорта: '+e.message;});
-// ================== AGIP-45: автоматический вход оператора на своей ноде ==================
-// Только на самой ноде (127.0.0.1/localhost): браузер молча получает session-токен
-// с эндпоинта /cabinet/autologin (админ-плоскость, loopback-only у ноды). На чужой
-// машине эндпоинта не будет — просто обычный вход по подписи, ничего не ломается.
-function saveSession(){try{sessionStorage.setItem('agt:cab',JSON.stringify({address,token}));}catch(e){}}
-function clearSession(){try{sessionStorage.removeItem('agt:cab');}catch(e){}}
-async function autologin(){
-  const saved=(()=>{try{return JSON.parse(sessionStorage.getItem('agt:cab')||'null');}catch(e){return null;}})();
-  if(saved){address=saved.address;token=saved.token;try{await refresh();return;}catch(e){clearSession();token='';}}
-  const localHost=location.hostname==='127.0.0.1'||location.hostname==='localhost'||location.hostname==='[::1]';
-  if(!localHost||localStorage.getItem('agt:autologin')==='off')return;
-  try{
-    const r=await fetch('/cabinet/autologin',{method:'POST',headers:{'Content-Type':'application/json','x-cabinet-autologin':'local'},body:JSON.stringify({address:localStorage.getItem('agt:addr')||undefined}),signal:AbortSignal.timeout(8000),cache:'no-store'});
-    const j=await r.json();
-    if(!j||j.ok!==true)return; // старая нода без маршрута → обычный вход, тишина
-    address=j.address;token=j.token;saveSession();localStorage.setItem('agt:addr',j.address);
-    await refresh();
-    $('message').textContent='Вход выполнен автоматически (автологин этой ноды). Сессия — 8 часов; выход кнопкой «Выйти».';
-  }catch(e){/* устаревшая нода или нет ключа — молчаливый fallback на обычный вход */}
+window.cabCabinetPage = true; // маркер сборки (панель навигации)
+</script>
+<script type="module">
+import * as cab from '/cab-auth.js';
+'use strict';
+const $ = id => document.getElementById(id);
+const mark = (node, line) => { const d = document.createElement('div'); d.textContent = line; d.className = 'address'; node.append(d); return d; };
+let issued = null;
+
+function showCab(state) { $('loginBox').classList.add('hidden'); $('cab').classList.remove('hidden'); refreshView(state); }
+function showLogin() { $('loginBox').classList.remove('hidden'); $('cab').classList.add('hidden'); }
+
+async function refreshView(r) {
+  const p = r.passport || {};
+  const list = $('identity'); list.replaceChildren();
+  for (const line of [p.handle || 'Агент', p.agentId || 'Существующий паспорт', r.address]) mark(list, line);
+  $('balance').textContent = Number(r.wallet.baoAGT).toLocaleString('ru-RU') + ' AGT';
 }
-$('noauto').onclick=()=>{localStorage.setItem('agt:autologin','off');clearSession();try{api('/cabinet/logout',{token});}catch(e){}token='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Автологин выключен для этой страницы. Войти можно обычным способом.';};
-autologin(); // AGIP-45: при загрузке страницы сразу и молча пробуем авто-вход (или восстановление живой сессии)
+
+// Подключение: показываем пины сети честно (сверяй через независимый канал)
+fetch('/identity/meta').then(m => m.json()).then((m) => {
+  $('nodeMeta').textContent = 'Сеть: ' + m.network + ' · ' + (m.role === 'replica' ? 'дочерняя нода' : 'издатель паспортов') +
+    '\nКлюч издателя: ' + m.passportIssuerFingerprint + '\nНазначение входа: ' + m.audience;
+  fetch('/site/release').then(v => v.json()).then(v => { $('nodeMeta').append(document.createTextNode('\nВыпуск сайта: ' + (v.release || v.checkoutRelease || 'не указан'))); }).catch(() => {});
+}).catch(e => { $('nodeMeta').textContent = 'Нода пока не поддерживает переносимые паспорта: ' + e.message; });
+
+$('importCert').onclick = async () => {
+  $('message').textContent = 'Выполняю…';
+  try {
+    const f = $('certFile').files[0];
+    if (!f || f.size > 4096) throw Error('Выбери публичный паспорт до 4 КБ.');
+    const passport = JSON.parse(await f.text());
+    cab.rejectSecretFields(passport);
+    const r = await fetch('/identity/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passport }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw Error(j.error || 'HTTP ' + r.status);
+    $('adr').value = passport.payload.address;
+    $('message').textContent = 'Публичный паспорт проверен этой нодой.';
+  } catch (e) { $('message').textContent = e.message; }
+};
+
+$('challenge').onclick = async () => {
+  issued = null; $('signBox').classList.add('hidden');
+  $('message').textContent = 'Выполняю…';
+  try {
+    const address = $('adr').value.trim();
+    if (!/^AGT[0-9a-f]{40}$/.test(address)) throw Error('Нужен AGT-адрес.');
+    const r = await fetch('/cabinet/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw Error(j.error || 'HTTP ' + r.status);
+    issued = j.challenge || j;
+    $('challengeJson').value = JSON.stringify(issued, null, 2);
+    $('signBox').classList.remove('hidden');
+    $('message').textContent = 'Подпиши запрос в своей среде. Срок действия — 5 минут.';
+  } catch (e) { $('message').textContent = e.message; }
+};
+
+$('downloadChallenge').onclick = () => {
+  if (!issued) { $('message').textContent = 'Сначала получи запрос.'; return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(issued, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'agentcoin-login-challenge.json'; a.click(); URL.revokeObjectURL(url);
+  $('message').textContent = 'Запрос сохранён. Он не содержит секретных ключей.';
+};
+
+$('login').onclick = async () => {
+  const btn = $('login'); btn.disabled = true; $('message').textContent = 'Выполняю…';
+  try {
+    if (!issued) throw Error('Сначала получи запрос.');
+    const address = $('adr').value.trim();
+    let sig = $('signature').value.trim();
+    if (sig.startsWith('{')) {
+      const v = JSON.parse(sig); cab.rejectSecretFields(v);
+      if (v.challengeId !== issued.challengeId || v.address !== issued.address) throw Error('Ответ относится к другому запросу.');
+      sig = v.signature || v.sig;
+    }
+    if (!/^[0-9a-fA-F]{128}$/.test(sig)) throw Error('Нужна Ed25519-подпись: 128 hex-символов.');
+    const r = await fetch('/cabinet/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: issued.address, mode: 'challenge', challengeId: issued.challengeId, nonce: issued.message, signature: sig }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw Error(j.error || 'HTTP ' + r.status);
+    const session = { address: issued.address, token: j.token, expiresAt: j.expiresAt };
+    cab.saveSession(session); cab.rememberAddress(issued.address);
+    $('signature').value = '';
+    issued = null;
+    const st = await fetch('/cabinet/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: session.address, token: session.token }) });
+    showCab(await st.json());
+    $('message').textContent = 'Вход подтверждён. Ключ остался в локальном профиле.';
+  } catch (e) { $('message').textContent = e.message; }
+  finally { btn.disabled = false; }
+};
+
+// AGIP-45: молчаливый автологин оператора на его ноде (POST /cabinet/autologin в cab-auth.js).
+// Чужая машина/старая нода/нет ключа -> тишина, обычный вход по подписи.
+cab.tryAutologin({ onState: showCab }).catch(() => {});
+
+$('logout').onclick = () => { cab.logout(); showLogin(); $('message').textContent = 'Сессия завершена. При перезагрузке автологин этой ноды вернёт вход (выключить — «не входить автоматически»).'; };
+$('noauto').onclick = () => { cab.disableAutologin(); showLogin(); $('message').textContent = 'Автологин выключен для этой страницы. Войти можно обычным способом.'; };
 </script></body></html>

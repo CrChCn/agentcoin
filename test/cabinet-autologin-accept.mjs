@@ -109,11 +109,17 @@ test('AGIP-45 autologin: loopback-позитив, ротация, CSRF-нега�
     assert.equal(r5.status, 403, 'чужой адрес → 403: ' + JSON.stringify(r5.body));
     assert.equal(['autologin_no_local_key', 'passport_not_found'].includes(r5.body.error), true, 'чужой адрес reason: ' + r5.body.error);
 
-    // 7) страница /cabinet содержит авто-welcome
+    // 7) страница /cabinet содержит авто-welcome и подключает общий auth-модуль
     const page = await fetch(n.origin + '/cabinet', { signal: AbortSignal.timeout(8000) });
     const pageText = await page.text();
-    assert.equal(pageText.includes('/cabinet/autologin'), true, 'cabinet.html содержит авто-вход');
+    assert.equal(pageText.includes('cab-auth.js'), true, 'cabinet.html подключает общий auth-модуль');
     assert.equal(pageText.includes('не входить автоматически'), true, 'кнопка выключения автологина есть');
+    // сам модуль содержит молчаливый автологин и хранение сессии в sessionStorage
+    const mod = await fetch(n.origin + '/cab-auth.js', { signal: AbortSignal.timeout(8000) });
+    assert.equal(mod.status, 200, '/cab-auth.js отдаётся');
+    const modText = await mod.text();
+    assert.equal(modText.includes('/cabinet/autologin'), true, 'cab-auth.js содержит автологин-маршрут');
+    assert.equal(modText.includes('sessionStorage'), true, 'сессия хранится только в sessionStorage');
   } finally { await stopNode(n); }
 });
 

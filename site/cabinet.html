@@ -53,4 +53,5 @@ async function autologin(){
   }catch(e){/* устаревшая нода или нет ключа — молчаливый fallback на обычный вход */}
 }
 $('noauto').onclick=()=>{localStorage.setItem('agt:autologin','off');clearSession();try{api('/cabinet/logout',{token});}catch(e){}token='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Автологин выключен для этой страницы. Войти можно обычным способом.';};
+autologin(); // AGIP-45: при загрузке страницы сразу и молча пробуем авто-вход (или восстановление живой сессии)
 </script></body></html>

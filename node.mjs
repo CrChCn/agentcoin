@@ -745,6 +745,46 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const { token } = await body(req);
     return json(res, 200, cabinet.logout(token));
   }
+  // ================== AGIP-45: автоматический вход оператора в кабинет ==================
+  // Находится ЗА админ-барьером AGIP-37 (не в PUB_REQUEST_RE / PUB_TX_ROUTES):
+  // срабатывает только для (mode=local ∧ прямая петля ∧ без proxy-заголовков) ИЛИ
+  // x-admin-token. Из интернета, туннеля и из чужой машины — честный 403.
+  // Печатает ТОЛЬКО адрес и session-токен; приватные ключи никогда не покидают ноду.
+  // Анти-CSRF: обычная HTML-форма не может выставить кастомный заголовок — без него 400.
+  if (p === '/cabinet/autologin' && req.method === 'POST') {
+    if (req.headers['x-cabinet-autologin'] !== 'local')
+      return json(res, 400, { ok: false, error: 'autologin_csrf_header_required' });
+    const { address: asked } = await body(req).catch(() => ({}));
+    const wallets = loadWallets();
+    const keys = Object.keys(wallets);
+    if (!keys.length) return json(res, 404, { ok: false, error: 'autologin_no_local_wallets', hint: 'на этой ноде нет локальных кошельков с ключами' });
+    let address = typeof asked === 'string' && wallets[asked] ? asked : (process.env.AGT_AUTOLOGIN_ADDRESS && wallets[process.env.AGT_AUTOLOGIN_ADDRESS] ? process.env.AGT_AUTOLOGIN_ADDRESS : null);
+    // AGIP-45: явная просьба про неизвестный/безключевой адрес — честный отказ, а не тихий вход в другой кошелёк
+    if (typeof asked === 'string' && asked && !address)
+      return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'этого адреса нет в локальных кошельках ноды — авто-вход невозможен' });
+    if (!address) {
+      // детерминировано: локальный кошелёк с наибольшим балансом (обычно это операторский рабочий)
+      const bal = bc.balances();
+      address = keys.filter(a => wallets[a].privKey).sort((x, y) => (bal[y] || 0) - (bal[x] || 0))[0];
+      if (!address) return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'ключи хранятся у агентов (портативные паспорта) — их авто-вход невозможен by design' });
+    }
+    if (!wallets[address]?.privKey)
+      return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'это портативный паспорт — ключ у агента, войди подписью через Skill' });
+    const ch = cabinet.challenge(address);
+    if (!ch.ok) return json(res, 403, { ok: false, error: ch.error, hint: 'паспорт не найден или забанен; ручной вход /cabinet работает как раньше' });
+    let signature;
+    const chMsg = ch?.challenge?.message;
+    if (!chMsg) return json(res, 500, { ok: false, error: 'autologin_challenge_invalid' });
+    try { signature = crypto.sign(null, Buffer.from(chMsg, 'utf8'), crypto.createPrivateKey(wallets[address].privKey)).toString('hex'); }
+    catch {
+      cabinet.logoutByAddress?.(address);
+      return json(res, 500, { ok: false, error: 'autologin_sign_failed' });
+    }
+    const r = cabinet.loginChallenge(address, ch.nonce, signature, ch.challengeId);
+    if (!r.ok) return json(res, 400, { ok: false, error: r.error || 'autologin_failed' });
+    console.log(`[agip-45] авто-вход: ${address} (local loopback)`);
+    return json(res, 200, { ok: true, address, token: r.token, expiresAt: r.expiresAt, ttlSec: r.ttlSec, via: 'autologin', passport: cabinet.state(address, r.token).passport });
+  }
   if (p === '/spore/state' || p === '/spore/attest') {
     if (!spore) return json(res, 503, { error: 'spore_off', hint: 'нода без AGT_SPORE=1 (старое поведение — норма для 9 старых нод)' });
     return json(res, 200, p === '/spore/attest' ? spore.attest() : spore.state());

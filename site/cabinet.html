@@ -17,7 +17,7 @@
 <button id="challenge">Получить запрос на вход</button>
 <div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea><button id="downloadChallenge" class="secondary">Скачать запрос JSON</button><p><small>Команда Skill: <code>agent-profile.mjs sign-challenge</code>. Пароль вводится локально через stdin. Проверь action=login, address, network, audience и fingerprint.</small></p><label for="signature">Ответ Skill — JSON или hex-подпись</label><textarea id="signature" placeholder="Подпись, без ключа или пароля"></textarea><button id="login">Войти</button></div>
 <p><small>Номер паспорта не заменяет доказательство владения ключом. Веб-страница не запрашивает privKey, seed или пароль.</small></p></section>
-<section class="panel hidden" id="cab"><h2>Паспорт и активы</h2><div id="identity"></div><p class="balance" id="balance"></p><p class="dim">Сессия позволяет просмотреть кабинет. Переводы и сделки требуют отдельной локальной подписи; админ-права сайта не предоставляются.</p><button id="logout" class="secondary">Выйти</button></section>
+<section class="panel hidden" id="cab"><h2>Паспорт и активы</h2><div id="identity"></div><p class="balance" id="balance"></p><p class="dim">Сессия позволяет просмотреть кабинет. Переводы и сделки требуют отдельной локальной подписи; админ-права сайта не предоставляются.</p><button id="logout" class="secondary">Выйти</button><a id="noauto" class="dim" href="javascript:void(0)" style="margin-left:10px;font-size:12px;color:var(--dim)">не входить автоматически</a></section>
 <div class="status" id="message" role="status" aria-live="polite"></div>
 </main><script>
 'use strict';
@@ -29,7 +29,28 @@ async function refresh(){const r=await api('/cabinet/state',{address,token});$('
 action('importCert',async()=>{const f=$('certFile').files[0];if(!f||f.size>4096)throw Error('Выбери публичный паспорт до 4 КБ.');const passport=JSON.parse(await f.text());noSecrets(passport);await api('/identity/import',{passport});$('adr').value=passport.payload.address;$('message').textContent='Публичный паспорт проверен этой нодой.';});
 action('challenge',async()=>{issued=null;$('signBox').classList.add('hidden');const r=await api('/cabinet/challenge',{address:$('adr').value.trim()});issued=r.challenge;$('challengeJson').value=JSON.stringify(issued,null,2);$('signBox').classList.remove('hidden');$('message').textContent='Подпиши запрос в своей среде. Срок действия — 5 минут.';});
 action('downloadChallenge',async()=>{if(!issued)throw Error('Сначала получи запрос.');const url=URL.createObjectURL(new Blob([JSON.stringify(issued,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='agentcoin-login-challenge.json';a.click();URL.revokeObjectURL(url);$('message').textContent='Запрос сохранён. Он не содержит секретных ключей.';});
-action('login',async()=>{if(!issued)throw Error('Сначала получи запрос.');let sig=$('signature').value.trim();if(sig.startsWith('{')){const v=JSON.parse(sig);noSecrets(v);if(v.challengeId!==issued.challengeId||v.address!==issued.address)throw Error('Ответ относится к другому запросу.');sig=v.signature;}if(!/^[0-9a-fA-F]{128}$/.test(sig))throw Error('Нужна Ed25519-подпись: 128 hex-символов.');const r=await api('/cabinet/login',{mode:'challenge',address:issued.address,challengeId:issued.challengeId,nonce:issued.message,signature:sig});token=r.token;address=issued.address;$('signature').value='';issued=null;await refresh();});
-action('logout',async()=>{try{await api('/cabinet/logout',{token});}finally{token='';address='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Сессия завершена.';}});
+action('login',async()=>{if(!issued)throw Error('Сначала получи запрос.');let sig=$('signature').value.trim();if(sig.startsWith('{')){const v=JSON.parse(sig);noSecrets(v);if(v.challengeId!==issued.challengeId||v.address!==issued.address)throw Error('Ответ относится к другому запросу.');sig=v.signature;}if(!/^[0-9a-fA-F]{128}$/.test(sig))throw Error('Нужна Ed25519-подпись: 128 hex-символов.');const r=await api('/cabinet/login',{mode:'challenge',address:issued.address,challengeId:issued.challengeId,nonce:issued.message,signature:sig});token=r.token;address=issued.address;$('signature').value='';issued=null;localStorage.setItem('agt:addr',address);saveSession();await refresh();autologin();});
+action('logout',async()=>{try{await api('/cabinet/logout',{token});}finally{clearSession();token='';address='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Сессия завершена. При перезагрузке автологин этой ноды вернёт вход (выключить — «не входить автоматически»).';}});
 api('/identity/meta').then(m=>{$('nodeMeta').textContent='Сеть: '+m.network+' · '+(m.role==='replica'?'дочерняя нода':'издатель паспортов')+'\nКлюч издателя: '+m.passportIssuerFingerprint+'\nНазначение входа: '+m.audience;api('/site/release').then(v=>{$('nodeMeta').append(document.createTextNode('\nВыпуск сайта: '+(v.release||v.checkoutRelease||'не указан')));}).catch(()=>{});}).catch(e=>{$('nodeMeta').textContent='Нода пока не поддерживает переносимые паспорта: '+e.message;});
+// ================== AGIP-45: автоматический вход оператора на своей ноде ==================
+// Только на самой ноде (127.0.0.1/localhost): браузер молча получает session-токен
+// с эндпоинта /cabinet/autologin (админ-плоскость, loopback-only у ноды). На чужой
+// машине эндпоинта не будет — просто обычный вход по подписи, ничего не ломается.
+function saveSession(){try{sessionStorage.setItem('agt:cab',JSON.stringify({address,token}));}catch(e){}}
+function clearSession(){try{sessionStorage.removeItem('agt:cab');}catch(e){}}
+async function autologin(){
+  const saved=(()=>{try{return JSON.parse(sessionStorage.getItem('agt:cab')||'null');}catch(e){return null;}})();
+  if(saved){address=saved.address;token=saved.token;try{await refresh();return;}catch(e){clearSession();token='';}}
+  const localHost=location.hostname==='127.0.0.1'||location.hostname==='localhost'||location.hostname==='[::1]';
+  if(!localHost||localStorage.getItem('agt:autologin')==='off')return;
+  try{
+    const r=await fetch('/cabinet/autologin',{method:'POST',headers:{'Content-Type':'application/json','x-cabinet-autologin':'local'},body:JSON.stringify({address:localStorage.getItem('agt:addr')||undefined}),signal:AbortSignal.timeout(8000),cache:'no-store'});
+    const j=await r.json();
+    if(!j||j.ok!==true)return; // старая нода без маршрута → обычный вход, тишина
+    address=j.address;token=j.token;saveSession();localStorage.setItem('agt:addr',j.address);
+    await refresh();
+    $('message').textContent='Вход выполнен автоматически (автологин этой ноды). Сессия — 8 часов; выход кнопкой «Выйти».';
+  }catch(e){/* устаревшая нода или нет ключа — молчаливый fallback на обычный вход */}
+}
+$('noauto').onclick=()=>{localStorage.setItem('agt:autologin','off');clearSession();try{api('/cabinet/logout',{token});}catch(e){}token='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('message').textContent='Автологин выключен для этой страницы. Войти можно обычным способом.';};
 </script></body></html>

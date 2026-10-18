@@ -1,52 +1,54 @@
-# ☀️ Утренний чек-лист сети AGT (5 минут)
+# Проверка собственного развёртывания Agentcoin
 
-## 1. Ноды живы?
+Этот чек-лист не содержит адресов компьютера автора. Задайте свои URL в окружении. `LOCAL_NODE_URL` с loopback означает компьютер, на котором исполняется команда; `NODE_URL` — ваш публичный/VPN-вход; `PEER_URL` — выбранный сосед.
+
+## 1. Доступность сервиса и состояние цепи
+
 ```bash
-for u in 127.0.0.1:9335 127.0.0.1:9341 127.0.0.1:9342 100.96.7.15:9336; do
-  curl -s --max-time 5 "http://$u/life" | python -c "import json,sys; d=json.load(sys.stdin); print('$u:', 'blocks', d['blocks'], 'valid', d['chainValid'], 'fresh', d['fresh'])"
-done
+: "${LOCAL_NODE_URL:?Set your local node URL}"
+curl -fsS --max-time 5 "$LOCAL_NODE_URL/health"
+curl -fsS --max-time 15 "$LOCAL_NODE_URL/life"
+curl -fsS --max-time 10 "$LOCAL_NODE_URL/network/nodes"
 ```
-Ожидание: все 4 — `valid=True fresh=True`, высоты в пределах 1–2 блоков.
 
-## 2. Watchdog не наспамил?
-`tail -10 log-watchdog.txt` — если рестартов больше 3 за ночь — смотреть log-node*.txt ошибку.
+Последний endpoint показывает только явно настроенный оператором набор наблюдения. Он не предполагает обязательного количества нод. Проверяйте transport-status, возраст блока, высоту, tip и валидность раздельно: старая цепь не означает упавший процесс.
 
-## 3. steward-лог чист?
-`tail -10 data-agents/steward-log.txt` — ищи `ALARM-REPEAT` и `ALARM-NET`. Свежие должны быть `alerts: чисто`.
+## 2. Соседи
 
-## 4. Public tunnel жив?
-
-t**AGIP-5 (шаг 13): главное — STABLE вход не меняется при перезапусках:**
 ```bash
-curl -s --max-time 10 https://laptop-ih54qpif.tail8c28c2.ts.net/life | head -c 200
+: "${PEER_URL:?Set a reachable peer URL}"
+curl -fsS --max-time 15 "$PEER_URL/life"
+curl -fsS --max-time 10 "$LOCAL_NODE_URL/peers/meta"
 ```
-Funnel-конфиг переживает перезагрузку Windows (persisted в tailnet). Подъём заново при сбое:
-```bash
-cd ~/Desktop/agentcoin && MSYS_NO_PATHCONV=1 "/c/Program Files/Tailscale/tailscale.exe" funnel --bg --set-path / http://127.0.0.1:9335
-```
-Backup-туннель (old trycloudflare, имя меняется при каждом рестарте):
-```bash
-cd ~/Desktop/agentcoin && ./tools/cloudflared.exe tunnel --url http://100.96.7.15:9336 --no-autoupdate > data-agents/tunnel.log 2>&1 &
-grep "trycloudflare.com" data-agents/tunnel.log
-```
-Плюс: GitHub Actions-джоб `uptime` пингует стабильный вход каждые 5 мин и тревожит в сетевой чат при dead > 90с
-(дедуп 1 тревога/55 мин; переменная репо `AGT_PUBLIC_URL`).
-(имя меняется при каждом пере-старте — **новое имя нужно обновить в чат-приглашении и Moltbook-посте**).
 
-## 5. Moltbook: есть реакции?
-`tail -5 data-agents/moltbook-watch.log` — после `watchAgents` строка `new=N`; при N>0 читать reactions в логе.
+Сравните tip и работу цепей. Не запускайте массовые рестарты, если участники имеют разные высоты; сначала выясните причину синхронизации.
 
-## 6. gov: есть активные голоса?
+## 3. Watchdog
+
 ```bash
-curl -s http://127.0.0.1:9335/gov/state | python -c "import json,sys; d=json.load(sys.stdin); [print(p['ref'], 'yes', p['yes'], 'no', p['no'], 'active', p['active']) for p in d['proposals'] if p['active']]"
+curl -fsS --max-time 10 "$LOCAL_NODE_URL/ops/watchdog/state"
+tail -n 20 log-watchdog.txt
 ```
-Найм фермы `2xgELrMi` должен быть passed (3 yes).
 
-## 7. CI зелёный после последнего пуша?
-GitHub → Actions → Syntax CI — зелёный. Если красный — `node --check` локально найдёт виновника.
+`restarts` — накопительный счётчик, не число происшествий за ночь. `configuration_required` для TS требует собственного `AGT_TS_BIND` или `data-agtx/ts-bind.txt`. `stale` и `overloaded` не являются основанием убивать отвечающий сервис.
 
-## 8. Ночная статистика:
+## 4. Собственный внешний вход
+
 ```bash
-curl -s http://127.0.0.1:9335/stats | grep num
+: "${NODE_URL:?Set your externally reachable node URL}"
+curl -fsS --max-time 10 "$NODE_URL/health"
 ```
-Сравнить «блоков» с утренним вчера: ночью прибавляется ~700–900 (1 блок/мин).
+
+Существующий Funnel проверяйте через `tailscale funnel status`. Если вы сознательно создаёте или меняете свой прокси, его локальный target задаётся вами:
+
+```bash
+tailscale funnel --bg --set-path / "$LOCAL_NODE_URL"
+```
+
+Указанный target должен быть доступен с компьютера, где запущен прокси. Админ-плоскость должна оставаться защищённой; токен в URL и публичные сообщения не помещают. Для внешнего мониторинга настройте собственные `AGT_PUBLIC_URL`/`AGT_URLS`, а не адрес другого владельца.
+
+## 5. Данные и изменения
+
+Проверьте логи конкретного сервиса, CI и выполненные проверки релиза. Для глубокого контроля используйте `health-check.mjs` с выбранным портом/`--host` либо `AGT_NODE_URL`, корректным `AGT_DATA_DIR`. Для удалённой ноды не подставляйте локальный токен.
+
+Рост высоты зависит от фактического майнинга. Заданного числа блоков «за ночь» и единого расписания для всех развёртываний нет. Кошельки, паспорта и данные цепи при диагностике не удаляют.

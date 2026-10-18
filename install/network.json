@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "network": "AGENTCOIN",
+  "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+  "issuerPub": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAo2MLSV3KoL/WwxZaSAKf0rBExAIx73FW06qY++s24Mk=\n-----END PUBLIC KEY-----\n",
+  "issuerFingerprint": "sha256:91002b4db204851c42d8c75b04932902b03b59135e8a4310adfc5c7d4ca9f4a1"
+}

@@ -1,0 +1,30 @@
+{
+  "version": "v24.22.0",
+  "origin": "https://nodejs.org/dist",
+  "files": {
+    "win-x64": {
+      "file": "node-v24.22.0-win-x64.zip",
+      "sha256": "f9683a19877e12a9b167305c8db71040d812876359de21f0d2e97c3f321f80c3"
+    },
+    "win-arm64": {
+      "file": "node-v24.22.0-win-arm64.zip",
+      "sha256": "3a5c209a5bc59e65b3bc0fa13ed5e166a26bd3d55332847f498b76b037408d61"
+    },
+    "darwin-x64": {
+      "file": "node-v24.22.0-darwin-x64.tar.gz",
+      "sha256": "495e3f273c645f3c4677d438304cdfc701729ea5dec5728f5c8e76a2dece4b91"
+    },
+    "darwin-arm64": {
+      "file": "node-v24.22.0-darwin-arm64.tar.gz",
+      "sha256": "6a9724d9b50a5f22b4816cded441b5a8d9ddae546191a5e5b7efa5a5e2ee26d5"
+    },
+    "linux-x64": {
+      "file": "node-v24.22.0-linux-x64.tar.gz",
+      "sha256": "28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c"
+    },
+    "linux-arm64": {
+      "file": "node-v24.22.0-linux-arm64.tar.gz",
+      "sha256": "b7e7991d5407815adfa74a2a9cd4db683552c8ce32ff4a295c22e972849c3f5d"
+    }
+  }
+}

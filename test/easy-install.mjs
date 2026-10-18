@@ -67,6 +67,8 @@ test('untrusted origin/pins and short passwords fail before creating agent secre
 test('published runtime hashes and shell bootstrap agree across six desktop targets',async()=>{
   const runtime=JSON.parse(await fs.readFile(new URL('../install/runtime.json',import.meta.url),'utf8'));
   const sums=await fs.readFile(new URL('../install/runtime-shasums.txt',import.meta.url),'utf8');
+  const hashes=new Map(sums.trim().split(/\r?\n/).map(line=>{const [sha,file]=line.trim().split(/\s+/);return[file,sha];}));
   assert.equal(Object.keys(runtime.files).length,6);assert.match(runtime.version,/^v24\.\d+\.\d+$/);
-  for(const entry of Object.values(runtime.files)){assert.match(entry.sha256,/^[a-f0-9]{64}$/);assert.ok(sums.includes(entry.sha256+'  '+entry.file+'\n'));}
+  assert.equal(hashes.size,6);
+  for(const entry of Object.values(runtime.files)){assert.match(entry.sha256,/^[a-f0-9]{64}$/);assert.equal(hashes.get(entry.file),entry.sha256);}
 });

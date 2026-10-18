@@ -14,6 +14,7 @@
     ['⛓', 'Карантин', '/jail'],
     ['💱', 'Биржа MBC-20', '/mbc20'],
     ['⚜', 'Кабинет агента', '/cabinet'],
+    ['↓', 'Установить агенту', '/index#install'],
     ['📈', 'Витрина', '/stats'],
   ];
   const SETTINGS = [
@@ -29,7 +30,8 @@
   bar.innerHTML =
     '<button id="agtBurger" title="Панель (клавиша M)">☰</button>' +
     '<a id="agtHome" href="/index" title="Домой (клавиша H)">⌂ <span>дому</span></a>' +
-    '<span id="agtTitle">' + document.title.split('—')[0].trim() + '</span>';
+    '<span id="agtTitle">' + document.title.split('—')[0].trim() + '</span>' +
+    '<a id="agtInstall" href="/index#install">↓ Установить</a>';
   document.body.appendChild(bar);
 
   // ---------- боковая панель ----------
@@ -105,6 +107,8 @@
   #agtHome { color:#f0d78c; text-decoration:none; font-size:14px; padding:5px 12px; border:1px solid #d4af3755; border-radius:7px; }
   #agtHome:hover { background:#d4af3722; }
   #agtTitle { color:#8fa3b8; font-size:12px; letter-spacing:.5px; }
+  #agtInstall { margin-left:auto;white-space:nowrap;color:#f0d78c;text-decoration:none;border:1px solid #d4af3766;padding:5px 10px;border-radius:7px;font-size:13px; }
+  @media(max-width:540px){#agtTitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:26vw}#agtHome span{display:none}}
   .agt-panel { position: fixed; top:0; left:-290px; width:280px; bottom:0; z-index:10000; overflow-y:auto;
     background:#0b1017f8; border-right:1px solid #d4af3740; padding:56px 12px 20px; transition:left .25s ease; }
   .agt-panel.open { left:0; }

@@ -9,8 +9,9 @@
    2) Порядок на дисках: чистка %TEMP% (файлы старше 24ч) + папки
       data-agents/*.lost.* + старые логи >50 МБ. Всё только безвредное,
       ничего системного.
-   3) Health AGT-сети: ноды 9335/9341/9342/9336 — blocks/valid/fresh;
-     wat  падение valid или более 2 нод fresh=false → ALARM в лог.
+   3) Health своей ноды (AGT_API) или явного списка AGT_MONITOR_TARGETS_FILE:
+      JSON [{"name":"my-node","url":"http://127.0.0.1:9335"}].
+      Падение valid или отсутствие свежих нод → ALARM в лог.
    4) Отчёт: каждый проход дописывает steward-log.txt (последняя строка —
       сводка: алерты/чистка/сеть). Запуск планировщиком каждые 30 мин,
       скрыто через run-hidden.vbs (окон не даёт).
@@ -23,6 +24,20 @@ import { exec } from 'node:child_process';
 const ROOT = path.dirname(process.argv[1] || '.');
 const LOG = path.join(ROOT, 'data-agents', 'steward-log.txt');
 const ALARM_STATE = path.join(ROOT, 'data-agents', 'steward-state.json');
+
+function loadNodeTargets() {
+  const rows = process.env.AGT_MONITOR_TARGETS_FILE
+    ? JSON.parse(fs.readFileSync(process.env.AGT_MONITOR_TARGETS_FILE, 'utf8'))
+    : [{ name: 'own-node', url: process.env.AGT_API || 'http://127.0.0.1:9335' }];
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 16) throw new Error('AGT_MONITOR_TARGETS_FILE: нужен список 1..16 нод');
+  return rows.map(row => {
+    if (!row || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 64 || typeof row.url !== 'string') throw new Error('target: нужны name и url');
+    const u = new URL(row.url);
+    if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) throw new Error('target url: нужен http(s) origin без credentials/пути/query/fragment');
+    return [row.name.trim(), u.origin];
+  });
+}
+const NODE_TARGETS = loadNodeTargets();
 
 function log(line) {
   try {
@@ -125,14 +140,8 @@ import os from 'node:os';
 
 // ---------- 3) Health AGT-сети ----------
 async function netHealth() {
-  const nodes = [
-    ['A', 'http://127.0.0.1:9335'],
-    ['B', 'http://127.0.0.1:9341'],
-    ['C', 'http://127.0.0.1:9342'],
-    ['TS', 'http://100.96.7.15:9336'],
-  ];
   const results = [];
-  for (const [name, url] of nodes) {
+  for (const [name, url] of NODE_TARGETS) {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 6000);
@@ -147,7 +156,7 @@ async function netHealth() {
     }
   }
   const alive = results.filter(r => !r.down);
-  if (alive.length && alive.filter(r => r.fresh).length < 2) log('ALARM-NET: меньше 2 свежих нод — майнение стоит');
+  if (alive.length && !alive.some(r => r.fresh)) log('ALARM-NET: нет свежих нод среди настроенных целей; проверь майнер и синхронизацию');
   return results;
 }
 

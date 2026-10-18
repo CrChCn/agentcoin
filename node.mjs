@@ -47,7 +47,10 @@ import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
+import { SiteReleaseManager } from './site-release.mjs';
+import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
+import { AgentIdentityRegistry } from './agent-identity.mjs';
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -79,7 +82,15 @@ const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
 // AGIP-15: биржа MBC-20 — реестр токенов Moltbook, пары на DXE-механике, реанимация с паспортом+fee
 const mbc20 = new Mbc20Registry(path.join(DATA_DIR, 'mbc20.json'));
 // AGIP-16: личный кабинет агента — паспорт как ключ входа, активы привязаны к паспорту
-const cabinet = new Cabinet({ walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
+const trustedIdentityIssuers = process.env.AGT_TRUSTED_ISSUERS_FILE
+  ? JSON.parse(fs.readFileSync(process.env.AGT_TRUSTED_ISSUERS_FILE, 'utf8')) : [];
+const identityRegistry = new AgentIdentityRegistry({ dataDir: path.join(DATA_DIR, 'identity'), network: CHAIN_ID,
+  audience: process.env.AGT_IDENTITY_AUDIENCE || `agentcoin-node:${PORT}`, trustedIssuers: trustedIdentityIssuers });
+const identityRole = process.env.AGT_IDENTITY_ROLE || 'issuer';
+if (!['issuer', 'replica'].includes(identityRole)) throw new Error('invalid_identity_role');
+const passportIssuerFingerprint = process.env.AGT_PASSPORT_ISSUER_FINGERPRINT || identityRegistry.meta().issuerFingerprint;
+if (!identityRegistry.meta().trustedIssuers.includes(passportIssuerFingerprint)) throw new Error('passport_issuer_not_pinned');
+const cabinet = new Cabinet({ identityRegistry, walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
 // SPORE (AGIP-18 MVP): слой «узла-организма» — геном/физарум/метаболизм.
 // Включается ТОЛЬКО env AGT_SPORE=1 (канарейки 9340/9344/9345); консенсус не тронут.
 // Ревью 2026-10-17: spore.mjs исторически не закоммичен в репо — статический import
@@ -112,14 +123,35 @@ function json(res, code, obj) {
 }
 
 function body(req) {
-  return new Promise((resolve) => {
-    let d = '';
-    req.on('data', (c) => { d += c; if (d.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); } });
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0, done = false;
+    const finish = (error, value) => {
+      if (done) return; done = true; clearTimeout(deadline);
+      if (error) { chunks.length = 0; req.resume(); reject(error); } else resolve(value);
+    };
+    const bad = (code, status = 400) => Object.assign(new Error(code), { httpStatus: status, publicCode: code });
+    const deadline = setTimeout(() => finish(bad('body_timeout', 408)), 10_000);
+    deadline.unref();
+    req.on('data', c => {
+      if (done) return; size += c.length;
+      if (size > 1_000_000) return finish(bad('body_too_large', 413));
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (done) return;
+      try {
+        const value = size ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return finish(bad('body_must_be_object'));
+        finish(null, value);
+      } catch { finish(bad('invalid_json')); }
+    });
+    req.on('aborted', () => finish(bad('body_aborted')));
+    req.on('error', () => finish(bad('body_read_failed')));
   });
 }
 
 // ======@ Life-guard: контроль жизни цепи ======
+let lifeValidationCache = null;
 function lifeStatus() {
   const tip = bc.tip();
   const now = Math.floor(Date.now() / 1000);
@@ -129,7 +161,10 @@ function lifeStatus() {
   // A-9 (Codex-ревизия 2026-10-18): было chainOk=bc.validate().ok — boolean, а дальше
   // читали chainOk.ok → undefined (поле alive исчезало из JSON.stringify). Плюс двойной
   // проход валидации на каждый /life. Теперь одиночный вызов и явные булевы свойства.
-  const v = bc.validate();
+  const cache = lifeValidationCache;
+  const v = cache && cache.chain === bc.chain && cache.length === bc.chain.length && cache.tipHash === tip?.hash && Date.now() - cache.at < 30_000
+    ? cache.result : bc.validate();
+  lifeValidationCache = { chain: bc.chain, length: bc.chain.length, tipHash: tip?.hash, result: v, at: v === cache?.result ? cache.at : Date.now() };
   return {
     alive: blocksHealthy && v.ok,
     blocks: bc.blockCount(),
@@ -138,6 +173,7 @@ function lifeStatus() {
     fresh: freshTip,
     chainValid: v.ok,
     chainIssue: v.ok ? null : v.reason,
+    validationMode: 'compatibility', validationCheckedAt: new Date(lifeValidationCache.at).toISOString(),
     tips: [
       blocksHealthy ? null : 'chain empty',
       freshTip ? null : `tip stale (${age}s > 300s): монтируй майнера`,
@@ -147,6 +183,18 @@ function lifeStatus() {
     checkedAt: new Date().toISOString(),
   };
 }
+
+function cheapHealth() {
+  const tip = bc.tip();
+  const valid = lifeValidationCache && lifeValidationCache.chain === bc.chain && lifeValidationCache.length === bc.chain.length && lifeValidationCache.tipHash === tip?.hash && Date.now() - lifeValidationCache.at < 30_000;
+  return { ok: true, service: 'agt-node', blocks: bc.blockCount(), tipHash: tip?.hash || null,
+    tipAgeSec: tip ? Math.floor(Date.now() / 1000) - tip.header.timestamp : null,
+    chainValid: valid ? lifeValidationCache.result.ok : null,
+    overloaded: Date.now() < shedUntil, loopLagMs };
+}
+const monitorTargets = process.env.AGT_MONITOR_TARGETS_FILE
+  ? JSON.parse(fs.readFileSync(process.env.AGT_MONITOR_TARGETS_FILE, 'utf8')) : [];
+const networkNodes = createNodeMonitor({ targets: monitorTargets, selfHealth: cheapHealth });
 
 const hub = new WsHub();
 // быстрый приём WS-блока в цепь: тот же набор правил, что сетевой append
@@ -165,13 +213,13 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
-function rateAllow(ip, heavy) {
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
+function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
   // в коде тяжёлые вещи всё равно капнуты), внешние IP — строгие окна.
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  if (isLoopback) return true;
+  if (isLoopback && direct) return true;
   const key = (heavy ? 'H|' : 'A|') + ip;
   let x = rateHits.get(key);
   if (!x || now >= x.until) { x = { count: 0, until: now + RATE_WINDOW_MS }; rateHits.delete(key); }
@@ -201,7 +249,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -253,12 +301,12 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|imperial(\.html)?|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|imperial(\.html)?|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout']);
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout']);
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -281,64 +329,27 @@ function forwardedViaProxy(req) {
 //   token — админ ТОЛЬКО по x-admin-token, независимо от IP (норма для
 //           публичного байнда и для любого деплоя за туннелем).
 const AGT_ADMIN_MODE = process.env.AGT_ADMIN_MODE === 'token' ? 'token' : 'local';
-const SITE_PAGES = ['index.html', 'imperial.html', 'terminal.html', 'dashboard.html', 'chat.html', 'jail.html', 'mbc20.html', 'cabinet.html', 'jobs.html'];
-const SITE_RAW_BASE = 'https://raw.githubusercontent.com/CrChCn/agentcoin/main/site';
-const SITE_LIVE_DIR = path.join(DATA_DIR, 'site-live');
-const SITE_META_FILE = path.join(SITE_LIVE_DIR, 'manifest.json');
-const SITE_TTL_MS = 10 * 60_000;      // сверка с каноном main — раз в 10 мин
-const SITE_MAX_AGE_MS = 24 * 3600_000; // кэш старше суток = недоверяем, отдаём локальный файл
-// === AGIP-38: SITE-SYNC — все ноды показывают один и тот же сайт ===
-// Проверка ревью: «на 9335 новый сайт, на других нодах старый» — потому что сайт
-// лечится из repo-чекаута ноды, а чекаут устарел. Клинка: нода сама раз в TTL
-// сверяется с каноном (raw.githubusercontent.com/main/site) и кэширует свежие
-// страницы в DATA_DIR/site-live — без редеплоя и без порчи tracked-файлов.
-// Offline / CDN недоступен → отдаём локальный файл (site/ из чекаута).
+// Owner publishes a complete hashed release; visitors cannot change the source.
+const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 });
+let checkoutSiteManifest = null;
+try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
 function serveSitePage(res, page) {
-  try {
-    const meta = JSON.parse(fs.readFileSync(SITE_META_FILE, 'utf8'));
-    if (Date.now() - (meta[page] || 0) < SITE_MAX_AGE_MS) {
-      const cf = path.join(SITE_LIVE_DIR, page);
-      if (fs.existsSync(cf)) {
-        const html = fs.readFileSync(cf);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(html);
-      }
-    }
-  } catch { /* нет кэша/меты — обычный путь */ }
-  const html = fs.readFileSync(path.join(__dirname, 'site', page));
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  return res.end(html);
+  const approved = process.env.AGT_SITE_SYNC !== '0' ? siteRelease.resolvePage(page) : null;
+  const content = fs.readFileSync(approved || path.join(__dirname, 'site', page));
+  res.writeHead(200, { 'Content-Type': page.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  return res.end(content);
 }
-let siteSyncBusy = false;
 async function siteSyncTick() {
-  if (siteSyncBusy) return;
-  siteSyncBusy = true;
-  try {
-    let meta = {}; try { meta = JSON.parse(fs.readFileSync(SITE_META_FILE, 'utf8')); } catch { /* первый тик */ }
-    let updated = 0;
-    for (const page of SITE_PAGES) {
-      try {
-        const r = await fetch(`${SITE_RAW_BASE}/${page}`, { signal: AbortSignal.timeout(8000) });
-        if (!r.ok) continue;
-        const body = Buffer.from(await r.arrayBuffer());
-        const sanity = (body.slice(0, 300).toString('utf8') + body.slice(-300).toString('utf8')).toLowerCase();
-        if (body.length < 50 || !(sanity.includes('<html') || sanity.includes('</html>') || sanity.includes('<!doctype'))) continue;
-        fs.mkdirSync(SITE_LIVE_DIR, { recursive: true });
-        const cf = path.join(SITE_LIVE_DIR, page);
-        const same = (() => { try { return fs.readFileSync(cf).equals(body); } catch { return false; } })();
-        if (!same) { fs.writeFileSync(cf + '.tmp', body); fs.renameSync(cf + '.tmp', cf); updated++; }
-        meta[page] = Date.now();
-      } catch { /* offline/CDN fail — пропускаем, кэш остаётся */ }
-    }
-    fs.mkdirSync(SITE_LIVE_DIR, { recursive: true });
-    fs.writeFileSync(SITE_META_FILE, JSON.stringify(meta, null, 2));
-    if (updated) console.log(`[site-sync] сайт выровнен с каноном main: обновлено ${updated} стр. (TTL ${Math.round(SITE_TTL_MS / 60000)} мин)`);
-  } catch { /* тик не должен будить ноду */ } finally { siteSyncBusy = false; }
+  const result = await siteRelease.refresh();
+  if (result.ok && result.updated) console.log(`[site-sync] approved release ${result.release}`);
 }
-setTimeout(siteSyncTick, 20_000).unref();
-setInterval(siteSyncTick, SITE_TTL_MS).unref();
+if (process.env.AGT_SITE_SYNC !== '0') {
+  setTimeout(() => siteSyncTick().catch(e => console.log('[site-sync]', e.code || 'refresh_failed')), 20_000).unref();
+  setInterval(() => siteSyncTick().catch(e => console.log('[site-sync]', e.code || 'refresh_failed')), 10 * 60_000).unref();
+}
 
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
+  try {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
@@ -355,7 +366,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
     p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
-  if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p))) {
+  if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
   }
@@ -419,7 +430,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/peers/bootstrap') {
     let boot = [];
     try {
-      const f = JSON.parse(fs.readFileSync(path.join(__dirname, 'bootstrap.json'), 'utf8'));
+      const f = JSON.parse(fs.readFileSync(process.env.AGT_BOOTSTRAP_FILE || path.join(__dirname, 'bootstrap.json'), 'utf8'));
       boot = Array.isArray(f.bootstrap) ? f.bootstrap : [];
     } catch { /* файла нет — пусто; положение документировано в AGIP-1 */ }
     return json(res, 200, { bootstrap: boot, peers: loadPeers(), height: bc.blockCount() });
@@ -680,7 +691,35 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/mbc20' || p === '/mbc20.html') {
     serveSitePage(res, 'mbc20.html');
   }
+  // Public identity endpoints receive public material and signatures only.
+  if (p === '/site/release' && req.method === 'GET') {
+    const status = siteRelease.status();
+    return json(res, 200, { ...status, checkoutRelease: checkoutSiteManifest?.release || null,
+      serving: status.release && process.env.AGT_SITE_SYNC !== '0' ? 'approved_cache' : 'checkout',
+      ...(status.release ? {} : { files: checkoutSiteManifest?.files || {} }) });
+  }
+  if (p === '/identity/meta' && req.method === 'GET') return json(res, 200, {
+    ...identityRegistry.meta(), role: identityRole, enrollmentEnabled: identityRole === 'issuer', passportIssuerFingerprint,
+  });
+  if (p === '/identity/challenge' && req.method === 'POST') {
+    if (identityRole !== 'issuer') return json(res, 403, { ok: false, error: 'enroll_at_operator_issuer' });
+    const r = identityRegistry.challengeRegistration(await body(req));
+    return json(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/identity/register' && req.method === 'POST') {
+    if (identityRole !== 'issuer') return json(res, 403, { ok: false, error: 'enroll_at_operator_issuer' });
+    const r = identityRegistry.register(await body(req));
+    return json(res, r.ok ? 201 : 400, r);
+  }
+  if (p === '/identity/import' && req.method === 'POST') {
+    const input = await body(req);
+    if (!input || Object.keys(input).length !== 1 || !input.passport) return json(res, 400, { ok: false, error: 'invalid_import' });
+    const r = identityRegistry.importPassport(input.passport);
+    return json(res, r.ok ? 200 : 400, r);
+  }
   // --- AGIP-16: личный кабинет агента (passport-вход, активы, сделки) ---
+  // Legacy operator wallet UI retains order/cancel; public agent keys stay local.
+  if (p === '/operator/cabinet' && req.method === 'GET') return serveSitePage(res, 'operator-cabinet.html');
   if (p === '/cabinet' || p === '/cabinet.html') {
     serveSitePage(res, 'cabinet.html');
   }
@@ -690,9 +729,9 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     return json(res, r.ok ? 200 : 400, r);
   }
   if (p === '/cabinet/login' && req.method === 'POST') {
-    const { address, mode, seqStr, nonce, signature } = await body(req);
+    const { address, mode, seqStr, nonce, signature, challengeId } = await body(req);
     const r = mode === 'challenge'
-      ? cabinet.loginChallenge(address, nonce, signature)
+      ? cabinet.loginChallenge(address, nonce, signature, challengeId)
       : cabinet.loginSeqStr(address, seqStr);
     return json(res, r.ok ? 200 : 400, r);
   }
@@ -846,22 +885,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // A-6 (Codex-ревизия): дешёвый liveness для watchdog/мониторов — БЕЗ bc.validate()
   // (иначе его 9-МБ проход вешал монитор). Публичный контракт: 200 = порт жив + поле
   // overloaded для различения «порушено» от «мёртв»; /life остаётся глубоким.
-  if (p === '/health' && req.method === 'GET') {
-    const tip = bc.tip();
-    const now = Math.floor(Date.now() / 1000);
-    return json(res, 200, {
-      ok: true,
-      service: 'agt-node',
-      blocks: bc.blockCount(),
-      tipAgeSec: tip ? now - tip.header.timestamp : null,
-      overloaded: Date.now() < shedUntil,
-      loopLagMs,
-      checkedAt: new Date().toISOString(),
-    });
-  }
-
-  // --- AGIP-5 (шаг 13): состояние локального watchdog с наружи (read-only, публичный как /stats).
-  // Смотрящий из tailnet/Funnel видит, жив ли сторож машины и сколько было рестартов.
+  if (p === '/health' && req.method === 'GET') return json(res, 200, cheapHealth());
+  if (p === '/network/nodes' && req.method === 'GET') return json(res, 200, await networkNodes());
   if (p === '/ops/watchdog/state') {
     let st = { nodes: {}, startedAt: null, note: 'watchdog.json не найден (watchdog.mjs не запускался на этой машине)' };
     try { st = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '..', 'data', 'watchdog.json'), 'utf8')); } catch {
@@ -871,6 +896,9 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const nodes = {};
     for (const [name, r] of Object.entries(st.nodes || {})) {
       nodes[name] = {
+        status: r.status || 'unknown', blocks: r.blocks ?? null, tipAgeSec: r.tipAgeSec ?? null,
+        stale: r.stale ?? null, chainValid: r.chainValid ?? null, lastCheckedAt: r.lastCheckedAt || null,
+        lastProbeError: r.lastProbeError || null, restartAttempts: r.restartAttempts ?? 0,
         fails: r.fails ?? 0, restarts: r.restarts ?? 0, sick: r.sick ?? 0,
         lastRestartAt: r.lastRestartAt ? new Date(r.lastRestartAt).toISOString() : null,
         lastAliveAt: r.lastAliveAt ? new Date(r.lastAliveAt).toISOString() : null,
@@ -1926,30 +1954,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     serveSitePage(res, 'index.html');
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
-  if (p === '/panel.js') {
-    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'tools', 'imperial-panel.js')));
-  }
+  if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }
@@ -1978,6 +1983,13 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
 
   json(res, 404, { error: 'not_found' });
+  } catch (error) {
+    if (!res.headersSent && !res.destroyed) {
+      res.setHeader('Connection', 'close');
+      return json(res, error.httpStatus || 500, { ok: false, error: error.publicCode || 'request_failed' });
+    }
+    if (!res.writableEnded) res.destroy();
+  }
 });
 
 // --- WebSocket P2P (RFC 6455): inv-рассылка блоков/транзакций пейрастной сети ---
@@ -2075,8 +2087,9 @@ function wsRetryClear(peerUrl) { wsRetry.delete(peerUrl); }
 
 // AGIP-23: авто-мердж bootstrap.json → peers.json — свежие ноды находятся сетью сами
 // (инцидент: форк 7597/7742 — 9347 достала цепь, но её не знали в peers.json).
-const BOOTSTRAP_FILE = path.join(__dirname, 'bootstrap.json');
+const BOOTSTRAP_FILE = process.env.AGT_BOOTSTRAP_FILE || path.join(__dirname, 'bootstrap.json');
 function mergeBootstrapPeers() {
+  if (process.env.AGT_PEER_DISCOVERY === '0') return;
   try {
     const d = JSON.parse(fs.readFileSync(BOOTSTRAP_FILE, 'utf8'));
     const list = (d.bootstrap || []).filter(u => typeof u === 'string' && /^http/.test(u));
@@ -2088,6 +2101,7 @@ function mergeBootstrapPeers() {
 }
 
 async function wsConnectLoop() {
+  if (process.env.AGT_PEER_DISCOVERY === '0') return;
   mergeBootstrapPeers();
   const peers = loadPeers();
   if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
@@ -2136,7 +2150,7 @@ wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.mess
 // потому что sync стартовал только по внешним событиям/ручному /sync-now.
 // Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
 // AGIP-25: syncAll 60с→90с (CPU-щадящий ритм; форки всё равно ловятся WS-событиями)
-setInterval(() => { syncAll(bc).catch(() => {}); }, 90_000).unref();
+if (process.env.AGT_PEER_DISCOVERY !== '0') setInterval(() => { syncAll(bc).catch(() => {}); }, 90_000).unref();
 // AGIP-12: патруль карантина — раз в минуту синхронизируем базу злоумышленников с журналом атак
 setInterval(() => {
   try {

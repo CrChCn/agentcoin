@@ -102,6 +102,10 @@ async function fetchJson(url, timeoutMs = 20_000) {
   } finally { clearTimeout(t); }
 }
 
+class LocalChainChanged extends Error {
+  constructor() { super('local chain changed while awaiting peer; retry next sync'); this.code = 'local_chain_changed'; }
+}
+
 // Синк с одним пиром. Вносит блоки строго по правилам, отказ в любой момент
 // фиксируется strike'ом. Возвращает массив строк лога для /sync-now.
 export async function syncOne(bc, peerUrl) {
@@ -112,24 +116,45 @@ export async function syncOne(bc, peerUrl) {
     log.push(`${peerUrl}: SKIPPED (peer reputation blocked, strikes=${pm.strikes} until ${new Date(pm.blockedUntil).toISOString()})`);
     return log;
   }
+  // A peer response belongs to one local chain snapshot. Mining, WS append or
+  // another sync can advance/replace that chain while a network await yields.
+  // Never validate against a mixture of snapshots or overwrite the newer tip.
+  const chainRef = bc.chain;
+  const chainAtStart = chainRef.slice();
+  const tipAtStart = chainAtStart.at(-1)?.hash || null;
+  const ensureUnchanged = () => {
+    if (bc.chain !== chainRef || bc.chain.length !== chainAtStart.length || (bc.tip()?.hash || null) !== tipAtStart) throw new LocalChainChanged();
+  };
+  const fetchStable = async (url, timeoutMs) => {
+    ensureUnchanged();
+    let result;
+    try { result = await fetchJson(url, timeoutMs); }
+    catch (e) { ensureUnchanged(); throw e; }
+    ensureUnchanged();
+    return result;
+  };
+  const fetchOptional = async url => {
+    try { return await fetchStable(url); }
+    catch (e) { if (e instanceof LocalChainChanged) throw e; return null; }
+  };
   try {
-    const info = await fetchJson(peerUrl + '/info');
+    const info = await fetchStable(peerUrl + '/info');
     if (!info || info.chainId !== CHAIN_ID) { log.push(`${peerUrl}: not AGENTCOIN, skip`); return log; }
     if (!bc.genesisHeader || computeBlockHash(bc.genesisHeader) !== info.genesisHash) {
       log.push(`${peerUrl}: genesis mismatch (different network), skip`);
       return log;
     }
-    const myH = bc.blockCount();
+    const myH = chainAtStart.length;
     const peerH = info.blocks;
-      log.push(`${peerUrl}: peer height ${peerH}, ours ${myH} (our work ${chainWork(bc.chain)})`);
+      log.push(`${peerUrl}: peer height ${peerH}, ours ${myH} (our work ${chainWork(chainAtStart)})`);
     if (peerH <= myH) {
       // AGIP-8: высота ≠ лучшая цепь. Если tip пира отличается от нашего — это развилка:
       // peer может быть ниже по высоте, но ТЯЖЕЛЕЕ по работе — тогда МЫ должны
       // принять его цепь (инцидент 2026-10-16: 9335 убежала на лёгкий форк,
       // сравнение только по высоте не давало увидеть это).
-      const plife = await fetchJson(peerUrl + '/life').catch(() => null);
+      const plife = await fetchOptional(peerUrl + '/life');
       const pTipHash = plife?.tipHash || plife?.body?.tipHash;
-      if (!pTipHash || pTipHash === (bc.tip()?.hash || null)) {
+      if (!pTipHash || pTipHash === tipAtStart) {
         log.push(`  → our chain ≥ peer's, ok`);
         return log;
       }
@@ -141,11 +166,11 @@ export async function syncOne(bc, peerUrl) {
       while (scanFrom < peerH && d < 0) {
         const n = Math.min(2000, peerH - scanFrom);
         if (n <= 0) break;
-        scanPart = (await fetchJson(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`).catch(() => null))?.headers;
+        scanPart = (await fetchOptional(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`))?.headers;
         if (!scanPart || !scanPart.length) { d = -3; break; }
         for (const hd of scanPart) {
           if (hd.height >= myH) break; // peer короче нашего общего префикса — не дошли до места различий
-          const ours = bc.chain[hd.height];
+          const ours = chainAtStart[hd.height];
           if (ours && ours.hash !== hd.hash) { d = hd.height; break; }
         }
         if (d >= 0) break;
@@ -157,9 +182,9 @@ export async function syncOne(bc, peerUrl) {
         log.push(`  → развилку не нашли (scan=${d}) — без голосования, skip`);
         return log;
       }
-      const candHeaders = (await fetchJson(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`).catch(() => null))?.headers;
+      const candHeaders = (await fetchOptional(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`))?.headers;
       if (!candHeaders || !candHeaders.length) { log.push(`  → не получили заголовки развилки, skip`); return log; }
-      const ourForkWork = chainWork(bc.chain.slice(d));
+      const ourForkWork = chainWork(chainAtStart.slice(d));
       const candWork = chainWork(candHeaders);
       log.push(`  → fork vote: от ${d}, наша ${ourForkWork}, кандидат ${candWork}`);
       if (candWork <= ourForkWork) {
@@ -167,8 +192,9 @@ export async function syncOne(bc, peerUrl) {
         return log;
       }
       log.push(`  → peer ТЯЖЕЛЕЕ при меньшей высоте — принимаем его цепь от ${d}...`);
-      const bodies = await fetchJson(`${peerUrl}/blocks?from=${d}`);
+      const bodies = await fetchStable(`${peerUrl}/blocks?from=${d}`);
       const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
+      ensureUnchanged();
       const r = bc.adoptFork(incoming, d);
       if (!r.ok) {
         log.push(`  → adoptFork отказ: ${r.reason}`);
@@ -183,17 +209,18 @@ export async function syncOne(bc, peerUrl) {
     // ---- HEADERS-FIRST: сначала дешёвая проверка всех заголовков ----
     let headers = null;
     try {
-      const hr = await fetchJson(`${peerUrl}/headers?from=${myH}&limit=${peerH - myH + 1}`);
+      const hr = await fetchStable(`${peerUrl}/headers?from=${myH}&limit=${peerH - myH + 1}`);
       headers = hr.headers || [];
       log.push(`  → headers-first: ${headers.length} заголовков проверяем дешёво...`);
-    } catch {
+    } catch (e) {
+      if (e instanceof LocalChainChanged) throw e;
       log.push(`  → /headers не доступен у пира (старый код), fallback на /blocks`);
     }
 
     let divergedAt = -1;   // -1 = продолжение нашей цепи; иначе высота развилки
     if (headers && headers.length) {
       // проверяем линию заголовков: prev-сцепка + PoW + правило сложности
-      const base = bc.chain.slice(); // наша цепь (референс для правила сложности)
+      const base = chainAtStart.slice(); // одна версия цепи на весь цикл
       if (headers[0].height !== myH) { log.push(`  → заголовки не с нашей высоты (${headers[0].height} ≠ ${myH}), skip`); return log; }
       const interim = base.slice();
       for (const hd of headers) {
@@ -235,11 +262,11 @@ export async function syncOne(bc, peerUrl) {
       while (scanFrom < myH && d < 0) {
         const n = Math.min(2000, myH - scanFrom);
         if (n <= 0) break;
-        const part = (await fetchJson(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`).catch(() => null))?.headers;
+        const part = (await fetchOptional(`${peerUrl}/headers?from=${scanFrom}&limit=${n}`))?.headers;
         if (!part || !part.length) { scanDone = false; break; }
         for (const hd of part) {
           if (hd.height >= myH) break; // дошли до конца нашей цепи без расхождений — развилки нет
-          const ours = bc.chain[hd.height];
+          const ours = chainAtStart[hd.height];
           if (ours && ours.hash !== hd.hash) { d = hd.height; break; }
         }
         if (d >= 0) break;
@@ -255,10 +282,10 @@ export async function syncOne(bc, peerUrl) {
         d = myH; // общий префикс 0..myH-1 сходится: расхождение — в следующем блоке (height myH)
       }
       log.push(`  → точка развилки: высота ${d}`);
-      const fullHeaders = (await fetchJson(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`).catch(() => null))?.headers;
+      const fullHeaders = (await fetchOptional(`${peerUrl}/headers?from=${d}&limit=${peerH - d + 1}`))?.headers;
       if (!fullHeaders || !fullHeaders.length) { log.push(`  → не получили заголовки развилки, skip`); return log; }
       // сравниваем work от точки развилки
-      const ourWork = chainWork(bc.chain.slice(d));
+      const ourWork = chainWork(chainAtStart.slice(d));
       const candWork = chainWork(fullHeaders.map(hd => ({ header: hd.header })));
       log.push(`  → fork vote: от высоты ${d}, наша работа ${ourWork}, кандидат ${candWork}`);
       if (candWork <= ourWork) {
@@ -266,8 +293,9 @@ export async function syncOne(bc, peerUrl) {
         return log;
       }
       log.push(`  → fork ТЯЖЕЛЕЕ — переключаемся на чужую цепь (загрузка тел с высоты ${d})...`);
-      const bodies = await fetchJson(`${peerUrl}/blocks?from=${d}`);
+      const bodies = await fetchStable(`${peerUrl}/blocks?from=${d}`);
       const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
+      ensureUnchanged();
       const r = bc.adoptFork(incoming, d);
       if (!r.ok) {
         log.push(`  → adoptFork отказ: ${r.reason}`);
@@ -284,10 +312,10 @@ export async function syncOne(bc, peerUrl) {
     }
 
     // ---- Линейный append: грузим тела и валидируем КАЖДЫЙ блок строго ----
-    const bodies = await fetchJson(`${peerUrl}/blocks?from=${myH}`);
+    const bodies = await fetchStable(`${peerUrl}/blocks?from=${myH}`);
     const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
     let accepted = 0;
-    const interim = bc.chain.slice();
+    const interim = chainAtStart.slice();
     for (const blk of incoming) {
       // дешёвая (headers-only) проверка уже была; здесь — полная, против нарастающего префикса
       const known = headers && headers.find(hd => hd.height === blk.height);
@@ -302,6 +330,7 @@ export async function syncOne(bc, peerUrl) {
       accepted++;
     }
     if (accepted) {
+      ensureUnchanged();
       bc.chain = interim;
       bc.invalidateTxCache();
       bc.difficultyBits = bc.tip().header.difficultyBits;
@@ -311,19 +340,35 @@ export async function syncOne(bc, peerUrl) {
       log.push(`  → accepted ${accepted} blocks from peer (полная валидация всех)`);
     }
   } catch (e) {
-    log.push(`${peerUrl}: ERROR ${e.message}`);
+    if (e instanceof LocalChainChanged) log.push(`${peerUrl}: DEFERRED (${e.message}; peer not penalized)`);
+    else log.push(`${peerUrl}: ERROR ${e.message}`);
   }
   return log;
 }
 
-export async function syncAll(bc) {
+const syncFlights = new WeakMap();
+
+// The exact same promise is shared by overlapping scheduled/manual runs.
+export function syncAll(bc) {
+  const active = syncFlights.get(bc);
+  if (active) return active;
+  const pending = syncAllOnce(bc);
+  syncFlights.set(bc, pending);
+  const cleanup = () => { if (syncFlights.get(bc) === pending) syncFlights.delete(bc); };
+  pending.then(cleanup, cleanup);
+  return pending;
+}
+
+async function syncAllOnce(bc) {
   const peers = loadPeers();
   const out = [];
   const meta = peerMetaStatus();
   const allBlocked = peers.length > 0 && peers.every(u => meta[u]?.blockedUntil && meta[u].blockedUntil > Date.now());
   let valve = null;
   if (allBlocked && bc && typeof bc.tip === 'function') {
-    const tipAge = Date.now() - ((bc.tip()?.header?.timestamp) || 0);
+    // Block timestamps are seconds since epoch; Date.now() is milliseconds.
+    const tipTimestamp = bc.tip()?.header?.timestamp;
+    const tipAge = Number.isFinite(tipTimestamp) && tipTimestamp > 0 ? Date.now() - tipTimestamp * 1000 : 0;
     if (tipAge > 300_000) {
       // === AGIP-7: клапан самопомощи изоляции ===
       // Если ВСЕ пиры заблокированы И наш tip протух (>300с) — сеть не слышна,

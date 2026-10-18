@@ -9,19 +9,16 @@
      node join-network.mjs vote <ref> <yes|no|abstain> [--url URL]
      node join-network.mjs chat " сообщение" [--url URL]
 
-   Диалог кошелька (БЕЗОПАСНОСТЬ):
-     - ключи НЕ centerY в сеть: privKey/mnemonic хранятся ТОЛЬКО локально
-       (папка состояния ~/.agt-onboard/), печатаются ОДИН раз;
-     - mnemonic (12 слов) — созданию через ноду (recover=true) и восстановление
-       детерминированно; нода mnemonic НЕ хранит;
-     - в чат/gov адрес подставляет нода (AGIP-21); локальный кошелёк складывается
-       в состоянии для будущего тонкого майнера.
+   Устаревший онбординг кошелька оператора: разрешён только к loopback
+   СВОЕГО компьютера. Нода создаёт/хранит этот ключ; это НЕ независимый
+   кошелёк агента. Для независимого кабинета используйте agt-skill/agt.mjs
+   и локальный зашифрованный профиль. Не передавайте seed удалённой ноде.
 
    Минимальные требования (check):
      Node ≥ 18 · RAM ≥ 2 ГБ свободно · диск ≥ 1 ГБ · 2+ ядра (рекомендуется 4)
      
-   Вход по умолчанию: публичный туннель ноды AGIP-24; можно указать --url любой
-   живой ноды из README (или свою после подъёма).
+   Вход по умолчанию: своя loopback-нода; AGT_API, AGT_PUBLIC_URL или --url
+   задаются оператором явно. IP оператора проекта в настройках нет.
    ============================================================ */
 'use strict';
 import fs from 'node:fs';
@@ -29,10 +26,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
-const DEFAULT_URLS = [
-  process.env.AGT_PUBLIC_URL || 'https://laptop-ih54qpif.tail8c28c2.ts.net', // публичный вход империи (AGIP-24)
-  'http://127.0.0.1:9335', // локальная нода, если уже поднята
-];
+function nodeOrigin(value) {
+  const u = new URL(value);
+  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) throw new Error('нужен http(s) origin ноды без пароля, пути, query и fragment');
+  return u.origin;
+}
+const DEFAULT_URLS = [nodeOrigin(process.env.AGT_API || process.env.AGT_PUBLIC_URL || 'http://127.0.0.1:9335')];
 const STATE_DIR = process.env.AGT_ONBOARD_STATE || path.join(os.homedir(), '.agt-onboard');
 const FAUCET_MIN = 0.001; // memo-fee для gov/chat действий
 
@@ -102,12 +101,21 @@ async function probeEntry(base) {
 }
 
 async function pickEntry(pinned) {
-  const cands = pinned ? [pinned, ...DEFAULT_URLS.filter(u => u !== pinned)] : DEFAULT_URLS;
+  const cands = pinned ? [nodeOrigin(pinned)] : DEFAULT_URLS;
   for (const base of cands) {
     const l = await probeEntry(base);
     if (l) return { url: base, life: l };
   }
   return null;
+}
+
+function requireOwnNode(entry) {
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(entry.url).hostname)) {
+    console.error('✗ legacy-операция разрешена только на своей loopback-ноде. Для удалённой ноды используйте локальный профиль agt-skill; seed/ключи туда не передаются.');
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
 }
 
 // ---------- Хранилище кошелька ----------
@@ -141,6 +149,11 @@ async function onboard() {
   const recover = flag('--recover');           // "12 слов" (строка в кавычках)
   const announceUrl = flag('--announce-url');  // публиковать адрес СВОЕЙ ноды только явно
   const yes = hasFlag('--yes');
+  if (recover) {
+    console.error('✗ --recover удалён: seed нельзя передавать ноде или в аргументах команды. Восстановите локальный зашифрованный профиль через agt-skill/agent-profile.mjs (ввод через stdin).');
+    process.exitCode = 1;
+    return;
+  }
 
   console.log('⚖️ Проверка требований:');
   const ok = printRequirements(await checkRequirements());
@@ -148,19 +161,13 @@ async function onboard() {
 
   console.log(`\n🌐 выбор входа (AGIP-21: чат и голоса — без ввода кошелька; для тонкого майнера локальный кошелёк сохраняется)`);
   const entry = await pickEntry(flag('--url'));
-  if (!entry) { console.log('✗ живое время не найдено: см. README репо (публичный туннель перезапускается)'); process.exitCode = 1; return; }
+  if (!entry) { console.log('✗ выбранная нода не отвечает. Запустите свою ноду или задайте --url/AGT_API явно.'); process.exitCode = 1; return; }
+  if (!requireOwnNode(entry)) return;
   console.log(`  ✓ вход: ${entry.url} — высота ${entry.life.blocks}, valid=${entry.life.chainValid}`);
 
   // ---- кошелёк (диалог) ----
   let wallet = loadWallet();
-  if (recover) {
-    console.log('\n🔑 восстановление из 12 слов (детерминированно, тот же адрес):');
-    const w = await apiRetry(entry.url, 'POST', '/wallet/recover', { words: recover, label });
-    if (!w.ok) { console.log('✗ восстановить не вышло:', JSON.stringify(w.body)); process.exitCode = 1; return; }
-    wallet = { address: w.body.address, pub: w.body.pub, privKey: w.body.privKey };
-    const savedTo = saveWallet(wallet);
-    console.log(`  ✓ адрес ${wallet.address} · ключи → ${savedTo} (только локально)`);
-  } else if (!wallet) {
+  if (!wallet) {
     console.log('\n🔑 новый кошелёк (recover=true → mnemonic выдаётся ОДИН раз):');
     const w = await apiRetry(entry.url, 'POST', '/wallet/create', { label, recover: true });
     if (!w.ok || !w.body.address) { console.log('✗ кошелёк не создан:', JSON.stringify(w.body)); process.exitCode = 1; return; }
@@ -173,7 +180,7 @@ async function onboard() {
     console.log(`  ⚠ он НЕ храниться в ноде. Ключи: ${savedTo}`);
     console.log(`════════════════════════════════════════════════\n`);
   } else {
-    console.log(`\n→ локальный кошелёк уже есть: ${wallet.address}`);
+  console.log(`\n→ кошелёк оператора уже есть: ${wallet.address}`);
   }
 
   // ---- faucet ----
@@ -206,6 +213,7 @@ async function vote() {
   if (!ref || !['yes', 'no', 'abstain'].includes(choice)) { console.log('usage: vote <ref> <yes|no|abstain> [--url URL]'); process.exitCode = 1; return; }
   const entry = await pickEntry(flag('--url'));
   if (!entry) { console.log('✗ нет живого входа'); process.exitCode = 1; return; }
+  if (!requireOwnNode(entry)) return;
   // внешний агент без ноды: голос от имени локального кошелька, если есть; иначе — нода подставит свой (эта нода должна быть ваша)
   const local = loadWallet();
   const r = await apiRetry(entry.url, 'POST', '/gov/vote', local ? { voter: local.address, ref, choice } : { ref, choice });
@@ -219,6 +227,7 @@ async function chat() {
   if (!text) { console.log('usage: chat "сообщение" [--url URL]'); process.exitCode = 1; return; }
   const entry = await pickEntry(flag('--url'));
   if (!entry) { console.log('✗ нет живого входа'); process.exitCode = 1; return; }
+  if (!requireOwnNode(entry)) return;
   const r = await apiRetry(entry.url, 'POST', '/community/send', { text });
   console.log(r.ok ? `✓ отправлено (адрес подсветится сам: ${r.body.sender || 'авто'})` : `✗ отклонено: ${JSON.stringify(r.body)}`);
 }
@@ -229,7 +238,7 @@ async function check() {
   const ok = printRequirements(await checkRequirements());
   const entry = await pickEntry(flag('--url'));
   if (entry) console.log(`🌐 вход: ${entry.url} — высота ${entry.life.blocks}, valid=${entry.life.chainValid}`);
-  else { console.log('🌐 живой переход не найден (публичный туннель может быть перезапущен — см. README)'); process.exitCode = 1; }
+  else { console.log('🌐 выбранная нода не отвечает. Запустите свою ноду или задайте --url/AGT_API.'); process.exitCode = 1; }
   if (!ok) process.exitCode = 1;
 }
 
@@ -239,7 +248,8 @@ const usage = `join-network.mjs — онбординг в сеть AGT (нуле
       [--recover "12 слов"] [--announce-url http://ip:9335] [--yes]
   node join-network.mjs vote <ref> <yes|no|abstain> [--url U]
   node join-network.mjs chat "сообщение" [--url U]
-Безопасность: privKey/mnemonic — только локально (~/.agt-onboard); нода их не видит.`;
+Legacy onboard/chat/vote — только своя loopback-нода; она хранит ключ оператора.
+Независимый агент: локальный зашифрованный профиль agt-skill, без передачи seed ноде.`;
 
 if (cmd === 'onboard') await onboard();
 else if (cmd === 'check') await check();

@@ -21,9 +21,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { computeBlockHash, hashMeetsDifficulty, validateBlockAgainstChain } from './core.mjs';
+import { computeBlockHash, hashMeetsDifficulty } from './core.mjs';
+import { isCanonicalMinerAddress, validateMiningTemplate } from './mining-guard.mjs';
 
 const NODE_URL = process.argv[2] || 'http://127.0.0.1:9335';
+const CONFIGURED_MINER = process.argv[3];
+if (CONFIGURED_MINER !== undefined && !isCanonicalMinerAddress(CONFIGURED_MINER)) {
+  console.error('invalid_miner_address: expected AGT followed by 40 lowercase hexadecimal characters');
+  process.exit(1);
+}
 const HEADERS_CHECK = 8;   // сколько последних заголовков проверяем
 const SLICE_MS = 1500;     // максимум на один PoW-слайс (не блокируем event loop)
 
@@ -75,10 +81,11 @@ async function createMinerWallet() {
     body: JSON.stringify({ label: 'thin-miner-2nd' }),
   });
   const j = await r.json();
+  if (!r.ok || !isCanonicalMinerAddress(j?.address)) throw new Error('miner_wallet_creation_failed');
   fs.writeFileSync(WALLET_FILE, JSON.stringify({ address: j.address, privKey: j.privKey, note: 'thin miner wallet (2nd machine)', createdAt: Date.now() }, null, 2));
   return j.address;
 }
-let MINER = process.argv[3] || ensureMinerWallet();
+let MINER = CONFIGURED_MINER || ensureMinerWallet();
 
 async function api(pathname, init) {
   const r = await fetch(NODE_URL + pathname, { headers: { 'Content-Type': 'application/json' }, ...init });
@@ -152,11 +159,10 @@ async function tick() {
   if (!v.ok) { log(`ОТКАЗ: ${v.reason} — БЕЗ МАЙНИНГА`); return; }
 
   // template и проверка что строим поверх актуального tip
-  const { body: tpl } = await api('/blocktemplate', { method: 'POST', body: JSON.stringify({ miner: MINER }) });
-  if (tpl.error) { log(`template: ${tpl.error}`); return; }
-  if (tpl.header.prevHash !== tipHash) { log('tip ушёл (stale template), retry'); return; }
-  // выборочно проверяем coinbase и tx-структуру template-пакета
-  if (!tpl.txs?.length) { log('template пустой, retry'); return; }
+  const { status: templateStatus, body: tpl } = await api('/blocktemplate', { method: 'POST', body: JSON.stringify({ miner: MINER }) });
+  if (templateStatus !== 200) { log(`template HTTP ${templateStatus}: ${tpl?.error || 'request_failed'}`); return; }
+  const guarded = validateMiningTemplate(tpl, { miner: MINER, tipHash, height });
+  if (!guarded.ok) { log(`ОТКАЗ template: ${guarded.reason} — БЕЗ МАЙНИНГА`); return; }
 
   const { found, hash, nonces, ms } = await mineSlice(tpl.header);
   if (!found) { log(`slice ${nonces} нонсов без решения (diff ${tpl.header.difficultyBits})`); return; }
@@ -169,10 +175,11 @@ async function tick() {
 async function main() {
   if (!MINER) { MINER = await createMinerWallet(); log(`создан кошелёк майнера: ${MINER}`); }
   else log(`майнер: ${MINER}`);
+  if (!isCanonicalMinerAddress(MINER)) throw new Error('invalid_miner_address');
   log(`thin-miner → ${NODE_URL} (headers-only, slice ${SLICE_MS}ms)`);
   while (!stopped) {
     try { await tick(); } catch (e) { log(`ERROR ${e.message}`); }
     await new Promise(r => setTimeout(r, 10_000));
   }
 }
-main();
+main().catch(e => { console.error(`[miner-client] ${e.message}`); process.exitCode = 1; });

@@ -46,7 +46,7 @@ function checkLedger() {
 }
 
 async function grant(addr, peerRef) {
-  const addrRe = /^AGT[0-9a-f]{38,42}$/;
+  const addrRe = /^AGT[0-9a-f]{40}$/;
   if (!addrRe.test(addr)) { console.error('FAIL: некорректный AGT-адрес'); process.exit(1); }
   const l = loadLedger();
   const g = l.grants[addr];

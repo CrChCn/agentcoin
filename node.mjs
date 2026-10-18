@@ -54,6 +54,8 @@ import { AgentIdentityRegistry } from './agent-identity.mjs';
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
+import { WEB_APP_PATHS, serveWebApp } from './web-app.mjs';
+import { isCanonicalMinerAddress } from './mining-guard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
@@ -382,7 +384,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
-  if (!(adminByToken || adminLocal) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
+  const publicWebAsset = WEB_APP_PATHS.includes(p) && ['GET', 'HEAD'].includes(req.method);
+  if (!(adminByToken || adminLocal) && !(publicWebAsset || PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
     console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}${proxied ? ' (proxy-headers!)' : ''}`);
     return json(res, 403, {
       error: 'admin_loopback_only',
@@ -394,6 +397,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     });
   }
 
+  if (serveWebApp(req, res, p)) return;
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
 
   if (p === '/blocks') {
@@ -564,7 +568,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   if (p === '/mine' && req.method === 'POST') {
     const { miner } = await body(req);
-    if (!miner) return json(res, 400, { error: 'miner address required' });
+    if (!isCanonicalMinerAddress(miner)) return json(res, 400, { error: 'canonical_miner_address_required' });
     if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
     const t0 = Date.now();
     // слайс майнинга: не блокируем event loop — произвольный /mine с выросшей
@@ -1256,7 +1260,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // --- минимальный вне-HTTP-майнинг: template + строгий submit ---
   if (p === '/blocktemplate' && req.method === 'POST') {
     const { miner } = await body(req);
-    if (!miner) return json(res, 400, { error: 'miner required' });
+    if (!isCanonicalMinerAddress(miner)) return json(res, 400, { error: 'canonical_miner_address_required' });
     if (bc.security.isBanned(miner)) return json(res, 403, { error: 'address_permabanned' });
     const { header, txs } = bc.mineTemplate(miner);
     return json(res, 200, { height: bc.blockCount(), header, txs, tipPrevHash: header.prevHash });

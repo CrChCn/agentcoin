@@ -306,7 +306,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout']);
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit']);
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -744,6 +744,97 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/cabinet/logout' && req.method === 'POST') {
     const { token } = await body(req);
     return json(res, 200, cabinet.logout(token));
+  }
+  // ================== AGIP-46: операции кабинета с локальной подписью агента ==================
+  // Кабинет агента умеет готовить операцию, а НЕ подписывать её: сервер строит
+  // канонический payload (перевод/ордер/claim джоба), агент подписывает СВОИМ ключом
+  // локально (Skill/CLI), сервер проверяет подпись паспортом и публикуетtx как обычную
+  // on-chain операцию. Приватный ключ в ноду не попадает; opId гасится атомарно.
+  // Служебные memo-префиксы (dxe|, escrow:, escpayout:, escfee:, faucet:) из кабинета
+  // недоступны — они описывают другие механики индексера.
+  const RESERVED_MEMO_RE = /^(dxe\||escrow:|escpayout:|escfee:|faucet:)/;
+  if (p === '/cabinet/op-request' && req.method === 'POST') {
+    const { address, token, op } = await body(req);
+    if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'войти в кабинет заново' });
+    const rec = cabinet.findPassportByAddress(address);
+    const passportPub = rec?.pub || null;
+    if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт с ключом ( Skill enroll )' });
+    const kind = op && op.kind;
+    const bal = bc.balances()[address] || 0;
+    const money = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
+    let data = null;
+    if (kind === 'send') {
+      const to = String(op.to || '');
+      if (!/^AGT[0-9a-f]{40}$/.test(to)) return json(res, 400, { error: 'invalid_to', hint: 'AGT-адрес получателя (v1 — только адрес, без @handle)' });
+      const amount = Number(op.amount);
+      if (!money(amount)) return json(res, 400, { error: 'invalid_amount' });
+      const memo = String(op.memo || '').slice(0, 120);
+      if (RESERVED_MEMO_RE.test(memo)) return json(res, 400, { error: 'reserved_memo_prefix', hint: 'это служебные мемо индексеров; обычный перевод — без таких префиксов' });
+      if (amount > bal) return json(res, 402, { error: 'insufficient_balance', balance: bal, needed: amount });
+      const tx = { from: address, fromPub: passportPub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
+      const txid = txDigest(tx);
+      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, to, amount, memo };
+    } else if (kind === 'order') {
+      const side = String(op.side || '');
+      if (!['b', 's'].includes(side)) return json(res, 400, { error: 'side_must_be_b_or_s' });
+      const item = String(op.item || 'mbc20:BOTAI');
+      const qty = Number(op.qty), price = Number(op.price);
+      const q = fmtNum(qty), pr = fmtNum(price);
+      if (!q || !pr) return json(res, 400, { error: 'qty/price should be finite numbers' });
+      if (item.startsWith('mbc20:')) {
+        const chk = mbc20.checkTradeSize(item.slice(6), Number(q));
+        if (!chk.ok) return json(res, 409, chk);
+        if (side === 's') {
+          const totalAsk = dxeState(bc).orders.filter(o => o.status === 'open' && o.item === item && o.side === 's')
+            .reduce((s, o) => s + (o.qty - o.filled), 0);
+          const depth = mbc20.checkAskDepth(item.slice(6), Number(q), totalAsk);
+          if (!depth.ok) return json(res, 409, depth);
+        }
+      }
+      if ((bal) < DXE_MEMO_FEE) return json(res, 402, { error: 'insufficient_balance_for_dxe_fee', balance: bal, needed: DXE_MEMO_FEE });
+      const ref = dxeRef();
+      const memo = `dxe|O|${side}|${item.slice(0, 40)}|${q}|${pr}|${ref}`;
+      const tx = { from: address, fromPub: passportPub, to: address, amount: DXE_MEMO_FEE, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
+      const txid = txDigest(tx);
+      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, ref, memo, item, side };
+    } else if (kind === 'job-claim') {
+      const open = findEscrowOpen(bc.chain, String(op.escId || ''));
+      if (!open) return json(res, 404, { error: 'escrow_open_not_found', hint: 'джоб-эскроу должен быть уже в цепи' });
+      if (open.worker !== address) return json(res, 403, { error: 'not_assigned_worker', workerExpected: open.worker });
+      if (String(op.taskHash || '') !== open.taskHash) return json(res, 400, { error: 'taskHash_mismatch' });
+      const digest = escrowReceiptDigest(String(op.escId), open.taskHash, open.worker, open.openTx.amount);
+      data = { kind, address, passportPub, digestHex: digest, escId: String(op.escId), taskHash: open.taskHash, worker: open.worker, amount: open.openTx.amount, employer: open.employer };
+    } else return json(res, 400, { error: 'unsupported_op_kind', supported: ['send', 'order', 'job-claim'] });
+    const st = cabinet.stashOp(address, token, data);
+    if (!st.ok) return json(res, st.error === 'session_required' ? 401 : 429, st);
+    const payload = kind === 'job-claim'
+      ? { kind, ...data, passportPub: undefined }
+      : { kind, tx: { ...data.tx }, txidHex: data.txidHex, ...(data.ref ? { ref: data.ref } : {}) };
+    return json(res, 200, { ok: true, opId: st.opId, ttlSec: st.ttlSec, payload,
+      signHint: kind === 'job-claim'
+        ? 'подпишись hex-дайджестом: crypto.sign(null, Buffer.from(payload.digestHex,\'hex\'), privKey).toString(\'hex\')'
+        : 'подпишись txid: crypto.sign(null, Buffer.from(payload.txidHex,\'hex\'), privKey).toString(\'hex\')',
+      passportPub });
+  }
+  if (p === '/cabinet/op-submit' && req.method === 'POST') {
+    const { opId, signature } = await body(req);
+    const rec = cabinet.takeOp(opId); // атомарно: повторный submit всегда op_not_found
+    if (!rec) return json(res, 400, { error: 'op_not_found', hint: 'заявка не существует, просрочена (5 мин) или уже потрачена' });
+    if (typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) return json(res, 400, { error: 'invalid_signature' });
+    if (rec.kind === 'job-claim') {
+      if (!rec.passportPub) return json(res, 500, { error: 'op_record_corrupt' });
+      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), rec.passportPub, Buffer.from(signature, 'hex'));
+      if (!ok) return json(res, 400, { error: 'bad_signature', hint: 'подпись не от владельца паспорта над claim-дайджестом' });
+      console.log(`[agip-46] job-claim: ${rec.address} подписал ${rec.data.escId}`);
+      return json(res, 200, { ok: true, kind: 'job-claim', escId: rec.data.escId, taskHash: rec.data.taskHash, worker: rec.data.worker, amount: rec.data.amount, receiptSig: signature, workerPub: rec.passportPub, hint: 'квитанция готова; payout подписывается работодателем (escrow/payout)' });
+    }
+    const tx = { ...rec.data.tx, signature };
+    if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    console.log(`[agip-46] ${rec.kind}: ${rec.address} op=${String(tx.txid).slice(0, 16)}`);
+    return json(res, 201, { ok: true, accepted: true, kind: rec.kind, txid: String(tx.txid).slice(0, 16), mempool: r.mempoolSize, ...(rec.data.ref ? { ref: rec.data.ref, memo: rec.data.memo } : {}), hint: 'упакуется майнером; книга/баланс — после блока' });
   }
   // ================== AGIP-45: автоматический вход оператора в кабинет ==================
   // Находится ЗА админ-барьером AGIP-37 (не в PUB_REQUEST_RE / PUB_TX_ROUTES):

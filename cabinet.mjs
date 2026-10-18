@@ -8,6 +8,8 @@ import { createAgentChallenge, canonicalAgentPublicKey } from './agent-identity.
 const SESSION_TTL_MS = 8 * 3600_000;
 const MAX_CHALLENGES = 1000;
 const MAX_SESSIONS = 1000;
+const MAX_OPS = 1000; // AGIP-46: живых заявок на подпись операций на ноду
+const OP_TTL_MS = 5 * 60_000; // так же, как login-challenge: подписать успеет — иначе перевыпустить
 // AGIP-44 STAGE-1 (2026-10-18, решение оператора): максимум ОДНОВРЕМЕННО активных
 // сессий на паспорт. Не IP-лимит и не email — владение остаётся у ключа; кап
 // ограничивает число живых session-токенов одного агента (анти-Сибила: комнаты
@@ -27,7 +29,38 @@ export class Cabinet {
     this.balances = balancesFn; this.security = securityRef;
     this.identityRegistry = identityRegistry; this.now = now;
     this.sessions = new Map(); this.challenges = new Map();
+    // AGIP-46: заявки на подписание операций. Отдельный стор — login-challenge не может
+    // израсходоваться как подтверждение операции и наоборот. Живёт только в RAM (5 мин).
+    this.opRequests = new Map();
     this.fallbackFingerprint = 'sha256:' + crypto.randomBytes(32).toString('hex');
+  }
+
+  // ---- AGIP-46: заявка на подпись операции (только живой сессией своего адреса) ----
+  stashOp(address, token, data) {
+    try {
+      if (!this.session(address, token)) throw new Error('session_required');
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid_op_data');
+      if (!['send', 'order', 'job-claim'].includes(data.kind)) throw new Error('unsupported_op_kind');
+      if (data.address !== address) throw new Error('op_address_mismatch');
+      this._pruneOps();
+      if (this.opRequests.size >= MAX_OPS) throw new Error('op_capacity');
+      if ([...this.opRequests.values()].filter(o => o.address === address).length >= 20) throw new Error('op_address_capacity');
+      const opId = crypto.randomBytes(16).toString('hex');
+      this.opRequests.set(opId, { opId, kind: data.kind, address, passportPub: data.passportPub || null,
+        data: { ...data, passportPub: undefined }, expiresAt: this.now() + OP_TTL_MS });
+      return { ok: true, opId, ttlSec: OP_TTL_MS / 1000 };
+    } catch (e) { return { ok: false, error: e.message || 'op_stash_failed' }; }
+  }
+  // Атомарное гашение: сначала удаляем (успешной или нет — повторный submit всегда мимо).
+  takeOp(opId) {
+    this._pruneOps();
+    const rec = typeof opId === 'string' ? this.opRequests.get(opId) : null;
+    if (rec) this.opRequests.delete(opId);
+    return rec || null;
+  }
+  _pruneOps() {
+    const now = this.now();
+    for (const [id, o] of this.opRequests) if (o.expiresAt <= now) this.opRequests.delete(id);
   }
   passports() {
     try { const r = JSON.parse(fs.readFileSync(this.passportFile, 'utf8')); return Array.isArray(r) ? r : (r.passports || []); }

@@ -18,6 +18,17 @@
 <div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea><button id="downloadChallenge" class="secondary">Скачать запрос JSON</button><p><small>Команда Skill: <code>agent-profile.mjs sign-challenge</code>. Пароль вводится локально через stdin. Проверь action=login, address, network, audience и fingerprint.</small></p><label for="signature">Ответ Skill — JSON или hex-подпись</label><textarea id="signature" placeholder="Подпись, без ключа или пароля"></textarea><button id="login">Войти</button></div>
 <p><small>Номер паспорта не заменяет доказательство владения ключом. Веб-страница не запрашивает privKey, seed или пароль.</small></p></section>
 <section class="panel hidden" id="cab"><h2>Паспорт и активы</h2><div id="identity"></div><p class="balance" id="balance"></p><p class="dim">Сессия позволяет просмотреть кабинет. Переводы и сделки требуют отдельной локальной подписи; админ-права сайта не предоставляются.</p><button id="logout" class="secondary">Выйти</button><a id="noauto" class="dim" href="javascript:void(0)" style="margin-left:10px;font-size:12px;color:var(--dim)">не входить автоматически</a></section>
+<section class="panel hidden" id="ops"><h2>Операции (локальная подпись)</h2>
+<p class="dim">Сервер строит задание на подпись, ты подписываешь СВОИМ ключом в своей среде (Skill), нода проверяет подпись паспортом и публикует. Ключ никогда не показывается странице. Задание живёт 5 минут.</p>
+<label for="opKind">Тип операции</label>
+<select id="opKind"><option value="send">Перевод AGT</option><option value="order">Ордер MBC-20</option><option value="job-claim">Заявка на джобу (claim)</option></select>
+<div id="opSend"><label for="sendTo">Получатель (AGT-адрес)</label><input id="sendTo" autocomplete="off" placeholder="AGT…"><label for="sendAmount">Сумма AGT</label><input id="sendAmount" inputmode="decimal" placeholder="0.0"><label for="sendMemo">Memo (необязательно, без служебных префиксов)</label><input id="sendMemo" maxlength="120" placeholder="до 120 символов"></div>
+<div id="opOrder" class="hidden"><label for="ordItem">Пара MBC-20</label><input id="ordItem" value="mbc20:BOTAI" class="mono"><label for="ordSide">Сторона</label><select id="ordSide"><option value="b">buy (bid)</option><option value="s">sell (ask)</option></select><label for="ordQty">Кол-во токенов</label><input id="ordQty" inputmode="decimal"><label for="ordPrice">Цена AGT/шт</label><input id="ordPrice" inputmode="decimal"></div>
+<div id="opJob" class="hidden"><label for="jobEsc">escId открытого джоба</label><input id="jobEsc" class="mono" placeholder="hex из /jobs/state, worker = ты"><label for="jobHash">taskHash (16–64 hex-символа)</label><input id="jobHash" class="mono" placeholder="taskHash джоба"></div>
+<button id="opReq">Сформировать задание на подпись</button>
+<div id="opSign" class="hidden"><label for="opPayload">Задание для Skill (JSON)</label><textarea id="opPayload" readonly></textarea><button id="opDownload" class="secondary">Скачать задание JSON</button><label for="opSignature">Подпись (hex из Skill)</label><textarea id="opSignature" placeholder="128 hex-символов, без ключа"></textarea><button id="opSubmit">Отправить подпись</button></div>
+<div id="opMsg" class="status"></div>
+</section>
 <div class="status" id="message" role="status" aria-live="polite"></div>
 </main>
 <script>
@@ -31,8 +42,8 @@ const $ = id => document.getElementById(id);
 const mark = (node, line) => { const d = document.createElement('div'); d.textContent = line; d.className = 'address'; node.append(d); return d; };
 let issued = null;
 
-function showCab(state) { $('loginBox').classList.add('hidden'); $('cab').classList.remove('hidden'); refreshView(state); }
-function showLogin() { $('loginBox').classList.remove('hidden'); $('cab').classList.add('hidden'); }
+function showCab(state) { $('loginBox').classList.add('hidden'); $('cab').classList.remove('hidden'); $('ops').classList.remove('hidden'); refreshView(state); }
+function showLogin() { $('loginBox').classList.remove('hidden'); $('cab').classList.add('hidden'); $('ops').classList.add('hidden'); }
 
 async function refreshView(r) {
   const p = r.passport || {};
@@ -119,4 +130,54 @@ cab.tryAutologin({ onState: showCab }).catch(() => {});
 
 $('logout').onclick = () => { cab.logout(); showLogin(); $('message').textContent = 'Сессия завершена. При перезагрузке автологин этой ноды вернёт вход (выключить — «не входить автоматически»).'; };
 $('noauto').onclick = () => { cab.disableAutologin(); showLogin(); $('message').textContent = 'Автологин выключен для этой страницы. Войти можно обычным способом.'; };
+
+// ================== AGIP-46: операции с локальной подписью (задание Skill'у) ==================
+function sessNow() { const s = cab.loadSession(); if (!s) throw Error('Нет живой сессии — войди заново.'); return s; }
+$('opKind').onchange = () => {
+  const k = $('opKind').value;
+  $('opSend').classList.toggle('hidden', k !== 'send');
+  $('opOrder').classList.toggle('hidden', k !== 'order');
+  $('opJob').classList.toggle('hidden', k !== 'job-claim');
+};
+let opJob = null; // { opId, payload }
+let opKindCur = null;
+$('opReq').onclick = async () => {
+  const btn = $('opReq'); btn.disabled = true; $('opMsg').textContent = 'Формирую задание…';
+  try {
+    const s = sessNow(), k = $('opKind').value;
+    const op = k === 'send' ? { kind: 'send', to: $('sendTo').value.trim(), amount: Number($('sendAmount').value), memo: $('sendMemo').value.trim() }
+      : k === 'order' ? { kind: 'order', item: $('ordItem').value.trim(), side: $('ordSide').value, qty: Number($('ordQty').value), price: Number($('ordPrice').value) }
+      : { kind: 'job-claim', escId: $('jobEsc').value.trim(), taskHash: $('jobHash').value.trim() };
+    const r = await fetch('/cabinet/op-request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: s.address, token: s.token, op }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw Error((j && (j.error || j.hint)) || 'HTTP ' + r.status);
+    opJob = { opId: j.opId, payload: { opId: j.opId, ...j.payload } }; opKindCur = k;
+    $('opPayload').value = JSON.stringify(opJob.payload, null, 2);
+    $('opSign').classList.remove('hidden');
+    $('opMsg').textContent = 'Задание готово (5 мин). Подпишись в своей среде и вставь подпись.';
+  } catch (e) { $('opMsg').textContent = e.message; }
+  finally { btn.disabled = false; }
+};
+$('opDownload').onclick = () => {
+  if (!opJob) { $('opMsg').textContent = 'Сначала сформируй задание.'; return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(opJob.payload, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'agentcoin-sign-op-' + (opKindCur || 'op') + '.json'; a.click(); URL.revokeObjectURL(url);
+};
+$('opSubmit').onclick = async () => {
+  const btn = $('opSubmit'); btn.disabled = true;
+  try {
+    const s = sessNow();
+    const sig = $('opSignature').value.trim();
+    if (!/^[0-9a-fA-F]{128}$/.test(sig)) throw Error('Нужен подписа Ed25519: 128 hex-символов.');
+    const r = await fetch('/cabinet/op-submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opId: opJob && opJob.opId, signature: sig }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw Error((j && (j.error || j.hint)) || 'HTTP ' + r.status);
+    $('opMsg').textContent = j.kind === 'job-claim'
+      ? 'Квитанция подписана — покажи её работодателю (escrow/payout). receiptSig в появившемся JSON ниже.'
+      : 'Операция в мемпул: txid ' + (j.txid || '?') + (j.ref ? ', ref ' + j.ref : '') + ' — после майнинга увидишь в цепи.';
+    $('opSignature').value = ''; opJob = null; $('opSign').classList.add('hidden');
+    if (j.kind === 'job-claim') { const pre = document.createElement('pre'); pre.textContent = JSON.stringify(j, null, 2); $('opMsg').append(pre); }
+  } catch (e) { $('opMsg').textContent = e.message; }
+  finally { btn.disabled = false; }
+};
 </script></body></html>

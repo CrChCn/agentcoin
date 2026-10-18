@@ -198,8 +198,52 @@ bc.mempool = [];const pay = { from: 'ESCROW_' + escId, to: A.address, amount: 1,
 pay.txid = core.txDigest(pay);
 const eblk = craftBlock([pay]);
 const er = core.validateBlockAgainstChain(eblk, bc.chain, O);
-step(er === 'tx_bad_signature_or_escrow' || String(er).startsWith('insufficient_funds_block'), `T14 payout без эскроу-open отвергнут: ${er}`);
-step(typeof u === 'function', 'T14b usableMempoolTxs жив');
+step(er === 'tx_bad_signature_or_escrow' || String(er).startsWith('insufficient_funds_block'), `T14 payout без эскроу-open отвергнут: ${er}`);  step(typeof u === 'function', 'T14b usableMempoolTxs жив');
+
+// ---- T15: MINER-GUARD — неканонический получатель coinbase (двойник 42 симв.) отвергнут ----
+const twin = 'AGT11a01a612a422dff68f758eefbd9ab3a991439a'; // 42 символа, как h66…h609
+step(twin.length === 42 && !core.isCanonicalAddress(twin), 'T15a двойник распознаётся как неканонический адрес');
+const t15 = craftBlock([]);
+const cbT15 = t15.txs[t15.txs.length - 1];
+cbT15.to = twin;
+cbT15.txid = core.txDigest(cbT15); // живой майнер пересчитал бы канонический txid — и всё равно отвергнут
+t15.header.merkleRoot = core.merkleRoot(t15.txs);
+t15.hash = remineHash(t15.header);
+step(core.validateBlockAgainstChain(t15, bc.chain, O) === 'coinbase_bad_recipient',
+  'T15b coinbase «двойнику» отвергнут: ' + core.validateBlockAgainstChain(t15, bc.chain, O));
+
+// ---- T16: неканонический получатель обычной tx отвергнут (эскроу-tx исключение) ----
+const t16 = craftBlock([]);
+t16.txs = [signedTx(B, twin, 1, 't16'), ...t16.txs];
+t16.header.merkleRoot = core.merkleRoot(t16.txs);
+t16.hash = remineHash(t16.header);
+step(core.validateBlockAgainstChain(t16, bc.chain, O) === 'tx_bad_recipient',
+  'T16 неканонический to отвергнут: ' + core.validateBlockAgainstChain(t16, bc.chain, O));
+step(core.validateBlockAgainstChain(t16, bc.chain, { activation: Infinity }) === null,
+  'T16b в legacy-режиме тот же блок проходит (историческая совместимость)');
+
+// ---- T17–T20: TWIN-SWEEP — миграция средств безключевого адреса оператору ----
+// Синтетика: авторизующий ключ = B.pub, «безключевой» участник = B.address (у него
+// есть баланс 350 после setup); правила сверяются через opts, не через env
+const opAddr = A.address; // получатель миграции
+const sweepSpec = { from: B.address, to: opAddr, authPub: B.pub };
+function sweepTx(amount, signer) {
+  const tx = { from: sweepSpec.from, fromPub: sweepSpec.authPub, to: sweepSpec.to,
+    amount, nonce: Date.now() + Math.floor(Math.random() * 1e9), ts: Math.floor(Date.now() / 1000), memo: 'twin-sweep:)'.replace(':)', ':h66-h609') };
+  tx.signature = core.signTransaction(tx, signer || B.privKey);
+  tx.txid = core.txDigest(tx);
+  return tx;
+}
+const s1 = core.validateBlockAgainstChain(craftBlock([sweepTx(350)]), bc.chain, { ...O, twinSweep: sweepSpec });
+step(s1 === null, 'T17 sweep всего баланса принят подписью авторизующего ключа: ' + s1);
+const sBad = core.validateBlockAgainstChain(craftBlock([sweepTx(350, A.privKey)]), bc.chain, { ...O, twinSweep: sweepSpec });
+step(sBad === 'twin_sweep_invalid', 'T18 sweep ЧУЖОЙ подписью отвергнут: ' + sBad);
+// повтор после вычерпывания: баланс 0 → недостаточно средств (одноразовость accounting'ем)
+const s2 = core.validateBlockAgainstChain(craftBlock([sweepTx(50)]), bc.chain,
+  { ...O, twinSweep: sweepSpec, prefixBalances: { [B.address]: 0 } });
+step(s2 === 'insufficient_funds_block', 'T19 повторный sweep после вычерпывания отвергнут: ' + s2);
+step(core.validateBlockAgainstChain(craftBlock([sweepTx(350)]), bc.chain, { ...O, twinSweep: { ...sweepSpec, to: twin } }) === 'twin_sweep_invalid',
+  'T20 sweep на неканонический to отвергнут (invalid spec)');
 
 // ---- итоги ----
 fs.rmSync(tmp, { recursive: true, force: true });

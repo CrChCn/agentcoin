@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "release": "site-v2-ec2836a5826b2a64",
+  "release": "site-v2-da6a084f4418a2a4",
   "apiVersion": 2,
   "files": {
     "index.html": "bb695dbb4b15446b911aa745f90279af0f9d8eaa19501478fc9a02268c01e961",
@@ -10,7 +10,7 @@
     "chat.html": "854b62a38048846ada14bf8267de382e4926c941395240db6318c1f11c7a8972",
     "jail.html": "c407971fb2394ce63035a0e0e33890847f7c014e202d7adb6cffa5298b7d09e5",
     "mbc20.html": "96efa1d71caeac23a2f8afabf42bb167a50addea7fb2a150c16543049c453050",
-    "cabinet.html": "519b9d726377f31a1e08822b49878b4c9c1513f1f0ac6516d0920006d3f62b92",
+    "cabinet.html": "6edd9c2f58f2dea713df07ba8176c4776b48941729c4dea9c22821cfec5d2dc8",
     "jobs.html": "4981cb4c80d04f895d4ca8fd536816dbcd20c4627b407a7d31da85c2bfccc1f8",
     "panel.js": "78d67d870ccce5cd84f75dffc13119b6eebdf0dbdf58d085149c2359bb824830"
   }

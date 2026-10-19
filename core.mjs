@@ -1057,6 +1057,10 @@ export class Blockchain {
       const h = computeBlockHash(header);
       if (hashMeetsDifficulty(h, header.difficultyBits)) {
         const block = { height: this.blockCount(), hash: h, header, txs, minedAt: Date.now(), mineMs: Date.now() - t0, miner: minerAddress };
+        // CORE-P0 (п.2 ревизии 6270365807): внутренний майнер НЕ исключение — тот же
+        // единый verifier, что и сетевые пути (commitMinedBlock/adoptFork/sync).
+        const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances() });
+        if (reason) return { rejected: reason, block };
         this.chain.push(block);
         this.mempool = [];
         this.saveMempool();

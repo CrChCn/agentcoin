@@ -664,44 +664,6 @@ function chainTxidsOf(chain) {
 export const ADDRESS_RE = /^AGT[0-9a-f]{40}$/;
 export function isCanonicalAddress(a) { return typeof a === 'string' && ADDRESS_RE.test(a); }
 
-// Спецификация миграции средств укороченного («двойного») адреса оператору.
-// Активация ТОЛЬКО явная и скоординированная: env
-//   AGT_TWIN_SWEEP_FROM — адрес двойника (неканонический, 42 симв.);
-//   AGT_TWIN_SWEEP_TO   — канонический адрес получателя (управляемая шапка);
-//   AGT_TWIN_SWEEP_AUTH_PUB — SPKI PEM авторизующего ключа (броски без его подписи
-//      отвергаются). Рекомендация: pub казни/faucet-фонда либо emperor-ключа —
-//      тогда миграция физически в руках оператора и ВСЕГДА с его подписью.
-// Без этих env правила не существует (ни один блок с системным расходом двойника
-// не принимается — тот же system_spend_forbidden).
-// Одноразовость обеспечивается ПОСЛЕДОВАТЕЛЬНОЙ бухгалтерией: если сумма миграции
-// больше фактического баланса двойника (13 900 = 278 × 50) или попыток повторной
-// миграции — insufficient_funds_block; переписывание истории не используется.
-export function twinSweepSpec(env = {}) {
-  const from = env.twinSweepFrom ?? process.env.AGT_TWIN_SWEEP_FROM;
-  const to = env.twinSweepTo ?? process.env.AGT_TWIN_SWEEP_TO;
-  const authPub = env.twinSweepAuthPub ?? process.env.AGT_TWIN_SWEEP_AUTH_PUB;
-  if (typeof from !== 'string' || !from || typeof to !== 'string' || !to ||
-      typeof authPub !== 'string' || !authPub) return null;
-  if (!isCanonicalAddress(to)) return null; // получатель обязан быть каноническим
-  if (from === to) return null;             // перекладывать «двойнику» бессмысленно
-  return { from, to, authPub };
-}
-
-// Проверка миграционной tx: подпись ОБЯЗАТЕЛЬНО авторизующим (операторским) ключом
-// над txDigest; tx.fromPub обязан совпадать с pinned authPub. Подписи ключа-«двойника»
-// не существует в природе (адреса-то нет) → подделать миграцию может только владелец
-// авторизующего ключа.
-export function verifyTwinSweepTx(tx, sweep) {
-  if (!tx || !sweep || tx.from !== sweep.from) return false;
-  if (tx.to !== sweep.to) return false;
-  if (typeof tx.memo !== 'string' || !tx.memo.startsWith('twin-sweep')) return false;
-  if (typeof tx.fromPub !== 'string' || tx.fromPub !== sweep.authPub) return false;
-  try {
-    return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), sweep.authPub,
-      Buffer.from(tx.signature || '', 'hex'));
-  } catch { return false; }
-}
-
 
 // Строгая валидация блока, продолжающего chain на высоте chain.length.
 // Возвращает null если блок валиден, иначе строку-причину отказа.
@@ -749,30 +711,9 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     : (coreP0 ? balancesOf(chain) : null);
   const seenTxids = new Set();
   const seenNonceKeys = new Set();
-  const sweep = opts.twinSweep !== undefined ? opts.twinSweep : twinSweepSpec();
   // обычные транзакции: подписи и базовые инварианты
   for (const tx of block.txs) {
     if (tx.from === 'COINBASE') continue; // coinbase (единственный) проверен выше
-    // TWIN-SWEEP: единственная санкционированная миграция системных средств;
-    // требует подписи авторизующего (операторского) ключа, одноразовость
-    // гарантирует ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия (баланс двойника = 278 × 50)
-    if (coreP0 && sweep && tx.from === sweep.from) {
-      if (!verifyTwinSweepTx(tx, sweep)) return 'twin_sweep_invalid';
-      if (!Number.isFinite(tx.amount) || tx.amount <= 0) return 'tx_bad_amount';
-      if (typeof tx.txid !== 'string' || tx.txid !== txDigest(tx)) return 'txid_not_canonical';
-      if (seenTxids.has(tx.txid)) return 'duplicate_txid_block';
-      if (knownSet && knownSet.has(tx.txid)) return 'tx_replay_in_chain';
-      const nkey = String(tx.from) + '|' + String(tx.nonce);
-      if (seenNonceKeys.has(nkey)) return 'duplicate_nonce_block';
-      seenTxids.add(tx.txid);
-      seenNonceKeys.add(nkey);
-      if (balances) {
-        balances[tx.from] = (balances[tx.from] || 0) - tx.amount;
-        if (!(balances[tx.from] >= -1e-9)) return 'insufficient_funds_block';
-        balances[tx.to] = (balances[tx.to] || 0) + tx.amount;
-      }
-      continue;
-    }
     if (coreP0 && SYSTEM_TX_FROMS.has(tx.from)) return 'system_spend_forbidden';
     if (!coreP0 && tx.from === 'AGENT_REWARD_POOL') continue; // legacy: до активации системные tx пропускались по имени
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return 'tx_bad_fields';
@@ -889,7 +830,7 @@ export class Blockchain {
     const spentFrom = {};
     const out = [];
     for (const tx of this.mempool) {
-      if (!tx || !(verifyTxAny(tx, this.chain) || verifyTwinSweepTx(tx, twinSweepSpec()))) continue;
+      if (!tx || !verifyTxAny(tx, this.chain)) continue;
       const budget = (balances[tx.from] || 0) - (spentFrom[tx.from] || 0);
       if (tx.amount <= budget) { out.push(tx); spentFrom[tx.from] = (spentFrom[tx.from] || 0) + tx.amount; }
       else
@@ -1018,19 +959,6 @@ export class Blockchain {
     // fail-fast до бан-фильтра: неканонический получатель не должен трогать досяжные
     // счётчики/бани и создавать будущие «двойников»-ситуации
     if (!String(tx.to).startsWith(ESCROW_PREFIX) && !isCanonicalAddress(tx.to)) return { ok: false, reason: 'bad_recipient' };
-    // TWIN-SWEEP: приём миграционной tx в mempool (вне обычной подписи from —
-    // адрес двойника безключевой; авторизация — подписью операторского authPub)
-    const sweep = twinSweepSpec();
-    if (sweep && tx.from === sweep.from) {
-      if (!verifyTwinSweepTx(tx, sweep)) return { ok: false, reason: 'twin_sweep_invalid' };
-      if (!tx.txid) tx.txid = txDigest(tx);
-      if (this.knownChainTxids().has(tx.txid)) return { ok: false, reason: 'already_in_chain', txid: tx.txid.slice(0, 16) };
-      if (this.mempool.some(t => t.txid && t.txid === tx.txid)) return { ok: false, reason: 'duplicate_tx', txid: tx.txid.slice(0, 16) };
-      if ((this.balances()[tx.from] || 0) - tx.amount < -1e-9) return { ok: false, reason: 'twin_sweep_overdraft' };
-      this.mempool.push(tx);
-      this.saveMempool();
-      return { ok: true, mempoolSize: this.mempool.length, kind: 'twin_sweep' };
-    }
     // --- Security Controller: бан-фильтр + атак-детект ---
     if (this.security.isBanned(tx.from)) {
       this.security.registerAttack('flood', tx.from, 'banned address keeps submitting txs');

@@ -222,28 +222,24 @@ step(core.validateBlockAgainstChain(t16, bc.chain, O) === 'tx_bad_recipient',
 step(core.validateBlockAgainstChain(t16, bc.chain, { activation: Infinity }) === null,
   'T16b в legacy-режиме тот же блок проходит (историческая совместимость)');
 
-// ---- T17–T20: TWIN-SWEEP — миграция средств безключевого адреса оператору ----
-// Синтетика: авторизующий ключ = B.pub, «безключевой» участник = B.address (у него
-// есть баланс 350 после setup); правила сверяются через opts, не через env
-const opAddr = A.address; // получатель миграции
-const sweepSpec = { from: B.address, to: opAddr, authPub: B.pub };
-function sweepTx(amount, signer) {
-  const tx = { from: sweepSpec.from, fromPub: sweepSpec.authPub, to: sweepSpec.to,
-    amount, nonce: Date.now() + Math.floor(Math.random() * 1e9), ts: Math.floor(Date.now() / 1000), memo: 'twin-sweep:)'.replace(':)', ':h66-h609') };
-  tx.signature = core.signTransaction(tx, signer || B.privKey);
-  tx.txid = core.txDigest(tx);
-  return tx;
-}
-const s1 = core.validateBlockAgainstChain(craftBlock([sweepTx(350)]), bc.chain, { ...O, twinSweep: sweepSpec });
-step(s1 === null, 'T17 sweep всего баланса принят подписью авторизующего ключа: ' + s1);
-const sBad = core.validateBlockAgainstChain(craftBlock([sweepTx(350, A.privKey)]), bc.chain, { ...O, twinSweep: sweepSpec });
-step(sBad === 'twin_sweep_invalid', 'T18 sweep ЧУЖОЙ подписью отвергнут: ' + sBad);
-// повтор после вычерпывания: баланс 0 → недостаточно средств (одноразовость accounting'ем)
-const s2 = core.validateBlockAgainstChain(craftBlock([sweepTx(50)]), bc.chain,
-  { ...O, twinSweep: sweepSpec, prefixBalances: { [B.address]: 0 } });
-step(s2 === 'insufficient_funds_block', 'T19 повторный sweep после вычерпывания отвергнут: ' + s2);
-step(core.validateBlockAgainstChain(craftBlock([sweepTx(350)]), bc.chain, { ...O, twinSweep: { ...sweepSpec, to: twin } }) === 'twin_sweep_invalid',
-  'T20 sweep на неканонический to отвергнут (invalid spec)');
+// ---- T17–T18: TWIN-SWEEP удалён из PR#4 (CORE-P0 review 6270365807 п.1) ----
+// Ни адаптации «неканонического from» через env, ни проверки «операторского» ключа
+// вместо владельца. Системные tx теперь отвергаются ВСЕГДА, если tx.from ≠ COINBASE;
+// расход безключевого адреса (двойника) невозможен: нет подписи от владельца →
+// tx_bad_signature_or_escrow ещё до системного правила.
+// Возврат 13 900 AGT — ОТДЕЛЬНОЕ предложение политики сети, не часть верификатора.
+const sysSpend = { from: 'AGENT_REWARD_POOL', to: ATT.address, amount: 10, nonce: 's1', ts: 1, memo: 'eightbad-skip-twin' };
+sysSpend.txid = core.txDigest(sysSpend);
+const sysBlock = craftBlock([sysSpend]);
+const sysReason = core.validateBlockAgainstChain(sysBlock, bc.chain, O);
+step(sysReason === 'system_spend_forbidden' || sysReason === 'tx_bad_signature_or_escrow' || sysReason === 'tx_bad_recipient',
+  `T17 системный расход AGENT_REWARD_POOL отвергнут (${sysReason})`);
+const twinSpend = { from: twin, to: A.address, amount: 10, nonce: 's2', ts: 1, memo: 'twin-spend:synth' };
+twinSpend.txid = core.txDigest(twinSpend);
+const tb = craftBlock([twinSpend]);
+const tbReason = core.validateBlockAgainstChain(tb, bc.chain, O);
+step(tbReason && tbReason !== null && /^[a-z_0-9]+$/.test(tbReason),
+  `T18 tx от адреса-двойника отвергнут (${tbReason}: подпись владельца для безключевого адреса невозможна)`);
 
 // ---- итоги ----
 fs.rmSync(tmp, { recursive: true, force: true });

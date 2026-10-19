@@ -422,7 +422,37 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   // --- мемпул: публичное состояние очереди транзакций ---
+  // (потолочные поля НЕ возвращает: wallet/token/seed/private-поля tx отсутствуют по правилам /tx)
   if (p === '/mempool') {
+    // MEMPOOL-FULL (контракт 6272239263): ограниченный read-only full-tx snapshot.
+    // ?full=1 → { version:1, size:<total>, complete:true, txs:[ПОЛНЫЕ публичные signed tx],
+    // tipHash:<полный tip>, height:<tip height> }; cap 1000 tx / 2 MiB — сверх лимита?
+    // HTTP 200, complete:false, txs:[], size полный (fail-closed, не «усечённая правда»).
+    // Атомарный snapshot берётся единичным slice-копированием; приёмочный НЕ отправляет
+    // ни token(s), ни приватные поля — /tx не принимает таких по контракту (fail-closed).
+    // Стоимость НЕ снижается: полный.coinbase-то нет — public txs только (без W-1 сам).
+    const wantFull = url.searchParams.get('full') === '1';
+    if (wantFull) {
+      // Атомарный срез: копируем массив за один проход (элементы tx не мутируются после приёма)
+      const snapshot = bc.mempool.slice();
+      const tip = bc.tip();
+      // Белый список ПУБЛИЧНЫХ подписанных полей — чужие/приватные поля в ответ не попадают
+      const PUBLIC_TX_FIELDS = ['txid', 'from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo', 'signature', 'escProof', 'sig2', 'sig2Pub', 'digestVersion', 'kind'];
+      const txs = snapshot.map(t => Object.fromEntries(PUBLIC_TX_FIELDS.filter(k => t[k] !== undefined).map(k => [k, t[k]])));
+      const fullByteSize = txs.reduce((s, t) => s + Buffer.byteLength(JSON.stringify(t), 'utf8') + 1, 0);
+      const size = snapshot.length;
+      if (size > 1000 || fullByteSize > 2 * 1024 * 1024) {
+        return json(res, 200, { version: 1, size, complete: false, txs: [], tipHash: tip?.hash || null, height: bc.blockCount(), note: 'mempool за лимитом (1000 tx / 2MiB): complete=false, не выдаётся усечённая правда' });
+      }
+      return json(res, 200, {
+        version: 1,
+        size,
+        complete: true,
+        txs,
+        tipHash: tip?.hash || null,
+        height: bc.blockCount(),
+      });
+    }
     return json(res, 200, {
       size: bc.mempool.length,
       txs: bc.mempool.slice(-50).map(t => ({ txid: (t.txid || '').slice(0, 16), from: t.from?.slice(0, 14), to: t.to?.slice(0, 14), amount: t.amount, nonce: t.nonce })),

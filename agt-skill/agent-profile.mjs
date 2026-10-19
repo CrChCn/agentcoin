@@ -8,6 +8,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { txDigest, signTransaction } from '../core.mjs';
 import { createSeedWallet, recoverFromMnemonic } from '../bip39-lite.mjs';
 import {
   canonicalAgentChallenge, validateAgentChallenge, canonicalAgentPublicKey,
@@ -250,6 +251,21 @@ export async function signProfileChallenge({ profilePath = DEFAULT_PROFILE_PATH,
   if (typeof challenge.message !== 'string' || challenge.message !== message) fail('challenge_message_mismatch');
   const signature = crypto.sign(null, Buffer.from(message, 'utf8'), secret.privKey).toString('hex');
   return { challengeId: challenge.challengeId, address: secret.address, pub: secret.pub, signature };
+}
+
+/** Explicit local transfer signing. Never exports a key; no network or nonce generation. */
+export async function signProfileTransaction({ profilePath = DEFAULT_PROFILE_PATH, password, transaction,
+  expectedNetwork, expectedAddress, domain } = {}) {
+  if (domain !== 'agentcoin.wallet.transfer.v1' || expectedNetwork !== 'AGENTCOIN' || !/^AGT[a-f0-9]{40}$/.test(expectedAddress)) fail('transaction_domain_network_address_required');
+  exactKeys(transaction, ['from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo'], 'invalid_transfer_fields');
+  if (!/^AGT[a-f0-9]{40}$/.test(transaction.to) || typeof transaction.memo !== 'string' || Buffer.byteLength(transaction.memo) > 512 || /[\u0000-\u001f\u007f]/.test(transaction.memo) || !Number.isSafeInteger(transaction.nonce) || transaction.nonce < 0 || !Number.isSafeInteger(transaction.ts) || transaction.ts < 0) fail('invalid_transfer_fields');
+  const amount = transaction.amount;
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > Number.MAX_SAFE_INTEGER / 1e9 || Number(amount.toFixed(9)) !== amount) fail('invalid_transfer_amount');
+  const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+  if (secret.network !== expectedNetwork || secret.address !== expectedAddress || transaction.from !== secret.address || transaction.fromPub !== secret.pub) fail('transaction_profile_mismatch');
+  const signed = { ...transaction };
+  signed.txid = txDigest(signed); signed.signature = signTransaction(signed, secret.privKey);
+  return signed;
 }
 
 async function stdinJSON() {

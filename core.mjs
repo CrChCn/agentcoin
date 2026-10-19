@@ -382,6 +382,25 @@ export function verifyEscrowTx(tx, chain) {
 // вся внутренняя валидация внутри Blockchain идёт через неё.
 // R-01 (6274233515 п.2/3): Тора версии digest — fail-closed как C-8: unset → Infinity
 // (легаси v1-сеть без v2), ЯВНО заданное некорректное → бросок, не «молча выключено».
+// R-02 (6274233515 п.6): Строгая СХЕМА proof — только поля контракта, глубина 1.
+// Мемо/доказательства ПУБЛИЧНЫ ПО ДИЗАЙНУ (это проверяемые пруфы, а не секреты) —
+// честность контракта: принимаем только схемотические поля и типы, лишние/чужие
+// типы отвергаются fail-closed на приёме (не молча режутся на отдаче — принимаем
+// подписанный контент; отдаём тот же, без редактирования).
+export const ESC_PROOF_KEYS = new Set(['taskHash', 'workerPub', 'workerReceipt', 'employerConfirm']);
+export function escProofSchemaError(tx) {
+  if (!tx || tx.escProof === undefined) return null;
+  const p = tx.escProof;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return 'tx_esc_proof_schema_rejected';
+  for (const k of Object.keys(p)) {
+    if (!ESC_PROOF_KEYS.has(k)) return `tx_esc_proof_extra_field:${k}`;
+    const v = p[k];
+    if (v !== null && typeof v !== 'string') return `tx_esc_proof_bad_type:${k}`;
+    if (typeof v === 'string' && v.length > 4096) return `tx_esc_proof_too_long:${k}`;
+  }
+  return null;
+}
+
 export function txDigestV2Activation(opts = {}) {
   const raw = opts.txDigestV2 !== undefined ? opts.txDigestV2 : process.env.AGT_TX_DIGEST_V2_HEIGHT;
   if (raw === undefined || raw === null || raw === '') return Infinity;
@@ -1281,6 +1300,11 @@ export class Blockchain {
   addTransaction(tx) {
     // базовая валидация
     if (!tx.from || !tx.to || typeof tx.amount !== 'number' || tx.amount <= 0) return { ok: false, reason: 'bad_fields' };
+    // R-02 (6274233515 п.6): строгая схема proof — только поля контракта, глубина 1,
+    // fail-closed на лишних/структурно чужом (было «выполнять только подписанные поля»
+    // на отдаче — но принималось всё, включая escProof.privateKey).
+    const proofErr = escProofSchemaError(tx);
+    if (proofErr) return { ok: false, reason: proofErr };
     // fail-fast до бан-фильтра: неканонический получатель не должен трогать досяжные
     // счётчики/бани и создавать будущие «двойников»-ситуации
     if (!String(tx.to).startsWith(ESCROW_PREFIX) && !isCanonicalAddress(tx.to)) return { ok: false, reason: 'bad_recipient' };

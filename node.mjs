@@ -36,6 +36,9 @@ import { fileURLToPath } from 'node:url';import { createSeedWallet, recoverFromM
 import { Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
   validateBlockAgainstChain, txDigest, sha256d,
+  // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
+  networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
+  isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
 import { WsHub, connectClient } from './ws.mjs';
@@ -306,7 +309,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit']);
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit']); // /tx/preflight — R-02 read-only
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -436,13 +439,17 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
       // Атомарный срез: копируем массив за один проход (элементы tx не мутируются после приёма)
       const snapshot = bc.mempool.slice();
       const tip = bc.tip();
-      // Белый список ПУБЛИЧНЫХ подписанных полей — чужие/приватные поля в ответ не попадают
-      const PUBLIC_TX_FIELDS = ['txid', 'from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo', 'signature', 'escProof', 'sig2', 'sig2Pub', 'digestVersion', 'kind'];
+      // R-02 (6274233515 п.4/5): height = ВЫСОТА TIP (blockCount-1: genesis = height 0),
+      // не blockCount — клиент сверяет height === headers[0].height.
+      const tipHeight = Math.max(0, bc.blockCount() - 1);
+      // Белый список ПУБЛИЧНЫХ подписанных полей — чужие/приватные поля в ответ не попадают.
+      // R-02: chainId включён — v2-signed envelope остаётся полным подписанным контентом.
+      const PUBLIC_TX_FIELDS = ['txid', 'from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo', 'signature', 'escProof', 'sig2', 'sig2Pub', 'digestVersion', 'chainId', 'kind'];
       const txs = snapshot.map(t => Object.fromEntries(PUBLIC_TX_FIELDS.filter(k => t[k] !== undefined).map(k => [k, t[k]])));
       const fullByteSize = txs.reduce((s, t) => s + Buffer.byteLength(JSON.stringify(t), 'utf8') + 1, 0);
       const size = snapshot.length;
       if (size > 1000 || fullByteSize > 2 * 1024 * 1024) {
-        return json(res, 200, { version: 1, size, complete: false, txs: [], tipHash: tip?.hash || null, height: bc.blockCount(), note: 'mempool за лимитом (1000 tx / 2MiB): complete=false, не выдаётся усечённая правда' });
+        return json(res, 200, { version: 1, size, complete: false, txs: [], tipHash: tip?.hash || null, height: tipHeight, note: 'mempool за лимитом (1000 tx / 2MiB): complete=false, не выдаётся усечённая правда' });
       }
       return json(res, 200, {
         version: 1,
@@ -450,7 +457,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
         complete: true,
         txs,
         tipHash: tip?.hash || null,
-        height: bc.blockCount(),
+        height: tipHeight,
       });
     }
     return json(res, 200, {
@@ -580,6 +587,56 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const tx = { from: fromAddress, fromPub: w.pub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
     tx.signature = signTransaction(tx, w.privKey);
     return json(res, 200, { signed: tx, submit_hint: 'POST /tx' });
+  }
+
+  // =======================================================================
+  // R-02: READ-ONLY PREFLIGHT — POST /tx/preflight
+  // Проверяет tx против действующего протокола и состояния ноды БЕЗ записи:
+  // формат/схема/подпись/сеть/доступные средства/конфликт nonce/очереди/комиссия.
+  // НЕ пишет в chain/mempool, НЕ подписывает, НЕ гарантирует будущего включения
+  // (включение решает майнер консенсусными правилами — честно об этом).
+  // Гарантия протомодели: рид-онли — чистая функция от snapshot'a текущего стейта.
+  // =======================================================================
+  if (p === '/tx/preflight' && req.method === 'POST') {
+    const tx = await body(req);
+    const out = { version: 1, readonly: true, network: networkChainId(), format: { ok: false }, signature: { ok: false }, network_ok: false, balance: { ok: false }, nonce: { ok: false }, fee: { amount: 0, currency: 'AGT', note: 'действующий протокол: fee отсутствует (комиссия не требуется)' } };
+    out.format.ok = Boolean(tx && tx.from && tx.to && typeof tx.amount === 'number' && Number.isFinite(tx.amount) && tx.amount > 0);
+    if (!out.format.ok) { out.format.error = 'bad_fields'; return json(res, 200, out); }
+    const proofErr = escProofSchemaError(tx);
+    if (proofErr) { out.format.ok = false; out.format.error = proofErr; return json(res, 200, out); }
+    if (typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) { out.format.ok = false; out.format.error = 'escrow_from_is_internal'; return json(res, 200, out); }
+    if (!isCanonicalAddress(tx.to)) { out.format.ok = false; out.format.error = 'bad_recipient'; return json(res, 200, out); }
+    const v2 = tx && tx.digestVersion === 2;
+    if (v2) {
+      // v2 сигнатура проверяется только на активном пороге (тот же роут что у приёма)
+      const h = bc.chain.length, act = txDigestV2Activation({});
+      if (!(h >= act)) { out.signature.ok = false; out.signature.error = 'tx_digest_version_not_active'; out.network_ok = false; return json(res, 200, out); }
+      try { const digest = txSigningDigestV2(tx); out.signature.digest = digest.slice(0, 16); } catch {}
+      out.signature.ok = verifyTxAny(tx, bc.chain, { height: bc.chain.length });
+      out.signature.error = out.signature.ok ? null : 'tx_bad_signature_or_network';
+    } else {
+      out.signature.ok = verifyTransaction(tx);
+      out.signature.error = out.signature.ok ? null : 'tx_bad_signature';
+      try { out.signature.digest = txDigest(tx).slice(0, 16); } catch {}
+    }
+    out.network_ok = v2 ? ((tx.chainId ?? networkChainId()) === networkChainId()) : true;
+    if (!out.network_ok) { out.signature.ok = false; out.signature.error = v2 ? 'tx_network_mismatch' : out.signature.error; }
+    // state: доступные средства с учётом очереди (та же арифметика, что refilter)
+    const balances = bc.balances();
+    const queuedForFrom = bc.mempool.filter(t => t && t.from === tx.from && t.nonce !== tx.nonce).reduce((s, t) => s + (t.amount || 0), 0);
+    const avail = (balances[tx.from] || 0) - queuedForFrom;
+    out.balance = { ok: tx.amount <= avail, available: avail, needed: tx.amount, queuedForFrom };
+    // nonce: конфликт точного (from|nonce) в цепи или очереди
+    const nonceInChain = chainNonceKeysOf(bc.chain).has(String(tx.from) + '|' + String(tx.nonce));
+    const nonceInQueue = bc.mempool.some(t => t && t.from === tx.from && String(t.nonce) === String(tx.nonce));
+    out.nonce = { ok: !nonceInChain && !nonceInQueue, in_chain: nonceInChain, in_queue: nonceInQueue, conflict: nonceInChain || nonceInQueue };
+    // AGIP-9/mgnt: кратность магенту действующего протокола
+    let mgntOk = null;
+    try { unitsOfAmountBigInt(tx.amount); mgntOk = true; } catch { mgntOk = false; }
+    out.format.mgnt_exact = mgntOk;
+    out.verdict = (out.format.ok && out.signature.ok && out.network_ok && out.balance.ok && out.nonce.ok && mgntOk !== false) ? 'preflight_pass' : 'preflight_reject';
+    out.note = 'read-only: не гарантирует включение в блок — решает майнер/консенсус; snapshot мог измениться сразу после ответа';
+    return json(res, 200, out);
   }
 
   if (p === '/tx' && req.method === 'POST') {

@@ -60,7 +60,7 @@ async function mineBlock(n, api, address) {
   }
 }
 
-const PUBLIC_FIELDS = /^txid$|^from$|^fromPub$|^to$|^amount$|^nonce$|^ts$|^memo$|^signature$|^escProof$|^sig2$|^sig2Pub$|^digestVersion$|^kind$/;
+const PUBLIC_FIELDS = /^txid$|^from$|^fromPub$|^to$|^amount$|^nonce$|^ts$|^memo$|^signature$|^escProof$|^sig2$|^sig2Pub$|^digestVersion$|^chainId$|^kind$/; // chainId — R-02: полноценственный подписанный envelope
 
 test('full: пустой mempool — complete:true, size 0, tip/height анкор', async t => {
   const { api, stop } = await startNode(); t.after(stop);
@@ -99,7 +99,9 @@ test('full: непустой — полные подписанные tx, anchor 
   assert.equal(echo.amount, tx.amount);
   assert.ok(!('hopToken' in echo) && !('privKeyProbe' in echo), 'чужое/приватное поле НЕ попало в ответ');
   assert.equal(r.body.tipHash, tipInfo.body.tipHash, 'tipHash анкорится к текущей вершине');
-  assert.equal(r.body.height, tipInfo.body.blocks);
+  // R-02 (6274233515 п.4): height = ВЫСОТА TIP (blockCount-1; генезис = height 0),
+  // НЕ blockCount — клиент сверяет с headers[0].height
+  assert.equal(r.body.height, tipInfo.body.blocks - 1, 'height = tip height (blockCount-1)');
   // и независимость от legacy-показа
   const legacy = await api('/mempool');
   assert.equal(legacy.status, 200);
@@ -168,4 +170,56 @@ test('full: чужие/приватные поля tx теперь белым с
   const r = await api('/mempool?full=1');
   const keys = new Set((r.body.txs || []).flatMap(x => Object.keys(x)));
   for (const k of keys) assert.match(k, PUBLIC_FIELDS, 'только публичные подписанные поля: ' + k);
+});
+
+test('R-02: строгая схема nested escProof — лишние поля отклоняются НА ПРИЁМЕ (не режутся на отдаче)', async t => {
+  const { api, stop } = await startNode(); t.after(stop);
+  const w = (await api('/wallet/create', { method: 'POST', body: { label: 'spA' }, admin: true })).body;
+  const rx = (await api('/wallet/create', { method: 'POST', body: { label: 'spB' }, admin: true })).body;
+  await mineBlock(2, api, w.address);
+  const tx = { from: w.address, fromPub: w.pub, to: rx.address, amount: 0.5, nonce: 91, ts: Math.floor(Date.now() / 1000), memo: 'sp' };
+  tx.signature = core.signTransaction(tx, w.privKey); tx.txid = core.txDigest(tx);
+  const bad = await api('/tx', { method: 'POST', body: { ...tx, escProof: { taskHash: 'a'.repeat(64), workerPub: w.pub, workerReceipt: 'r', employerConfirm: 'c', privateKey: 'SYNTHETIC_SENTINEL' } } });
+  assert.equal(bad.status, 400, 'лишнее поле escProof → отклонение');
+  assert.match(String(bad.body?.reason || bad.body?.error), /tx_esc_proof_extra_field:privateKey/);
+  const ok = await api('/tx', { method: 'POST', body: { ...tx, escProof: { taskHash: 'b'.repeat(64), workerPub: w.pub, workerReceipt: 'r', employerConfirm: 'c' } } });
+  assert.equal(ok.status, 201, 'схема-валидный escProof принимается как схема (подпись/эскроу-семантика отдельно)');
+  const r = await api('/mempool?full=1');
+  const echo = r.body.txs.find(x => x.escProof && x.escProof.taskHash === 'b'.repeat(64));
+  assert.ok(echo, 'prуф отдаётся без редактирования (public by design)');
+});
+
+test('R-02: read-only preflight — вердикты без записи в мемпул/цепь', async t => {
+  const { api, stop } = await startNode(); t.after(stop);
+  const w = (await api('/wallet/create', { method: 'POST', body: { label: 'pfA' }, admin: true })).body;
+  const rx = (await api('/wallet/create', { method: 'POST', body: { label: 'pfB' }, admin: true })).body;
+  await mineBlock(1, api, w.address);
+  const base = Math.floor(Date.now() / 1000);
+  const mk = (over) => ({ from: w.address, fromPub: w.pub, to: rx.address, amount: 1, nonce: base * 2 + 7, ts: base, memo: 'pf', ...over });
+  const ok = mk({});
+  ok.signature = core.signTransaction(ok, w.privKey); ok.txid = core.txDigest(ok);
+  const pf1 = await api('/tx/preflight', { method: 'POST', body: ok });
+  assert.equal(pf1.status, 200);
+  assert.equal(pf1.body.verdict, 'preflight_pass', JSON.stringify(pf1.body).slice(0, 200));
+  assert.equal(pf1.body.version, 1);
+  assert.equal(pf1.body.readonly, true);
+  assert.equal(pf1.body.fee.amount, 0, 'комиссия действующего протокола: 0 (fee отсутствует — честно)');
+  const before = (await api('/mempool?full=1')).body.size;
+  assert.equal(before, 0, 'preflight не добавлял в мемпул');
+  const badSig = mk({}); badSig.signature = '00'.repeat(64); badSig.txid = core.txDigest(badSig);
+  const pf2 = await api('/tx/preflight', { method: 'POST', body: badSig });
+  assert.equal(pf2.body.verdict, 'preflight_reject');
+  assert.equal(pf2.body.signature.ok, false);
+  const broke = mk({ amount: 99999 }); broke.signature = core.signTransaction(broke, w.privKey); broke.txid = core.txDigest(broke);
+  const pf3 = await api('/tx/preflight', { method: 'POST', body: broke });
+  assert.equal(pf3.body.balance.ok, false);
+  assert.equal(pf3.body.verdict, 'preflight_reject');
+  const sent = await api('/tx', { method: 'POST', body: ok });
+  assert.equal(sent.status, 201);
+  const dup = mk({}); dup.signature = core.signTransaction(dup, w.privKey); dup.txid = core.txDigest(dup);
+  const pf4 = await api('/tx/preflight', { method: 'POST', body: dup });
+  assert.equal(pf4.body.verdict, 'preflight_reject', 'повтор той же (from|nonce) в очереди ловится');
+  assert.notEqual(pf4.body.nonce.ok, true, 'nonce-конфликт помечен');
+  const after = (await api('/mempool?full=1')).body.size;
+  assert.equal(after, before + 1, 'preflight НЕ менял мемпул: только фактическая /tx добавилась');
 });

@@ -715,12 +715,63 @@ export function chainNonceKeysOf(chain) {
   for (const blk of chain || []) for (const t of (blk.txs || [])) if (t && t.from) s.add(String(t.from) + '|' + String(t.nonce));
   return s;
 }
-// Строгая money-арифметика (п.4): сумма задаётся целыми магент-юнитами; any float-
-// шум (даже -1e-9) неприемлем на активированном консенсус-пути.
+// Строгая money-арифметика (п.4 + C-6, ревизии 6270365807/6272239263): оперируем точным
+// decimal-string → BigInt масштабом магент-юнитов, БЕЗ float-умножения (которое ломало
+// законные 15 магент: 0.000000015*1e9 = 14.999999… → «60-точность» артефакты) и БЕЗ
+// Number-переполнений (1e7 AGT = 1e16 юнитов — не безопасный float, но валидный BigInt).
+// Правило: агNOT exact-decimal строка/common float → бросок tx_amount_not_mgnt_exact;
+// история НЕ перезаписывается, checkpoint приводит legacy-балансы к BigInt-масштабу.
+export const MGNT_SCALE = 1000000000n; // 1e9 юнитов = 1 AGT
+
+export function unitsOfAmountBigInt(amount) {
+  return decimalToScaledUnits(amount, 9n); // магент-масштаб 1e-9 AGT
+}
+
+// Универсальный точный decimal→BigInt конвертер: значение интерпретируется по своей
+// КОРРЕКТНОЙ decimal-записи (для double это String(x) — короткая round-trip запись,
+// возвращающая исходные decimal цифры). НЕ СПРАШИВАЕМ float-умножения: 0.000000015*1e9
+// давало 14.999999… (C-6, законные 15 магент отвергались); 1e7 давало unsafe Number.
+// scaleExp: сколько десятичных знаков покрывает масштаб (9 — магент, 18 — checkpoint).
+export const REPLAY_SCALE_EXP = 18n; // BigInteger-масштаб replay/чекпойнта: legacy-точность (≤18 dec) сохраняется ЦЕЛИКОМ
+export function decimalToScaledUnits(amount, scaleExp) {
+  let s;
+  if (typeof amount === 'string') s = amount.trim();
+  else {
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) throw new Error('value_not_positive_or_finite');
+    s = String(amount);
+  }
+  if (s.startsWith('-')) throw new Error('value_not_positive_or_finite');
+  // Экспоненциальная форма '1.5e-8' / '2E3' → разворачиваем в точный обычный decimal:
+  const em = s.match(/^([0-9])(?:\.([0-9]+))?e([-+]?\d+)$/i);
+  if (em) {
+    const digits = (em[1] + (em[2] || '')).replace(/^0+(?=\d)/, '');
+    const shift = parseInt(em[3], 10) - (em[2] || '').length; // value = digits × 10^shift
+    let intStr, fracStr;
+    if (shift >= digits.length) { intStr = digits + '0'.repeat(shift - digits.length); fracStr = ''; }
+    else if (shift > 0) { intStr = digits.slice(0, shift); fracStr = digits.slice(shift); }
+    else if (shift === 0) { intStr = digits; fracStr = ''; }
+    else {
+      const cut = digits.length + shift; // точка внутри digits
+      if (cut > 0) { intStr = digits.slice(0, cut); fracStr = digits.slice(cut); }
+      else { intStr = '0'; fracStr = '0'.repeat(-cut) + digits; }
+    }
+    s = intStr + (fracStr ? '.' + fracStr : '');
+  }
+  const maxFrac = Number(scaleExp);
+  const dm = s.match(/^\d+(?:\.\d+)?$/);
+  if (!dm) throw new Error('value_not_decimal');
+  const [i, f = ''] = s.split('.');
+  if (f.length > maxFrac) throw new Error(`value_exceeds_scale_${maxFrac}`);
+  const units = BigInt(i) * 10n ** scaleExp + BigInt((f + '0'.repeat(maxFrac)).slice(0, maxFrac));
+  return units;
+}
+
+// Обратная совместимость старого API (легаси-путь): тоже без float-умножения —
+// строка → BigInt → Number (допустимо для малых значений интерфейса;консенсус использует *_BigInt).
 export function unitsOfAmount(amount) {
-  const u = Math.round(Number(amount) * 1e9);
-  if (!Number.isFinite(u) || u <= 0 || Math.abs(Number(amount) * 1e9 - u) !== 0) throw new Error('tx_amount_not_mgnt_exact');
-  return u;
+  const u = unitsOfAmountBigInt(amount);
+  if (u > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('tx_amount_not_safe_number');
+  return Number(u);
 }
 
 // ===== MINER-GUARD + TWIN-SWEEP (LEDGER-20261018-01: « Moyens двойника», MINER-GUARD/OPS-TEST) =====
@@ -781,11 +832,16 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     : (coreP0 ? balancesOf(chain) : null);
   let balanceUnits = null;
   if (coreP0) {
+    // C-6 (6272239263): replay исходных decimal значений → BigInt масштаб REPLAY_SCALE_EXP=18:
+    // legacy-точность (≤18 dec, напр. 90.72999999999945) сохраняется ЦЕЛИКОМ, НИЧЕГО не
+    // округляется/сжигается; будущие magent-дельты (1e-9) приводятся в этот масштаб.
+    // Незаданное opts.prefixBalanceUnits building из chain через точный decimal-string;
+    // значение, не представимое в масштабе 18 dec → fail-closed с адресом.
     balanceUnits = {};
     for (const [addr, b] of Object.entries(balances || {})) {
-      const u = Math.round(b * 1e9);
-      if (Math.abs(b * 1e9 - u) > 1e-6) return `prefix_balance_not_mgnt_exact:${addr}`; // fail-closed
-      balanceUnits[addr] = u;
+      let u;
+      try { u = decimalToScaledUnits(b, REPLAY_SCALE_EXP); } catch { return `prefix_balance_not_mgnt_exact:${addr}`; }
+      balanceUnits[addr] = u; // в REPLAY-юнитах (AGT × 1e18)
     }
   }
   const seenTxids = new Set();
@@ -825,13 +881,15 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше)
     if (opts.treasury && !verifySecondSig(tx, opts.treasury)) return 'tx_treasury_needs_2sig';
     if (coreP0 && balanceUnits) {
-      // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия в ЦЕЛЫХ магент-юнитах (п.4, ревизия 6270365807):
-      // ни float-дробности, ни допуска -1e-9; овердрафт/двойная трата невозможны строго.
+      // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия в REPLAY-юнитах BigInt (п.4 + C-6): tx суммы — ЦЕЛЫЕ
+      // магенты (×10^9 в replay-масштабе); legacy-дольки остаются в балансе (не сжигаются),
+      // но потратить их нельзя (меньше минимальной единицы); овердрафт исключён строго.
       let amountUnits;
-      try { amountUnits = unitsOfAmount(tx.amount); } catch { return 'tx_amount_not_mgnt_exact'; }
-      balanceUnits[tx.from] = (balanceUnits[tx.from] || 0) - amountUnits;
-      if (balanceUnits[tx.from] < 0) return 'insufficient_funds_block';
-      balanceUnits[tx.to] = (balanceUnits[tx.to] || 0) + amountUnits;
+      try { amountUnits = unitsOfAmountBigInt(tx.amount); } catch { return 'tx_amount_not_mgnt_exact'; }
+      const delta = amountUnits * (10n ** (REPLAY_SCALE_EXP - 9n)); // magent → replay-масштаб
+      balanceUnits[tx.from] = (balanceUnits[tx.from] || 0n) - delta;
+      if (balanceUnits[tx.from] < 0n) return 'insufficient_funds_block';
+      balanceUnits[tx.to] = (balanceUnits[tx.to] || 0n) + delta;
     } else if (coreP0 && balances) {
       // fallback (не должен выполняться на coreP0-пути — баланс-юниты строятся всегда)
       balances[tx.from] = (balances[tx.from] || 0) - tx.amount;
@@ -844,10 +902,10 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     }
   }
   if (coreP0 && balanceUnits) {
-    // coinbase: зачисление награды в последовательность балансов (целые юниты)
+    // coinbase: зачисление награды (ЦЕЛЫЕ магенты → replay-масштаб)
     let cbUnits;
-    try { cbUnits = unitsOfAmount(cb.amount); } catch { return 'coinbase_amount_not_mgnt_exact'; }
-    balanceUnits[cb.to] = (balanceUnits[cb.to] || 0) + cbUnits;
+    try { cbUnits = unitsOfAmountBigInt(cb.amount); } catch { return 'coinbase_amount_not_mgnt_exact'; }
+    balanceUnits[cb.to] = (balanceUnits[cb.to] || 0n) + cbUnits * (10n ** (REPLAY_SCALE_EXP - 9n));
   } else if (coreP0 && balances) {
     balances[cb.to] = (balances[cb.to] || 0) + cb.amount;
   }

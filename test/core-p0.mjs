@@ -311,11 +311,15 @@ t22dup.txid = core.txDigest(t22dup);
 const t22bDup = craftBlock([t22dup]);
 const r22 = core.validateBlockAgainstChain(t22bDup, bc.chain, O);
 step(r22 === 'nonce_replay_in_chain', `T22b повтор (from,nonce) из префикса через разные блоки → отказ (${r22})`);
-// дробный submagenta-баланс префикса через opts → fail-closed
-const fakePrefix = { [A.address]: 350.0000000005 };
+// C-6: долька 350.0000000005 на replay-масштабе 1e18 — ТОЧНО представима → НЕ fail-closed,
+// честный расход 1 AGT проходит, пыль остаётся в балансе (не сжигается/не округляется)
+const dustPrefix = { [A.address]: 350, [B.address]: 350.0000000005 };
 const t22c = craftBlock([signedTx(B, A.address, 1, 't22-c')]);
-const r22c = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: { ...{ [A.address]: 350, [B.address]: 350 }, [A.address]: 350.0000000005 } });
-step(String(r22c).startsWith('prefix_balance_not_mgnt_exact'), `T22c дробный префикс-баланс fail-closed (${r22c})`);
+const r22c = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: dustPrefix });
+step(r22c === null, `T22c пыль префикса сохраняется точно, блок валиден (${r22c})`);
+// fail-closed остаётся только для непредставимых в масштабе (19 dec — строкой)
+const r22d = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: { ...dustPrefix, [B.address]: '350.0000000005000000002' } });
+step(String(r22d).startsWith('prefix_balance_not_mgnt_exact'), `T22d 19-dec decimal fail-closed (${r22d})`);
 
 // ---- итоги ----
 if (fails.length) { console.log(fails.map(f => '  - ' + f).join('\n')); process.exit(1); }

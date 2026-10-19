@@ -260,6 +260,23 @@ bc.chain.push(t19b); bc.invalidateTxCache(); // сценарий уже-в-це�
 const dropped = bc.refilterMempool();
 step(bc.mempool.length === 0 && dropped.dropped >= 1, `T19d устаревшая tx дропнута (${JSON.stringify(dropped)})`);
 
+// ---- T20: п.5 (6270365807) — env fail-closed: явное некорректное значение роняет валидацию ----
+const invalidCases = ['abc', '10.5', '0', '-3', '1e-3'];
+for (const v of invalidCases) {
+  let threw = '';
+  try { core.coreP0ActivationHeight({ activation: v }); } catch (e) { threw = String(e.message || e).split(':')[0]; }
+  step(threw === 'AGT_CORE_P0_HEIGHT_invalid', `T20 ${JSON.stringify(v)} → fail-closed бросок (${threw || 'no throw'})`);
+}
+const saveEnv = process.env.AGT_CORE_P0_HEIGHT;
+process.env.AGT_CORE_P0_HEIGHT = '999999999.5';
+let envThrew = '';
+try { core.coreP0ActivationHeight(); } catch (e) { envThrew = String(e.message || e).split(':')[0]; }
+if (saveEnv === undefined) delete process.env.AGT_CORE_P0_HEIGHT; else process.env.AGT_CORE_P0_HEIGHT = saveEnv;
+step(envThrew === 'AGT_CORE_P0_HEIGHT_invalid', 'T20 env-путь тоже fail-closed: ' + (envThrew || 'no throw'));
+step(process.env.AGT_CORE_P0_HEIGHT === '10' && core.coreP0ActivationHeight() === 10, 'T20b восстановленный корректный env (10) читается без броска');
+step(core.coreP0ActivationHeight({ activation: undefined }) === 10 || core.coreP0ActivationHeight({ activation: '' }) === Infinity, 'T20c пустое строковое → Infinity; opt undefined → env-значение');
+step(core.coreP0ActivationHeight({ activation: 10 }) === 10 && core.coreP0ActivationHeight({ activation: Infinity }) === Infinity, 'T20c явные корректные значения: integer ≥1 и Infinity работают');
+
 // ---- итоги ----
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\nCORE-P0: ${pass} ok, ${fails.length} fail`);

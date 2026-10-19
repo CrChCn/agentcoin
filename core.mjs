@@ -624,16 +624,21 @@ export function expectedDifficultyBits(chain) {
 // ===== CORE-P0 (LEDGER-20261018-01, аудит 2026-10-18, task CORE-P0) =====
 // Единый детерминированный набор доп. правил консенсуса, применяемых к блокам
 // высотой >= порога активации. Порог: opts.activation (явный, для тестов) или
-// env AGT_CORE_P0_HEIGHT (по образцу AGT_MGNT_HEIGHT). Пусто/0/некорректно →
+// env AGT_CORE_P0_HEIGHT (по образцу AGT_MGNT_HEIGHT). Пусто/не задано →
 // выключено: полное legacy-поведение, никакой несовместимости без явного решения.
+// CORE-P0 п.5 (ревизия 6270365807): конфигурация FAIL-CLOSED — ЯВНО заданное
+// некорректное значение (дробное, <1, нечисло) НЕ превращается молча в «выключено»,
+// а роняет валидацию ошибкой: расхождение правил Constructu между нодами невозможно.
 export const SYSTEM_TX_FROMS = new Set(['COINBASE', 'AGENT_REWARD_POOL']);
 
 export function coreP0ActivationHeight(opts = {}) {
   const raw = opts.activation !== undefined ? opts.activation : process.env.AGT_CORE_P0_HEIGHT;
   if (raw === undefined || raw === null || raw === '') return Infinity;
-  if (raw === false) return Infinity;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 1) return Infinity;
+  if (raw === Infinity) return Infinity;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+    throw new Error(`AGT_CORE_P0_HEIGHT_invalid: ${JSON.stringify(String(raw))} — задано явно, но не целое число >= 1 (fail-closed: правило НЕ отключается молча)`);
+  }
   return n;
 }
 

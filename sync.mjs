@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits,  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
+  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits, networkChainId,  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
   chainBalanceUnitsOf, applyTxToBalanceUnits, // C-6: точный контекст в REPLAY-юнитах
 } from './core.mjs';
 
@@ -139,7 +139,7 @@ export async function syncOne(bc, peerUrl) {
   };
   try {
     const info = await fetchStable(peerUrl + '/info');
-    if (!info || info.chainId !== CHAIN_ID) { log.push(`${peerUrl}: not AGENTCOIN, skip`); return log; }
+    if (!info || info.chainId !== networkChainId()) { log.push(`${peerUrl}: not AGENTCOIN, skip`); return log; }
     if (!bc.genesisHeader || computeBlockHash(bc.genesisHeader) !== info.genesisHash) {
       log.push(`${peerUrl}: genesis mismatch (different network), skip`);
       return log;

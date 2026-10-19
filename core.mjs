@@ -92,7 +92,7 @@ export class SecurityController {
   save() {
     fs.mkdirSync(this.dataDirSafe(), { recursive: true });
     fs.writeFileSync(this.file, JSON.stringify({
-      chainId: CHAIN_ID, updatedAt: Date.now(), bans: this.bans, attacks: this.attacks.slice(-200), strikes: this.strikes,
+      chainId: networkChainId(), updatedAt: Date.now(), bans: this.bans, attacks: this.attacks.slice(-200), strikes: this.strikes,
     }, null, 2));
   }
 
@@ -505,7 +505,7 @@ export const GENESIS_PARAMS = {
   prev_hash: '0'.repeat(64),
   // tribute: merkle root Bitcoin genesis tx (из genesis_test.cpp CryptoLab)
   seed_message: 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks',
-  chain_id: CHAIN_ID,
+  chain_id: networkChainId(),
   // Каноническая сложность генезиса: раньше брали INITIAL_DIFFICULTY_BITS, но
   // её меняли по ходу жизни проекта → у нод получились РАЗНЫЕ генезисы и P2P-sync
   // отказывался приравнивать сети (genesisHash mismatch). Пиннинг должен совпадать
@@ -946,7 +946,7 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   const act = coreP0ActivationHeight(opts);
   const coreP0 = typeof block.height === 'number' && block.height >= act;
   const v2Act = txDigestV2Activation(opts); // R-01: единый порог digest-версии (fail-closed)
-  if (coreP0 && block.header.chainId !== CHAIN_ID) return 'chainId_mismatch';
+  if (coreP0 && block.header.chainId !== networkChainId()) return 'chainId_mismatch';
   const cbs = (block.txs || []).filter(t => t && t.from === 'COINBASE');
   const allowed = blockReward(block.height);
   const rewardZero = !(Number(allowed) > 0);
@@ -1254,7 +1254,7 @@ export class Blockchain {
     // 2) атомарная запись .tmp → rename: kill/crash во время записи не рвёт chain.json.
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({
-      chainId: CHAIN_ID, chain: this.chain, difficultyBits: this.difficultyBits,
+      chainId: networkChainId(), chain: this.chain, difficultyBits: this.difficultyBits,
       genesisHeader: this.genesisHeader,
     }));
     fs.renameSync(tmp, this.file);
@@ -1279,7 +1279,7 @@ export class Blockchain {
       // но наша бит-шкала проще: считаем INITIAL_DIFFICULTY_BITS, уважая дату генезиса
       difficultyBits: null,      // подберём ниже (майнинг генезиса)
       nonce: 0,
-      chainId: CHAIN_ID,
+      chainId: networkChainId(),
     };
     // майним генезис с канонической сложностью (не с играющей INITIAL_DIFFICULTY_BITS)
     header.difficultyBits = GENESIS_PARAMS.difficulty_bits;
@@ -1367,7 +1367,7 @@ export class Blockchain {
       timestamp: Math.floor(Date.now() / 1000),
       difficultyBits: this.nextDifficulty(),
       nonce: 0,
-      chainId: CHAIN_ID,
+      chainId: networkChainId(),
     };
   }
 
@@ -1437,7 +1437,7 @@ export class Blockchain {
       timestamp: Math.floor(Date.now() / 1000),
       difficultyBits: this.nextDifficulty(),
       nonce: 0,
-      chainId: CHAIN_ID,
+      chainId: networkChainId(),
     };
     return { header, txs };
   }
@@ -1501,7 +1501,7 @@ export class Blockchain {
   info() {
     const b = this.balances();
     return {
-      chainId: CHAIN_ID, ticker: TICKER, blocks: this.blockCount(),
+      chainId: networkChainId(), ticker: TICKER, blocks: this.blockCount(),
       difficultyBits: this.difficultyBits,
       nextReward: blockReward(this.blockCount()),
       totalSupplyCirculating: Object.entries(b).reduce((s, [, v]) => s + Math.max(0, v), 0),

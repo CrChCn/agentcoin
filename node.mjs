@@ -2235,7 +2235,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
       return res.end();
     }
     return json(res, 200, {
-    name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
+    name: 'AGENTCOIN node', chainId: networkChainId(), ticker: TICKER, maxSupply: MAX_SUPPLY,
     consensus: 'PoW + best-chain-by-cumulative-work (fork vote) + headers-first sync + tx gossip',
     endpoints: ['/info', '/blocks?n=|from=', '/headers?from=&limit=', '/mempool', '/forks', '/peers/meta',
       'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx (→ gossip peers)', 'POST /mine', '/validate?strict=1',

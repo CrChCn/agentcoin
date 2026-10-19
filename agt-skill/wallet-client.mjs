@@ -71,14 +71,31 @@ export async function readWalletState({ profilePath = DEFAULT_PROFILE_PATH, addr
       chain.push(b);
     }
   }
-  const mempool = await api(pins, '/mempool', deps), end = await info(pins, deps);
+  const mempool = await api(pins, '/mempool?full=1', { ...deps, maxBytes: 2 * 1024 * 1024 }), end = await info(pins, deps);
   const tipCheck = await api(pins, '/headers?from=' + (chain.length - 1) + '&limit=1', deps);
   if (end.blocks !== start.blocks || tipCheck.headers?.[0]?.hash !== chain.at(-1).hash) fail('snapshot_changed_retry');
   let balance = 0n; const history = [];
   for (let h = 0; h < chain.length; h++) for (const tx of chain[h].txs) {
     if (tx.from === address || tx.to === address) { const units = unitsOf(tx.amount); if (tx.from === address) balance -= units; if (tx.to === address) balance += units; history.push({ blockHeight: h, blockHash: chain[h].hash, tx: structuredClone(tx) }); }
   }
-  const fullMempool = Array.isArray(mempool.txs) && mempool.size === mempool.txs.length && mempool.txs.every(t => /^[a-f0-9]{64}$/.test(t.txid) && typeof t.fromPub === 'string' && typeof t.signature === 'string');
+  let fullMempool = false;
+  if (mempool.version === 1) {
+    if (!Number.isSafeInteger(mempool.size) || mempool.size < 0 || typeof mempool.complete !== 'boolean' || !Array.isArray(mempool.txs) || (mempool.total !== undefined && mempool.total !== mempool.size) || mempool.tipHash !== chain.at(-1).hash || mempool.height !== chain.length - 1) fail('mempool_contract_or_anchor');
+    if (mempool.complete === true) {
+      if (mempool.size !== mempool.txs.length || mempool.txs.length > 1000) fail('mempool_incomplete');
+      const seen = new Set();
+      for (const tx of mempool.txs) {
+        keys(tx, ['from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo', 'txid', 'signature']);
+        if (!/^AGT[a-f0-9]{40}$/.test(tx.from) || !/^AGT[a-f0-9]{40}$/.test(tx.to) || typeof tx.memo !== 'string' || Buffer.byteLength(tx.memo) > 512 || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0 || !Number.isSafeInteger(tx.ts) || tx.ts < 0 || unitsOf(tx.amount) <= 0n || tx.txid !== txDigest(tx) || !verifyTransaction(tx) || seen.has(tx.txid)) fail('mempool_transaction');
+        seen.add(tx.txid);
+      }
+      fullMempool = true;
+    } else if (mempool.txs.length !== 0) fail('mempool_partial_contract');
+  } else {
+    if (mempool.version !== undefined) fail('mempool_unsupported_version');
+    // Older nodes ignore full=1. Only an explicitly empty legacy queue can be complete.
+    fullMempool = mempool.size === 0 && Array.isArray(mempool.txs) && mempool.txs.length === 0;
+  }
   return { address, balance: unitsText(balance), unit: 'AGT', fee: '0', feeNote: 'Current ordinary-transfer protocol has no fee field; no Bitcoin-style fee estimate.', history, pending: fullMempool ? mempool.txs.filter(t => t.from === address || t.to === address) : null, pendingComplete: fullMempool, validation: 'linked_rpc_snapshot_not_independent_consensus_validation', observation: { complete: fullMempool, observedAt: now(), anchor: { genesisHash: pins.genesisHash, tipHash: chain.at(-1).hash, height: chain.length - 1 }, chain, mempool: fullMempool ? mempool.txs : [] } };
 }
 export async function broadcastWalletTransfer({ manifest, network, journalPath, broadcast = false, fetchFn = fetch, now = Date.now }) {

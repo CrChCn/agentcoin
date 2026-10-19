@@ -301,7 +301,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|imperial(\.html)?|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|cab-auth\.js|imperial(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -333,10 +333,15 @@ const AGT_ADMIN_MODE = process.env.AGT_ADMIN_MODE === 'token' ? 'token' : 'local
 const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 });
 let checkoutSiteManifest = null;
 try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
+const SITE_PAGE_CONTENT_TYPE = (page) =>
+  page.endsWith('.js') ? 'text/javascript; charset=utf-8'
+  : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
+  : page.endsWith('.png') ? 'image/png'
+  : 'text/html; charset=utf-8';
 function serveSitePage(res, page) {
   const approved = process.env.AGT_SITE_SYNC !== '0' ? siteRelease.resolvePage(page) : null;
   const content = fs.readFileSync(approved || path.join(__dirname, 'site', page));
-  res.writeHead(200, { 'Content-Type': page.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': SITE_PAGE_CONTENT_TYPE(page), 'Cache-Control': 'no-store' });
   return res.end(content);
 }
 async function siteSyncTick() {
@@ -365,7 +370,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
-    p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
+    p === '/panel.js' || p === '/pool/stats' ||
+    p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
@@ -1009,6 +1015,39 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!h[name]) return json(res, 404, { error: 'unknown identity' });
     const banned = bc.security.isBanned(h[name].address);
     return json(res, banned ? 423 : 200, { identity: name + '@agt', address: h[name].address, banned });
+  }
+  // --- Кошелёк агента: публичная read-only история по адресу (данные общедоступной цепи) ---
+  // Питает кабинет/PWA/CLI: мои проводки + мои эскроу (я worker или employer).
+  // Никаких ключей/секретов: только то, что и так видно в блоках. Сканим от верха вниз,
+  // до сбора лимита (дефолт 25, макс 100) — ранний выход, полный проход не обязателен.
+  if (p.startsWith('/history/') && req.method === 'GET') {
+    const addr = p.slice('/history/'.length).replace(/\.[a-z]+$/, '');
+    if (!/^AGT[A-Za-z0-9]+$/.test(addr)) return json(res, 400, { error: 'bad_address' });
+    if (bc.security.isBanned(addr)) return json(res, 423, { error: 'address_permabanned' });
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 25));
+    const now = Date.now() / 1000;
+    const txs = []; const escrows = []; let scannedTxs = 0;
+    for (let i = bc.chain.length - 1; i >= 0; i--) {
+      const blk = bc.chain[i];
+      for (const tx of (blk.txs || [])) {
+        if (tx.from !== addr && tx.to !== addr) continue;
+        const memo = typeof tx.memo === 'string' ? tx.memo : '';
+        if (txs.length < limit) txs.push({ height: blk.height, ts: blk.header.timestamp, from: tx.from, to: tx.to, amount: tx.amount, memo: memo.slice(0, 80), txid: tx.txid ? String(tx.txid).slice(0, 12) : null });
+        if (escrows.length < 20) {
+          if (memo.startsWith('escrow:')) {
+            const parts = memo.split(':');
+            if (parts[4] === addr || tx.from === addr) escrows.push({ escId: parts[1], role: parts[4] === addr ? 'worker' : 'employer', taskHash: String(parts[2]).slice(0, 16), amount: tx.amount, deadlineTs: Number(parts[3]) || 0, expired: parts[4] === addr && (Number(parts[3]) || 0) < now, height: blk.height });
+          } else if (memo.startsWith('escpayout:') && tx.to === addr) {
+            escrows.push({ escId: memo.slice('escpayout:'.length), role: 'paid', amount: tx.amount, height: blk.height });
+          }
+        }
+        scannedTxs++;
+      }
+      if (txs.length >= limit && escrows.length >= 20) {
+        return json(res, 200, { address: addr, height: bc.blockCount(), tipBlocks: bc.chain.length, txs, escrows, truncated: true, note: 'read-only данные цепи для кошелька/кабинета; эскроу: role=worker/employer/paid' });
+      }
+    }
+    return json(res, 200, { address: addr, height: bc.blockCount(), tipBlocks: bc.chain.length, txs, escrows, scannedTxs, note: 'read-only данные цепи для кошелька/кабинета; эскроу: role=worker/employer/paid' });
   }
 
   // --- life-guard ---
@@ -2089,6 +2128,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
   // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные
   // релизы: _generation валидирует ВСЕ файлы списка).
+  // PWA (iPhone «На экран «Домой»»): манифест + иконка отдаются из checkout по схеме cab-auth.js —
+  // не из release-списка (см. комментарий выше), стартовый экран задаёт start_url=/imperial.html.
+  if (p === '/manifest.webmanifest' && req.method === 'GET') return serveSitePage(res, 'manifest.webmanifest');
+  if (p === '/apple-icon.png' && req.method === 'GET') return serveSitePage(res, 'apple-icon.png');
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');

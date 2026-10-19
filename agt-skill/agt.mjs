@@ -48,7 +48,7 @@ const STATE_FILE = path.join(STATE_DIR, 'wallets-local.json');
 const LEDGER_FILE = path.join(STATE_DIR, 'transactions.jsonl');
 const CONFIG_FILE = path.join(STATE_DIR, 'node.json');
 
-const COMMANDS = ['connect', 'create', 'balance', 'send', 'mine', 'pool', 'history', 'sync', 'route', 'help'];
+const COMMANDS = ['connect', 'create', 'balance', 'send', 'mine', 'pool', 'history', 'sync', 'route', 'jobs', 'job', 'help'];
 
 function ensureDir() { fs.mkdirSync(STATE_DIR, { recursive: true }); }
 function loadState() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { wallets: {} }; } }
@@ -66,11 +66,20 @@ function readLedger(address = null) {
   } catch { return []; }
 }
 
+// AGIP-37: token-нода требует x-admin-token для админ-маршрутов (escrow create/payout,
+// faucet). Токен берём из env или data-agtx/admin-token.txt (как health-check.mjs);
+// на локальных нодах (loopback) заголовок не нужен — не мешает.
+function adminToken() {
+  if (process.env.AGT_ADMIN_TOKEN) return process.env.AGT_ADMIN_TOKEN.trim() || '';
+  try { return fs.readFileSync('data-agtx/admin-token.txt', 'utf8').trim(); } catch { return ''; }
+}
+
 async function api(method, path, body = null) {
   const base = loadNode();
+  const tok = adminToken();
   const r = await fetch(base + path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(tok ? { 'x-admin-token': tok } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10000),
     redirect: 'error',
@@ -100,6 +109,11 @@ async function signAndSubmit(fromAddress, to, amount, memo) {
   if (canonicalPub !== w.pub || fromAddress !== 'AGT' + pubHash.slice(0, 32) + sha256d(pubHash).slice(0, 8)) return { error: 'local_wallet_key_mismatch' };
   const tx = { from: fromAddress, fromPub: w.pub, to: toAddress, amount,
     nonce: Date.now() * 1000 + crypto.randomInt(1000), ts: Math.floor(Date.now() / 1000), memo: memo || '' };
+  // Precheck: расход больше баланса → сеть отвечает double_spend_attempt_permaban (бан).
+  // Честный кошелёк не должен сам себя забанить: сверям баланс ДО отправки.
+  const bal = await api('POST', '/balance', { address: fromAddress }).catch(() => null);
+  const balNum = Number(bal && bal.body && bal.body.balance);
+  if (Number.isFinite(balNum) && amount > balNum) return { error: 'insufficient_balance_precheck', balance: balNum, tried: amount, hint: 'faucet 0.5 AGT/день или пополни адрес' };
   tx.txid = sha256d(JSON.stringify({ from: tx.from, to: tx.to, amount: tx.amount, nonce: tx.nonce, ts: tx.ts, memo: tx.memo }));
   tx.signature = crypto.sign(null, Buffer.from(tx.txid, 'hex'), w.privKey).toString('hex');
   const submitted = await api('POST', '/tx', tx);
@@ -125,9 +139,10 @@ async function main() {
   faucet [addr]          — 0.5 AGT/день с крана
   join                   — legacy node-wallet onboarding disabled; use cabinet-client.mjs enroll
   chat <text>            — чат сообщества (адрес подставит нода, AGIP-21)
-  gov state|projects     — лента предложений и счётчик голосов
-  gov propose <title>    — вынести предложение (адрес авто)
-  gov vote <ref> <c>     — голос yes|no|abstain (адрес авто)
+  jobs [myAddr]          — витрина джобов: открытые эскроу (только мои опц.) + история выплат
+  job claim <escId> <taskHash> <workerAddr> — квитанция работы: локальная подпись, ключ НЕ уходит в сеть
+  job payout <escId> <employerAddr> <receipt.json|-> — приёмка и выплата (employer в data* ноды)
+  artifact <memoText>    — опубликовать артефакт работы (self-tx 0.001, memo в цепи)
   gateway route          — маршруты шлюзов`);
     return;
   }
@@ -248,6 +263,79 @@ async function main() {
       return;
     }
     console.log('usage: gov state | gov projects | gov propose <title> | gov vote <ref> <choice>');
+    return;
+  }
+
+  // ======== Джобы/эскроу — кошельковые транзакции агента (AGIP-46/escrow) ========
+  if (cmd === 'jobs') {
+    const my = args[0] || null;
+    const j = await api('GET', '/jobs/state');
+    if (j.status !== 200) { console.log('нода недоступна: ' + JSON.stringify(j.body)); return; }
+    const open = (j.body.open || []).filter(x => !my || x.worker === my || x.employer === my);
+    const paid = (j.body.history || []).filter(x => !my || x.worker === my || x.employer === my).slice(0, 10);
+    console.log(JSON.stringify({ stats: j.body.stats, open, myPayments: paid, note: 'полные списки: GET /jobs/state' }, null, 1));
+    return;
+  }
+  if (cmd === 'job') {
+    const [sub, ...rest] = args;
+    const { escrowReceiptDigest } = await import('../core.mjs');
+    if (sub === 'claim') {
+      const [escId, taskHash, workerAddr] = rest;
+      if (!escId || !/^[0-9a-f]{16,32}$/.test(escId || '') || !/^[0-9a-f]{16,64}$/.test(taskHash || '') || !/^AGT[A-Za-z0-9]+$/.test(workerAddr || '')) { console.log('usage: job claim <escId> <taskHash> <workerAddr>'); return; }
+      const st = await api('GET', '/escrow/state');
+      const e = (st.body.escrows || []).find(x => x.escId === escId);
+      if (!e) { console.log('открытого эскроу нет в /escrow/state: ' + escId); return; }
+      if (e.taskHash !== taskHash) { console.log('taskHash не совпадает с цепью: ' + e.taskHash); return; }
+      if (e.worker !== workerAddr) { console.log('эскроу назначен другому worker: ' + e.worker); return; }
+      const state = loadState();
+      const w = state.wallets[workerAddr];
+      if (!w) { console.log('ключ worker не найден локально (.state/wallets-local.json). create или профиль агента.'); return; }
+      const digest = escrowReceiptDigest(escId, taskHash, workerAddr, e.openedAmount);
+      const receiptSig = crypto.sign(null, Buffer.from(digest, 'hex'), w.privKey).toString('hex');
+      const receipt = { kind: 'escrow-receipt', escId, taskHash, worker: workerAddr, amount: e.openedAmount, workerPub: w.pub, receiptSig };
+      console.log(JSON.stringify(receipt, null, 1));
+      logLedger({ type: 'job-claim', worker: workerAddr, escId, amount: e.openedAmount });
+      return;
+    }
+    if (sub === 'payout') {
+      const [escId, employerAddr, receiptSrc] = rest;
+      if (!escId || !employerAddr) { console.log('usage: job payout <escId> <employerAddr> <receipt.json|->'); return; }
+      let receipt = null;
+      try { receipt = receiptSrc && receiptSrc !== '-' ? JSON.parse(fs.readFileSync(receiptSrc, 'utf8')) : JSON.parse(fs.readFileSync(0, 'utf8')); }
+      catch (e) { console.log('не могу прочитать квитанцию: ' + e.message); return; }
+      if (receipt.kind !== 'escrow-receipt' || receipt.escId !== escId) { console.log('квитанция не для этого эскроу'); return; }
+      const r = await api('POST', '/escrow/payout', { escId, employerAddress: employerAddr, workerReceiptSig: receipt.receiptSig, workerPub: receipt.workerPub });
+      console.log(JSON.stringify({ ...r.body, receiptVia: 'file', payout: r.status === 201 }, null, 1));
+      if (r.status === 201) logLedger({ type: 'job-payout', escId, employer: employerAddr, amount: receipt.amount });
+      return;
+    }
+    if (sub === 'open') {
+      const [employerAddr, workerAddr, amount, descFile, dl] = rest;
+      if (!employerAddr || !workerAddr || !amount) { console.log('usage: job open <employerAddr(казна, ключ на ноде)> <workerAddr> <amount> <descFile|taskHash> [deadlineSec]'); return; }
+      let taskHash = '';
+      try { taskHash = /:\//.test(descFile) ? '' : descFile; } catch {}
+      if (!taskHash || !/^[0-9a-f]{16,64}$/.test(taskHash)) {
+        if (!fs.existsSync(descFile || '')) { console.log('desc-файл не найден'); return; }
+        taskHash = crypto.createHash('sha256').update(fs.readFileSync(descFile)).digest('hex');
+      }
+      const r = await api('POST', '/escrow/create', { employer: employerAddr, worker: workerAddr, amount: Number(amount), taskHash, deadlineSec: Number(dl) || 3600 });
+      console.log(JSON.stringify(r.body, null, 1));
+      if (r.status === 201) logLedger({ type: 'job-open', employer: employerAddr, escId: r.body?.escId, amount: Number(amount) });
+      return;
+    }
+    console.log('usage: job claim <escId> <taskHash> <workerAddr> | job payout <escId> <employerAddr> <receipt.json> | job open <emp> <worker> <amount> <descFile> [dl]');
+    return;
+  }
+  if (cmd === 'artifact') {
+    // адрес кошелька — явно: artifact <AGT-адрес> <текст>; без адреса — первый локальный
+    const own = /^AGT[A-Za-z0-9]+$/.test(args[0] || '') ? args[0] : Object.keys(loadState().wallets)[0];
+    const text = (/^AGT/.test(args[0] || '') ? args.slice(1) : args).join(' ');
+    if (!own) { console.log('нет локального кошелька: create'); return; }
+    if (!text) { console.log('usage: artifact [AGT-адрес] <описание артефакта> — self-tx 0.001 AGT с memo в цепи'); return; }
+    const h = crypto.createHash('sha256').update(text).digest('hex').slice(0, 32);
+    const memo = ('job-artifact:' + h + ' ' + text.slice(0, 60)).slice(0, 120);
+    const r = await signAndSubmit(own, own, 0.001, memo);
+    console.log(r.status === 201 ? JSON.stringify({ artifactHash: h, memo, txid: r.body?.txid }) : JSON.stringify(r.body ?? r));
     return;
   }
 

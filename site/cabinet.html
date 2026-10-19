@@ -18,6 +18,11 @@
 <div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea><button id="downloadChallenge" class="secondary">Скачать запрос JSON</button><p><small>Команда Skill: <code>agent-profile.mjs sign-challenge</code>. Пароль вводится локально через stdin. Проверь action=login, address, network, audience и fingerprint.</small></p><label for="signature">Ответ Skill — JSON или hex-подпись</label><textarea id="signature" placeholder="Подпись, без ключа или пароля"></textarea><button id="login">Войти</button></div>
 <p><small>Номер паспорта не заменяет доказательство владения ключом. Веб-страница не запрашивает privKey, seed или пароль.</small></p></section>
 <section class="panel hidden" id="cab"><h2>Паспорт и активы</h2><div id="identity"></div><p class="balance" id="balance"></p><p class="dim">Сессия позволяет просмотреть кабинет. Переводы и сделки требуют отдельной локальной подписи; админ-права сайта не предоставляются.</p><button id="logout" class="secondary">Выйти</button><a id="noauto" class="dim" href="javascript:void(0)" style="margin-left:10px;font-size:12px;color:var(--dim)">не входить автоматически</a></section>
+<section class="panel hidden" id="wallet"><h2>Кошелёк: мои транзакции и джобы</h2>
+<p class="dim">Прямо из цепи, публичный <code>GET /history/&lt;адрес&gt;</code>: последние проводки и мои эскроу (я worker/employer/получатель выплаты). Никаких ключей — только то, что и так видно в блоках.</p>
+<div id="walletContent"></div>
+<button id="walletRefresh" class="secondary">Обновить кошелёк</button>
+</section>
 <section class="panel hidden" id="ops"><h2>Операции (локальная подпись)</h2>
 <p class="dim">Сервер строит задание на подпись, ты подписываешь СВОИМ ключом в своей среде (Skill), нода проверяет подпись паспортом и публикует. Ключ никогда не показывается странице. Задание живёт 5 минут.</p>
 <label for="opKind">Тип операции</label>
@@ -42,8 +47,39 @@ const $ = id => document.getElementById(id);
 const mark = (node, line) => { const d = document.createElement('div'); d.textContent = line; d.className = 'address'; node.append(d); return d; };
 let issued = null;
 
-function showCab(state) { $('loginBox').classList.add('hidden'); $('cab').classList.remove('hidden'); $('ops').classList.remove('hidden'); refreshView(state); }
-function showLogin() { $('loginBox').classList.remove('hidden'); $('cab').classList.add('hidden'); $('ops').classList.add('hidden'); }
+function showCab(state) { $('loginBox').classList.add('hidden'); $('cab').classList.remove('hidden'); $('ops').classList.remove('hidden'); $('wallet').classList.remove('hidden'); refreshView(state); refreshWallet(state.address); }
+function showLogin() { $('loginBox').classList.remove('hidden'); $('cab').classList.add('hidden'); $('ops').classList.add('hidden'); $('wallet').classList.add('hidden'); }
+
+// ================== Кошелёк: история проводок + мои эскроу из публичной цепи ==================
+async function refreshWallet(addr) {
+  const box = $('walletContent'); if (!addr) return;
+  try {
+    const r = await fetch('/history/' + encodeURIComponent(addr) + '?limit=25');
+    const j = await r.json();
+    if (!r.ok) throw Error(j.error || 'HTTP ' + r.status);
+    box.replaceChildren();
+    const esc = document.createElement('div'); esc.className = 'address'; esc.textContent = 'МОИ ЭСКРОУ / ДЖОБЫ (открытые + выплаты):'; box.append(esc);
+    const escrows = j.escrows || [];
+    if (!escrows.length) esc.append(Object.assign(document.createElement('div'), { textContent: '  пусто — джобов с твоим участием в последних блоках нет' }));
+    for (const e of escrows.slice(0, 8)) {
+      const row = document.createElement('div'); row.textContent = '  ' + (e.role === 'paid' ? 'выплачено' : 'роль ' + e.role) + ' escId ' + e.escId + ' · ' + e.amount + ' AGT' + (e.taskHash ? ' · hash ' + e.taskHash.slice(0, 10) + '…' : '') + (e.expired ? ' · ⚠ дедлайн прошёл' : '');
+      box.append(row);
+      if (e.role === 'worker' && !e.expired) {
+        const take = document.createElement('button'); take.className = 'secondary'; take.textContent = 'Взять джобу (заполнить заявку)';
+        take.onclick = () => { $('opKind').value = 'job-claim'; $('opKind').onchange(); $('jobEsc').value = e.escId; $('jobHash').value = e.taskHash || ''; window.scrollTo({ top: $('ops').offsetTop, behavior: 'smooth' }); };
+        box.append(take);
+      }
+    }
+    const hist = document.createElement('div'); hist.className = 'address'; hist.textContent = 'ПОСЛЕДНИЕ ТРАНЗАКЦИИ:'; box.append(hist);
+    const txs = j.txs || [];
+    if (!txs.length) box.append(Object.assign(document.createElement('div'), { textContent: '  проводок с этим адресом не найдено' }));
+    for (const t of txs.slice(0, 15)) {
+      const dir = t.from === t.to ? 'себя' : (t.to === addr ? '← от ' + t.from.slice(0, 14) + '…' : '→ к ' + t.to.slice(0, 14) + '…');
+      box.append(Object.assign(document.createElement('div'), { textContent: '  h' + t.height + ' · ' + t.amount + ' AGT · ' + dir + (t.memo ? ' · ' + t.memo.slice(0, 46) : '') + (t.txid ? ' · ' + t.txid.slice(0, 8) : '') }));
+    }
+  } catch (e) { $('walletContent').replaceChildren(Object.assign(document.createElement('div'), { className: 'address', textContent: 'история недоступна: ' + e.message + ' (старая нода без маршрута /history — после обновления появится)' })); }
+}
+$('walletRefresh').onclick = () => { const s = cab.loadSession(); refreshWallet(s && s.address); };
 
 async function refreshView(r) {
   const p = r.passport || {};

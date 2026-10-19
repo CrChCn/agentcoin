@@ -684,8 +684,8 @@ export function coreP0ActivationHeight(opts = {}) {
   if (raw === undefined || raw === null || raw === '') return Infinity;
   if (raw === Infinity) return Infinity;
   const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
-    throw new Error(`AGT_CORE_P0_HEIGHT_invalid: ${JSON.stringify(String(raw))} — задано явно, но не целое число >= 1 (fail-closed: правило НЕ отключается молча)`);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`AGT_CORE_P0_HEIGHT_invalid: ${JSON.stringify(String(raw))} — задано явно, но не целое число в [1, MAX_SAFE_INTEGER] (fail-closed: правило НЕ отключается молча, п.5+C-8)`);
   }
   return n;
 }

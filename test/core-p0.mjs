@@ -261,7 +261,7 @@ const dropped = bc.refilterMempool();
 step(bc.mempool.length === 0 && dropped.dropped >= 1, `T19d устаревшая tx дропнута (${JSON.stringify(dropped)})`);
 
 // ---- T20: п.5 (6270365807) — env fail-closed: явное некорректное значение роняет валидацию ----
-const invalidCases = ['abc', '10.5', '0', '-3', '1e-3'];
+const invalidCases = ['abc', '10.5', '0', '-3', '1e-3', '9007199254740993'];
 for (const v of invalidCases) {
   let threw = '';
   try { core.coreP0ActivationHeight({ activation: v }); } catch (e) { threw = String(e.message || e).split(':')[0]; }
@@ -293,6 +293,12 @@ let amtT = '';
 try { core.canonicalAuthPayload({ ...tx21, amount: 3.3e-10 }, 2); } catch (e) { amtT = String(e); }
 step(/tx_amount_not_mgnt_exact/.test(amtT), `T21e submagenta (нецелые магент-юниты) в v2 отвергнуты (${amtT.split('\n')[0] || 'no throw'})`);
 step(core.verifyTransactionV2({ ...tx21, digestVersion: 1 }) === false, 'T21f v1-транзакция не подтверждается v2-верификатором (версия явная)');
+
+// ---- T20d: C-8 (6272239263) — высоту в [1, MAX_SAFE_INTEGER] ----
+let c8 = '';
+try { core.coreP0ActivationHeight({ activation: 9007199254740992 }); } catch (e) { c8 = String(e); }
+step(/MAX_SAFE_INTEGER/.test(c8), 'T20d activation > MAX_SAFE_INTEGER → fail-closed из-за области допустимых значений');
+step(core.coreP0ActivationHeight({ activation: Number.MAX_SAFE_INTEGER }) === Number.MAX_SAFE_INTEGER, 'T20d MAX_SAFE_INTEGER ровно проход');
 
 // ---- T22: п.4 (6270365807) — nonce-replay против ПОЛНОГО префикса + целочисленная бухгалтерия ----
 //Полный префикс собирается из chain: (from,nonce) ДВУХ разных tx в разных блоках → отказ new-block

@@ -277,8 +277,23 @@ step(process.env.AGT_CORE_P0_HEIGHT === '10' && core.coreP0ActivationHeight() ==
 step(core.coreP0ActivationHeight({ activation: undefined }) === 10 || core.coreP0ActivationHeight({ activation: '' }) === Infinity, 'T20c пустое строковое → Infinity; opt undefined → env-значение');
 step(core.coreP0ActivationHeight({ activation: 10 }) === 10 && core.coreP0ActivationHeight({ activation: Infinity }) === Infinity, 'T20c явные корректные значения: integer ≥1 и Infinity работают');
 
+// ---- T21: п.3 (6270365807) — версионированный canonical digest авторизационных полей ----
+const w21 = core.createWallet('T21');
+const rx21 = core.createWallet('T21rx');
+const tx21 = { from: w21.address, fromPub: w21.pub, to: rx21.address, amount: 1, nonce: 42, ts: Math.floor(Date.now() / 1000), memo: 't21', digestVersion: 2 };
+tx21.signature = core.signTransactionV2(tx21, w21.privKey);
+step(core.verifyTransactionV2(tx21) === true, 'T21a v2-подпись/проверка (signature поверх canonicalAuthPayload v2) работает');
+const dA = core.txDigestV2(tx21);
+step(dA !== core.txDigest(tx21), 'T21b v2 digest ≠ v1 digest (v1 остаётся нетронутым для истории)');
+const txFromPub = { ...tx21, fromPub: w21.pub + '\n' };
+step(core.txDigestV2(txFromPub) !== dA, 'T21c tamper fromPub меняет v2-digest (связан с контентом)');
+const esc21 = { from: 'ESCROW_t21aabb', to: rx21.address, amount: 1, nonce: 1, ts: 1, memo: 'escpayout:t21aabb', escProof: { taskHash: 'a'.repeat(64), workerPub: w21.pub }, digestVersion: 2 };
+step(core.txDigestV2(esc21) !== core.txDigestV2({ ...esc21, escProof: { taskHash: 'b'.repeat(64), workerPub: w21.pub } }), 'T21d tamper escProof меняет v2-digest');
+let amtT = '';
+try { core.canonicalAuthPayload({ ...tx21, amount: 3.3e-10 }, 2); } catch (e) { amtT = String(e); }
+step(/tx_amount_not_mgnt_exact/.test(amtT), `T21e submagenta (нецелые магент-юниты) в v2 отвергнуты (${amtT.split('\n')[0] || 'no throw'})`);
+step(core.verifyTransactionV2({ ...tx21, digestVersion: 1 }) === false, 'T21f v1-транзакция не подтверждается v2-верификатором (версия явная)');
+
 // ---- итоги ----
-fs.rmSync(tmp, { recursive: true, force: true });
-console.log(`\nCORE-P0: ${pass} ok, ${fails.length} fail`);
 if (fails.length) { console.log(fails.map(f => '  - ' + f).join('\n')); process.exit(1); }
 console.log('ALL PASS');

@@ -546,7 +546,55 @@ export function createWallet(label = 'agent') {
 }
 
 export function txDigest(tx) {
+  // ТРАНЗАКТИВНО-СОВМЕСТИМАЯ v1: НЕ МЕНЯТЬ СЛУШАЙНО (исторические txid/merkle/подписи завязаны).
+  // Известное ограничение (CORE-P0 п.3, ревизия 6270365807): авторизационные поля fromPub,
+  // escProof и sig2 НЕ входят в digest — они проверяются адресной привязкой (verifyTransaction /
+  // verifySecondSig / verifyEscrowTx), но txid их не закрепляет. Новая каноника ниже: digv=2
+  //  активируется ОТДЕЛЬНО, после согласования (docs/CORE-P0-DIGEST-PLAN.md).
   return sha256d(JSON.stringify({ from: tx.from, to: tx.to, amount: tx.amount, nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' }));
+}
+
+// ===== CORE-P0 п.3: версионированный canonical digest АВТОРИЗАЦИОННЫХ полей =====
+// v1-поля, подписываемые обычной tx: { from, fromPub, to, amount, nonce, ts, memo }.
+// v2 добавляет: escProof (эскроу-расходы полностью связаны с контентом), sig2Sig
+// (авторизация казны — в digest первичной подписи не попадает, подписывается отдельно),
+// и сортировку ключей для каноничности. Диапазон: tx.digestVersion? = 2 (v1 = отсутствие).
+export const TX_DIGEST_VERSION = 2;
+
+export function canonicalAuthPayload(tx, version = tx.digestVersion === 2 ? 2 : 1) {
+  if (version !== 1 && version !== 2) throw new Error('tx_digest_version_unsupported:' + JSON.stringify(version));
+  const amountUnits = (() => { const u = Math.round(Number(tx.amount) * 1e9); if (!Number.isFinite(u) || u <= 0 || Math.abs(Number(tx.amount) * 1e9 - u) !== 0) throw new Error('tx_amount_not_mgnt_exact'); return u; })();
+  const base = { from: tx.from, fromPub: tx.fromPub, to: tx.to, amountUnits, nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' };
+  const v2 = version === 2
+    ? { ...base, escProof: tx.escProof ? JSON.parse(stableStringify(tx.escProof)) : null, sig2Sig: tx.sig2 ? 'sig2-bound' : null, digv: 2 }
+    : base;
+  return stableStringify(v2);
+}
+
+// Двх-наустный ключеподписьный stable-sort строк-декор (детерминированный JSON, не для
+//-human-reading). Для подписи: подписывающий/проверяющий строят ОДНУ И ТУ ЖЕ строку.
+export function stableStringify(x) {
+  if (x === null || typeof x !== 'object') return JSON.stringify(x);
+  if (Array.isArray(x)) return '[' + x.map(stableStringify).join(',') + ']';
+  const entries = Object.entries(x).filter(([, v]) => v !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return '{' + entries.map(([k, v]) => JSON.stringify(k) + ':' + stableStringify(v)).join(',') + '}';
+}
+
+export function txDigestV2(tx) {
+  return sha256d(canonicalAuthPayload(tx, 2));
+}
+
+export function signTransactionV2(tx, privKey) {
+  const sig = crypto.sign(null, Buffer.from(txDigestV2(tx), 'hex'), privKey);
+  return sig.toString('hex');
+}
+
+export function verifyTransactionV2(tx) {
+  if (!tx || tx.digestVersion !== 2 || tx.fromPub == null) return false;
+  if (addressFromPub(tx.fromPub) !== tx.from) return false;
+  try {
+    return crypto.verify(null, Buffer.from(txDigestV2(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature || '', 'hex'));
+  } catch { return false; }
 }
 
 // AGT-адрес из публичного ключа (SPKI PEM) — зеркалит createWallet; нужен для

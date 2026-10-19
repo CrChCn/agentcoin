@@ -23,7 +23,7 @@ async function fixture(t) {
     const data = p === '/info' ? { chainId: 'AGENTCOIN', genesisHash: infoGenesis, blocks: chain.length } : p === '/blocks' ? { blocks: chain.slice(Number(new URL(url).searchParams.get('from'))), height: chain.length } : p === '/headers' ? { headers: [{ hash: chain.at(-1).hash }] } : p === '/mempool' ? mempool : p === '/tx' ? { ok: true } : assert.fail(p);
     return new Response(JSON.stringify(data), { status: p === '/tx' ? 201 : 200 });
   };
-  return { dir, profilePath, pub, to, network, intent, requests, fetchFn, setMempool: value => { mempool = value; }, wrongGenesis: () => { infoGenesis = 'f'.repeat(64); } };
+  return { dir, profilePath, pub, to, network, intent, requests, fetchFn, setMempool: value => { mempool = value; }, wrongGenesis: () => { infoGenesis = 'f'.repeat(64); }, advanceBlock: (txs = []) => { chain.push(block(chain.at(-1).hash, txs, chain.length)); }, fullMempool: txs => ({ version: 1, size: txs.length, complete: true, txs, tipHash: chain.at(-1).hash, height: chain.length - 1 }) };
 }
 test('offline vault signing binds exact nine-decimal intent and exports no secrets', async t => {
   const f = await fixture(t), manifest = await signWalletTransfer({ intent: f.intent, profilePath: f.profilePath, password, network: f.network });
@@ -71,4 +71,52 @@ test('nonempty abbreviated mempool refuses broadcast; CLI password comes from st
   const signed = await runWalletCLI(['sign', '--intent', file, '--profile', f.profilePath, '--network', networkFile], { stdin: Readable.from([JSON.stringify({ password })]) });
   assert.equal(signed.tx.txid, manifest.tx.txid);
   await assert.rejects(runWalletCLI(['sign', '--password', password]), /arguments/);
+});
+
+test('versioned full mempool observes exact pending transaction without rebroadcast', async t => {
+  const f = await fixture(t), manifest = await signWalletTransfer({ intent: f.intent, profilePath: f.profilePath, password, network: f.network });
+  f.setMempool(f.fullMempool([manifest.tx]));
+  const state = await readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn });
+  assert.equal(state.pendingComplete, true); assert.deepEqual(state.pending, [manifest.tx]);
+  assert.ok(f.requests.some(r => new URL(r.url).search === '?full=1'));
+  const result = await broadcastWalletTransfer({ manifest, network: f.network, journalPath: path.join(f.dir, 'payments.json'), broadcast: true, fetchFn: f.fetchFn });
+  assert.equal(result.record.state, 'submitted'); assert.equal(result.broadcast, false);
+  assert.equal(f.requests.some(r => r.options.method === 'POST'), false);
+});
+test('full mempool wrong anchor, partial snapshot and tampered signed content fail closed', async t => {
+  const f = await fixture(t), manifest = await signWalletTransfer({ intent: f.intent, profilePath: f.profilePath, password, network: f.network });
+  f.setMempool({ ...f.fullMempool([]), tipHash: 'f'.repeat(64) });
+  await assert.rejects(readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn }), /mempool_contract_or_anchor/);
+  f.setMempool({ ...f.fullMempool([]), size: 1001, complete: false });
+  assert.equal((await readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn })).pendingComplete, false);
+  await assert.rejects(broadcastWalletTransfer({ manifest, network: f.network, journalPath: path.join(f.dir, 'payments.json'), broadcast: true, fetchFn: f.fetchFn }), /full_mempool_required/);
+  f.setMempool(f.fullMempool([{ ...manifest.tx, amount: 11 }]));
+  await assert.rejects(readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn }), /mempool_transaction/);
+});
+test('timeout after send remains unknown; later anchored snapshot retries exactly one saved transaction', async t => {
+  const f = await fixture(t), manifest = await signWalletTransfer({ intent: f.intent, profilePath: f.profilePath, password, network: f.network });
+  const journalPath = path.join(f.dir, 'payments.json'); let clock = 1000, posted = [], timeout = true;
+  const fetchFn = async (url, options) => {
+    if (options.method === 'POST') { posted.push(JSON.parse(options.body)); if (timeout) throw Error('timeout after receive'); }
+    return f.fetchFn(url, options);
+  };
+  const call = () => broadcastWalletTransfer({ manifest, network: f.network, journalPath, broadcast: true, fetchFn, now: () => clock });
+  await assert.rejects(call(), /submission_unknown/);
+  assert.equal(Object.values(JSON.parse(await fs.readFile(journalPath, 'utf8')).data.records)[0].state, 'unknown');
+  clock++;
+  await assert.rejects(call(), /reconcile_required/); assert.equal(posted.length, 1);
+  f.advanceBlock(); clock++; timeout = false;
+  const result = await call(); assert.equal(result.record.state, 'submitted');
+  assert.equal(posted.length, 2); assert.deepEqual(posted[0], posted[1]); assert.equal(posted[1].nonce, 42);
+  f.advanceBlock([manifest.tx]); clock++;
+  const confirmed = await call(); assert.equal(confirmed.record.state, 'confirmed'); assert.equal(posted.length, 2);
+  assert.equal(confirmed.record.confirmation.txid, manifest.tx.txid);
+});
+
+test('unknown explicit mempool version is rejected even when queue is empty', async t => {
+  const f = await fixture(t);
+  f.setMempool({ ...f.fullMempool([]), version: 2 });
+  await assert.rejects(readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn }), /mempool_unsupported_version/);
+  f.setMempool({ size: 0, txs: [] });
+  assert.equal((await readWalletState({ profilePath: f.profilePath, network: f.network, fetchFn: f.fetchFn })).pendingComplete, true);
 });

@@ -708,6 +708,20 @@ function chainTxidsOf(chain) {
   for (const blk of chain || []) for (const t of (blk.txs || [])) if (t && t.txid) s.add(t.txid);
   return s;
 }
+// CORE-P0 п.4 (ревизия 6270365807): ключи (from|nonce) ПОЛНОГО префикса — проверка
+// не только внутри блока, но и против всей уже-цепной истории (anti replay-nonce).
+export function chainNonceKeysOf(chain) {
+  const s = new Set();
+  for (const blk of chain || []) for (const t of (blk.txs || [])) if (t && t.from) s.add(String(t.from) + '|' + String(t.nonce));
+  return s;
+}
+// Строгая money-арифметика (п.4): сумма задаётся целыми магент-юнитами; any float-
+// шум (даже -1e-9) неприемлем на активированном консенсус-пути.
+export function unitsOfAmount(amount) {
+  const u = Math.round(Number(amount) * 1e9);
+  if (!Number.isFinite(u) || u <= 0 || Math.abs(Number(amount) * 1e9 - u) !== 0) throw new Error('tx_amount_not_mgnt_exact');
+  return u;
+}
 
 // ===== MINER-GUARD + TWIN-SWEEP (LEDGER-20261018-01: « Moyens двойника», MINER-GUARD/OPS-TEST) =====
 // Канонический адрес = AGT + 40 hex (43 символа) и всегда выводится из pubkey
@@ -759,9 +773,21 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   // replay-контекст: opts.knownTxids — множество txid префикса (вызывающий может
   // поддерживать его инкрементально, см. adoptFork/sync); иначе строим из chain
   const knownSet = opts.knownTxids instanceof Set ? opts.knownTxids : (coreP0 ? chainTxidsOf(chain) : null);
+  // CORE-P0 п.4: nonce-ключи (from|nonce) ПОЛНОГО префикса — не только внутри блока
+  const knownNonces = opts.knownNonceKeys instanceof Set ? opts.knownNonceKeys : (coreP0 ? chainNonceKeysOf(chain) : null);
+  // CORE-P0 п.4: бухгалтерия префикса в целых магент-юнитах (дробный float-шум невозможен)
   let balances = opts.prefixBalances && typeof opts.prefixBalances === 'object'
     ? { ...opts.prefixBalances }
     : (coreP0 ? balancesOf(chain) : null);
+  let balanceUnits = null;
+  if (coreP0) {
+    balanceUnits = {};
+    for (const [addr, b] of Object.entries(balances || {})) {
+      const u = Math.round(b * 1e9);
+      if (Math.abs(b * 1e9 - u) > 1e-6) return `prefix_balance_not_mgnt_exact:${addr}`; // fail-closed
+      balanceUnits[addr] = u;
+    }
+  }
   const seenTxids = new Set();
   const seenNonceKeys = new Set();
   // обычные транзакции: подписи и базовые инварианты
@@ -782,6 +808,7 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
       if (knownSet && knownSet.has(tx.txid)) return 'tx_replay_in_chain';
       const nkey = String(tx.from) + '|' + String(tx.nonce);
       if (seenNonceKeys.has(nkey)) return 'duplicate_nonce_block';
+      if (knownNonces && knownNonces.has(nkey)) return 'nonce_replay_in_chain'; // п.4: против ПОЛНОГО префикса
       seenTxids.add(tx.txid);
       seenNonceKeys.add(nkey);
     }
@@ -797,16 +824,31 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     // AGIP-4: tx из активной казны требует вторую подпись (opts.treasury инжектится нодой;
     // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше)
     if (opts.treasury && !verifySecondSig(tx, opts.treasury)) return 'tx_treasury_needs_2sig';
-    if (coreP0 && balances) {
-      // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия: списание/зачисление в порядке tx внутри блока —
-      // овердрафт/двойная трата внутри одного блока невозможны
+    if (coreP0 && balanceUnits) {
+      // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия в ЦЕЛЫХ магент-юнитах (п.4, ревизия 6270365807):
+      // ни float-дробности, ни допуска -1e-9; овердрафт/двойная трата невозможны строго.
+      let amountUnits;
+      try { amountUnits = unitsOfAmount(tx.amount); } catch { return 'tx_amount_not_mgnt_exact'; }
+      balanceUnits[tx.from] = (balanceUnits[tx.from] || 0) - amountUnits;
+      if (balanceUnits[tx.from] < 0) return 'insufficient_funds_block';
+      balanceUnits[tx.to] = (balanceUnits[tx.to] || 0) + amountUnits;
+    } else if (coreP0 && balances) {
+      // fallback (не должен выполняться на coreP0-пути — баланс-юниты строятся всегда)
+      balances[tx.from] = (balances[tx.from] || 0) - tx.amount;
+      if (!(balances[tx.from] >= -1e-9)) return 'insufficient_funds_block';
+      balances[tx.to] = (balances[tx.to] || 0) + tx.amount;
+    } else if (balances) {
       balances[tx.from] = (balances[tx.from] || 0) - tx.amount;
       if (!(balances[tx.from] >= -1e-9)) return 'insufficient_funds_block';
       balances[tx.to] = (balances[tx.to] || 0) + tx.amount;
     }
   }
-  if (coreP0 && balances) {
-    // coinbase: зачисление награды в последовательность балансов
+  if (coreP0 && balanceUnits) {
+    // coinbase: зачисление награды в последовательность балансов (целые юниты)
+    let cbUnits;
+    try { cbUnits = unitsOfAmount(cb.amount); } catch { return 'coinbase_amount_not_mgnt_exact'; }
+    balanceUnits[cb.to] = (balanceUnits[cb.to] || 0) + cbUnits;
+  } else if (coreP0 && balances) {
     balances[cb.to] = (balances[cb.to] || 0) + cb.amount;
   }
   return null;

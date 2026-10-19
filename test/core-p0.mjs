@@ -294,6 +294,23 @@ try { core.canonicalAuthPayload({ ...tx21, amount: 3.3e-10 }, 2); } catch (e) { 
 step(/tx_amount_not_mgnt_exact/.test(amtT), `T21e submagenta (нецелые магент-юниты) в v2 отвергнуты (${amtT.split('\n')[0] || 'no throw'})`);
 step(core.verifyTransactionV2({ ...tx21, digestVersion: 1 }) === false, 'T21f v1-транзакция не подтверждается v2-верификатором (версия явная)');
 
+// ---- T22: п.4 (6270365807) — nonce-replay против ПОЛНОГО префикса + целочисленная бухгалтерия ----
+//Полный префикс собирается из chain: (from,nonce) ДВУХ разных tx в разных блоках → отказ new-block
+const t22old = signedTx(A, B.address, 1, 't22-old');
+const t22bOld = craftBlock([t22old]);
+step(core.validateBlockAgainstChain(t22bOld, bc.chain, O) === null, 'T22a блок с первой tx валиден');
+bc.chain.push(t22bOld); bc.invalidateTxCache();
+const t22dup = { ...signedTx(A, B.address, 1, 't22-dup'), nonce: t22old.nonce }; // ТОТ ЖЕ nonce как в цепи
+t22dup.txid = core.txDigest(t22dup);
+const t22bDup = craftBlock([t22dup]);
+const r22 = core.validateBlockAgainstChain(t22bDup, bc.chain, O);
+step(r22 === 'nonce_replay_in_chain', `T22b повтор (from,nonce) из префикса через разные блоки → отказ (${r22})`);
+// дробный submagenta-баланс префикса через opts → fail-closed
+const fakePrefix = { [A.address]: 350.0000000005 };
+const t22c = craftBlock([signedTx(B, A.address, 1, 't22-c')]);
+const r22c = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: { ...{ [A.address]: 350, [B.address]: 350 }, [A.address]: 350.0000000005 } });
+step(String(r22c).startsWith('prefix_balance_not_mgnt_exact'), `T22c дробный префикс-баланс fail-closed (${r22c})`);
+
 // ---- итоги ----
 if (fails.length) { console.log(fails.map(f => '  - ' + f).join('\n')); process.exit(1); }
 console.log('ALL PASS');

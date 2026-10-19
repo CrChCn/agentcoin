@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import * as core from '../core.mjs';
 
 process.env.AGT_CORE_P0_HEIGHT = '10'; // активация на h>=10: все исторические (h<10) — legacy, новые — строгие
@@ -291,8 +292,23 @@ const esc21 = { from: 'ESCROW_t21aabb', to: rx21.address, amount: 1, nonce: 1, t
 step(core.txDigestV2(esc21) !== core.txDigestV2({ ...esc21, escProof: { taskHash: 'b'.repeat(64), workerPub: w21.pub } }), 'T21d tamper escProof меняет v2-digest');
 let amtT = '';
 try { core.canonicalAuthPayload({ ...tx21, amount: 3.3e-10 }, 2); } catch (e) { amtT = String(e); }
-step(/tx_amount_not_mgnt_exact/.test(amtT), `T21e submagenta (нецелые магент-юниты) в v2 отвергнуты (${amtT.split('\n')[0] || 'no throw'})`);
+step(/tx_amount_not_mgnt_exact|value_exceeds_scale|value_not_decimal/.test(amtT), `T21e submagenta (нецелые магент-юниты) в v2 отвергнуты (${amtT.split('\n')[0] || 'no throw'})`);
 step(core.verifyTransactionV2({ ...tx21, digestVersion: 1 }) === false, 'T21f v1-транзакция не подтверждается v2-верификатором (версия явная)');
+// ---- T21 C-7 (6272239263): FINAL txid v2 = envelope-hash — связывает подписи/контекст ----
+step(core.txDigestV2({ ...tx21, signature: 'ff' + tx21.signature.slice(2) }) !== dA, 'T21g tamper primary signature меняет txidV2');
+step(core.txDigestV2({ ...tx21, chainId: 'OTHERNET' }) !== dA, 'T21h смена chainId меняет signing-payload/txidV2 (network pin)');
+const sig2W = core.createWallet('T21sig2');
+const tx2s = { ...tx21, sig2: 'ab'.repeat(32), sig2Pub: sig2W.pub };
+step(core.txDigestV2(tx2s) !== dA, 'T21i появление sig2/sig2Pub меняет txidV2 (связано)');
+step(core.txDigestV2({ ...tx2s, sig2: 'cd'.repeat(32) }) !== core.txDigestV2(tx2s), 'T21j замена sig2 на другую меняет txidV2');
+step(core.txSigningDigestV2(tx2s) === core.txSigningDigestV2({ ...tx2s, sig2: 'cd'.repeat(32) }), 'T21k signing-digest НЕ зависит от bytes sig2 (отсутствие цикла), но зависит от sig2Present');
+// verifySecondSigV2 политика: два подписанта, не один и тот же ключ
+const pol21 = { treasury: w21.address, signers: [sig2W.address], requires: 2 };
+const tx23 = { ...tx21, sig2: null, sig2Pub: null };
+const sig2hex = crypto.sign(null, Buffer.from(core.txSigningDigestV2({ ...tx23, sig2Pub: sig2W.pub, sig2Present: true }), 'hex'), sig2W.privKey).toString('hex');
+const tx23s = { ...tx23, sig2: sig2hex, sig2Pub: sig2W.pub };
+step(core.verifySecondSigV2(tx23s, pol21) === true, 'T21l verifySecondSigV2: sig2 поверх signing-payload проверки policy OK');
+step(core.verifySecondSigV2({ ...tx23s, sig2: 'ff'.repeat(32) }, pol21) === false, 'T21m tamper sig2 → отвергнут политикой');
 
 // ---- T20d: C-8 (6272239263) — высоту в [1, MAX_SAFE_INTEGER] ----
 let c8 = '';

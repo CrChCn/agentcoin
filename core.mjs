@@ -385,6 +385,10 @@ export function verifyTxAny(tx, chain = null) {
     if (!chain) return false;
     return Boolean(verifyEscrowTx(tx, chain)?.ok);
   }
+  // C-7 роутинг версий: v1 (digestVersion отсутствует) — легаси verifyTransaction как было;
+  // v2 (digestVersion===2) — строгая v2-семантика. До активации порога валидатор v1-блок
+  // от v2-tx отвергается (txid/подпись менялись); сеть согласует отдельным порогом.
+  if (tx && tx.digestVersion === 2) return verifyTransactionV2(tx);
   return verifyTransaction(tx);
 }
 
@@ -563,12 +567,36 @@ export const TX_DIGEST_VERSION = 2;
 
 export function canonicalAuthPayload(tx, version = tx.digestVersion === 2 ? 2 : 1) {
   if (version !== 1 && version !== 2) throw new Error('tx_digest_version_unsupported:' + JSON.stringify(version));
-  const amountUnits = (() => { const u = Math.round(Number(tx.amount) * 1e9); if (!Number.isFinite(u) || u <= 0 || Math.abs(Number(tx.amount) * 1e9 - u) !== 0) throw new Error('tx_amount_not_mgnt_exact'); return u; })();
-  const base = { from: tx.from, fromPub: tx.fromPub, to: tx.to, amountUnits, nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' };
-  const v2 = version === 2
-    ? { ...base, escProof: tx.escProof ? JSON.parse(stableStringify(tx.escProof)) : null, sig2Sig: tx.sig2 ? 'sig2-bound' : null, digv: 2 }
-    : base;
-  return stableStringify(v2);
+  if (version === 1) {
+    // ЛЕГАСИ v1: точная историческая семантика, не меняется.
+    const amountUnits = (() => { const u = Math.round(Number(tx.amount) * 1e9); if (!Number.isFinite(u) || u <= 0 || Math.abs(Number(tx.amount) * 1e9 - u) !== 0) throw new Error('tx_amount_not_mgnt_exact'); return u; })();
+    return stableStringify({ from: tx.from, fromPub: tx.fromPub, to: tx.to, amountUnits, nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' });
+  }
+  // C-7 (6272239263): SIGNING payload v2 — авторизационные поля + привязки контекста.
+  // В payload НЕ входят txid/tx.signature/tx.sig2 (циклическая зависимость запрещена).
+  // МЕНЯЮТ digest: chainId (network pin), fromPub, escProof целиком, sig2Pub (кто второй
+  // подписант), наличие второй подписи (sig2Present флаг — сама sig2-подпись не входит,
+  // она подписывает ЭТОТ же payload: любой её tamper меняет final txid, не payload).
+  const amountUnits = unitsOfAmountBigInt(tx.amount);
+  const payload = {
+    domain: 'agt.tx.sign.v2',
+    digv: 2,
+    chainId: tx.chainId ?? CHAIN_ID,
+    from: tx.from,
+    fromPub: tx.fromPub,
+    to: tx.to,
+    amountUnits: String(amountUnits),
+    nonce: tx.nonce,
+    ts: tx.ts,
+    memo: tx.memo || '',
+    escProof: tx.escProof ? JSON.parse(stableStringify(tx.escProof)) : null,
+    sig2Pub: tx.sig2Pub ?? null,
+    // sig2Present определяется по НАЛИЧИЮ sig2Pub (pubkey второго подписанта): подписант
+    // заранее знает, что будет вторая подпись; сама sig2-подпись приходит ПОСЛЕ и не
+    // меняет signing-payload (подписывается второй подписью тот же payload).
+    sig2Present: tx.sig2Pub ? true : false,
+  };
+  return stableStringify(payload);
 }
 
 // Двх-наустный ключеподписьный stable-sort строк-декор (детерминированный JSON, не для
@@ -580,12 +608,25 @@ export function stableStringify(x) {
   return '{' + entries.map(([k, v]) => JSON.stringify(k) + ':' + stableStringify(v)).join(',') + '}';
 }
 
-export function txDigestV2(tx) {
+// C-7: SIGNING digest v2 — канонические авторизационные поля + контекст (без txid/tx.signature/tx.sig2).
+export function txSigningDigestV2(tx) {
   return sha256d(canonicalAuthPayload(tx, 2));
 }
 
+// C-7: FINAL transaction ID v2 = полный подписанный envelope: всё, что подписано
+// (+ сами подписи bytes, БЕЗ самой txid). МЕНЯЕТСЯ tamper'ом либо основного подписанта
+// (tx.signature), либо второй (tx.sig2), либо их pubkey'ей — txid связывает ЦЕЛОЕ содержимое.
+export function txDigestV2(tx) {
+  const envelope = {
+    signing: canonicalAuthPayload(tx, 2),
+    signature: tx.signature || null,
+    sig2: tx.sig2 || null,
+  };
+  return sha256d(stableStringify(envelope));
+}
+
 export function signTransactionV2(tx, privKey) {
-  const sig = crypto.sign(null, Buffer.from(txDigestV2(tx), 'hex'), privKey);
+  const sig = crypto.sign(null, Buffer.from(txSigningDigestV2(tx), 'hex'), privKey);
   return sig.toString('hex');
 }
 
@@ -593,7 +634,22 @@ export function verifyTransactionV2(tx) {
   if (!tx || tx.digestVersion !== 2 || tx.fromPub == null) return false;
   if (addressFromPub(tx.fromPub) !== tx.from) return false;
   try {
-    return crypto.verify(null, Buffer.from(txDigestV2(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature || '', 'hex'));
+    return crypto.verify(null, Buffer.from(txSigningDigestV2(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature || '', 'hex'));
+  } catch { return false; }
+}
+
+// C-7: вторая подпись казны поверх ТОГО ЖЕ signing payload (как v1 — над digest);
+// sig2Pub — авторизованный кого policy.signers. Для подписывающего порядок: сначала
+// tx без sig2 (sig2Present=false), потом casual re-sign → подпись такая же.
+export function verifySecondSigV2(tx, policy, addressOf = addressFromPub) {
+  if (!policy || !policy.treasury || tx.from !== policy.treasury) return true;
+  if (tx.digestVersion !== 2) return true; // v1 tx — политика не рассматривает v2
+  if (typeof tx.sig2 !== 'string' || typeof tx.sig2Pub !== 'string' || !tx.sig2 || !tx.sig2Pub) return false;
+  const addr = typeof addressOf === 'function' ? addressOf(tx.sig2Pub) : null;
+  if (!addr || !(policy.signers || []).includes(addr)) return false;
+  if (tx.sig2Pub === tx.fromPub) return false;
+  try {
+    return crypto.verify(null, Buffer.from(txSigningDigestV2(tx), 'hex'), tx.sig2Pub, Buffer.from(tx.sig2, 'hex'));
   } catch { return false; }
 }
 

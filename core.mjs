@@ -848,7 +848,7 @@ export class Blockchain {
     const known = this.knownChainTxids();
     for (const tx of this.mempool) {
       if (tx.txid && known.has(tx.txid)) continue;
-      if ((verifyTxAny(tx, this.chain) || verifyTwinSweepTx(tx, twinSweepSpec())) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
+      if (verifyTxAny(tx, this.chain) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
         keep.push(tx); spent[tx.from] = (spent[tx.from] || 0) + tx.amount;
       }
     }

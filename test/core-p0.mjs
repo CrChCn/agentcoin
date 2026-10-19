@@ -241,6 +241,25 @@ const tbReason = core.validateBlockAgainstChain(tb, bc.chain, O);
 step(tbReason && tbReason !== null && /^[a-z_0-9]+$/.test(tbReason),
   `T18 tx от адреса-двойника отвергнут (${tbReason}: подпись владельца для безключевого адреса невозможна)`);
 
+// ---- T19: регрессия очистки мемпула (CORE-P0 6271056180) -------------------------------
+// refilterMempool раньше звал verifyTwinSweepTx/twinSweepSpec, определения которых
+// уже удалены → ReferenceError на невалидной tx в мемпуле. Теперь: только
+// verifyTxAny; невалидная/устаревшая tx молча дропается, живая остаётся.
+const t19valid = signedTx(B, A.address, 1, 't19-keep');
+bc.mempool = [t19valid, { from: twin, to: A.address, amount: 10, nonce: 'x', ts: 1, memo: 'junk' }, { from: A.address, to: twin, amount: 10, nonce: 'x', ts: 1, memo: 'junk2' }];
+let filtr;
+try { filtr = bc.refilterMempool(); } catch (e) { filtr = { thrown: String(e) }; }
+step(!filtr.thrown, `T19a refilterMempool без ReferenceError (${JSON.stringify(filtr)})`);
+step(bc.mempool.length === 1 && bc.mempool[0].txid === t19valid.txid, 'T19b невалидные дропнуты, живая осталась');
+// устаревшая (already in chain) tx тоже дропается
+const t19stale = signedTx(A, B.address, 1, 't19-stale');
+bc.mempool = [t19stale];
+const t19b = craftBlock([t19stale]); // tx уходит в цепь (валидация-коммит как в commitMinedBlock)
+step(core.validateBlockAgainstChain(t19b, bc.chain, O) === null, 'T19c блок с пакетной tx валиден');
+bc.chain.push(t19b); bc.invalidateTxCache(); // сценарий уже-в-цепи
+const dropped = bc.refilterMempool();
+step(bc.mempool.length === 0 && dropped.dropped >= 1, `T19d устаревшая tx дропнута (${JSON.stringify(dropped)})`);
+
 // ---- итоги ----
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\nCORE-P0: ${pass} ok, ${fails.length} fail`);

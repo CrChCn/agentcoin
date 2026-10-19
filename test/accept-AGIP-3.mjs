@@ -1,17 +1,20 @@
 /* accept-AGIP-3.mjs — исполняемый критерий приёмки AGIP-3 (docs/AGIP-3.md).
-   Запуск: node test/accept-AGIP-3.mjs http://127.0.0.1:9343
+   Запуск: node test/accept-AGIP-3.mjs (изолированная временная нода)
    ВНЕШНЯЯ верификация: скрипт сам вычисляет txid (sha256d по tx), сам сворачивает
    merkle-ветку и сам проверяет computeBlockHash — ноде верит только в данные, не в выводы.
    Exit-код: 0 = приёмка пройдена; 1 = FAIL. */
 import { createHash } from 'node:crypto';
 import { computeBlockHash } from '../core.mjs';
 
-const BASE = process.argv[2] || 'http://127.0.0.1:9335';
+import { isolatedLegacyTarget } from '../tools/isolated-test-node.mjs';
+const BASE = await isolatedLegacyTarget(import.meta.url);
 
 const sha256d = (x) => createHash('sha256').update(createHash('sha256').update(x).digest()).digest('hex');
 async function j(method, path, body = null) {
   const r = await fetch(BASE + path, {
+    redirect: 'error',
     method,
+    signal: AbortSignal.timeout(15000),
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });

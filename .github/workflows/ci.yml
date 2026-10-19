@@ -36,6 +36,8 @@ jobs:
           test/site-release.mjs test/agent-node-setup.mjs test/address-configuration.mjs
       - name: Independent accounting and preventive mining guards
         run: node --test test/ledger-audit.mjs test/audit-lib.mjs test/mining-guard.mjs
+      - name: Inactive consensus candidate and durable payment intents
+        run: node --test test/consensus-v2.mjs test/consensus-checkpoint.mjs test/payment-intent.mjs test/payment-cli.mjs test/isolated-test-node.mjs
   easy-install:
     strategy:
       fail-fast: false

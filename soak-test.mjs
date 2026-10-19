@@ -3,17 +3,17 @@
  * Нагрузка: много BN小的 tx /tx + повторные /mine, включая гонки tx-vs-mine.
  * Проверки: accept-rate, сложность в границах [MIN..MAX], баны растут только у реально
  * атакующих, /life valid+fresh, latency /info.
- * Запуск: node soak-test.mjs [port] [minerAddr] [количество tx]   (по умолчанию 400)
+ * Запуск: node soak-test.mjs (изолированная временная нода)   (по умолчанию 400)
  */
 import { signTransaction } from './core.mjs';
 
-const PORT = process.argv[2] || 9335;
-const N_TX = Number(process.argv[4]) || 400;
-const API = `http://127.0.0.1:${PORT}`;
+import { isolatedLegacyTarget } from './tools/isolated-test-node.mjs';
+const API = await isolatedLegacyTarget(import.meta.url);
+const N_TX = 400;
 
 async function api(m, p, b = null) {
   const t0 = Date.now();
-  const r = await fetch(API + p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+  const r = await fetch(API + p, { redirect: 'error', method: m, signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
   const body = await r.json().catch(() => ({}));
   return { status: r.status, body, ms: Date.now() - t0 };
 }

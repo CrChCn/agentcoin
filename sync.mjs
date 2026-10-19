@@ -20,23 +20,27 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits, networkChainId,  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
-  chainBalanceUnitsOf, applyTxToBalanceUnits, // C-6: точный контекст в REPLAY-юнитах
+  chainBalanceUnitsOf, applyTxToBalanceUnits, // C-6: точный контекст в REPLAY-юнитах
 } from './core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // как в node.mjs: вторая нода = свой data-dir
-const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
-const PEER_META_FILE = path.join(DATA_DIR, 'peer-meta.json');
+// R-14 (изолированность): данные пути НЕ капчурятся в константу при импорте —
+// AGT_DATA_DIR читается на каждом обращении. Иначе изолированные прогоны
+// (тест-сьюиты/кластерные data-dir, меняющие env после import) молча писали/читали
+// peers.json ОСНОВНОГО data-каталога — синтетическая изоляция не работала.
+export function peersDataDir() { return process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); }
+const PEERS_FILE = () => path.join(peersDataDir(), 'peers.json');
+const PEER_META_FILE = () => path.join(peersDataDir(), 'peer-meta.json');
 
 const STRIKE_LIMIT = 3;
 const STRIKE_COOLDOWN_MS = 24 * 3600 * 1000;
 
 export function loadPeers() {
-  try { return JSON.parse(fs.readFileSync(PEERS_FILE, 'utf8')); } catch { return []; }
+  try { return JSON.parse(fs.readFileSync(PEERS_FILE(), 'utf8')); } catch { return []; }
 }
 export function savePeers(list) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(PEERS_FILE, JSON.stringify(list, null, 2));
+  fs.mkdirSync(peersDataDir(), { recursive: true });
+  fs.writeFileSync(PEERS_FILE(), JSON.stringify(list, null, 2));
 }
 export function addPeer(url) {
   const peers = loadPeers();
@@ -46,11 +50,11 @@ export function addPeer(url) {
 }
 
 export function loadPeerMeta() {
-  try { return JSON.parse(fs.readFileSync(PEER_META_FILE, 'utf8')); } catch { return {}; }
+  try { return JSON.parse(fs.readFileSync(PEER_META_FILE(), 'utf8')); } catch { return {}; }
 }
 export function savePeerMeta(meta) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(PEER_META_FILE, JSON.stringify(meta, null, 2));
+  fs.mkdirSync(peersDataDir(), { recursive: true });
+  fs.writeFileSync(PEER_META_FILE(), JSON.stringify(meta, null, 2));
 }
 export function peerStrike(peerUrl, reason) {
   const meta = loadPeerMeta();

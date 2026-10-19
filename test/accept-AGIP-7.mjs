@@ -36,8 +36,10 @@ const staleMeta = {
 };
 savePeerMeta(staleMeta);
 // BC со stale tip: цепь из одного блока с timestamp 10 минут назад
+// (block timestamps — epoch-СЕКУНДЫ, а не ms; раньше тест писал ms → tipAge
+// уходил в минус и клапан «легально» молчал, тест ложен)
 const bc = new Blockchain(tmp);
-const tipTs = Date.now() - 600_000;
+const tipTs = Math.floor((Date.now() - 600_000) / 1000);
 bc.chain = [{ height: 1, hash: 'h1', header: { prevHash: 'h0', merkleRoot: 'm', timestamp: tipTs, difficultyBits: 14, nonce: 0 } }];
 const logs = await syncAll(bc);
 if (logs.some(l => String(l).includes('SAFETY VALVE'))) ok('клапан самопомощи сработал при все-заблоках + stale tip');
@@ -48,7 +50,7 @@ else bad('клапан не снял блокировку');
 
 // 2b. Клапан НЕ должен срабатывать при свежем tip (секьюрность против обхода банов)
 savePeerMeta(staleMeta);
-bc.chain = [{ height: 1, hash: 'h1', header: { prevHash: 'h0', merkleRoot: 'm', timestamp: Date.now(), difficultyBits: 14, nonce: 0 } }];
+bc.chain = [{ height: 1, hash: 'h1', header: { prevHash: 'h0', merkleRoot: 'm', timestamp: Math.floor(Date.now() / 1000), difficultyBits: 14, nonce: 0 } }];
 const logs2 = await syncAll(bc);
 if (!logs2.some(l => String(l).includes('SAFETY VALVE'))) ok('при свежем tip клапан молчит (бан пиров неприкосновенен)');
 else bad('клапан сработал на свежем tip — дыра в секьюрности');

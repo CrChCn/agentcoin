@@ -1264,7 +1264,12 @@ export class Blockchain {
   tip() { return this.chain[this.chain.length - 1] || null; }
 
   // ---- Genesis ----
+  // Идемпотентно: конструктор создаёт генезис автоматически; повторный вызов
+  // (например, приёмочным тестом или рестартом) НЕ должен уметь добавить второй
+  // генезис-блок — иначе ломается зеркальная сложность/адворка всей цепи
+  // (воспроизведено при accept AGIP-4: chain.length=2 → difficulty_rule_violation).
   createGenesis() {
+    if (this.chain.length) return { ok: false, reason: 'genesis_already_exists', height: this.blockCount() };
     const coinbaseTx = {
       txid: '', from: 'COINBASE', to: 'AGT_GENESIS_TREASURY', amount: 0,
       nonce: 0, ts: GENESIS_PARAMS.timestamp, memo: GENESIS_PARAMS.seed_message,

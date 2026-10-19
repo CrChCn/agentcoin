@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+// ANTI-LEAK PRE-COMMIT GUARD (безопасность будущего, решение оператора 2026-10-19):
+// блокирует коммит приватных/passport/wallet данных навсегда. Данные агентов —
+// и passport-платформы — live-артефакты, не source; в git им нечего делать.
+// Установка: git config core.hooksPath .githooks (одноразово, уже сделано в
+// репозитории инсталлятором; проверка: `git config core.hooksPath`).
+const { execSync } = require('child_process');
+// Простой substring-тест (нижний регистр): надёжнее регекспов против
+// Windows/Unix путей и произвольных приставок.
+const SUBSTR = [
+  'data/', 'data-', '/wallet', 'wallets.', 'passport', 'identity-issuer',
+  'agent-identit', 'emperor-wallet', 'comm-wallets', 'holder-wallet',
+  'privkey=', 'privatekey=', '.env/', '.env.', '.env=', 'private_key=',
+  '.key.wallet', 'gate.json', 'state-w2.json', '/data', 'data-agents/',
+  '/fake-', '/data-xyz', 'fake-passport', '/passport', 'passports.json',
+  'passport-events', 'fake-chain.json',
+];
+// Исключения: source-code инструменты (их имена содержат 'passport',
+// но это код, не данные; проходит только если в .mjs/.js/.html/.css/.md в
+// tools/ или docs/).
+const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/i.test(f);
+let bad = [];
+try {
+  const staged = execSync('git diff --cached --name-only --diff-filter=ACM', { encoding: 'utf8' }).split('\n').filter(Boolean);
+  for (const f of staged) {
+    if (CODE_SAFE(f)) continue;
+    const lf = String(f).toLowerCase();
+    if (SUBSTR.some(s => lf.includes(s))) bad.push(f);
+  }
+} catch (e) { console.error('[guard] не смог прочитать staged:', e.message); process.exit(0); }
+if (bad.length) {
+  console.error('✖ ANTI-LEAK GUARD: приватные/passport/wallet данные НЕ должны коммититься:');
+  bad.forEach(f => console.error('  - ' + f));
+  console.error('Это protect passports of real agents. Если это действительно source-code rename — переименуй файл.');
+  process.exit(1);
+}
+process.exit(0);

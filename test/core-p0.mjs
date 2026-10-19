@@ -343,6 +343,48 @@ step(core.decimalToScaledUnits('90.72999999999945', core.REPLAY_SCALE_EXP) === 9
 step(core.decimalToScaledUnits('0.0012000000000000001', core.REPLAY_SCALE_EXP) === 12000000000000001n, 'T22e float-артефакт 0.0012000000000000001 точно (19 dec)');
 step(core.decimalToScaledUnits('350.0000000005', core.REPLAY_SCALE_EXP) === 3500000000005000000000n, 'T22e пыль 350.0000000005 точно');
 
+// ---- T23: R-01 (EMPIRE-ROADMAP-01, замечания 6274233515) — экспонента, version-routing, точный reward ----
+// T23a: положительная экспонента была сломана (1e20@0 → 1e19, 2.5e3@0 → 25)
+step(core.decimalToScaledUnits('1e20', 0n) === 100000000000000000000n, 'T23a 1e20 @0 = 10^20 точно');
+step(core.decimalToScaledUnits('2.5e3', 0n) === 2500n, 'T23a 2.5e3 @0 = 2500 точно');
+step(core.decimalToScaledUnits('12.345e2', 9n) === 1234500000000n, 'T23a 12.345e2 @9 = 1234.5 точно');
+step(core.decimalToScaledUnits('0.12e3', 9n) === 120000000000n, 'T23a 0.12e3 @9 = 120 (стартовые нули не ломают порядок)');
+step(core.decimalToScaledUnits('120e2', 9n) === 12000n * 1000000000n, 'T23a 120e2 = 12000 AGT*1e9');
+step(core.decimalToScaledUnits('1.5e-8', 9n) === 15n, 'T23a 1.5e-8 = 15 магент (regression C-6)');
+// T23b: v2 включается ТОЛЬКО порогом — до порога verifyTxAny не пропускает (С8-стиль fail-closed конфиг)
+const actNow = bc.blockCount();
+const txV2ok = { from: A.address, fromPub: A.pub, to: B.address, amount: 1, nonce: actNow, ts: Math.floor(Date.now() / 1000), memo: 't23-v2', digestVersion: 2, chainId: core.networkChainId() };
+txV2ok.signature = core.signTransactionV2(txV2ok, A.privKey);
+txV2ok.txid = core.txDigestV2(txV2ok);
+step(core.verifyTxAny(txV2ok, bc.chain, { height: actNow }) === false, 'T23b v2-подписана порогом сверху НЕ проходит подпись-путь: порог по умолчанию Infinity');
+step(core.verifyTxAny(txV2ok, bc.chain, { height: actNow, txDigestV2: actNow }) === true, 'T23b v2 подпись валидна при явном пороге = высота');
+step(core.verifyTxAny({ ...txV2ok, chainId: 'OTHERNET', txid: core.txDigestV2({ ...txV2ok, chainId: 'OTHERNET' }) }, bc.chain, { height: actNow, txDigestV2: actNow }) === false, 'T23b v2 чужая сеть отвергнута (network pin)');
+let t23b = '';
+try { core.txDigestV2Activation({ txDigestV2: 11.5 }); } catch (e) { t23b = String(e); }
+step(/_invalid/.test(t23b), `T23b дробный порог digest-v2 → fail-closed (${t23b.split(':')[0] || 'no throw'})`);
+// T23c: активный блок — v2txid каноничен ТОЛЬКО как txDigestV2; hybrid V2-подпись+V1-txid отвергнут
+const b23a = craftBlock([txV2ok]);
+const r23a = core.validateBlockAgainstChain(b23a, bc.chain, { ...O, txDigestV2: actNow });
+step(r23a === null, `T23c правильный v2tx в активном блоке принят (${r23a})`);
+const hyb23 = { ...txV2ok, txid: core.txDigest(txV2ok) }; // V1 txid при v2 подписи
+const b23h = craftBlock([hyb23]);
+const r23b = core.validateBlockAgainstChain(b23h, bc.chain, { ...O, txDigestV2: actNow });
+step(r23b === 'txid_not_canonical', `T23c hybrid V2-подпись+V1-txid отвергнут (${r23b})`);
+const r23c = core.validateBlockAgainstChain(b23a, bc.chain, O);
+step(r23c === 'tx_digest_version_not_active', `T23c v2 до порога в блоке отвергнут (${r23c})`);
+// T23d: точная coinbase-арифметика (без epsilon +1e-9): строим блок с пересвойкой coinbase
+// (amount reward+1e-9+eps) ДО PoW/merkle, чтобы отказ был именно счётным, не структурным
+const r23d = (() => {
+  const height = bc.blockCount();
+  const cbT = bc.coinbaseTxTemplate();
+  const cb = { ...cbT, to: A.address, amount: core.blockReward(height) + 1e-9 + 1e-12 }; // > allowed — старый epsilon пускал
+  cb.txid = core.txDigest(cb);
+  const txs = [cb];
+  const header = { version: 1, prevHash: bc.tip().hash, merkleRoot: core.merkleRoot(txs), timestamp: Math.floor(Date.now() / 1000), difficultyBits: bc.nextDifficulty(), nonce: 0, chainId: core.CHAIN_ID };
+  while (true) { const h = core.computeBlockHash(header); if (core.hashMeetsDifficulty(h, header.difficultyBits)) { const blk = { height, hash: h, header, txs, miner: A.address }; return core.validateBlockAgainstChain(blk, bc.chain, O); } header.nonce++; }
+})();
+step(r23d === 'coinbase_amount_not_mgnt_exact' || r23d === 'coinbase_inflation', `T23d reward+1epsilon боле не проходит (${r23d})`);
+
 // ---- итоги ----
 if (fails.length) { console.log(fails.map(f => '  - ' + f).join('\n')); process.exit(1); }
 console.log('ALL PASS');

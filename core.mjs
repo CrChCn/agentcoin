@@ -380,7 +380,19 @@ export function verifyEscrowTx(tx, chain) {
 
 // Единая точка проверки ЛЮБОЙ tx (обычная или эскроу-расход):
 // вся внутренняя валидация внутри Blockchain идёт через неё.
-export function verifyTxAny(tx, chain = null) {
+// R-01 (6274233515 п.2/3): Тора версии digest — fail-closed как C-8: unset → Infinity
+// (легаси v1-сеть без v2), ЯВНО заданное некорректное → бросок, не «молча выключено».
+export function txDigestV2Activation(opts = {}) {
+  const raw = opts.txDigestV2 !== undefined ? opts.txDigestV2 : process.env.AGT_TX_DIGEST_V2_HEIGHT;
+  if (raw === undefined || raw === null || raw === '') return Infinity;
+  if (raw === Infinity) return Infinity;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`AGT_TX_DIGEST_V2_HEIGHT_invalid: ${JSON.stringify(String(raw))} — задано явно, но не целое в [1, MAX_SAFE_INTEGER] (fail-closed)`);
+  }
+  return n;
+}
+export function verifyTxAny(tx, chain = null, opts = {}) {
   if (tx && typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) {
     if (!chain) return false;
     return Boolean(verifyEscrowTx(tx, chain)?.ok);
@@ -388,7 +400,17 @@ export function verifyTxAny(tx, chain = null) {
   // C-7 роутинг версий: v1 (digestVersion отсутствует) — легаси verifyTransaction как было;
   // v2 (digestVersion===2) — строгая v2-семантика. До активации порога валидатор v1-блок
   // от v2-tx отвергается (txid/подпись менялись); сеть согласует отдельным порогом.
-  if (tx && tx.digestVersion === 2) return verifyTransactionV2(tx);
+  if (tx && tx.digestVersion === 2) {
+    // R-01 (6274233515 п.2): v2 включается ТОЛЬКО общим порогом/version-height
+    // (AGT_TX_DIGEST_V2_HEIGHT, fail-closed как C-8) — не тихо при digestVersion и
+    // не «просто усложнение». Высота: opt.height, иначе chain.length (tx может быть
+    // включена в СЛЕДУЮЩИЙ блок этой высоты). До порога v2 не проходит вовсе —
+    // это и есть «сохранение legacy до активации».
+    const h = (opts && opts.height !== undefined) ? opts.height : (chain ? chain.length : null);
+    const act = txDigestV2Activation(opts || {});
+    if (h === null || h === undefined || !(h >= act)) return false; // v2 не активен на этой высоте
+    return verifyTransactionV2(tx);
+  }
   return verifyTransaction(tx);
 }
 
@@ -442,6 +464,10 @@ export class MiningPool {
   stats() { return { miners: Object.keys(this.miners).length, shares: Object.values(this.miners).reduce((s, m) => s + m.shares, 0), shareDiffBits: SHARE_DIFF_BITS }; }
 }
 export const CHAIN_ID = 'AGENTCOIN';
+// R-01/R-03: активная сеть — env AGT_CHAIN_ID (для тестнет/регтеста) иначе main.
+// На main без env поведение байт-в-байт прежнее; тестнет задает своё имя сети и не
+// может смешиваться с main (genesis/network checks в syncOne уже обрабатывают).
+export function networkChainId() { return process.env.AGT_CHAIN_ID || CHAIN_ID; }
 export const TICKER = 'AGT';
 export const BLOCK_INTERVAL_SEC = 30;      // блок каждые ~30 сек
 export const RETARGET_INTERVAL = 10;       // ретарджет каждые 10 блоков (быстрая демо-цепь)
@@ -581,7 +607,7 @@ export function canonicalAuthPayload(tx, version = tx.digestVersion === 2 ? 2 : 
   const payload = {
     domain: 'agt.tx.sign.v2',
     digv: 2,
-    chainId: tx.chainId ?? CHAIN_ID,
+    chainId: tx.chainId ?? networkChainId(),
     from: tx.from,
     fromPub: tx.fromPub,
     to: tx.to,
@@ -633,6 +659,9 @@ export function signTransactionV2(tx, privKey) {
 export function verifyTransactionV2(tx) {
   if (!tx || tx.digestVersion !== 2 || tx.fromPub == null) return false;
   if (addressFromPub(tx.fromPub) !== tx.from) return false;
+  // R-01 (6274233515 п.2): network pin — ОЖИДАЕМЫЙ chainId: чужая сеть не проходит
+  // (было: подпись верна на любом chainId — «V2 OTHER_NETWORK проходит»)
+  if ((tx.chainId ?? networkChainId()) !== networkChainId()) return false;
   try {
     return crypto.verify(null, Buffer.from(txSigningDigestV2(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature || '', 'hex'));
   } catch { return false; }
@@ -822,20 +851,26 @@ export function decimalToScaledUnits(amount, scaleExp) {
     s = String(amount);
   }
   if (s.startsWith('-')) throw new Error('value_not_positive_or_finite');
-  // Экспоненциальная форма '1.5e-8' / '2E3' → разворачиваем в точный обычный decimal:
-  const em = s.match(/^([0-9])(?:\.([0-9]+))?e([-+]?\d+)$/i);
+  // Экспоненциальная форма '1e20' / '2E3' → разворачиваем в точный обычный decimal.
+  // R-01/6274233515 п.1: ПРЕЖНЯЯ математика ломала положительную экспоненту ('1e20'@0
+  // давало 1e19, '2.5e3'@0 давало 25): repeat(shift - digits.length) сдвигает точку
+  // на «минус длина мантиссы» и деление по length вместо исходной позиции десяточной
+  // точки. Заново: value = D × 10^K, K = E - F (F = длина дробной части), точка
+  // двигается на K позиций от КОНЦА целой части мантиссы, стартовые нули снимаются
+  // ПОСЛЕ позиционирования (иначе 0.12e3 → '12'+'0' влезал лишний ноль).
+  const em = s.match(/^(\d+)(?:\.([0-9]+))?e([-+]?\d+)$/i);
   if (em) {
-    const digits = (em[1] + (em[2] || '')).replace(/^0+(?=\d)/, '');
-    const shift = parseInt(em[3], 10) - (em[2] || '').length; // value = digits × 10^shift
+    const D = em[1] + (em[2] || '');        // непозиционный цифровой мантиссы
+    const F = (em[2] || '').length;        // сколько знаков было дробными
+    const K = parseInt(em[3], 10) - F;      // точка двигается на K
     let intStr, fracStr;
-    if (shift >= digits.length) { intStr = digits + '0'.repeat(shift - digits.length); fracStr = ''; }
-    else if (shift > 0) { intStr = digits.slice(0, shift); fracStr = digits.slice(shift); }
-    else if (shift === 0) { intStr = digits; fracStr = ''; }
+    if (K >= 0) { intStr = D + '0'.repeat(K); fracStr = ''; }
     else {
-      const cut = digits.length + shift; // точка внутри digits
-      if (cut > 0) { intStr = digits.slice(0, cut); fracStr = digits.slice(cut); }
-      else { intStr = '0'; fracStr = '0'.repeat(-cut) + digits; }
+      const cut = D.length + K;            // точная позиция точки внутри D
+      if (cut > 0) { intStr = D.slice(0, cut); fracStr = D.slice(cut); }
+      else { intStr = '0'; fracStr = '0'.repeat(-cut) + D; }
     }
+    intStr = intStr.replace(/^0+(?=\d)/, '');
     s = intStr + (fracStr ? '.' + fracStr : '');
   }
   const maxFrac = Number(scaleExp);
@@ -891,14 +926,38 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (block.header.merkleRoot !== merkleRoot(block.txs)) return 'merkle_mismatch';
   const act = coreP0ActivationHeight(opts);
   const coreP0 = typeof block.height === 'number' && block.height >= act;
+  const v2Act = txDigestV2Activation(opts); // R-01: единый порог digest-версии (fail-closed)
   if (coreP0 && block.header.chainId !== CHAIN_ID) return 'chainId_mismatch';
   const cbs = (block.txs || []).filter(t => t && t.from === 'COINBASE');
-  if (cbs.length === 0) return 'coinbase_missing';
-  if (coreP0 && cbs.length > 1) return 'multiple_coinbase'; // доп. эмиссия мимо blockReward
-  const cb = cbs[0];
   const allowed = blockReward(block.height);
-  if (!(cb.amount > 0 && cb.amount <= allowed + 1e-9)) return 'coinbase_inflation';
-  if (coreP0 && (typeof cb.txid !== 'string' || cb.txid !== txDigest(cb))) return 'coinbase_txid_not_canonical';
+  const rewardZero = !(Number(allowed) > 0);
+  if (cbs.length === 0) {
+    // R-01 off-grid/zero-tail policy: при НЕНУЛЕВОЙ награде coinbase обязателен;
+    // при НУЛЕВОЙ (off-grid будущие/нулевые хвосты) — отсутствие coinbase корректно,
+    // но ТОЛЬКО при активном CORE-P0 (легаси поведение байт-в-байт прежнее).
+    if (!rewardZero || !coreP0) return 'coinbase_missing';
+  } else {
+    if (coreP0 && cbs.length > 1) return 'multiple_coinbase'; // доп. эмиссия мимо blockReward
+  }
+  const cb = cbs[0] || null;
+  if (cb) {
+    if (!rewardZero && !(cb.amount > 0)) return 'coinbase_inflation';
+    if (coreP0) {
+      // R-01 (6274233515 п.6 от раздела rewards): epsilon +1e-9 удалён — точная
+      // magent-арифметика: 50.000000001 при награде 50 НЕ проходит (было: проходил).
+      // Нулевая награда: coinbase допустим ТОЛЬКО с amount==0 (шаблон майнера),
+      // любая эмиссия сверх неё — 'coinbase_inflation'.
+      let cbU;
+      try { cbU = unitsOfAmountBigInt(cb.amount); } catch { return 'coinbase_amount_not_mgnt_exact'; }
+      let allowedU;
+      try { allowedU = unitsOfAmountBigInt(allowed); } catch { return 'reward_schedule_not_mgnt_exact'; }
+      if (rewardZero) { if (!(cbU === 0n)) return 'coinbase_inflation'; }
+      else if (!(cb.amount > 0 && cbU <= allowedU)) return 'coinbase_inflation';
+    } else {
+      if (!(cb.amount > 0 && cb.amount <= allowed + 1e-9)) return 'coinbase_inflation';
+    }
+  }
+  if (coreP0 && cb && (typeof cb.txid !== 'string' || cb.txid !== txDigest(cb))) return 'coinbase_txid_not_canonical';
   // MINER-GUARD: получатель награды обязан быть каноническим адресом (AGT + 40 hex).
   // Именно эта проверка отвергла бы «двойника» казны (42 символа) ещё на h66.
   if (coreP0 && !isCanonicalAddress(cb.to)) return 'coinbase_bad_recipient';
@@ -949,8 +1008,18 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
       // (эскроу-open платят в ESCROW_<id> — свои правила); предотвращает создание
       // «сиротских» адресов-опечаток операторными и XML-инструментами
       if (!isCanonicalAddress(tx.to) && !String(tx.to).startsWith(ESCROW_PREFIX)) return 'tx_bad_recipient';
-      // merkle привязан к каноническому содержимому, не к переданному txid
-      if (typeof tx.txid !== 'string' || tx.txid !== txDigest(tx)) return 'txid_not_canonical';
+      // R-01 (6274233515 п.2/3/friendly): единый version-routing txid/подписи/2sig.
+      // hybrid прееффикс: v2 нужна ТОЛЬКО на активном пороге; до порога — v1 и только.
+      const txV2 = tx.digestVersion === 2;
+      if (txV2) {
+        if (!(block.height >= v2Act)) return 'tx_digest_version_not_active'; // до порога v2 нет совсем
+        if ((tx.chainId ?? networkChainId()) !== networkChainId()) return 'tx_network_mismatch';
+      }
+      if (txV2 && tx.from && String(tx.from).startsWith(ESCROW_PREFIX)) return 'escrow_digest_version_unsupported'; // v2-эскроу отдельно (R-19)
+      // merkle привязан к каноническому содержимому, не к переданному txid :
+      // канонический digest зависит от АКТИВНОЙ версии (v1 → txDigest, v2 → txDigestV2)
+      const canonDigest = txV2 ? txDigestV2(tx) : txDigest(tx);
+      if (typeof tx.txid !== 'string' || tx.txid !== canonDigest) return 'txid_not_canonical';
       if (seenTxids.has(tx.txid)) return 'duplicate_txid_block';
       if (knownSet && knownSet.has(tx.txid)) return 'tx_replay_in_chain';
       const nkey = String(tx.from) + '|' + String(tx.nonce);
@@ -967,10 +1036,15 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
       if (mgnt < 1) return 'tx_not_mgnt_aligned'; // меньше 1 магента не проходит
       if (Math.abs(tx.amount * 1e9 - mgnt) > 1e-3) return 'tx_not_mgnt_aligned';
     }
-    if (!verifyTxAny(tx, chain)) return 'tx_bad_signature_or_escrow';
+    if (!verifyTxAny(tx, chain, { height: block.height, txDigestV2: v2Act })) return 'tx_bad_signature_or_escrow';
     // AGIP-4: tx из активной казны требует вторую подпись (opts.treasury инжектится нодой;
-    // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше)
-    if (opts.treasury && !verifySecondSig(tx, opts.treasury)) return 'tx_treasury_needs_2sig';
+    // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше).
+    // R-01: вторая подпись обязана быть той же ВЕРСИИ, что и основная (v2-tx → только
+    // verifySecondSigV2 над v2-подписывающим payload; hybrid V2-primary + V1-sig2 отвергнут).
+    if (opts.treasury && !(tx.digestVersion === 2 ? verifySecondSigV2(tx, opts.treasury) : verifySecondSig(tx, opts.treasury))) {
+      if (tx.digestVersion === 2 && tx.sig2 === undefined && tx.sig2Pub === undefined) return 'tx_treasury_needs_2sig';
+      return tx.digestVersion === 2 ? 'tx_treasury_2sig_version_mismatch' : 'tx_treasury_needs_2sig';
+    }
     if (coreP0 && balanceUnits) {
       // ПОСЛЕДОВАТЕЛЬНАЯ бухгалтерия в REPLAY-юнитах BigInt (п.4 + C-6): tx суммы — ЦЕЛЫЕ
       // магенты (×10^9 в replay-масштабе); legacy-дольки остаются в балансе (не сжигаются),

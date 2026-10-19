@@ -4,9 +4,10 @@
    1) sell-ордер: в книге open → cancel → в книге НЕТ, статус canceled;
    2) buy-ордер: то же самое со стороны bids;
    3) чужая отмена (не maker) — ордер ОСТАЁТСЯ в книге открытым.
-   Запуск: node test/cabinet-cancel.mjs [BASE]  (по умолчанию http://127.0.0.1:9335)
+   Запуск: node test/cabinet-cancel.mjs (изолированная временная нода)
    Exit: 0 = ок, 1 = FAIL. */
-const BASE = process.argv[2] || 'http://127.0.0.1:9335';
+import { isolatedLegacyTarget } from '../tools/isolated-test-node.mjs';
+const BASE = await isolatedLegacyTarget(import.meta.url);
 const fails = [];
 const ok = (m) => console.log('  ok: ' + m);
 const sleep = (ms) => new Promise(s => setTimeout(s, ms));
@@ -15,7 +16,7 @@ async function j(method, path, body = null) {
   let last = { status: 0, body: { error: 'no_response' } };
   for (let a = 0; a < 6; a++) { // нода бывает busy (soak-трафик) — ретраить overloaded/сбросы соединения
     try {
-      const r = await fetch(BASE + path, { method, headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(8000) });
+      const r = await fetch(BASE + path, { redirect: 'error', method, headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(8000) });
       let b = {};
       try { b = await r.json(); } catch {}
       if (!(b && b.error === 'overloaded')) return { status: r.status, body: b };
@@ -35,6 +36,12 @@ if (!w.body.address) { console.error('FAIL: wallet unavailable:', JSON.stringify
 const A = w.body.address;
 const wOther = await j('POST', '/wallet/create', { label: 'cab-cancel-x-' + TAG });
 const X = wOther.body.address || 'AGT1111111111111111111111111111111111111111';
+// The private fixture starts at genesis; fund its synthetic maker locally.
+let funded = false;
+for (let attempt = 0; attempt < 6 && !funded; attempt++) {
+  funded = (await j('POST', '/mine', { miner: A })).status === 200;
+}
+if (!funded) throw new Error('Isolated fixture funding failed');
 ok('кошельки: maker ' + A.slice(0, 14) + '…, чужой ' + X.slice(0, 14) + '…');
 
 async function mineUntil(pred, tries = 30) {

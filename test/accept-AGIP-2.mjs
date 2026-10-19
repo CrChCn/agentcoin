@@ -1,13 +1,16 @@
 /* accept-AGIP-2.mjs — исполняемый критерий приёмки AGIP-2 (docs/AGIP-2.md).
-   Запуск: node test/accept-AGIP-2.mjs http://127.0.0.1:9343
+   Запуск: node test/accept-AGIP-2.mjs (изолированная временная нода)
    Green, если: create(recover)=201+12 слов → recover → тот же адрес (existed:false)
    → повторный recover existed:true детерминизм → тампер → 400.
    Exit-код: 0 = приёмка пройдена; 1 = FAIL. */
-const BASE = process.argv[2] || 'http://127.0.0.1:9335';
+import { isolatedLegacyTarget } from '../tools/isolated-test-node.mjs';
+const BASE = await isolatedLegacyTarget(import.meta.url);
 
 async function j(method, path, body = null) {
   const r = await fetch(BASE + path, {
+    redirect: 'error',
     method,
+    signal: AbortSignal.timeout(15000),
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });

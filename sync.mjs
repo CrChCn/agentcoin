@@ -19,8 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits,
-  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
+  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits,  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
+  chainBalanceUnitsOf, applyTxToBalanceUnits, // C-6: точный контекст в REPLAY-юнитах
 } from './core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -320,11 +320,12 @@ export async function syncOne(bc, peerUrl) {
     const knownTx = new Set();
     for (const b of chainAtStart) for (const t of (b.txs || [])) if (t && t.txid) knownTx.add(t.txid);
     const bal = balancesOf(chainAtStart);
+    const balUnits = chainBalanceUnitsOf(chainAtStart); // точный контекст в REPLAY-юнитах (C-6)
     for (const blk of incoming) {
       // дешёвая (headers-only) проверка уже была; здесь — полная, против нарастающего префикса
       const known = headers && headers.find(hd => hd.height === blk.height);
       if (known && known.hash !== blk.hash) { log.push(`  → hash заголовка/тела расходится на ${blk.height}`); peerStrike(peerUrl, `header/body hash divergence at ${blk.height}`); return log; }
-      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy(), knownTxids: knownTx, prefixBalances: bal });
+      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy(), knownTxids: knownTx, prefixBalances: bal, prefixBalanceUnits: balUnits });
       if (reason) {
         log.push(`  → block ${blk.height} REJECTED: ${reason} — плохой блок от пира не примем`);
         peerStrike(peerUrl, `invalid block ${blk.height}: ${reason}`);
@@ -332,7 +333,7 @@ export async function syncOne(bc, peerUrl) {
       }
       interim.push(blk);
       for (const t of (blk.txs || [])) if (t && t.txid) knownTx.add(t.txid);
-      for (const t of (blk.txs || [])) applyTxToBalances(bal, t);
+      for (const t of (blk.txs || [])) { applyTxToBalances(bal, t); applyTxToBalanceUnits(balUnits, t); }
       accepted++;
     }
     if (accepted) {

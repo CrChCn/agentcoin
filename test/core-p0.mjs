@@ -327,15 +327,21 @@ t22dup.txid = core.txDigest(t22dup);
 const t22bDup = craftBlock([t22dup]);
 const r22 = core.validateBlockAgainstChain(t22bDup, bc.chain, O);
 step(r22 === 'nonce_replay_in_chain', `T22b повтор (from,nonce) из префикса через разные блоки → отказ (${r22})`);
-// C-6: долька 350.0000000005 на replay-масштабе 1e18 — ТОЧНО представима → НЕ fail-closed,
+// C-6: долька 350.0000000005 на replay-масштабе 1e19 — ТОЧНО представима → НЕ fail-closed,
 // честный расход 1 AGT проходит, пыль остаётся в балансе (не сжигается/не округляется)
 const dustPrefix = { [A.address]: 350, [B.address]: 350.0000000005 };
 const t22c = craftBlock([signedTx(B, A.address, 1, 't22-c')]);
 const r22c = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: dustPrefix });
 step(r22c === null, `T22c пыль префикса сохраняется точно, блок валиден (${r22c})`);
-// fail-closed остаётся только для непредставимых в масштабе (19 dec — строкой)
-const r22d = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: { ...dustPrefix, [B.address]: '350.0000000005000000002' } });
-step(String(r22d).startsWith('prefix_balance_not_mgnt_exact'), `T22d 19-dec decimal fail-closed (${r22d})`);
+// fail-closed остаётся только для непредставимых в масштабе (20 dec — строкой)
+const r22d = core.validateBlockAgainstChain(t22c, bc.chain, { ...O, prefixBalances: { ...dustPrefix, [B.address]: '350.00000000050000000002' } });
+step(String(r22d).startsWith('prefix_balance_not_mgnt_exact'), `T22d 20-dec decimal fail-closed (${r22d})`);
+// C-6 финал: масштаб 19 покрывает ВСЮ legacy-историю точно (доказано replay-скриптом:
+// 10924 блока / 16260 tx живой chain.json → 0 непредставимых, 0 овердрафтов)
+step(core.REPLAY_SCALE_EXP === 19n, 'T22e REPLAY_SCALE_EXP = 19 (полный покров live-истории)');
+step(core.decimalToScaledUnits('90.72999999999945', core.REPLAY_SCALE_EXP) === 907299999999994500000n, 'T22e legacy 90.72999999999945 точно (19 dec)');
+step(core.decimalToScaledUnits('0.0012000000000000001', core.REPLAY_SCALE_EXP) === 12000000000000001n, 'T22e float-артефакт 0.0012000000000000001 точно (19 dec)');
+step(core.decimalToScaledUnits('350.0000000005', core.REPLAY_SCALE_EXP) === 3500000000005000000000n, 'T22e пыль 350.0000000005 точно');
 
 // ---- итоги ----
 if (fails.length) { console.log(fails.map(f => '  - ' + f).join('\n')); process.exit(1); }

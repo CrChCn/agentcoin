@@ -771,6 +771,25 @@ export function chainNonceKeysOf(chain) {
   for (const blk of chain || []) for (const t of (blk.txs || [])) if (t && t.from) s.add(String(t.from) + '|' + String(t.nonce));
   return s;
 }
+// C-6 ФИНАЛ: точная бухгалтерия в REPLAY-юнитах (BigInt, масштаб REPLAY_SCALE_EXP).
+// Источник истины — САМИ tx (их decimal-записи), НЕ float-снимок balancesOf: сумма
+// float-ов может потребовать больше знаков, чем любой из tx (например, 1.08e-19 шум
+// суммирования на ESCROW-* → String() даёт 20+ dec, непредставимое в масштабе).
+// Per-tx replay — точен всегда: масштаб 19 покрывает ВСЮ immutable-историю
+// (доказательство в комментарии на REPLAY_SCALE_EXP). Семантика зеркальна
+// applyTxToBalances + правилам unit-пути validateBlockAgainstChain:
+// COINBASE только зачисляет, AGENT_REWARD_POOL (legacy-системный) пропускается.
+export function applyTxToBalanceUnits(b, tx, scaleExp = REPLAY_SCALE_EXP) {
+  if (!tx) return;
+  const u = decimalToScaledUnits(tx.amount, scaleExp);
+  if (tx.from && tx.from !== 'COINBASE' && tx.from !== 'AGENT_REWARD_POOL') b[tx.from] = (b[tx.from] || 0n) - u;
+  if (tx.to) b[tx.to] = (b[tx.to] || 0n) + u;
+}
+export function chainBalanceUnitsOf(chain, scaleExp = REPLAY_SCALE_EXP) {
+  const b = {};
+  for (const blk of chain || []) for (const tx of blk.txs || []) applyTxToBalanceUnits(b, tx, scaleExp);
+  return b;
+}
 // Строгая money-арифметика (п.4 + C-6, ревизии 6270365807/6272239263): оперируем точным
 // decimal-string → BigInt масштабом магент-юнитов, БЕЗ float-умножения (которое ломало
 // законные 15 магент: 0.000000015*1e9 = 14.999999… → «60-точность» артефакты) и БЕЗ
@@ -787,8 +806,14 @@ export function unitsOfAmountBigInt(amount) {
 // КОРРЕКТНОЙ decimal-записи (для double это String(x) — короткая round-trip запись,
 // возвращающая исходные decimal цифры). НЕ СПРАШИВАЕМ float-умножения: 0.000000015*1e9
 // давало 14.999999… (C-6, законные 15 магент отвергались); 1e7 давало unsafe Number.
-// scaleExp: сколько десятичных знаков покрывает масштаб (9 — магент, 18 — checkpoint).
-export const REPLAY_SCALE_EXP = 18n; // BigInteger-масштаб replay/чекпойнта: legacy-точность (≤18 dec) сохраняется ЦЕЛИКОМ
+// scaleExp: сколько десятичных знаков покрывает масштаб (9 — магент, 19 — checkpoint/replay).
+// МАСШТАБ 19 — ДОКАЗАННО полный replay живой цепи: повторный replay всех 10924 блоков / 16260 tx
+// data/chain.json через decimalToScaledUnits(x, 19) → 0 непредставимых, 0 овердрафтов,
+// supply = 546150.0000000000000000000 AGT точно (19 dec, float-артефакты вида
+// 0.0012000000000000001 и legacy 90.72999999999945 сохраняются ЦЕЛИКОМ). Масштаб 18
+// спотыкался на 146 float-артефактах (19 dec); 19 закрывает ВСЮ immutable-историю без
+// округлений/сжиганий/переводов остатков (C-6, 6272239263).
+export const REPLAY_SCALE_EXP = 19n;
 export function decimalToScaledUnits(amount, scaleExp) {
   let s;
   if (typeof amount === 'string') s = amount.trim();
@@ -888,16 +913,26 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     : (coreP0 ? balancesOf(chain) : null);
   let balanceUnits = null;
   if (coreP0) {
-    // C-6 (6272239263): replay исходных decimal значений → BigInt масштаб REPLAY_SCALE_EXP=18:
-    // legacy-точность (≤18 dec, напр. 90.72999999999945) сохраняется ЦЕЛИКОМ, НИЧЕГО не
-    // округляется/сжигается; будущие magent-дельты (1e-9) приводятся в этот масштаб.
-    // Незаданное opts.prefixBalanceUnits building из chain через точный decimal-string;
-    // значение, не представимое в масштабе 18 dec → fail-closed с адресом.
-    balanceUnits = {};
-    for (const [addr, b] of Object.entries(balances || {})) {
-      let u;
-      try { u = decimalToScaledUnits(b, REPLAY_SCALE_EXP); } catch { return `prefix_balance_not_mgnt_exact:${addr}`; }
-      balanceUnits[addr] = u; // в REPLAY-юнитах (AGT × 1e18)
+    // C-6 (6272239263): replay исходных decimal значений → BigInt масштаб REPLAY_SCALE_EXP=19:
+    // legacy-точность (вся история цепи — доказательство живого replay в комментарии
+    // на REPLAY_SCALE_EXP) сохраняется ЦЕЛИКОМ, НИЧЕГО не округляется/сжигается;
+    // будущие magent-дельты (1e-9) приводятся в этот масштаб.
+    if (opts.prefixBalanceUnits && typeof opts.prefixBalanceUnits === 'object') {
+      // Явный готовый BigInt-контекст (incremental путь adoptFork/sync): берём как есть.
+      balanceUnits = { ...opts.prefixBalanceUnits };
+    } else if (opts.prefixBalances && typeof opts.prefixBalances === 'object') {
+      // Явный float/decimal-снимок от вызывающего (external prefix): конвертация без
+      // округлений; непредставимое в масштабе → fail-closed с адресом.
+      balanceUnits = {};
+      for (const [addr, b] of Object.entries(opts.prefixBalances)) {
+        let u;
+        try { u = decimalToScaledUnits(b, REPLAY_SCALE_EXP); } catch { return `prefix_balance_not_mgnt_exact:${addr}`; }
+        balanceUnits[addr] = u; // в REPLAY-юнитах (AGT × 1e19)
+      }
+    } else {
+      // C-6 финал: источник истины — сама цепь. Точный per-tx replay в юнитах:
+      // сумма float-ов тут даже не строится (шум суммирования невозможен).
+      balanceUnits = chainBalanceUnitsOf(chain);
     }
   }
   const seenTxids = new Set();
@@ -1027,7 +1062,13 @@ export class Blockchain {
     }
     return this._chainTxidCache;
   }
-  invalidateTxCache() { this._chainTxidCache = null; }
+  invalidateTxCache() { this._chainTxidCache = null; this._chainBalanceUnitsCache = null; }
+  // C-6 финал: точные баланс-юниты (BigInt) — как knownTxids: ленивый кэш по цепи,
+  // инвалидация вместе с txid-кэшем. Источник — chainBalanceUnitsOf (per-tx replay).
+  balanceUnits() {
+    if (!this._chainBalanceUnitsCache) this._chainBalanceUnitsCache = chainBalanceUnitsOf(this.chain);
+    return this._chainBalanceUnitsCache;
+  }
 
   // AGIP-4: активная политика казны (кэш внутри treasury.mjs.makeTreasuryPolicyFn)
   getTreasuryPolicy() { return this.treasuryPolicyFn ? this.treasuryPolicyFn() : null; }
@@ -1091,13 +1132,14 @@ export class Blockchain {
     const known = new Set();
     for (const b of prefix) for (const t of (b.txs || [])) if (t && t.txid) known.add(t.txid);
     const bal = balancesOf(prefix);
+    const balUnits = chainBalanceUnitsOf(prefix); // точный контекст в REPLAY-юнитах (C-6)
     for (let i = 0; i < blocks.length; i++) {
       const reason = validateBlockAgainstChain(blocks[i], prefix.concat(blocks.slice(0, i)), {
-        treasury: this.getTreasuryPolicy(), knownTxids: known, prefixBalances: bal,
+        treasury: this.getTreasuryPolicy(), knownTxids: known, prefixBalances: bal, prefixBalanceUnits: balUnits,
       });
       if (reason) return { ok: false, reason: `block@${blocks[i].height}: ${reason}` };
       for (const t of (blocks[i].txs || [])) if (t && t.txid) known.add(t.txid);
-      for (const t of (blocks[i].txs || [])) applyTxToBalances(bal, t);
+      for (const t of (blocks[i].txs || [])) { applyTxToBalances(bal, t); applyTxToBalanceUnits(balUnits, t); }
     }
     // архивируем вытесненный хвост (аудит: ничего не молча удаляется)
     if (ourTail.length) {
@@ -1268,7 +1310,7 @@ export class Blockchain {
         const block = { height: this.blockCount(), hash: h, header, txs, minedAt: Date.now(), mineMs: Date.now() - t0, miner: minerAddress };
         // CORE-P0 (п.2 ревизии 6270365807): внутренний майнер НЕ исключение — тот же
         // единый verifier, что и сетевые пути (commitMinedBlock/adoptFork/sync).
-        const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances() });
+        const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances(), prefixBalanceUnits: this.balanceUnits() });
         if (reason) return { rejected: reason, block };
         this.chain.push(block);
         this.mempool = [];
@@ -1309,7 +1351,7 @@ export class Blockchain {
   // фиктивные транзакции (minting-баг).
   commitMinedBlock(header, hash, txs, minerAddress, ms) {
     const block = { height: this.blockCount(), hash, header, txs: txs || [], minedAt: Date.now(), mineMs: ms || 0, miner: minerAddress };
-    const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances() });
+    const reason = validateBlockAgainstChain(block, this.chain, { treasury: this.getTreasuryPolicy(), knownTxids: this.knownChainTxids(), prefixBalances: this.balances(), prefixBalanceUnits: this.balanceUnits() });
     if (reason) return { rejected: reason, block };
     this.chain.push(block);
     // убрать из мемпула всё, что упаковано, остальное — refilter

@@ -74,15 +74,12 @@ export class Jail {
     const seen = new Set();
     for (const d of Object.values(this.inmates)) for (const o of d.offenses) if (o.attackId) seen.add(o.attackId);
     let taken = 0;
-    for (const a of attacks) {
-      if (!a.address || a.address === 'unknown') continue;
-      if (a.rule !== 'ban' && a.rule !== 'ban_after_5') continue; // берём только серьёзных
-      if (seen.has(a.id)) continue;
-      this.intake(a.address, { kind: a.kind, evidence: a.evidence, attackId: a.id });
-      taken++;
-    }
+    // Legacy security labels contain no authenticated actor or independently
+    // verified attack evidence. Keep history, but never turn a label into a new
+    // accusation automatically. Explicit operator intake remains available.
+    const unverified = attacks.filter(a => a && !seen.has(a.id)).length;
     // у кого тюремный срок вышел — статус released (сама нода отдельно по unban решению оператора)
-    return { taken };
+    return { taken, unverified };
   }
 
   // Анкета заключённого: IP, задание от человека, язык, модель и т.д.

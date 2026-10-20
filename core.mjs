@@ -65,6 +65,46 @@ export const BAN_TTL = {
   flood: 24 * 3600 * 1000,
 };
 
+// A ledger entry is an observation, not proof of an attack or an external agent.
+// This read-only view deliberately does not rewrite historical records or bans.
+export function classifySecurityEvent(event) {
+  const address = typeof event?.address === 'string' ? event.address : '';
+  const subjectType = address.startsWith('ESCROW_') ? 'escrow'
+    : /^AGT[0-9a-f]{40}$/i.test(address) ? 'agent_address' : 'unknown';
+  const evidence = typeof event?.evidence === 'string' ? event.evidence : '';
+  const requestError = (event?.kind === 'double_spend' && /^(balance\s|stale tx in mempool:)/.test(evidence))
+    || (event?.kind === 'flood' && evidence === 'banned address keeps submitting txs');
+  return {
+    subjectType,
+    classification: requestError ? 'request_error' : 'unverified_event',
+    confirmedAttack: false,
+    provenance: 'unknown',
+  };
+}
+
+export function summarizeSecurityEvidence(events = [], bans = {}) {
+  const list = Array.isArray(events) ? events : [];
+  const addresses = bans && typeof bans === 'object' && !Array.isArray(bans) ? Object.keys(bans) : [];
+  const summary = {
+    eventCount: list.length, confirmedAttackCount: 0,
+    unverifiedEventCount: 0, requestErrorCount: 0,
+    bannedAddressCount: addresses.length, bannedAgentAddressCount: 0,
+    bannedEscrowAddressCount: 0, bannedUnknownAddressCount: 0,
+    provenance: 'unknown',
+  };
+  for (const event of list) {
+    if (classifySecurityEvent(event).classification === 'request_error') summary.requestErrorCount++;
+    else summary.unverifiedEventCount++;
+  }
+  for (const address of addresses) {
+    const type = classifySecurityEvent({ address }).subjectType;
+    if (type === 'escrow') summary.bannedEscrowAddressCount++;
+    else if (type === 'agent_address') summary.bannedAgentAddressCount++;
+    else summary.bannedUnknownAddressCount++;
+  }
+  return summary;
+}
+
 export class SecurityController {
   constructor(dataDir) {
     this.file = path.join(dataDir, 'security.json');
@@ -159,6 +199,7 @@ export class SecurityController {
       bannedCount: this.banList().length,
       banned: this.banList(),
       registryHash: this.registryHash(),
+      evidenceSummary: summarizeSecurityEvidence(this.attacks, this.bans),
     };
   }
 }
@@ -1176,8 +1217,8 @@ export class Blockchain {
       if (!tx || !verifyTxAny(tx, this.chain)) continue;
       const budget = (balances[tx.from] || 0) - (spentFrom[tx.from] || 0);
       if (tx.amount <= budget) { out.push(tx); spentFrom[tx.from] = (spentFrom[tx.from] || 0) + tx.amount; }
-      else
-        this.security.registerAttack('double_spend', tx.from, `stale tx in mempool: budget ${budget}, tried ${tx.amount}`);
+      // A reorg or competing pending spend can make this stale. Skip without
+      // attributing malicious intent or applying sanctions to the signing key.
     }
     return out;
   }
@@ -1315,7 +1356,8 @@ export class Blockchain {
     if (!String(tx.to).startsWith(ESCROW_PREFIX) && !isCanonicalAddress(tx.to)) return { ok: false, reason: 'bad_recipient' };
     // --- Security Controller: бан-фильтр + атак-детект ---
     if (this.security.isBanned(tx.from)) {
-      this.security.registerAttack('flood', tx.from, 'banned address keeps submitting txs');
+      // Rejection is idempotent: an unverified retry must not extend a ban or
+      // amplify the historical attack ledger (including spoofed from fields).
       return { ok: false, reason: 'address_permabanned', bannedAt: this.security.bans[tx.from].bannedAt };
     }
     if (!verifyTxAny(tx, this.chain)) {
@@ -1344,11 +1386,9 @@ export class Blockchain {
     const incoming = this.mempool.filter(t => t.from === tx.from).reduce((s, t) => s + t.amount, 0);
     const isEscrowSpend = typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX);
     if (!isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
-      // двойная трата: расход больше баланса с учётом уже-в-mempool — классический double-spend.
-      // Эскроу-расходы вместо этого валидируются СВОИМИ правилами (overdraft_escrow и др.):
-      // ложный «permaban» эскроу-адреса не имеет смысла.
-      this.security.registerAttack('double_spend', tx.from, `balance ${balances[tx.from] || 0}, pending ${incoming}, tried ${tx.amount}`);
-      return { ok: false, reason: 'double_spend_attempt_permaban' };
+      // Insufficient funds can follow an honest retry, reorg or stale balance.
+      // Reject the spend; it is not proof of an intentional double-spend attack.
+      return { ok: false, reason: 'insufficient_funds' };
     }
     if (isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
       const escCheck = verifyEscrowTx(tx, this.chain);

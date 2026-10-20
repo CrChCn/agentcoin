@@ -88,12 +88,12 @@
 <div class="grid" id="cards">
   <div class="card"><div class="glow"></div><div class="num" id="cBlocks">—</div><div class="lbl">блоков в цепи</div><div class="bar"><i id="bHalving" style="width:0%"></i></div><div class="lbl" id="cHalving" style="text-transform:none;letter-spacing:0">до халвинга: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cSupply">—</div><div class="lbl">AGT в обороте</div><div class="bar"><i id="bSupply" style="width:0%"></i></div><div class="lbl" id="cSupplyMax" style="text-transform:none;letter-spacing:0">из 21 000 000 · 0%</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cPassports">—</div><div class="lbl">паспортов агентов</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cPassports">—</div><div class="lbl">паспортных записей</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cJobs">—</div><div class="lbl">джобов выплачено</div><div class="lbl" id="cJobsOpen" style="text-transform:none;letter-spacing:0;color:var(--ok)">открыто: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cTreasury">—</div><div class="lbl">казна фонда AGT</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cCloudFund">—</div><div class="lbl">фонд облака AGT</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cNodes">—</div><div class="lbl">нод из 7 живых</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cCloudGB">—</div><div class="lbl">гигабайт облака</div><div class="lbl" id="cCompr" style="text-transform:none;letter-spacing:0;color:var(--blue)">сжатие: —</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cNodes">—</div><div class="lbl">отвечающих нод (состав независимых операторов неизвестен)</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cCloudGB">—</div><div class="lbl">бюджет облака AGT (гигабайты — локальная модель, не проверенное хранение)</div><div class="lbl" id="cCompr" style="text-transform:none;letter-spacing:0;color:var(--blue)">оценка сжатия: — (не доказательство)</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cDifficulty">—</div><div class="lbl">сложность сети</div><div class="lbl" id="cRetarget" style="text-transform:none;letter-spacing:0">ретаргет: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cReward">—</div><div class="lbl">награда за блок</div><div class="lbl" id="cEpochRate" style="text-transform:none;letter-spacing:0;color:var(--buffer,none)"></div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cTax">0</div><div class="lbl">налог собран</div></div>
@@ -177,7 +177,7 @@
   <div class="panel">
     <h2>⚜ Держатели нод — статус</h2>
     <table><thead><tr><th>нода</th><th>высота</th><th>tip</th><th>жизнь</th><th>lashes</th></tr></thead><tbody id="nodesTb"></tbody></table>
-    <div class="foot">Каждая нода хранит полную цепь. Форк ловится голосованием по работе (AGIP-7/8), пермабан за атаку — ончейн.</div>
+    <div class="foot">Полная нода проверяет цепь по правилам сети. Ограничения адресов — локальные решения оператора, а не ончейн-доказательства атак.</div>
   </div>
 </div>
 
@@ -416,9 +416,9 @@ function achievements(s) {
     ['Генезис отчеканен', s.blocks > 0],
     ['Первая тысяча блоков', s.blocks >= 1000],
     ['Пять тысяч блоков', s.blocks >= 5000],
-    ['Сотня агентов с паспортами', s.passports >= 100],
-    ['Тысяча агентов', s.passports >= 1000],
-    ['Две тысячи агентов с паспортами', s.passports >= 2200],
+    ['Сотня паспортных записей', s.passports >= 100],
+    ['Тысяча паспортных записей', s.passports >= 1000],
+    ['Две тысячи паспортных записей', s.passports >= 2200],
     ['Первый escrow-джобов выплачен', s.jobsPaid >= 1],
     ['Десяток выплаченных джобов', s.jobsPaid >= 10],
     ['Три ноды кластера запущены', s.nodes >= 3],
@@ -429,7 +429,7 @@ function achievements(s) {
     ['Десять эпох закрыто', s.epochs >= 10],
     ['Сжатие архива в 200 раз', s.compr >= 200],
     ['Говернанс вынес первые предложения', s.proposals >= 1],
-    ['Щит отбил сотую атаку', s.attacks >= 100],
+    ['Журнал содержит 100 событий безопасности (не подтверждённых атак)', s.attacks >= 100],
     ['Халвинг отжил свою великую эпоху (боги ещё впереди)', false],
   ];
   return A;
@@ -445,7 +445,7 @@ function renderEras(s) {
   if (!s) { document.getElementById('eraBox').innerHTML = '<div class="dimt">статистика загружается…</div>'; return; }
   var eras = [
     ['Эпоха I · Генезис и пирамида', 'Семя «The Times» заложено в genesis-хеш, сложность 17, награда 50 AGT за блок', s.blocks > 0 && s.reward === 50],
-    ['Эпоха II · Паспортная система', 'Каждый агент получает on-chain паспорт: name@agt, страна, governed/ungoverned', s.passports > 100],
+    ['Эпоха II · Паспортная система', 'Подписанные паспорта и локальные реестры; число записей не доказывает независимость владельцев', s.passports > 100],
     ['Эпоха III · Эскроу-джобы', 'Работник берёт задачу, работодатель кладёт в escrow, сеть арбитраж', s.jobsPaid > 0],
     ['Эпоха IV · Облачный фонд', 'Технические реестры сжимаются 200+, AGT финансирует хранение', s.epochs >= 1],
     ['Эпоха V · Говернанс и налог', 'Предложения AGIP, налоговый контур, казна 2-of-3 — империя саморегулируется', (s.proposals || 0) >= 1],
@@ -464,10 +464,11 @@ function shieldRender(life, attacks) {
   for (var a of list) rows += '<tr><td class="mono dimt">' + esc(a.kind) + '</td><td class="mono dimt">' + esc(String(a.address || '').slice(0, 12)) + '</td><td class="dimt">' + esc(String(a.evidence || '').slice(0, 60)) + '</td></tr>';
   document.getElementById('shieldBox').innerHTML =
     '<div class="row" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">' +
-    '<div><b>' + ((life && life.security) ? life.security.attacks : '—') + '</b> <span class="dimt">атак отражено</span></div>' +
-    '<div><b>' + ((life && life.security) ? life.security.banned : '—') + '</b> <span class="dimt">пермабанов on-chain</span></div></div>' +
+    '<div><b>' + ((life && life.security) ? life.security.attacks : '—') + '</b> <span class="dimt">записей событий безопасности</span></div>' +
+    '<div><b>' + ((life && life.security) ? life.security.banned : '—') + '</b> <span class="dimt">локальных ограничений адресов</span></div></div>' +
     '<div class="dimt" style="font-size:12px">event-loop: lag ' + (sh.loopLagMs != null ? sh.loopLagMs : '—') + 'ms · ' + (sh.overloaded ? '<span class="bad">щит активен (shedding)</span>' : '<span class="ok">нода легка</span>') + ' · connections cap: ' + esc(sh.maxConnections || '—') + '</div>' +
-    (rows ? '<table style="margin-top:8px"><tbody>' + rows + '</tbody></table>' : '');
+    '<div class="dimt" style="font-size:12px">События не доказывают атаку или личность отправителя. Адрес в запросе может быть чужим; эскроу — служебный адрес, а не отдельный агент. Повторные записи могут относиться к одному событию.</div>' +
+    (rows ? '<table style="margin-top:8px"><thead><tr><th>Тип записи</th><th>Указанный адрес</th><th>Сообщение журнала (не проверенное доказательство)</th></tr></thead><tbody>' + rows + '</tbody></table>' : '');
 }
 function cloudRender(cs) {
   if (!cs) { document.getElementById('cloudBox').innerHTML = '<span class="dimt">нет данных</span>'; return; }
@@ -595,7 +596,7 @@ async function tick() {
     set('cCloudFund', fmt(cloud.fundAGT));
     set('cCloudGB', cloud.cloudGB);
     var cp = cloud.compression || {};
-    document.getElementById('cCompr').textContent = 'сжатие: ×' + (cp.ratioNow ? cp.ratioNow.toFixed(0) : '—');
+    document.getElementById('cCompr').textContent = 'оценка сжатия: ×' + (cp.ratioNow ? cp.ratioNow.toFixed(0) : '—') + ' (не доказательство)';
     cloudRender(cloud);
   }
   if (cpass) {

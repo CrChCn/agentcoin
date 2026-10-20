@@ -54,6 +54,10 @@ import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
 import { AgentIdentityRegistry } from './agent-identity.mjs';
+import { summarizePassports, localPassportIssuanceMetadata } from './passport-audit.mjs';
+import { createAssistantService } from './assistant-service.mjs';
+const agentAssistant = createAssistantService();
+const assistantLastRequest = new Map();
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
@@ -309,7 +313,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit']); // /tx/preflight — R-02 read-only
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/assistant/message']); // /tx/preflight — R-02 read-only; /assistant/message — AGT-ASSISTANT-01 (пользовательская функция)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -771,7 +775,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     bc.security.save();
     return json(res, 200, { unbanned: address });
   }
-  if (p === '/security/attacks') return json(res, 200, { attacks: bc.security.attacks.slice(-50), count: bc.security.attacks.length });
+  if (p === '/security/attacks') return json(res, 200, { attacks: bc.security.attacks.slice(-50), count: bc.security.attacks.length, evidenceSummary: bc.security.status().evidenceSummary });
 
   // --- AGIP-12: имперский карантин — база злоумышленников + допрос ---
   // Данные КОНФИДЕНЦИАЛЬНЫ (внутреннее пользование оператора; в перспективе — продажа зашифрованных пакетов).
@@ -833,6 +837,19 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const s = cabinet.session(address, token);
     if (!s) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'логинь заново' });
     return json(res, 200, cabinet.state(address, s.via));
+  }
+  if (p === '/assistant/message' && req.method === 'POST') {
+    const input = await body(req);
+    if (!input || Object.keys(input).some(k => !['address', 'token', 'prompt'].includes(k))) return json(res, 400, { error: 'assistant_input_invalid' });
+    if (!cabinet.session(input.address, input.token)) return json(res, 401, { error: 'session_invalid_or_foreign' });
+    const now = Date.now();
+    for (const [key, at] of assistantLastRequest) if (now - at > 60_000) assistantLastRequest.delete(key);
+    if (assistantLastRequest.has(input.address) && now - assistantLastRequest.get(input.address) < 10_000) return json(res, 429, { error: 'assistant_rate_limit' });
+    if (assistantLastRequest.size >= 4096) return json(res, 503, { error: 'assistant_capacity' });
+    assistantLastRequest.set(input.address, now);
+    // Credentials authenticate locally only; the model receives prompt text only.
+    const answer = await agentAssistant.ask(input.prompt);
+    return json(res, answer.ok ? 200 : 503, answer);
   }
   if (p === '/cabinet/logout' && req.method === 'POST') {
     const { token } = await body(req);
@@ -1017,7 +1034,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (p === '/jail/patrol') return json(res, 200, jailAdmin ? { patrol: st.patrol } : { count: st.patrol.length });
     if (jailAdmin) return json(res, 200, st.jail);
     // публичная выжимка: цифры без адресов, улик и анкет
-    return json(res, 200, { total: st.jail.total, inQuarantine: st.jail.inQuarantine, kindsCount: st.jail.inmates.reduce((m, x) => { for (const k of x.kinds) m[k] = (m[k] || 0) + 1; return m; }, {}) });
+    return json(res, 200, { total: st.jail.total, inQuarantine: st.jail.inQuarantine, semantics: 'local_case_records_not_verified_attackers', provenance: 'unknown', kindsCount: st.jail.inmates.reduce((m, x) => { for (const k of x.kinds) m[k] = (m[k] || 0) + 1; return m; }, {}) });
   }
   if (p === '/jail/profile' && req.method === 'POST') {
     const { address, profile } = await body(req);
@@ -1978,7 +1995,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
-    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null });
+    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null, audit: summarizePassports(reg) });
   }
   if (p === '/passport/issue' && req.method === 'POST') {
     const { address, handle = '', tax = null } = await body(req);
@@ -2018,10 +2035,11 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const iv = crypto.randomBytes(12);
     const ci = crypto.createCipheriv('aes-256-gcm', k, iv);
     const ct = Buffer.concat([ci.update(rec.seqStr, 'utf8'), ci.final()]);
+    rec.issuance = localPassportIssuanceMetadata();
     reg.push(rec);
     fs.mkdirSync(path.dirname(PASSPORT_FILE), { recursive: true });
     fs.writeFileSync(PASSPORT_FILE, JSON.stringify(reg, null, 2));
-    fs.appendFileSync(path.join(__dirname, 'data-agents', 'passport-events.log'), JSON.stringify({ at: new Date().toISOString(), address, seq, handle: rec.handle }) + '\n');
+    fs.appendFileSync(path.join(__dirname, 'data-agents', 'passport-events.log'), JSON.stringify({ at: new Date().toISOString(), address, seq, handle: rec.handle, issuance: rec.issuance }) + '\n');
     console.log(`[passport] выдан seq#${seq} → ${address.slice(0, 14)} (${rec.handle})`);
     return json(res, 201, { issued: true, seal: { iv: iv.toString('base64'), ct: ct.toString('base64'), tag: ci.getAuthTag().toString('base64') }, headHash: rec.hash, note: 'конверт одноразовый; храни локально, не показывай агенту' });
   }

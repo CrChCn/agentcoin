@@ -22,7 +22,8 @@ const SUBSTR = [
 // 'agent-identit' substring ловил agent-identity.mjs (код доверия) и блокировал
 // security-фиксы; данные (identity JSON, wallets) остаются блокированы.
 const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/i.test(f)
-  || /^(agent-identity|gov-passports)\.mjs$/i.test(f)
+  || /^test\/.+\.(mjs|js)$/i.test(f) // тестовые исходники: данные в тестах — не хранятся в репо (фикстуры только в tmp)
+  || /^(agent-identity|gov-passports|passport-audit)\.mjs$/i.test(f)
   || /^test\/agent-identity\.mjs$/i.test(f)
   || /^skills\/agentdata\.mjs$/i.test(f)
   || /^docs\/.+\.md$/i.test(f); // документация: никакие данные (json/db/двоичные) в docs не проходят

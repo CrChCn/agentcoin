@@ -137,6 +137,31 @@ export async function runHealthCheck(config, { api = createHealthApi(config), au
   else {
     if (life.chainValid !== true) findings.push(`chainValid=false (${life.chainIssue || '?'})`);
     if (life.fresh !== true) findings.push(`chain stale: tipAge=${life.tipAgeSec ?? '?'}s`);
+    // Issuer/pin drift (AGIP-ротация): нода жива, но расхождeние issuer/пинов —
+    // честный FAIL без self-heal (рестарт не чинит пин в cmd-файле).
+    try {
+      const meta = await api('GET', '/identity/meta');
+      if (meta.status === 200 && meta.body && typeof meta.body === 'object') {
+        const fp = meta.body.issuerFingerprint;
+        if (typeof fp !== 'string') {
+          // отсутствует поле (старый билд/мок) — не рассинхрон, проверка неприменима
+        } else if (!/^sha256:[0-9a-f]{64}$/.test(fp)) {
+          findings.push(`identity/meta: issuerFingerprint не sha256:64hex (${String(fp).slice(0, 32)}) — рассинхрон схемы issuer/пинов`);
+        } else {
+          // equality pin==issuer честен только для НЕ-реплик: у реплики локальный
+          // issuer — свой, пин смотрит на издателя сети.
+          const isReplica = meta.body.role === 'replica';
+          const pin = meta.body.passportIssuerFingerprint;
+          if (Array.isArray(meta.body.trustedIssuers) && meta.body.trustedIssuers.length > 0
+            && !meta.body.trustedIssuers.includes(isReplica && typeof pin === 'string' ? pin : fp)) {
+            findings.push(`identity/meta: ожидаемого издателя нет в trustedIssuers (${isReplica ? String(pin).slice(0, 32) : fp}) — пин отъехал от issuer`);
+          }
+          if (!isReplica && pin !== undefined && pin !== fp) {
+            findings.push(`identity/meta: passportIssuerFingerprint (${String(pin).slice(0, 32)}) != issuerFingerprint — пин устарел, рестарт/обновление pin`);
+          }
+        }
+      }
+    } catch (err) { /* нет маршрута/таймаут meta пустости не делает ноду больной */ }
     try {
       auditResult = await audit({ dataDir: config.dataDir, baseUrl: config.baseUrl, adminToken: config.adminToken,
         timeoutMs: config.timeoutMs, signal: AbortSignal.timeout(config.auditTimeoutMs || 60_000) });

@@ -84,7 +84,35 @@ export async function probeHealth(node, request = requestJson) {
     const valid = result.status === 200 && (legacy
       ? typeof body.alive === 'boolean' && typeof body.chainValid === 'boolean'
       : body.ok === true && body.service === 'agt-node');
-    if (valid) return { alive: true, overloaded, chainValid: body.chainValid, blocks: body.blocks, tipAgeSec: body.tipAgeSec };
+    if (valid) {
+      // Issuer/pin drift: /identity/meta проверяем честно, живость не отменяем и
+      // не рестартуем по ней — рестарт не чинит устаревший пин в cmd-файле.
+      // Диагноз делает runHealthCheck (FAIL) + лог инцидента.
+      let identityIssue = null;
+      try {
+        const metaUrl = new URL(node.url);
+        metaUrl.pathname = '/identity/meta'; metaUrl.search = '';
+        const meta = await request(metaUrl.href);
+        if (!meta.error && meta.status === 200 && meta.body && typeof meta.body === 'object') {
+          const fp = meta.body.issuerFingerprint;
+          if (typeof fp === 'string') {
+            if (!/^sha256:[0-9a-f]{64}$/i.test(fp)) identityIssue = `issuerFingerprint не sha256:64hex (${fp.slice(0, 32)}…)`;
+            else {
+              // equality pin==issuer честен только для НЕ-реплик: у реплики локальный
+              // issuer — свой, пин смотрит на издателя сети.
+              const isReplica = meta.body.role === 'replica';
+              const pin = meta.body.passportIssuerFingerprint;
+              if (!isReplica && typeof pin === 'string' && pin !== fp) identityIssue = `passportIssuerFingerprint (${pin.slice(0, 32)}…) != issuer — пин устарел, рестарт/обновление pin`;
+              const tr = meta.body.trustedIssuers;
+              if (Array.isArray(tr) && tr.length > 0
+                && !(isReplica ? tr.includes(typeof pin === 'string' ? pin : fp) : tr.includes(fp)))
+                identityIssue = identityIssue || 'ожидаемого издателя нет в trustedIssuers — пин отъехал';
+            }
+          }
+        }
+      } catch {}
+      return { alive: true, overloaded, chainValid: body.chainValid, blocks: body.blocks, tipAgeSec: body.tipAgeSec, identityIssue };
+    }
   }
   // A different/invalid HTTP 200 service on the configured port is not proof
   // that its process belongs to us. Surface it, do not taskkill that listener.
@@ -188,9 +216,17 @@ export function createWatchdog({ nodes = NODES, state = { nodes: {} }, probe = p
           rec.tipAgeSec = Number.isFinite(check.tipAgeSec) ? check.tipAgeSec : null;
           rec.stale = rec.tipAgeSec !== null && rec.tipAgeSec >= 300;
           rec.chainValid = typeof check.chainValid === 'boolean' ? check.chainValid : null;
-          rec.status = check.overloaded ? 'overloaded' : check.chainValid === false ? 'chain_invalid' : rec.stale ? 'stale' : 'healthy';
+          // Drift издателя/пинов: виден в state и логе, рестарт не выполняем
+          // (restart не чинит pin в cmd-файле, а storm вреден).
+          rec.identityIssue = check.identityIssue || null;
+          if (rec.identityIssue && rec.identityIssue !== rec.identityIssueLogged) {
+            rec.identityIssueLogged = rec.identityIssue;
+            log(`${node.name}: identity drift — ${rec.identityIssue}`);
+          }
+          rec.status = check.identityIssue ? 'identity_drift'
+            : check.overloaded ? 'overloaded' : check.chainValid === false ? 'chain_invalid' : rec.stale ? 'stale' : 'healthy';
           if (now() - rec.lastRestartAt >= 10 * 60_000) rec.cdMul = 1;
-          continue; // Staleness/overload is visible, never a liveness restart.
+          continue; // Staleness/overload/identity drift is visible, never a liveness restart.
         }
         rec.lastProbeError = check.error || 'unreachable';
         if (check.disabled) { rec.status = 'configuration_required'; rec.fails = 0; continue; }

@@ -34,9 +34,10 @@ test('health parses boolean overloaded, preserves actual target URL, avoids /lif
     urls.push(url);
     return { status: 200, body: { ok: true, service: 'agt-node', overloaded: false, blocks: 100, tipAgeSec: 7 } };
   });
-  assert.deepEqual(urls, ['http://100.64.0.8:9336/health']);
+  assert.deepEqual(urls, ['http://100.64.0.8:9336/health', 'http://100.64.0.8:9336/identity/meta']);
   assert.equal(result.alive, true);
   assert.equal(result.overloaded, false);
+  assert.equal(result.identityIssue, null); // мок без /identity/meta поля — drift не констатируется
 });
 
 test('tailnet binding is explicit and absent config never probes or restarts', async () => {
@@ -71,7 +72,7 @@ test('200 alone is not healthy; only a 404 selects legacy life contract', async 
     urls.push(url);
     return url.endsWith('/health') ? { status: 404 } : { status: 200, body: { alive: false, chainValid: false } };
   });
-  assert.deepEqual(urls, ['http://127.0.0.1:19539/health', node.url]);
+  assert.deepEqual(urls, ['http://127.0.0.1:19539/health', node.url, node.url.replace('/life', '/identity/meta')]);
   assert.equal(result.alive, true, 'responsive node with invalid chain needs diagnosis, not restart');
   assert.equal(result.chainValid, false);
 });

@@ -89,7 +89,9 @@ test('remote API and full balance audit suppress env token in every request', as
       audit: (args) => auditBalances({ ...args, fetchFn }),
     });
     assert.equal(result.ok, true);
-    assert.equal(calls.length, 2);
+    // /life + /identity/meta (drift-проверка) + баланс только адресов из chain.json.
+    assert.equal(calls.length, 3);
+    assert.ok(calls.some((call) => call.url.endsWith('/identity/meta')));
     for (const call of calls) assert.equal(call.headers['x-admin-token'], undefined, call.url);
     // Standalone auditors also cannot implicitly forward process.env off-host.
     calls.length = 0;

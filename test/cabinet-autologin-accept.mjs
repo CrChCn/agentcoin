@@ -109,11 +109,14 @@ test('AGIP-45 autologin: loopback-позитив, ротация, CSRF-нега�
     assert.equal(r5.status, 403, 'чужой адрес → 403: ' + JSON.stringify(r5.body));
     assert.equal(['autologin_no_local_key', 'passport_not_found'].includes(r5.body.error), true, 'чужой адрес reason: ' + r5.body.error);
 
-    // 7) страница /cabinet содержит авто-welcome и подключает общий auth-модуль
+    // 7) страницы автологина: /cabinet — кошелёк (вызывает маршрут автологина), /cabinet.html — кабинет агента (общий auth-модуль)
     const page = await fetch(n.origin + '/cabinet', { signal: AbortSignal.timeout(8000) });
     const pageText = await page.text();
-    assert.equal(pageText.includes('cab-auth.js'), true, 'cabinet.html подключает общий auth-модуль');
+    assert.equal(pageText.includes('cabinet/autologin'), true, 'страница /cabinet вызывает маршрут автологина');
     assert.equal(pageText.includes('не входить автоматически'), true, 'кнопка выключения автологина есть');
+    const agentCab = await fetch(n.origin + '/cabinet.html', { signal: AbortSignal.timeout(8000) });
+    const agentCabText = await agentCab.text();
+    assert.equal(agentCabText.includes('cab-auth.js'), true, 'cabinet.html подключает общий auth-модуль');
     // сам модуль содержит молчаливый автологин и хранение сессии в sessionStorage
     const mod = await fetch(n.origin + '/cab-auth.js', { signal: AbortSignal.timeout(8000) });
     assert.equal(mod.status, 200, '/cab-auth.js отдаётся');

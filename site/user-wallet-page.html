@@ -55,7 +55,7 @@ canvas.qr{background:#fff;border-radius:10px;padding:8px}
 <p><small>Подпишитесь локальным Skill (<code>agent-profile.mjs sign-challenge</code>) и вставьте ответ. Срок запроса — 5 минут.</small></p>
 <label for="signature">Подпись (hex 128 или JSON Skill-ответ)</label><textarea id="signature" placeholder="Без ключей и паролей"></textarea><button id="login">Войти</button></div>
 <button id="disableAutologin" class="secondary">не входить автоматически</button>
-</section>
+<button id="autologinNow">Войти без пароля (эта машина) — на какой стоит нода, в тот кошелёк войду</button>
 
 <section class="panel" id="cab">
 <div class="tabs">
@@ -258,7 +258,7 @@ async function refreshAll() {
   const r = await api('/cabinet/state', { address, token });
   await enter(Object.assign({}, state, r), null);
 }
-action('refreshWallet', refreshAll);
+$('refreshWallet').onclick = () => action('refreshWallet', refreshAll);
 
 // восстановление сессии + автологин (как в cabinet.html, без модулей)
 (async function init() {
@@ -289,14 +289,14 @@ action('refreshWallet', refreshAll);
 })();
 
 // ---------- вход ----------
-action('importCert', async () => {
+$('importCert').onclick = () => action('importCert', async () => {
   const f = $('certFile').files[0]; if (!f || f.size > 4096) throw Error('Выбери публичный паспорт до 4 КБ.');
   const passport = JSON.parse(await f.text());  try { noSecrets(passport); } catch { return; }
   await api('/identity/import', { passport });
   $('adr').value = passport.payload && passport.payload.address ? passport.payload.address : '';
   msg('Публичный паспорт проверен этой нодой.');
 });
-action('challenge', async () => {
+$('challenge').onclick = () => action('challenge', async () => {
   const r = await api('/cabinet/challenge', { address: $('adr').value.trim() });
   const c = r.challenge || r;
   $('challengeJson').value = JSON.stringify(c, null, 2);
@@ -304,7 +304,7 @@ action('challenge', async () => {
   $('signBox').classList.remove('hidden');
   msg('Подпиши запрос в своей среде. Срок — 5 минут.');
 });
-action('login', async () => {
+$('login').onclick = () => action('login', async () => {
   const issued = JSON.parse($('challengeJson').value || 'null');
   if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
   let sig = $('signature').value.trim();
@@ -317,20 +317,37 @@ action('login', async () => {
   const st = await api('/cabinet/state', { address, token });
   await enter(st);
 });
-action('logout', async () => {
+$('logout').onclick = () => action('logout', async () => {
   try { await api('/cabinet/logout', { token }); } catch {}
   try { sessionStorage.removeItem('agtx:cab'); } catch {}
   token = ''; address = ''; state = null; pendingOp = null;
   $('cab').classList.add('hidden'); $('loginBox').classList.remove('hidden');
   msg('Сессия завершена.');
 });
-action('disableAutologin', () => {
+$('disableAutologin').onclick = () => action('disableAutologin', () => {
   try { localStorage.setItem('agtx:autologin', 'off'); } catch {}
   msg('Автологин выключен для этой машины (agtx:autologin=off).');
 });
+// самовосстановление: явный клик оператора возвращает тихий вход без Skill'а
+$('autologinNow').onclick = () => action('autologinNow', async () => {
+  try { localStorage.removeItem('agtx:autologin'); } catch {}
+  try { sessionStorage.removeItem('agtx:cab'); } catch {}
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) { msg('Тихий вход работает только на машине с нодой (loopback). Открой http://localhost:9335/wallet.'); return; }
+  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
+  const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
+    headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.token || !j.address) { msg('Нода отказалась от тихого входа: ' + ((j && (j.hint || j.error)) || r.status) + '. Ссылка с ?addr=AGT... выберет кошелёк явно.'); return; }
+  token = j.token; address = j.address;
+  try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: j.expiresAt || 0 })); } catch {}
+  const st = await api('/cabinet/state', { address, token });
+  await enter(st, 'Вход без пароля (эта машина). Ключ остался на ноде.');
+});
+// когда тихий вход выключен подсказываем явный путь восстановления
+try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null'))($('message')||{}).textContent = 'Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'; } catch {}
 
 // ---------- отправка (op-request → локальная подпись → op-submit) ----------
-action('estimateBtn', async () => {
+$('estimateBtn').onclick = () => action('estimateBtn', async () => {
   $('feeBox').classList.add('hidden');
   const n = await network();
   const amount = currentSendAmount();
@@ -364,7 +381,7 @@ function currentSendAmount() {
   const v = window.AgentcoinWalletUnits.toAGT(raw, activeUnit);
   return v;
 }
-action('prepareOp', async () => {
+$('prepareOp').onclick = () => action('prepareOp', async () => {
   pendingOp = null; $('opBox').classList.add('hidden');
   if (!$('confirmSend').checked) throw Error('Подтверди сверку галочкой.');
   await network();
@@ -381,7 +398,7 @@ action('prepareOp', async () => {
   $('opBox').classList.remove('hidden');
   msg('Сверь payload (сеть/адрес/сумма) и подпиши txid локальным Skill. Срок заявки — 5 минут.');
 });
-action('opSubmit', async () => {
+$('opSubmit').onclick = () => action('opSubmit', async () => {
   if (!pendingOp) throw Error('Нет активной заявки.');
   const sig = $('opSignature').value.trim();
   if (!HEX128.test(sig)) throw Error('Нужна подпись: 128 hex-символов.');
@@ -406,18 +423,18 @@ function drawQR(canvas, text) {
     if (v === 1) ctx.fillRect(4 * factor + c * factor, 4 * factor + r * factor, factor, factor);
   }
 }
-action('copyReceive', async () => { if (!address) throw Error('Сначала войди.'); await navigator.clipboard.writeText(address); msg('Адрес скопирован.'); });
-action('downloadReceive', async () => { if (!address) throw Error('Сначала войди.'); const n = await network(); savePublic('agentcoin-receive.json', { schema: 'agentcoin.wallet.receive.v1', ...n, address }); msg('Сохранены только публичные реквизиты.'); });
+$('copyReceive').onclick = () => action('copyReceive', async () => { if (!address) throw Error('Сначала войди.'); await navigator.clipboard.writeText(address); msg('Адрес скопирован.'); });
+$('downloadReceive').onclick = () => action('downloadReceive', async () => { if (!address) throw Error('Сначала войди.'); const n = await network(); savePublic('agentcoin-receive.json', { schema: 'agentcoin.wallet.receive.v1', ...n, address }); msg('Сохранены только публичные реквизиты.'); });
 let invoice = null;
-action('makeInvoice', async () => {
+$('makeInvoice').onclick = () => action('makeInvoice', async () => {
   if (!address) throw Error('Сначала войди.');
   const amount = window.AgentcoinWalletUnits.toAGT($('invAmount').value.trim().replace(',', '.'), activeUnit);
   invoice = { schema: 'agentcoin.wallet.invoice.v1', network: 'AGENTCOIN', payTo: address, amount, memo: $('invMemo').value, createdAt: Math.floor(Date.now() / 1000) };
   $('downloadInvoice').disabled = false; $('showInvoiceQR').disabled = false;
   msg('Счёт: ' + uwTriple(amount) + '. Передай файл Алисе — она отправит ровно эту сумму.');
 });
-action('downloadInvoice', async () => { if (!invoice) throw Error('Сначала сформируй счёт.'); savePublic('agentcoin-invoice.json', invoice); msg('Счёт сохранён (только публичные поля).'); });
-action('showInvoiceQR', async () => {
+$('downloadInvoice').onclick = () => action('downloadInvoice', async () => { if (!invoice) throw Error('Сначала сформируй счёт.'); savePublic('agentcoin-invoice.json', invoice); msg('Счёт сохранён (только публичные поля).'); });
+$('showInvoiceQR').onclick = () => action('showInvoiceQR', async () => {
   if (!invoice) throw Error('Сначала сформируй счёт.');
   $('invQRBox').classList.remove('hidden');
   drawQR($('qrInvoice'), 'agentcoin:' + invoice.payTo + '|amount=' + invoice.amount + '|memo=' + invoice.memo);

@@ -983,10 +983,15 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (typeof asked === 'string' && asked && !address)
       return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'этого адреса нет в локальных кошельках ноды — авто-вход невозможен' });
     if (!address) {
-      // детерминировано: локальный кошелёк с наибольшим балансом (обычно это операторский рабочий)
+      // детерминировано: первый по балансу локальный ключ, у которого реально есть кабинет-паспорт
+      // (max-balance сам по себе может быть казной/фaucet-фондом без паспорта — вход в него невозможен)
       const bal = bc.balances();
-      address = keys.filter(a => wallets[a].privKey).sort((x, y) => (bal[y] || 0) - (bal[x] || 0))[0];
-      if (!address) return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'ключи хранятся у агентов (портативные паспорта) — их авто-вход невозможен by design' });
+      const cands = keys.filter(a => wallets[a].privKey).sort((x, y) => (bal[y] || 0) - (bal[x] || 0));
+      for (const cand of cands) {
+        const probe = cabinet.challenge(cand);
+        if (probe.ok) { address = cand; break; }
+      }
+      if (!address) return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'локальные ключи есть, но ни у одного нет кабинет-паспорта; конкретный адрес задай ?addr=AGT...' });
     }
     if (!wallets[address]?.privKey)
       return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'это портативный паспорт — ключ у агента, войди подписью через Skill' });

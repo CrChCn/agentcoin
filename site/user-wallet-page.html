@@ -348,7 +348,16 @@ $('autologinNow').onclick = () => action('autologinNow', async () => {
         $('challengeJson').dataset.challengeId = c.challengeId;
         $('signBox').classList.remove('hidden');
         savePublic('agentcoin-challenge.json', c);
+        const sameMachine = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) ? true : location.port === '9333';
         msg('С адреса ' + location.host + ' тихий вход недоступен (защита ключа). Скачан запрос agentcoin-challenge.json — подпишите его на устройстве с ключом (Skill sign-challenge) и вставьте ответ ниже, затем «Войти». Адрес тот же, кошелёк тот же.');
+        const helper = document.createElement('div'); helper.className = 'notice'; helper.style.marginTop = '10px';
+        if (location.hostname.endsWith('.ts.net')) {
+          const p = document.createElement('p'); p.textContent = 'Ты на одном компьютере с нодой? Тогда войди прямо сейчас без подписи:'; helper.append(p);
+          const a = document.createElement('a'); a.href = 'http://localhost:9335/cabinet?addr=' + encodeURIComponent(c.address); a.textContent = 'http://localhost:9335/cabinet (вход без пароля)'; helper.append(a);
+        } else {
+          const p2 = document.createElement('p'); p2.textContent = 'Браузер не на машине ноды: нужен подписанный challenge (Skill). Ноды-машина: открой http://<нода>:9335/cabinet?addr=<адрес> и войдёшь без пароля.'; helper.append(p2);
+        }
+        $('signBox').prepend(helper);
         return;
       }
     }

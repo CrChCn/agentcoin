@@ -16,6 +16,8 @@ const archiveFile = path.join(dataDir, 'identity', `identity-issuer.rotated-${Da
 // fingerprint той же схемой, что идёт в проде — DER SPKI (agent-identity.mjs issuerFingerprint),
 // НЕ sha256(PEM-текст): иначе пины реплик не совпадают с /identity/meta после ротации.
 const fpOf = (pub) => 'sha256:' + crypto.createHash('sha256').update(crypto.createPublicKey(pub).export({ type: 'spki', format: 'der' })).digest('hex');
+fs.mkdirSync(path.join(dataDir, 'identity'), { recursive: true, mode: 0o700 });
+const prev = fs.existsSync(issuerFile) ? JSON.parse(fs.readFileSync(issuerFile, 'utf8')) : null;
 const prevFp = prev ? fpOf(prev.pub) : '(none)';
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');

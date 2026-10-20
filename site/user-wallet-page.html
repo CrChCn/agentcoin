@@ -262,18 +262,23 @@ action('refreshWallet', refreshAll);
 
 // восстановление сессии + автологин (как в cabinet.html, без модулей)
 (async function init() {
-  try {
-    const s = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
-    if (s && s.address && s.token) {
-      const st = await api('/cabinet/state', { address: s.address, token: s.token });
-      address = s.address; token = s.token; await enter(st, 'Сессия восстановлена.');
-      return;
-    }
-  } catch { try { sessionStorage.removeItem('agtx:cab'); } catch {} }
+  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
+  if (!urlAddr) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
+      if (s && s.address && s.token) {
+        const st = await api('/cabinet/state', { address: s.address, token: s.token });
+        address = s.address; token = s.token; await enter(st, 'Сессия восстановлена.');
+        return;
+      }
+    } catch { try { sessionStorage.removeItem('agtx:cab'); } catch {} }
+  }
   try {
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return;
+    // ?addr= из адресной строки — явное намерение оператора: перекрывает и старую сессию, и agtx:autologin=off
+    if (!urlAddr && localStorage.getItem('agtx:autologin') === 'off') return;
     const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
-      headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: new URLSearchParams(location.search).get('addr') || '' }) });
+      headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
     if (!r.ok) return;
     const j = await r.json();
     if (j && j.token && j.address) { token = j.token; address = j.address;

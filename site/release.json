@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "release": "site-v2-c09272b900fef211",
+  "release": "site-v2-3748ca5081f112b6",
   "apiVersion": 2,
   "files": {
     "index.html": "f0510fc3ad467e8c0765413ebc013b1d7643ab6dc3b2346eda6478e58a18666e",
@@ -12,7 +12,7 @@
     "mbc20.html": "96efa1d71caeac23a2f8afabf42bb167a50addea7fb2a150c16543049c453050",
     "cabinet.html": "056344dbfe013993e1f5246f30f54f46876d839410f42de6cdbaf63d29ccc9eb",
     "jobs.html": "4981cb4c80d04f895d4ca8fd536816dbcd20c4627b407a7d31da85c2bfccc1f8",
-    "user-wallet-page.html": "0ec2f183453ba145e0285cb1216db4315db11a4ddf7094b03dfd4b2dadf231b6",
+    "user-wallet-page.html": "abab96f6da8ffa25da80e52fbfa18c07764f00ce30d2f57904670ee228c204c1",
     "user-wallet-format-lib.js": "f8529b936c2a6c52f19a6e4b293e3a1ac9456e9e11866d3c0ec0b7fbdf458123",
     "panel.js": "f0c734012e3cb7f72501bf866834a028f258814e09902734d7a13d121fb083da"
   }

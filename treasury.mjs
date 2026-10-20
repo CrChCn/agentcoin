@@ -72,7 +72,10 @@ export function treasuryState(bcOrChain) {
   }).sort((a, b) => b.height - a.height);
   const lastPassed = list.find(x => x.passed);
   const policy = lastPassed
-    ? { treasury: lastPassed.treasury, signers: [lastPassed.signer2, lastPassed.signer3], requires: 2, ref: lastPassed.ref }
+    // height-gating (strict-ревалидация): политика действует только с закрытия голосования
+    // (height > closesAt). effectiveFrom — высота, С которой требование 2sig применяется;
+    // без этого ретроактивный hit бьёт маркер-tx самого предложения (tx_treasury_needs_2sig).
+    ? { treasury: lastPassed.treasury, signers: [lastPassed.signer2, lastPassed.signer3], requires: 2, ref: lastPassed.ref, effectiveFrom: lastPassed.closesAt + 1 }
     : null;
   return { height, yesMin: YES_MIN, requires: 2, policy, proposals: list };
 }

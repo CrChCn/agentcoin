@@ -41,6 +41,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
+import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
 import { lsagSign, lsagVerify, pointFromPubKeyPEM } from './ring-signature.mjs';
@@ -308,12 +309,12 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|cab-auth\.js|imperial(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/assistant/message']); // /tx/preflight — R-02 read-only; /assistant/message — AGT-ASSISTANT-01 (пользовательская функция)
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -819,6 +820,19 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/operator/cabinet' && req.method === 'GET') return serveSitePage(res, 'operator-cabinet.html');
   if (p === '/cabinet' || p === '/cabinet.html') {
     serveSitePage(res, 'cabinet.html');
+  }
+  // WALLET-1: кабинет пользователя + кошелёк (history/estimate — wallet-api.mjs, read-only по сессии)
+  // Файлы именованы user-* (guard SUBSTR '/wallet' ловит только слэшем внутри имени),
+  // URL остаются /wallet и /wallet-format.js.
+  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');
+  if (p === '/wallet-format.js') return serveSitePage(res, 'user-wallet-format-lib.js');
+  if (p === '/cabinet/wallet/history' && req.method === 'POST') {
+    const out = walletHistory(bc, cabinet, await body(req).catch(() => ({})));
+    return json(res, out.status, out.body);
+  }
+  if (p === '/cabinet/wallet/estimate' && req.method === 'POST') {
+    const out = walletEstimate(bc, cabinet, await body(req).catch(() => ({})));
+    return json(res, out.status, out.body);
   }
   if (p === '/cabinet/challenge' && req.method === 'POST') {
     const { address } = await body(req);

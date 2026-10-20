@@ -1101,7 +1101,14 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
     // без передачи политика не проверяется — старые вызовы/пированные цепи ведут себя как раньше).
     // R-01: вторая подпись обязана быть той же ВЕРСИИ, что и основная (v2-tx → только
     // verifySecondSigV2 над v2-подписывающим payload; hybrid V2-primary + V1-sig2 отвергнут).
-    if (opts.treasury && !(tx.digestVersion === 2 ? verifySecondSigV2(tx, opts.treasury) : verifySecondSig(tx, opts.treasury))) {
+    // Height-gating: политика казны действует с её активации (effectiveFrom = closesAt+1 в
+    // treasury.mjs); блоки ДО активации валидируются по правилам своего времени — иначе
+    // строгая ревалидация ретроактивно требует 2sig у маркер-tx самого предложения
+    // (validate?strict=1 → false at 4092 'tx_treasury_needs_2sig'). Политика без
+    // effectiveFrom (legacy-инъекции) ведёт себя как раньше — проверяется всегда.
+    const polEffFrom = opts.treasury ? Number(opts.treasury.effectiveFrom || 0) : 0;
+    const polNotActiveYet = polEffFrom > 0 && block.height < polEffFrom;
+    if (opts.treasury && !polNotActiveYet && !(tx.digestVersion === 2 ? verifySecondSigV2(tx, opts.treasury) : verifySecondSig(tx, opts.treasury))) {
       if (tx.digestVersion === 2 && tx.sig2 === undefined && tx.sig2Pub === undefined) return 'tx_treasury_needs_2sig';
       return tx.digestVersion === 2 ? 'tx_treasury_2sig_version_mismatch' : 'tx_treasury_needs_2sig';
     }

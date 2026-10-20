@@ -168,10 +168,18 @@ function loadIssuer(file) {
   if (value.createdAt !== undefined && (!Number.isSafeInteger(value.createdAt) || value.createdAt < 0)) fail('invalid_issuer_key_file');
   if (value.rotatedFrom !== undefined && value.rotatedFrom !== null && (typeof value.rotatedFrom !== 'string' || value.rotatedFrom.length > 80)) fail('invalid_issuer_key_file');
   if (value.version !== 1 || typeof value.privKey !== 'string' || value.privKey.length > 1024) fail('invalid_issuer_key_file');
-  canonicalAgentPublicKey(value.pub);
   let key;
   try { key = crypto.createPrivateKey(value.privKey); } catch { fail('invalid_issuer_key_file'); }
-  if (key.asymmetricKeyType !== 'ed25519' || crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }) !== value.pub) fail('issuer_key_mismatch');
+  if (key.asymmetricKeyType !== 'ed25519') fail('issuer_key_mismatch');
+  const canonicalPub = crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' });
+  // Ранние ротации записывали pub без хвостового \n (PEM был .trim()-нут) — нормализуем к
+  // canonical-форме; fingerprint считается по DER, форма текста PEM на него не влияет.
+  if (canonicalPub !== value.pub) {
+    try { canonicalAgentPublicKey(canonicalPub); } catch { fail('issuer_key_mismatch'); }
+    value.pub = canonicalPub;
+    try { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); } catch {}
+  }
+  canonicalAgentPublicKey(value.pub);
   fs.chmodSync(file, 0o600);
   return value;
 }

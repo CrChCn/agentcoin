@@ -20,7 +20,7 @@ const panel=Buffer.from(['imperial-panel.js','install-ui.js','profile-memory.js'
 const panelPath=path.join(root,'site','panel.js');
 if(check){if(!fs.existsSync(panelPath)||!fs.readFileSync(panelPath).equals(panel))throw Error('site_panel_outdated_run_build_site_release');}
 else fs.writeFileSync(panelPath,panel);
-const pages=['index.html','imperial.html','terminal.html','dashboard.html','chat.html','jail.html','mbc20.html','cabinet.html','jobs.html','panel.js'];
+const pages=['index.html','imperial.html','terminal.html','dashboard.html','chat.html','jail.html','mbc20.html','cabinet.html','jobs.html','user-wallet-page.html','user-wallet-format-lib.js','panel.js'];
 const files={};
 for(const page of pages){
   let bytes;

@@ -53,6 +53,7 @@ canvas.qr{background:#fff;border-radius:10px;padding:8px}
 <button id="challenge">Получить запрос на вход</button>
 <div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea>
 <p><small>Подпишитесь локальным Skill (<code>agent-profile.mjs sign-challenge</code>) и вставьте ответ. Срок запроса — 5 минут.</small></p>
+<button id="downloadChallenge" class="secondary">Скачать запрос JSON</button>
 <label for="signature">Подпись (hex 128 или JSON Skill-ответ)</label><textarea id="signature" placeholder="Без ключей и паролей"></textarea><button id="login">Войти</button></div>
 <button id="disableAutologin" class="secondary">не входить автоматически</button>
 <button id="autologinNow">Войти без пароля (эта машина) — на какой стоит нода, в тот кошелёк войду</button>
@@ -335,7 +336,23 @@ $('disableAutologin').onclick = () => action('disableAutologin', () => {
 $('autologinNow').onclick = () => action('autologinNow', async () => {
   try { localStorage.removeItem('agtx:autologin'); } catch {}
   try { sessionStorage.removeItem('agtx:cab'); } catch {}
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) { msg('Тихий вход работает только на машине с нодой (loopback). Открой http://localhost:9335/wallet.'); return; }
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) {
+    const localAddress = $('adr').value.trim();
+    if (ADDR_RE.test(localAddress)) {
+      // WALLET-ALL-ORIGINS: вне этой машины тихий вход невозможен — запускаем честный ручной путь:
+      // challenge скачивается/подписывается на устройстве с ключом, ответ вставляется в поле «Войти».
+      await api('/cabinet/challenge', { address: localAddress });
+      const c = JSON.parse($('challengeJson').value || 'null');
+      if (c && c.challengeId) {
+        $('signBox').classList.remove('hidden');
+        savePublic('agentcoin-challenge.json', c);
+        msg('С адреса ' + location.host + ' тихий вход недоступен (защита ключа). Скачан запрос agentcoin-challenge.json — подпишите его на устройстве с ключом (Skill sign-challenge) и вставьте ответ ниже, затем «Войти». Адрес тот же, кошелёк тот же.');
+        return;
+      }
+    }
+    msg('Тихий вход работает только на машине с нодой. Впишите AGT-адрес и нажмите «Получить запрос на вход» — подпишите запрос на устройстве с ключом и войдите «Войти» (тот же кошелёк, тот же адрес).');
+    return;
+  }
   const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
   const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
     headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
@@ -345,6 +362,12 @@ $('autologinNow').onclick = () => action('autologinNow', async () => {
   try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: j.expiresAt || 0 })); } catch {}
   const st = await api('/cabinet/state', { address, token });
   await enter(st, 'Вход без пароля (эта машина). Ключ остался на ноде.');
+});
+$('downloadChallenge').onclick = () => action('downloadChallenge', async () => {
+  const issued = JSON.parse($('challengeJson').value || 'null');
+  if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
+  savePublic('agentcoin-challenge.json', issued);
+  msg('Файл запроса сохранён. На устройстве с ключом: node agt-skill/agent-profile.mjs sign-challenge — ответ вставьте в поле «Подпись» и нажмите «Войти». Ключ не покидает то устройство.');
 });
 // когда тихий вход выключен подсказываем явный путь восстановления
 try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null')) msg('Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'); } catch {}

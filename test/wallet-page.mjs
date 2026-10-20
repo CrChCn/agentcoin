@@ -141,6 +141,20 @@ test('wallet page DOM: #loginBox closed BEFORE #cab opens; defaults = form visib
   assert.ok(/class="[^"]*\bhidden\b/.test(cbTag), 'cab по умолчанию СКРЫТ до входа');
 });
 
+test('wallet page DOM: WALLET-ALL-ORIGINS — честная кнопка вне loopback и ручная передача подписи', async () => {
+  const html = await fs.readFile(path.join(root, 'site', 'user-wallet-page.html'), 'utf8');
+  assert.ok(html.includes('id="downloadChallenge"'), 'есть «Скачать запрос JSON» для передачи Skill-у');
+  assert.ok(!/Access-Control-Allow-Origin/.test(html), 'никаких CORS-попустительств на странице');
+  // handler: вне loopback кнопка ведёт к challenge/download, а не к тупиковому отказу
+  const idx = html.indexOf("'autologinNow', async");
+  assert.ok(idx > 0, 'обработчик autologinNow присутствует');
+  const body = html.slice(idx, html.indexOf("$('downloadChallenge')", idx)) ;
+  assert.ok(/location\.hostname/.test(body), 'обработчик различает loopback');
+  assert.ok(/cabinet\/challenge/.test(body) && /savePublic\('agentcoin-challenge\.json'/.test(body),
+    'вне loopback handler запускает честный ручной путь challenge→файл, а не только отказ');
+  assert.ok(/sign-challenge/.test(body) || /sign-challenge/.test(html), 'упомянут Skill-подписант');
+});
+
 // ---------- HTTP-акцептанс на изолированной ноде ----------
 test('wallet page, session-scoped history, estimate and signed op flow', { timeout: 60_000 }, async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'agt-wallet-e2e-'));

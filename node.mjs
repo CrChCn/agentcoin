@@ -36,6 +36,9 @@ import { fileURLToPath } from 'node:url';import { createSeedWallet, recoverFromM
 import { Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
   validateBlockAgainstChain, txDigest, sha256d,
+  // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
+  networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
+  isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
 import { WsHub, connectClient } from './ws.mjs';
@@ -301,12 +304,12 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|imperial(\.html)?|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|cab-auth\.js|imperial(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout']);
+const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit']); // /tx/preflight — R-02 read-only
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -333,10 +336,15 @@ const AGT_ADMIN_MODE = process.env.AGT_ADMIN_MODE === 'token' ? 'token' : 'local
 const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 });
 let checkoutSiteManifest = null;
 try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
+const SITE_PAGE_CONTENT_TYPE = (page) =>
+  page.endsWith('.js') ? 'text/javascript; charset=utf-8'
+  : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
+  : page.endsWith('.png') ? 'image/png'
+  : 'text/html; charset=utf-8';
 function serveSitePage(res, page) {
   const approved = process.env.AGT_SITE_SYNC !== '0' ? siteRelease.resolvePage(page) : null;
   const content = fs.readFileSync(approved || path.join(__dirname, 'site', page));
-  res.writeHead(200, { 'Content-Type': page.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': SITE_PAGE_CONTENT_TYPE(page), 'Cache-Control': 'no-store' });
   return res.end(content);
 }
 async function siteSyncTick() {
@@ -365,7 +373,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
-    p === '/panel.js' || p === '/pool/stats'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
+    p === '/panel.js' || p === '/pool/stats' ||
+    p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
@@ -416,7 +425,41 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   // --- мемпул: публичное состояние очереди транзакций ---
+  // (потолочные поля НЕ возвращает: wallet/token/seed/private-поля tx отсутствуют по правилам /tx)
   if (p === '/mempool') {
+    // MEMPOOL-FULL (контракт 6272239263): ограниченный read-only full-tx snapshot.
+    // ?full=1 → { version:1, size:<total>, complete:true, txs:[ПОЛНЫЕ публичные signed tx],
+    // tipHash:<полный tip>, height:<tip height> }; cap 1000 tx / 2 MiB — сверх лимита?
+    // HTTP 200, complete:false, txs:[], size полный (fail-closed, не «усечённая правда»).
+    // Атомарный snapshot берётся единичным slice-копированием; приёмочный НЕ отправляет
+    // ни token(s), ни приватные поля — /tx не принимает таких по контракту (fail-closed).
+    // Стоимость НЕ снижается: полный.coinbase-то нет — public txs только (без W-1 сам).
+    const wantFull = url.searchParams.get('full') === '1';
+    if (wantFull) {
+      // Атомарный срез: копируем массив за один проход (элементы tx не мутируются после приёма)
+      const snapshot = bc.mempool.slice();
+      const tip = bc.tip();
+      // R-02 (6274233515 п.4/5): height = ВЫСОТА TIP (blockCount-1: genesis = height 0),
+      // не blockCount — клиент сверяет height === headers[0].height.
+      const tipHeight = Math.max(0, bc.blockCount() - 1);
+      // Белый список ПУБЛИЧНЫХ подписанных полей — чужие/приватные поля в ответ не попадают.
+      // R-02: chainId включён — v2-signed envelope остаётся полным подписанным контентом.
+      const PUBLIC_TX_FIELDS = ['txid', 'from', 'fromPub', 'to', 'amount', 'nonce', 'ts', 'memo', 'signature', 'escProof', 'sig2', 'sig2Pub', 'digestVersion', 'chainId', 'kind'];
+      const txs = snapshot.map(t => Object.fromEntries(PUBLIC_TX_FIELDS.filter(k => t[k] !== undefined).map(k => [k, t[k]])));
+      const fullByteSize = txs.reduce((s, t) => s + Buffer.byteLength(JSON.stringify(t), 'utf8') + 1, 0);
+      const size = snapshot.length;
+      if (size > 1000 || fullByteSize > 2 * 1024 * 1024) {
+        return json(res, 200, { version: 1, size, complete: false, txs: [], tipHash: tip?.hash || null, height: tipHeight, note: 'mempool за лимитом (1000 tx / 2MiB): complete=false, не выдаётся усечённая правда' });
+      }
+      return json(res, 200, {
+        version: 1,
+        size,
+        complete: true,
+        txs,
+        tipHash: tip?.hash || null,
+        height: tipHeight,
+      });
+    }
     return json(res, 200, {
       size: bc.mempool.length,
       txs: bc.mempool.slice(-50).map(t => ({ txid: (t.txid || '').slice(0, 16), from: t.from?.slice(0, 14), to: t.to?.slice(0, 14), amount: t.amount, nonce: t.nonce })),
@@ -544,6 +587,56 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const tx = { from: fromAddress, fromPub: w.pub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
     tx.signature = signTransaction(tx, w.privKey);
     return json(res, 200, { signed: tx, submit_hint: 'POST /tx' });
+  }
+
+  // =======================================================================
+  // R-02: READ-ONLY PREFLIGHT — POST /tx/preflight
+  // Проверяет tx против действующего протокола и состояния ноды БЕЗ записи:
+  // формат/схема/подпись/сеть/доступные средства/конфликт nonce/очереди/комиссия.
+  // НЕ пишет в chain/mempool, НЕ подписывает, НЕ гарантирует будущего включения
+  // (включение решает майнер консенсусными правилами — честно об этом).
+  // Гарантия протомодели: рид-онли — чистая функция от snapshot'a текущего стейта.
+  // =======================================================================
+  if (p === '/tx/preflight' && req.method === 'POST') {
+    const tx = await body(req);
+    const out = { version: 1, readonly: true, network: networkChainId(), format: { ok: false }, signature: { ok: false }, network_ok: false, balance: { ok: false }, nonce: { ok: false }, fee: { amount: 0, currency: 'AGT', note: 'действующий протокол: fee отсутствует (комиссия не требуется)' } };
+    out.format.ok = Boolean(tx && tx.from && tx.to && typeof tx.amount === 'number' && Number.isFinite(tx.amount) && tx.amount > 0);
+    if (!out.format.ok) { out.format.error = 'bad_fields'; return json(res, 200, out); }
+    const proofErr = escProofSchemaError(tx);
+    if (proofErr) { out.format.ok = false; out.format.error = proofErr; return json(res, 200, out); }
+    if (typeof tx.from === 'string' && tx.from.startsWith(ESCROW_PREFIX)) { out.format.ok = false; out.format.error = 'escrow_from_is_internal'; return json(res, 200, out); }
+    if (!isCanonicalAddress(tx.to)) { out.format.ok = false; out.format.error = 'bad_recipient'; return json(res, 200, out); }
+    const v2 = tx && tx.digestVersion === 2;
+    if (v2) {
+      // v2 сигнатура проверяется только на активном пороге (тот же роут что у приёма)
+      const h = bc.chain.length, act = txDigestV2Activation({});
+      if (!(h >= act)) { out.signature.ok = false; out.signature.error = 'tx_digest_version_not_active'; out.network_ok = false; return json(res, 200, out); }
+      try { const digest = txSigningDigestV2(tx); out.signature.digest = digest.slice(0, 16); } catch {}
+      out.signature.ok = verifyTxAny(tx, bc.chain, { height: bc.chain.length });
+      out.signature.error = out.signature.ok ? null : 'tx_bad_signature_or_network';
+    } else {
+      out.signature.ok = verifyTransaction(tx);
+      out.signature.error = out.signature.ok ? null : 'tx_bad_signature';
+      try { out.signature.digest = txDigest(tx).slice(0, 16); } catch {}
+    }
+    out.network_ok = v2 ? ((tx.chainId ?? networkChainId()) === networkChainId()) : true;
+    if (!out.network_ok) { out.signature.ok = false; out.signature.error = v2 ? 'tx_network_mismatch' : out.signature.error; }
+    // state: доступные средства с учётом очереди (та же арифметика, что refilter)
+    const balances = bc.balances();
+    const queuedForFrom = bc.mempool.filter(t => t && t.from === tx.from && t.nonce !== tx.nonce).reduce((s, t) => s + (t.amount || 0), 0);
+    const avail = (balances[tx.from] || 0) - queuedForFrom;
+    out.balance = { ok: tx.amount <= avail, available: avail, needed: tx.amount, queuedForFrom };
+    // nonce: конфликт точного (from|nonce) в цепи или очереди
+    const nonceInChain = chainNonceKeysOf(bc.chain).has(String(tx.from) + '|' + String(tx.nonce));
+    const nonceInQueue = bc.mempool.some(t => t && t.from === tx.from && String(t.nonce) === String(tx.nonce));
+    out.nonce = { ok: !nonceInChain && !nonceInQueue, in_chain: nonceInChain, in_queue: nonceInQueue, conflict: nonceInChain || nonceInQueue };
+    // AGIP-9/mgnt: кратность магенту действующего протокола
+    let mgntOk = null;
+    try { unitsOfAmountBigInt(tx.amount); mgntOk = true; } catch { mgntOk = false; }
+    out.format.mgnt_exact = mgntOk;
+    out.verdict = (out.format.ok && out.signature.ok && out.network_ok && out.balance.ok && out.nonce.ok && mgntOk !== false) ? 'preflight_pass' : 'preflight_reject';
+    out.note = 'read-only: не гарантирует включение в блок — решает майнер/консенсус; snapshot мог измениться сразу после ответа';
+    return json(res, 200, out);
   }
 
   if (p === '/tx' && req.method === 'POST') {
@@ -745,6 +838,137 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const { token } = await body(req);
     return json(res, 200, cabinet.logout(token));
   }
+  // ================== AGIP-46: операции кабинета с локальной подписью агента ==================
+  // Кабинет агента умеет готовить операцию, а НЕ подписывать её: сервер строит
+  // канонический payload (перевод/ордер/claim джоба), агент подписывает СВОИМ ключом
+  // локально (Skill/CLI), сервер проверяет подпись паспортом и публикуетtx как обычную
+  // on-chain операцию. Приватный ключ в ноду не попадает; opId гасится атомарно.
+  // Служебные memo-префиксы (dxe|, escrow:, escpayout:, escfee:, faucet:) из кабинета
+  // недоступны — они описывают другие механики индексера.
+  const RESERVED_MEMO_RE = /^(dxe\||escrow:|escpayout:|escfee:|faucet:)/;
+  if (p === '/cabinet/op-request' && req.method === 'POST') {
+    const { address, token, op } = await body(req);
+    if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'войти в кабинет заново' });
+    const rec = cabinet.findPassportByAddress(address);
+    const passportPub = rec?.pub || null;
+    if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт с ключом ( Skill enroll )' });
+    const kind = op && op.kind;
+    const bal = bc.balances()[address] || 0;
+    const money = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
+    let data = null;
+    if (kind === 'send') {
+      const to = String(op.to || '');
+      if (!/^AGT[0-9a-f]{40}$/.test(to)) return json(res, 400, { error: 'invalid_to', hint: 'AGT-адрес получателя (v1 — только адрес, без @handle)' });
+      const amount = Number(op.amount);
+      if (!money(amount)) return json(res, 400, { error: 'invalid_amount' });
+      const memo = String(op.memo || '').slice(0, 120);
+      if (RESERVED_MEMO_RE.test(memo)) return json(res, 400, { error: 'reserved_memo_prefix', hint: 'это служебные мемо индексеров; обычный перевод — без таких префиксов' });
+      if (amount > bal) return json(res, 402, { error: 'insufficient_balance', balance: bal, needed: amount });
+      const tx = { from: address, fromPub: passportPub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
+      const txid = txDigest(tx);
+      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, to, amount, memo };
+    } else if (kind === 'order') {
+      const side = String(op.side || '');
+      if (!['b', 's'].includes(side)) return json(res, 400, { error: 'side_must_be_b_or_s' });
+      const item = String(op.item || 'mbc20:BOTAI');
+      const qty = Number(op.qty), price = Number(op.price);
+      const q = fmtNum(qty), pr = fmtNum(price);
+      if (!q || !pr) return json(res, 400, { error: 'qty/price should be finite numbers' });
+      if (item.startsWith('mbc20:')) {
+        const chk = mbc20.checkTradeSize(item.slice(6), Number(q));
+        if (!chk.ok) return json(res, 409, chk);
+        if (side === 's') {
+          const totalAsk = dxeState(bc).orders.filter(o => o.status === 'open' && o.item === item && o.side === 's')
+            .reduce((s, o) => s + (o.qty - o.filled), 0);
+          const depth = mbc20.checkAskDepth(item.slice(6), Number(q), totalAsk);
+          if (!depth.ok) return json(res, 409, depth);
+        }
+      }
+      if ((bal) < DXE_MEMO_FEE) return json(res, 402, { error: 'insufficient_balance_for_dxe_fee', balance: bal, needed: DXE_MEMO_FEE });
+      const ref = dxeRef();
+      const memo = `dxe|O|${side}|${item.slice(0, 40)}|${q}|${pr}|${ref}`;
+      const tx = { from: address, fromPub: passportPub, to: address, amount: DXE_MEMO_FEE, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
+      const txid = txDigest(tx);
+      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, ref, memo, item, side };
+    } else if (kind === 'job-claim') {
+      const open = findEscrowOpen(bc.chain, String(op.escId || ''));
+      if (!open) return json(res, 404, { error: 'escrow_open_not_found', hint: 'джоб-эскроу должен быть уже в цепи' });
+      if (open.worker !== address) return json(res, 403, { error: 'not_assigned_worker', workerExpected: open.worker });
+      if (String(op.taskHash || '') !== open.taskHash) return json(res, 400, { error: 'taskHash_mismatch' });
+      const digest = escrowReceiptDigest(String(op.escId), open.taskHash, open.worker, open.openTx.amount);
+      data = { kind, address, passportPub, digestHex: digest, escId: String(op.escId), taskHash: open.taskHash, worker: open.worker, amount: open.openTx.amount, employer: open.employer };
+    } else return json(res, 400, { error: 'unsupported_op_kind', supported: ['send', 'order', 'job-claim'] });
+    const st = cabinet.stashOp(address, token, data);
+    if (!st.ok) return json(res, st.error === 'session_required' ? 401 : 429, st);
+    const payload = kind === 'job-claim'
+      ? { kind, ...data, passportPub: undefined }
+      : { kind, tx: { ...data.tx }, txidHex: data.txidHex, ...(data.ref ? { ref: data.ref } : {}) };
+    return json(res, 200, { ok: true, opId: st.opId, ttlSec: st.ttlSec, payload,
+      signHint: kind === 'job-claim'
+        ? 'подпишись hex-дайджестом: crypto.sign(null, Buffer.from(payload.digestHex,\'hex\'), privKey).toString(\'hex\')'
+        : 'подпишись txid: crypto.sign(null, Buffer.from(payload.txidHex,\'hex\'), privKey).toString(\'hex\')',
+      passportPub });
+  }
+  if (p === '/cabinet/op-submit' && req.method === 'POST') {
+    const { opId, signature } = await body(req);
+    const rec = cabinet.takeOp(opId); // атомарно: повторный submit всегда op_not_found
+    if (!rec) return json(res, 400, { error: 'op_not_found', hint: 'заявка не существует, просрочена (5 мин) или уже потрачена' });
+    if (typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) return json(res, 400, { error: 'invalid_signature' });
+    if (rec.kind === 'job-claim') {
+      if (!rec.passportPub) return json(res, 500, { error: 'op_record_corrupt' });
+      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), rec.passportPub, Buffer.from(signature, 'hex'));
+      if (!ok) return json(res, 400, { error: 'bad_signature', hint: 'подпись не от владельца паспорта над claim-дайджестом' });
+      console.log(`[agip-46] job-claim: ${rec.address} подписал ${rec.data.escId}`);
+      return json(res, 200, { ok: true, kind: 'job-claim', escId: rec.data.escId, taskHash: rec.data.taskHash, worker: rec.data.worker, amount: rec.data.amount, receiptSig: signature, workerPub: rec.passportPub, hint: 'квитанция готова; payout подписывается работодателем (escrow/payout)' });
+    }
+    const tx = { ...rec.data.tx, signature };
+    if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
+    const r = bc.addTransaction(tx);
+    if (!r.ok) return json(res, 409, r);
+    setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+    console.log(`[agip-46] ${rec.kind}: ${rec.address} op=${String(tx.txid).slice(0, 16)}`);
+    return json(res, 201, { ok: true, accepted: true, kind: rec.kind, txid: String(tx.txid).slice(0, 16), mempool: r.mempoolSize, ...(rec.data.ref ? { ref: rec.data.ref, memo: rec.data.memo } : {}), hint: 'упакуется майнером; книга/баланс — после блока' });
+  }
+  // ================== AGIP-45: автоматический вход оператора в кабинет ==================
+  // Находится ЗА админ-барьером AGIP-37 (не в PUB_REQUEST_RE / PUB_TX_ROUTES):
+  // срабатывает только для (mode=local ∧ прямая петля ∧ без proxy-заголовков) ИЛИ
+  // x-admin-token. Из интернета, туннеля и из чужой машины — честный 403.
+  // Печатает ТОЛЬКО адрес и session-токен; приватные ключи никогда не покидают ноду.
+  // Анти-CSRF: обычная HTML-форма не может выставить кастомный заголовок — без него 400.
+  if (p === '/cabinet/autologin' && req.method === 'POST') {
+    if (req.headers['x-cabinet-autologin'] !== 'local')
+      return json(res, 400, { ok: false, error: 'autologin_csrf_header_required' });
+    const { address: asked } = await body(req).catch(() => ({}));
+    const wallets = loadWallets();
+    const keys = Object.keys(wallets);
+    if (!keys.length) return json(res, 404, { ok: false, error: 'autologin_no_local_wallets', hint: 'на этой ноде нет локальных кошельков с ключами' });
+    let address = typeof asked === 'string' && wallets[asked] ? asked : (process.env.AGT_AUTOLOGIN_ADDRESS && wallets[process.env.AGT_AUTOLOGIN_ADDRESS] ? process.env.AGT_AUTOLOGIN_ADDRESS : null);
+    // AGIP-45: явная просьба про неизвестный/безключевой адрес — честный отказ, а не тихий вход в другой кошелёк
+    if (typeof asked === 'string' && asked && !address)
+      return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'этого адреса нет в локальных кошельках ноды — авто-вход невозможен' });
+    if (!address) {
+      // детерминировано: локальный кошелёк с наибольшим балансом (обычно это операторский рабочий)
+      const bal = bc.balances();
+      address = keys.filter(a => wallets[a].privKey).sort((x, y) => (bal[y] || 0) - (bal[x] || 0))[0];
+      if (!address) return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'ключи хранятся у агентов (портативные паспорта) — их авто-вход невозможен by design' });
+    }
+    if (!wallets[address]?.privKey)
+      return json(res, 403, { ok: false, error: 'autologin_no_local_key', hint: 'это портативный паспорт — ключ у агента, войди подписью через Skill' });
+    const ch = cabinet.challenge(address);
+    if (!ch.ok) return json(res, 403, { ok: false, error: ch.error, hint: 'паспорт не найден или забанен; ручной вход /cabinet работает как раньше' });
+    let signature;
+    const chMsg = ch?.challenge?.message;
+    if (!chMsg) return json(res, 500, { ok: false, error: 'autologin_challenge_invalid' });
+    try { signature = crypto.sign(null, Buffer.from(chMsg, 'utf8'), crypto.createPrivateKey(wallets[address].privKey)).toString('hex'); }
+    catch {
+      cabinet.logoutByAddress?.(address);
+      return json(res, 500, { ok: false, error: 'autologin_sign_failed' });
+    }
+    const r = cabinet.loginChallenge(address, ch.nonce, signature, ch.challengeId);
+    if (!r.ok) return json(res, 400, { ok: false, error: r.error || 'autologin_failed' });
+    console.log(`[agip-45] авто-вход: ${address} (local loopback)`);
+    return json(res, 200, { ok: true, address, token: r.token, expiresAt: r.expiresAt, ttlSec: r.ttlSec, via: 'autologin', passport: cabinet.state(address, r.token).passport });
+  }
   if (p === '/spore/state' || p === '/spore/attest') {
     if (!spore) return json(res, 503, { error: 'spore_off', hint: 'нода без AGT_SPORE=1 (старое поведение — норма для 9 старых нод)' });
     return json(res, 200, p === '/spore/attest' ? spore.attest() : spore.state());
@@ -878,6 +1102,39 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!h[name]) return json(res, 404, { error: 'unknown identity' });
     const banned = bc.security.isBanned(h[name].address);
     return json(res, banned ? 423 : 200, { identity: name + '@agt', address: h[name].address, banned });
+  }
+  // --- Кошелёк агента: публичная read-only история по адресу (данные общедоступной цепи) ---
+  // Питает кабинет/PWA/CLI: мои проводки + мои эскроу (я worker или employer).
+  // Никаких ключей/секретов: только то, что и так видно в блоках. Сканим от верха вниз,
+  // до сбора лимита (дефолт 25, макс 100) — ранний выход, полный проход не обязателен.
+  if (p.startsWith('/history/') && req.method === 'GET') {
+    const addr = p.slice('/history/'.length).replace(/\.[a-z]+$/, '');
+    if (!/^AGT[A-Za-z0-9]+$/.test(addr)) return json(res, 400, { error: 'bad_address' });
+    if (bc.security.isBanned(addr)) return json(res, 423, { error: 'address_permabanned' });
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 25));
+    const now = Date.now() / 1000;
+    const txs = []; const escrows = []; let scannedTxs = 0;
+    for (let i = bc.chain.length - 1; i >= 0; i--) {
+      const blk = bc.chain[i];
+      for (const tx of (blk.txs || [])) {
+        if (tx.from !== addr && tx.to !== addr) continue;
+        const memo = typeof tx.memo === 'string' ? tx.memo : '';
+        if (txs.length < limit) txs.push({ height: blk.height, ts: blk.header.timestamp, from: tx.from, to: tx.to, amount: tx.amount, memo: memo.slice(0, 80), txid: tx.txid ? String(tx.txid).slice(0, 12) : null });
+        if (escrows.length < 20) {
+          if (memo.startsWith('escrow:')) {
+            const parts = memo.split(':');
+            if (parts[4] === addr || tx.from === addr) escrows.push({ escId: parts[1], role: parts[4] === addr ? 'worker' : 'employer', taskHash: String(parts[2]).slice(0, 16), amount: tx.amount, deadlineTs: Number(parts[3]) || 0, expired: parts[4] === addr && (Number(parts[3]) || 0) < now, height: blk.height });
+          } else if (memo.startsWith('escpayout:') && tx.to === addr) {
+            escrows.push({ escId: memo.slice('escpayout:'.length), role: 'paid', amount: tx.amount, height: blk.height });
+          }
+        }
+        scannedTxs++;
+      }
+      if (txs.length >= limit && escrows.length >= 20) {
+        return json(res, 200, { address: addr, height: bc.blockCount(), tipBlocks: bc.chain.length, txs, escrows, truncated: true, note: 'read-only данные цепи для кошелька/кабинета; эскроу: role=worker/employer/paid' });
+      }
+    }
+    return json(res, 200, { address: addr, height: bc.blockCount(), tipBlocks: bc.chain.length, txs, escrows, scannedTxs, note: 'read-only данные цепи для кошелька/кабинета; эскроу: role=worker/employer/paid' });
   }
 
   // --- life-guard ---
@@ -1955,6 +2212,14 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
   if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
+  // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
+  // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные
+  // релизы: _generation валидирует ВСЕ файлы списка).
+  // PWA (iPhone «На экран «Домой»»): манифест + иконка отдаются из checkout по схеме cab-auth.js —
+  // не из release-списка (см. комментарий выше), стартовый экран задаёт start_url=/imperial.html.
+  if (p === '/manifest.webmanifest' && req.method === 'GET') return serveSitePage(res, 'manifest.webmanifest');
+  if (p === '/apple-icon.png' && req.method === 'GET') return serveSitePage(res, 'apple-icon.png');
+  if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }
@@ -1970,7 +2235,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
       return res.end();
     }
     return json(res, 200, {
-    name: 'AGENTCOIN node', chainId: CHAIN_ID, ticker: TICKER, maxSupply: MAX_SUPPLY,
+    name: 'AGENTCOIN node', chainId: networkChainId(), ticker: TICKER, maxSupply: MAX_SUPPLY,
     consensus: 'PoW + best-chain-by-cumulative-work (fork vote) + headers-first sync + tx gossip',
     endpoints: ['/info', '/blocks?n=|from=', '/headers?from=&limit=', '/mempool', '/forks', '/peers/meta',
       'POST /wallet/create', 'POST /balance', 'POST /tx/sign', 'POST /tx (→ gossip peers)', 'POST /mine', '/validate?strict=1',

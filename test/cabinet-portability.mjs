@@ -7,7 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import {
   createProfile, createEncryptedBackup, restoreProfile, signProfileChallenge,
@@ -47,7 +47,7 @@ async function startNode({ port, dataDir, guardPath, blockedFile, trustFile, pas
   for (const key of ['AGT_TRUSTED_ISSUERS_FILE', 'AGT_PASSPORT_ISSUER_FINGERPRINT', 'NODE_OPTIONS']) delete env[key];
   if (trustFile) env.AGT_TRUSTED_ISSUERS_FILE = trustFile;
   if (passportIssuer) env.AGT_PASSPORT_ISSUER_FINGERPRINT = passportIssuer;
-  const child = spawn(process.execPath, ['--import', guardPath, path.join(root, 'node.mjs'), String(port)], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--import', pathToFileURL(guardPath).href, String(path.join(root, 'node.mjs')), String(port)], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';
   child.stdout.on('data', c => { logs = (logs + c.toString()).slice(-32_000); });
   child.stderr.on('data', c => { logs = (logs + c.toString()).slice(-32_000); });

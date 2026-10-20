@@ -78,17 +78,18 @@
   <div class="row"><button id="bOut" style="border-color:var(--bad);color:var(--bad)">Выйти из кабинета</button></div>
 </div>
 
-<script>
+<script type="module">
+import * as cab from '/cab-auth.js';
 (function(){
   const $ = (id) => document.getElementById(id);
   const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
-  let TOKEN = localStorage.getItem('cab_token') || '';
-  let ADDR = localStorage.getItem('cab_addr') || '';
+  let TOKEN = ''; let ADDR = '';
+  const sess = cab.loadSession(); if (sess) { TOKEN = sess.token; ADDR = sess.address; }
 
   async function state() {
     if (!TOKEN || !ADDR) { showLogin(); return; }
     const r = await fetch('/cabinet/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: ADDR, token: TOKEN }) }).then(x => x.json());
-    if (r && r.via) { render(r); } else { showLogin(); }
+    if (r && r.via) { render(r); } else { TOKEN = ''; ADDR = ''; cab.clearSession(); showLogin(); }
   }
   function showLogin() { $('loginBox').style.display = ''; $('cab').style.display = 'none'; }
   function render(r) {
@@ -103,8 +104,10 @@
   async function afterLogin(j) {
     if (!j || !j.ok) { $('lnMsg').innerHTML = '<span class="bad">' + esc(j.error || 'отказ') + '</span>'; return; }
     TOKEN = j.token; ADDR = $('adr').value.trim();
-    localStorage.setItem('cab_token', TOKEN); localStorage.setItem('cab_addr', ADDR);
+    // Кабинет v2: сессия оператора тоже только в sessionStorage (единый cab-auth-модуль).
+    cab.saveSession({ address: ADDR, token: TOKEN, expiresAt: j.expiresAt || 0 }); cab.rememberAddress(ADDR);
     state();
+    // AGIP-45: на loopback пробуем и автологин — но приоритет у ручного входа, уже выполненного выше.
   }
   $('b2a').onclick = () => fetch('/cabinet/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: $('adr').value.trim() }) }).then(x => x.json()).then(j => {
     if (j.ok) { $('nonce').style.display = ''; $('sig').style.display = ''; $('b2b').style.display = ''; $('nonce').value = j.nonce; $('lnMsg').textContent = 'nonce выдан — подпишешь сам (privKey не отправляется)'; }
@@ -175,7 +178,9 @@
       : '<span class="bad">' + esc(r.error || JSON.stringify(r).slice(0, 140)) + '</span>';
     myOrders();
   }
-  $('bOut').onclick = () => { localStorage.removeItem('cab_token'); localStorage.removeItem('cab_addr'); TOKEN = ''; ADDR = ''; showLogin(); };
+  $('bOut').onclick = () => { cab.logout(); TOKEN = ''; ADDR = ''; showLogin(); };
+
+  cab.tryAutologin({ onState: render }); // молчаливый авто-вход оператора на его ноде
 
   state();
 })();

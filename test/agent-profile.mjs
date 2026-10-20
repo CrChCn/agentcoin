@@ -149,7 +149,16 @@ test('CLI accepts secrets only on stdin and emits only safe metadata/signatures'
 });
 
 test('symlink and insecure profile destinations are rejected', async t => {
-  const dir = await temp(t), target = path.join(dir, 'target.json');
+  const dir = await temp(t);
+  // capability-skip (требование review 6274261401/6274233515: EPERM ≠ PASS, ≠ FAIL):
+  // на Windows без developer-mode fs.symlink недоступен для непривилегированных —
+  // сам код-тест защиты не несёт. Честно помечаем среду и пропускаем sylink-часть.
+  let haveSymlinkCapability = true;
+  try { await fs.symlink(path.join(dir, 'probe'), path.join(dir, 'probe-link')); await fs.unlink(path.join(dir, 'probe-link')); } catch (e) {
+    if (e.code === 'EPERM' || e.code === 'EACCES') { haveSymlinkCapability = false; console.log('  SKIP capability: fs.symlink EPERM (Windows developer-mode off) — symlink-ветка не проверяется, защита в агент-коде не снята'); t.skip(); return; }
+    throw e;
+  }
+  const target = path.join(dir, 'target.json');
   await createProfile({ profilePath: target, password, mnemonic });
   const link = path.join(dir, 'link.json');
   await fs.symlink(target, link);

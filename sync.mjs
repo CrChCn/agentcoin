@@ -19,24 +19,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,
-  chainWork, validateBlockAgainstChain, expectedDifficultyBits,
+  computeBlockHash, hashMeetsDifficulty, merkleRoot, CHAIN_ID,  chainWork, validateBlockAgainstChain, expectedDifficultyBits, networkChainId,  balancesOf, applyTxToBalances, // CORE-P0: инкрементальный replay/balance-контекст
+  chainBalanceUnitsOf, applyTxToBalanceUnits, // C-6: точный контекст в REPLAY-юнитах
 } from './core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // как в node.mjs: вторая нода = свой data-dir
-const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
-const PEER_META_FILE = path.join(DATA_DIR, 'peer-meta.json');
+// R-14 (изолированность): данные пути НЕ капчурятся в константу при импорте —
+// AGT_DATA_DIR читается на каждом обращении. Иначе изолированные прогоны
+// (тест-сьюиты/кластерные data-dir, меняющие env после import) молча писали/читали
+// peers.json ОСНОВНОГО data-каталога — синтетическая изоляция не работала.
+export function peersDataDir() { return process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); }
+const PEERS_FILE = () => path.join(peersDataDir(), 'peers.json');
+const PEER_META_FILE = () => path.join(peersDataDir(), 'peer-meta.json');
 
 const STRIKE_LIMIT = 3;
 const STRIKE_COOLDOWN_MS = 24 * 3600 * 1000;
 
 export function loadPeers() {
-  try { return JSON.parse(fs.readFileSync(PEERS_FILE, 'utf8')); } catch { return []; }
+  try { return JSON.parse(fs.readFileSync(PEERS_FILE(), 'utf8')); } catch { return []; }
 }
 export function savePeers(list) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(PEERS_FILE, JSON.stringify(list, null, 2));
+  fs.mkdirSync(peersDataDir(), { recursive: true });
+  fs.writeFileSync(PEERS_FILE(), JSON.stringify(list, null, 2));
 }
 export function addPeer(url) {
   const peers = loadPeers();
@@ -46,11 +50,11 @@ export function addPeer(url) {
 }
 
 export function loadPeerMeta() {
-  try { return JSON.parse(fs.readFileSync(PEER_META_FILE, 'utf8')); } catch { return {}; }
+  try { return JSON.parse(fs.readFileSync(PEER_META_FILE(), 'utf8')); } catch { return {}; }
 }
 export function savePeerMeta(meta) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(PEER_META_FILE, JSON.stringify(meta, null, 2));
+  fs.mkdirSync(peersDataDir(), { recursive: true });
+  fs.writeFileSync(PEER_META_FILE(), JSON.stringify(meta, null, 2));
 }
 export function peerStrike(peerUrl, reason) {
   const meta = loadPeerMeta();
@@ -139,7 +143,7 @@ export async function syncOne(bc, peerUrl) {
   };
   try {
     const info = await fetchStable(peerUrl + '/info');
-    if (!info || info.chainId !== CHAIN_ID) { log.push(`${peerUrl}: not AGENTCOIN, skip`); return log; }
+    if (!info || info.chainId !== networkChainId()) { log.push(`${peerUrl}: not AGENTCOIN, skip`); return log; }
     if (!bc.genesisHeader || computeBlockHash(bc.genesisHeader) !== info.genesisHash) {
       log.push(`${peerUrl}: genesis mismatch (different network), skip`);
       return log;
@@ -314,19 +318,26 @@ export async function syncOne(bc, peerUrl) {
     // ---- Линейный append: грузим тела и валидируем КАЖДЫЙ блок строго ----
     const bodies = await fetchStable(`${peerUrl}/blocks?from=${myH}`);
     const incoming = (bodies.blocks || []).sort((a, b) => a.height - b.height);
-    let accepted = 0;
-    const interim = chainAtStart.slice();
+    let accepted = 0;    const interim = chainAtStart.slice();
+    // CORE-P0: инкрементальные replay/balance-контексты — одна цена на весь синк:
+    // known = txid стартовой цепи; bal = последовательные балансы, обновляются по мере приёмки.
+    const knownTx = new Set();
+    for (const b of chainAtStart) for (const t of (b.txs || [])) if (t && t.txid) knownTx.add(t.txid);
+    const bal = balancesOf(chainAtStart);
+    const balUnits = chainBalanceUnitsOf(chainAtStart); // точный контекст в REPLAY-юнитах (C-6)
     for (const blk of incoming) {
       // дешёвая (headers-only) проверка уже была; здесь — полная, против нарастающего префикса
       const known = headers && headers.find(hd => hd.height === blk.height);
       if (known && known.hash !== blk.hash) { log.push(`  → hash заголовка/тела расходится на ${blk.height}`); peerStrike(peerUrl, `header/body hash divergence at ${blk.height}`); return log; }
-      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy() });
+      const reason = validateBlockAgainstChain(blk, interim, { treasury: bc.getTreasuryPolicy(), knownTxids: knownTx, prefixBalances: bal, prefixBalanceUnits: balUnits });
       if (reason) {
         log.push(`  → block ${blk.height} REJECTED: ${reason} — плохой блок от пира не примем`);
         peerStrike(peerUrl, `invalid block ${blk.height}: ${reason}`);
         return log; // дальше цепь не может быть консистентной
       }
       interim.push(blk);
+      for (const t of (blk.txs || [])) if (t && t.txid) knownTx.add(t.txid);
+      for (const t of (blk.txs || [])) { applyTxToBalances(bal, t); applyTxToBalanceUnits(balUnits, t); }
       accepted++;
     }
     if (accepted) {

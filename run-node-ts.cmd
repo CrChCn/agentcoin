@@ -23,6 +23,12 @@ if errorlevel 1 (
   exit /b 2
 )
 set "AGT_BIND=%AGT_TS_BIND%"
+set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"
+set "AGT_MONITOR_TARGETS_FILE=%~dp0data-agtx\monitor-targets.json"
+set "AGT_IDENTITY_ROLE=replica"
+set "AGT_TRUSTED_ISSUERS_FILE=%~dp0data-agtx\trusted-issuers.json"
+set "AGT_PASSPORT_ISSUER_FINGERPRINT=sha256:91002b4db204851c42d8c75b04932902b03b59135e8a4310adfc5c7d4ca9f4a1"
+set "AGT_IDENTITY_AUDIENCE=agentcoin-node:9336"
 rem node.mjs reads the ignored admin-token file itself; missing token stays locked.
 "%AGT_NODE_EXE%" "%~dp0node.mjs" 9336 >> "%~dp0log-node-ts.txt" 2>&1
 exit /b %errorlevel%

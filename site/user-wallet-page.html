@@ -341,9 +341,11 @@ $('autologinNow').onclick = () => action('autologinNow', async () => {
     if (ADDR_RE.test(localAddress)) {
       // WALLET-ALL-ORIGINS: вне этой машины тихий вход невозможен — запускаем честный ручной путь:
       // challenge скачивается/подписывается на устройстве с ключом, ответ вставляется в поле «Войти».
-      await api('/cabinet/challenge', { address: localAddress });
-      const c = JSON.parse($('challengeJson').value || 'null');
+      const ch = await api('/cabinet/challenge', { address: localAddress });
+      const c = ch.challenge || ch;
       if (c && c.challengeId) {
+        $('challengeJson').value = JSON.stringify(c, null, 2);
+        $('challengeJson').dataset.challengeId = c.challengeId;
         $('signBox').classList.remove('hidden');
         savePublic('agentcoin-challenge.json', c);
         msg('С адреса ' + location.host + ' тихий вход недоступен (защита ключа). Скачан запрос agentcoin-challenge.json — подпишите его на устройстве с ключом (Skill sign-challenge) и вставьте ответ ниже, затем «Войти». Адрес тот же, кошелёк тот же.');

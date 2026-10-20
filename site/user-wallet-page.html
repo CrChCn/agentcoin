@@ -46,7 +46,7 @@ canvas.qr{background:#fff;border-radius:10px;padding:8px}
 <div class="eyebrow">AGENTCOIN / WALLET</div><h1>Кошелёк AGENTCOIN</h1>
 <p class="dim">Единый кабинет: отправка и получение AGT, прозрачные комиссии, история операций и казна сети. Приватный ключ остаётся в вашей среде — страница не запрашивает seed, private key или пароль.</p>
 
-<section class="panel hidden" id="loginBox"><h2>1 · Вход по подписи</h2>
+<section class="panel" id="loginBox"><h2>1 · Вход по подписи</h2>
 <label for="certFile">Публичный паспорт JSON (до 4 КБ)</label><input id="certFile" type="file" accept="application/json,.json">
 <button id="importCert" class="secondary">Импортировать паспорт</button>
 <label for="adr">AGT-адрес</label><input id="adr" autocomplete="off" spellcheck="false" placeholder="AGT…">
@@ -56,8 +56,11 @@ canvas.qr{background:#fff;border-radius:10px;padding:8px}
 <label for="signature">Подпись (hex 128 или JSON Skill-ответ)</label><textarea id="signature" placeholder="Без ключей и паролей"></textarea><button id="login">Войти</button></div>
 <button id="disableAutologin" class="secondary">не входить автоматически</button>
 <button id="autologinNow">Войти без пароля (эта машина) — на какой стоит нода, в тот кошелёк войду</button>
+<div class="status" id="loginHint" role="status" aria-live="polite"></div>
+</section>
 
-<section class="panel" id="cab">
+<!-- cab — СОСЕД loginBox, никогда не вложен в него: скрытый loginBox не должен прятать кабинет -->
+<section class="panel hidden" id="cab">
 <div class="tabs">
 <button id="tabOverview" class="active">Обзор</button><button id="tabSend">Отправить</button>
 <button id="tabReceive">Получить</button><button id="tabHistory">История</button>
@@ -173,7 +176,7 @@ async function api(route, value) {
   if (!r.ok || j.ok === false) throw Error(j.error || ('HTTP ' + r.status));
   return j;
 }
-function msg(text) { $('message').textContent = text || ''; }
+function msg(text) { $('message').textContent = text || ''; const $lh = $('loginHint'); if ($lh) $lh.textContent = text || ''; }
 async function action(id, fn) {
   const b = $(id); b.disabled = true; msg('Выполняю…');
   try { await fn(); } catch (e) { msg(e.message); } finally { if (!b.dataset.keepDisabled) b.disabled = false; }
@@ -344,7 +347,7 @@ $('autologinNow').onclick = () => action('autologinNow', async () => {
   await enter(st, 'Вход без пароля (эта машина). Ключ остался на ноде.');
 });
 // когда тихий вход выключен подсказываем явный путь восстановления
-try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null'))($('message')||{}).textContent = 'Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'; } catch {}
+try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null')) msg('Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'); } catch {}
 
 // ---------- отправка (op-request → локальная подпись → op-submit) ----------
 $('estimateBtn').onclick = () => action('estimateBtn', async () => {

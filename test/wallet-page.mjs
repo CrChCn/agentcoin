@@ -124,6 +124,23 @@ test('wallet-format units + QR algebraic self-checks', async () => {
   assert.throws(() => Q.encode('x'.repeat(300)), /qr_too_long/);
 });
 
+// ---------- parsed-DOM: loginBox и cab — соседи, дефолты без сессии ----------
+test('wallet page DOM: #loginBox closed BEFORE #cab opens; defaults = form visible, cabinet hidden', async () => {
+  const html = await fs.readFile(path.join(root, 'site', 'user-wallet-page.html'), 'utf8');
+  const openAt = (tag) => html.indexOf(tag);
+  const lb = openAt('id="loginBox"'), cb = openAt('id="cab"');
+  assert.ok(lb > 0 && cb > lb, 'оба раздела присутствуют и loginBox раньше cab');
+  const slice = html.slice(lb, cb);
+  assert.ok(slice.includes('</section>'), '#loginBox закрыт до открытия #cab (иначе скрытый loginBox прячет кабинет)');
+  // DOM-инвариант !loginBox.contains(cab): между стартом loginBox и стартом cab нет вложенного <section
+  assert.equal((slice.match(/<section\b/g) || []).length, 1, 'между loginBox и cab нет вложенного <section>');
+  // дефолты без сессии: форма входа видима, кабинет скрыт
+  const lbTag = html.slice(html.lastIndexOf('<section', lb), lb + 200);
+  assert.ok(!/class="[^"]*\bhidden\b/.test(lbTag), 'loginBox по умолчанию ВИДИМ (гость видит вход)');
+  const cbTag = html.slice(html.lastIndexOf('<section', cb), cb + 200);
+  assert.ok(/class="[^"]*\bhidden\b/.test(cbTag), 'cab по умолчанию СКРЫТ до входа');
+});
+
 // ---------- HTTP-акцептанс на изолированной ноде ----------
 test('wallet page, session-scoped history, estimate and signed op flow', { timeout: 60_000 }, async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'agt-wallet-e2e-'));

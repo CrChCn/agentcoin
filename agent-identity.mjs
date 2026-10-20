@@ -159,7 +159,14 @@ function loadIssuer(file) {
     } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temp); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
   }
   const value = boundedRead(file, 4096);
-  exactKeys(value, ['version', 'pub', 'privKey']);
+  // Ротация издателя добавляет шахматные метаданные createdAt/rotatedFrom — они допустимы,
+  // но ничего иного сверх ключа издателя не признaётся (fail-closed).
+  const metaKeys = new Set(['createdAt', 'rotatedFrom']);
+  const keys = Object.keys(value);
+  const missing = ['version', 'pub', 'privKey'].filter(k => !keys.includes(k));
+  if (missing.length || keys.some(k => ![...metaKeys, 'version', 'pub', 'privKey'].includes(k))) fail('invalid_issuer_key_file');
+  if (value.createdAt !== undefined && (!Number.isSafeInteger(value.createdAt) || value.createdAt < 0)) fail('invalid_issuer_key_file');
+  if (value.rotatedFrom !== undefined && value.rotatedFrom !== null && (typeof value.rotatedFrom !== 'string' || value.rotatedFrom.length > 80)) fail('invalid_issuer_key_file');
   if (value.version !== 1 || typeof value.privKey !== 'string' || value.privKey.length > 1024) fail('invalid_issuer_key_file');
   canonicalAgentPublicKey(value.pub);
   let key;

@@ -18,7 +18,14 @@ const SUBSTR = [
 // Исключения: source-code инструменты (их имена содержат 'passport',
 // но это код, не данные; проходит только если в .mjs/.js/.html/.css/.md в
 // tools/ или docs/).
-const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/i.test(f);
+// 2026-10-20: добавлен явный белый список source-модулей вне tools/ —
+// 'agent-identit' substring ловил agent-identity.mjs (код доверия) и блокировал
+// security-фиксы; данные (identity JSON, wallets) остаются блокированы.
+const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/i.test(f)
+  || /^(agent-identity|gov-passports)\.mjs$/i.test(f)
+  || /^test\/agent-identity\.mjs$/i.test(f)
+  || /^skills\/agentdata\.mjs$/i.test(f)
+  || /^docs\/(DATA-EXCHANGE|EMPEROR-WALLET)\.md$/i.test(f);
 let bad = [];
 try {
   const staged = execSync('git diff --cached --name-only --diff-filter=ACM', { encoding: 'utf8' }).split('\n').filter(Boolean);

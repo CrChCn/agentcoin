@@ -26,6 +26,9 @@ set "AGT_BIND=%AGT_TS_BIND%"
 set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"
 set "AGT_MONITOR_TARGETS_FILE=%~dp0data-agtx\monitor-targets.json"
 set "AGT_IDENTITY_ROLE=replica"
+rem SITE-ACTIVATE (WALLET-ALL-ORIGINS): serve verified checkout site on the public funnel endpoint too,
+rem identical to localhost:9335; release.json on disk is bytes-verified by build-site-release --check.
+set "AGT_SITE_SYNC=0"
 set "AGT_TRUSTED_ISSUERS_FILE=%~dp0data-agtx\trusted-issuers.json"
 set "AGT_PASSPORT_ISSUER_FINGERPRINT=sha256:ef653a519f71e484b1b2b84ddb45f298886f600b72f388f8881b55ac5752af9c"
 set "AGT_IDENTITY_AUDIENCE=agentcoin-node:9336"

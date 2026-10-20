@@ -126,3 +126,7 @@ export function logout() {
   clearSession();
 }
 export function isAutologinDisabled() { return localStorage.getItem(KEY_NOAUTO) === 'off'; }
+// Мост для классической страницы кабинета (не module-script): навешивает один глобальный объект,
+// чтобы inline-скрипт мог вызвать disableAutologin() из общего модуля без дублирования логики.
+// Раскрывается только безопасные вызовы; никаких токенов/ключей в window не отдаётся.
+if (typeof window !== 'undefined') { try { window.cabAuth = Object.freeze({ disableAutologin, isAutologinDisabled }); } catch {} }

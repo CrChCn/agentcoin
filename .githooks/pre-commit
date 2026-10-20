@@ -25,7 +25,7 @@ const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/
   || /^(agent-identity|gov-passports)\.mjs$/i.test(f)
   || /^test\/agent-identity\.mjs$/i.test(f)
   || /^skills\/agentdata\.mjs$/i.test(f)
-  || /^docs\/(DATA-EXCHANGE|EMPEROR-WALLET)\.md$/i.test(f);
+  || /^docs\/.+\.md$/i.test(f); // документация: никакие данные (json/db/двоичные) в docs не проходят
 let bad = [];
 try {
   const staged = execSync('git diff --cached --name-only --diff-filter=ACM', { encoding: 'utf8' }).split('\n').filter(Boolean);

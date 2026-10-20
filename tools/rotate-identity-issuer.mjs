@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // РОТАЦИЯ ИЗДАТЕЛЯ ИДЕНТИЧНОСТЕЙ (agent-identity.mjs слой):
-// генерирует свежий ed25519-ключ издателя, заменяет data/identity/identity-issuer.json,
+// генерирует свежий ed25519-ключ издателя, заменяет dataDir/identity/identity-issuer.json,
 // архивирует старую версию (forensic), печатает до/после fingerprint.
 // После ротации ВСЕ прежние паспорта этого издателя становятся untrusted.
 // Использование: node tools/rotate-identity-issuer.mjs [dataDir] [--dry]
@@ -13,13 +13,13 @@ const dry = process.argv.includes('--dry');
 const issuerFile = path.join(dataDir, 'identity', 'identity-issuer.json');
 const archiveFile = path.join(dataDir, 'identity', `identity-issuer.rotated-${Date.now()}.json`);
 
-fs.mkdirSync(path.join(dataDir, 'identity'), { recursive: true, mode: 0o700 });
-const prev = fs.existsSync(issuerFile) ? JSON.parse(fs.readFileSync(issuerFile, 'utf8')) : null;
-const fpOf = (pub) => 'sha256:' + crypto.createHash('sha256').update(pub).digest('hex');
+// fingerprint той же схемой, что идёт в проде — DER SPKI (agent-identity.mjs issuerFingerprint),
+// НЕ sha256(PEM-текст): иначе пины реплик не совпадают с /identity/meta после ротации.
+const fpOf = (pub) => 'sha256:' + crypto.createHash('sha256').update(crypto.createPublicKey(pub).export({ type: 'spki', format: 'der' })).digest('hex');
 const prevFp = prev ? fpOf(prev.pub) : '(none)';
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
-const pub = publicKey.export({ type: 'spki', format: 'pem' }).trim();
+const pub = publicKey.export({ type: 'spki', format: 'pem' }); // canonical PEM (с хвостовым \n)! .trim() ломал noncanonical_public_key при старте ноды
 const privKey = privateKey.export({ type: 'pkcs8', format: 'pem' }).trim();
 const newFp = fpOf(pub);
 

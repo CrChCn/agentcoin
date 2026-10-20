@@ -8,7 +8,7 @@ set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"
 set "AGT_MONITOR_TARGETS_FILE=%~dp0data-agtx\monitor-targets.json"
 set "AGT_IDENTITY_ROLE=replica"
 set "AGT_TRUSTED_ISSUERS_FILE=%~dp0data-agtx\trusted-issuers.json"
-set "AGT_PASSPORT_ISSUER_FINGERPRINT=sha256:4027452cf1118c7c7e6dbda207a335fdb816fb0b1f7107c804e03b7d1fb9d1c3"
+set "AGT_PASSPORT_ISSUER_FINGERPRINT=sha256:ef653a519f71e484b1b2b84ddb45f298886f600b72f388f8881b55ac5752af9c"
 set "AGT_IDENTITY_AUDIENCE=agentcoin-node:9341"
 set "AGT_NODE_EXE="
 where node.exe >nul 2>&1

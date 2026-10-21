@@ -1,0 +1,24 @@
+--- a/site/user-wallet-page.html
++++ b/site/user-wallet-page.html
+@@ -96,7 +96,8 @@
+ <button id="estimateBtn" class="secondary">Рассчитать комиссию</button>
+ <div id="feeBox" class="hidden"><table id="feeTable"></table><p class="dim" id="feeNote"></p></div>
+ <label><input id="confirmSend" type="checkbox" style="width:auto"> Я сверил адрес, сумму и комиссию</label>
+-<button id="prepareOp">Выдать запрос на подпись</button>
++<p class="dim">Шаг 1: подготовить запрос. Шаг 2: подписать его локальным Skill. Шаг 3: вставить подпись и нажать «Отправить в сеть» ниже. Без подписи перевод не отправляется.</p>
++<button id="prepareOp">1. Подготовить перевод для подписи</button>
+ <div id="opBox" class="hidden">
+ <label for="opJson">Полезная нагрузка (подписать txid локально)</label><textarea id="opJson" readonly></textarea>
+ <p><small>Команда Skill: подпись <code>crypto.sign(null, Buffer.from(txidHex,'hex'), privKey).toString('hex')</code> над txid из запроса.</small></p>
+@@ -174,7 +175,10 @@
+   const r = await fetch(route, { method: value ? 'POST' : 'GET', redirect: 'error', credentials: 'omit',
+     headers: value ? { 'Content-Type': 'application/json' } : {}, body: value ? JSON.stringify(value) : undefined, signal: AbortSignal.timeout(10000), cache: 'no-store' });
+   const j = await r.json().catch(() => ({}));
+-  if (!r.ok || j.ok === false) throw Error(j.error || ('HTTP ' + r.status));
++  if (!r.ok || j.ok === false) {
++    if (j.error === 'passport_pub_missing') throw Error('Не найден публичный ключ этого паспорта. Перевод не подготовлен. Нужна совместимость старого кошелька на ноде; не создавайте новый кошелёк и не отправляйте seed или private key.');
++    throw Error(j.error || ('HTTP ' + r.status));
++  }
+   return j;
+ }
+ function msg(text) { $('message').textContent = text || ''; const $lh = $('loginHint'); if ($lh) $lh.textContent = text || ''; }

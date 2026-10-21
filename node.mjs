@@ -29,6 +29,7 @@ process.on('unhandledRejection', (e) => {
   console.log(`[guard] unhandledRejection: ${e && (e.stack || e.message) || e}`);
 });
 import http from 'node:http';
+import { resolveOperationPublicKey } from './cabinet-public-key.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -849,8 +850,9 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/cabinet/op-request' && req.method === 'POST') {
     const { address, token, op } = await body(req);
     if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'войти в кабинет заново' });
-    const rec = cabinet.findPassportByAddress(address);
-    const passportPub = rec?.pub || null;
+    let passportPub;
+    try { passportPub = resolveOperationPublicKey(cabinet, address); }
+    catch (error) { return json(res, 400, { error: error.message, hint: 'Публичный ключ не соответствует адресу; перевод не подготовлен.' }); }
     if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт с ключом ( Skill enroll )' });
     const kind = op && op.kind;
     const bal = bc.balances()[address] || 0;

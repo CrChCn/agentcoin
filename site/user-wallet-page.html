@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Кошелёк · Agentcoin</title><script src="/panel.js" defer></script>
+<!-- без defer: inline-скрипт тела вызывает window.AgentcoinWalletUnits/QR при входе; порядок критичен -->
+<script src="/wallet-format.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--warn:#e3b341}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.55 system-ui,sans-serif}
+main{max-width:1060px;margin:auto;padding:38px 22px}
+a{color:var(--gold)}h1{font-size:clamp(27px,5vw,44px);line-height:1.12;margin:10px 0}h2{font-size:19px;margin:0 0 10px}
+.eyebrow{letter-spacing:.16em;color:var(--gold);font-size:12px}
+.dim,small{color:var(--dim)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px}
+label{display:block;margin:12px 0 6px}
+input,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}
+input{width:100%;background:#080f1b;color:var(--txt)}
+button{background:var(--gold);color:#111a28;cursor:pointer;margin:8px 8px 0 0}
+button.secondary{background:transparent;color:var(--gold)}
+button:disabled{opacity:.45;cursor:not-allowed}
+pre{white-space:pre-wrap;word-break:break-word;background:#080f1b;padding:14px;border-radius:9px;font-size:12px}
+.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.address{word-break:break-all;font-family:ui-monospace,monospace}
+.status{min-height:26px;color:var(--gold);white-space:pre-wrap;margin-top:10px}
+.balance{font-size:clamp(30px,5vw,42px);font-variant-numeric:tabular-nums;margin:8px 0}
+.unitsel{display:flex;gap:8px;flex-wrap:wrap}
+.unitsel button{margin:0}
+.unitsel button.active{background:#fff3;color:var(--gold)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.hidden{display:none}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--dim)}
+.pill.in{border-color:#245c2f;color:var(--ok)}
+.pill.out{border-color:#5c2424;color:#e07b7b}
+.pill.mining,.pill.escrow,.pill.tax,.pill.gateway-leg1,.pill.gateway-leg2,.pill.system,.pill.treasury{border-color:#39496b;color:#9fb3d8}
+table{width:100%;border-collapse:collapse}
+td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;text-align:right}
+.feerow td:first-child{white-space:nowrap}
+.notice{border-left:3px solid var(--gold);padding:10px 14px;background:#252016;border-radius:0 8px 8px 0}
+canvas.qr{background:#fff;border-radius:10px;padding:8px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+.tabs button{margin:0;background:transparent;color:var(--dim);border:1px solid var(--line)}
+.tabs button.active{background:#e5c878;color:#111a28;border-color:transparent}
+.kv{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}.kw{color:var(--dim)}
+@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:22px 14px}}
+</style></head><body><main>
+<div class="eyebrow">AGENTCOIN / WALLET</div><h1>Кошелёк AGENTCOIN</h1>
+<p class="dim">Единый кабинет: отправка и получение AGT, прозрачные комиссии, история операций и казна сети. Приватный ключ остаётся в вашей среде — страница не запрашивает seed, private key или пароль.</p>
+
+<section class="panel" id="loginBox"><h2>1 · Вход по подписи</h2>
+<label for="certFile">Публичный паспорт JSON (до 4 КБ)</label><input id="certFile" type="file" accept="application/json,.json">
+<button id="importCert" class="secondary">Импортировать паспорт</button>
+<label for="adr">AGT-адрес</label><input id="adr" autocomplete="off" spellcheck="false" placeholder="AGT…">
+<button id="challenge">Получить запрос на вход</button>
+<div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea>
+<p><small>Подпишитесь локальным Skill (<code>agent-profile.mjs sign-challenge</code>) и вставьте ответ. Срок запроса — 5 минут.</small></p>
+<button id="downloadChallenge" class="secondary">Скачать запрос JSON</button>
+<label for="signature">Подпись (hex 128 или JSON Skill-ответ)</label><textarea id="signature" placeholder="Без ключей и паролей"></textarea><button id="login">Войти</button></div>
+<button id="disableAutologin" class="secondary">не входить автоматически</button>
+<button id="autologinNow">Войти без пароля (эта машина) — на какой стоит нода, в тот кошелёк войду</button>
+<div class="status" id="loginHint" role="status" aria-live="polite"></div>
+</section>
+
+<!-- cab — СОСЕД loginBox, никогда не вложен в него: скрытый loginBox не должен прятать кабинет -->
+<section class="panel hidden" id="cab">
+<div class="tabs">
+<button id="tabOverview" class="active">Обзор</button><button id="tabSend">Отправить</button>
+<button id="tabReceive">Получить</button><button id="tabHistory">История</button>
+<button id="tabContacts">Контакты</button><button id="tabFees">Комиссии и казна</button>
+</div>
+
+<div id="paneOverview">
+<div class="kv"><span class="eyebrow">БАЛАНС</span><button id="refreshWallet" class="secondary" style="margin:0 0 0 auto">обновить</button></div>
+<p class="balance" id="balancePrimary">—</p>
+<div class="unitsel" id="unitButtons"></div>
+<p class="dim" id="balanceAll"></p>
+<div id="identity" class="address"></div>
+<p><small id="balanceNote"></small></p>
+<div class="grid">
+<div class="panel"><h2>Запросить оплату у Алисы</h2><p class="dim">Создать счёт со своей суммой и назначением, передать Алисе файлом или QR.</p><button id="aliceRequest">Создать счёт для Алисы</button></div>
+<div class="panel"><h2>Отправить Бобу</h2><p class="dim">Готовая форма перевода Бобу: адрес из контактной книги, сумма в любой единице.</p><button id="bobSend">Перевести Бобу</button></div>
+</div>
+</div>
+
+<div id="paneSend" class="hidden">
+<div class="notice"><b>Как это работает.</b> Страница готовит запрос перевода и <b>не</b> подписывает его сама: вы подписываете txid локальным Skill и вставляете подпись. Ключи и пароли никуда не уходят.</div>
+<label for="sendTo">Полный адрес получателя</label><input id="sendTo" list="contactList" autocomplete="off" spellcheck="false" placeholder="AGT + 40 hex">
+<datalist id="contactList"></datalist>
+<label for="sendAmount">Сумма</label>
+<div class="unitsel" id="sendUnitButtons"></div>
+<input id="sendAmount" inputmode="decimal" autocomplete="off" placeholder="0">
+<p class="dim" id="unitHint"></p>
+<label for="sendMemo">Назначение — публично в цепи</label><input id="sendMemo" autocomplete="off" maxlength="120" placeholder="Без секретной информации">
+<h2 style="margin-top:16px">Маршрут и комиссия</h2>
+<label><input type="radio" name="sendRoute" value="direct" checked style="width:auto"> Напрямую (базовая комиссия сети: 0 AGT)</label>
+<label><input type="radio" name="sendRoute" value="gateway" style="width:auto"> Через шлюз (шлюз удерживает свой feeBps при второй ноге)</label>
+<button id="estimateBtn" class="secondary">Рассчитать комиссию</button>
+<div id="feeBox" class="hidden"><table id="feeTable"></table><p class="dim" id="feeNote"></p></div>
+<label><input id="confirmSend" type="checkbox" style="width:auto"> Я сверил адрес, сумму и комиссию</label>
+<p class="dim">Шаг 1: подготовить запрос. Шаг 2: подписать его локальным Skill. Шаг 3: вставить подпись и нажать «Отправить в сеть» ниже. Без подписи перевод не отправляется.</p>
+<button id="prepareOp">1. Подготовить перевод для подписи</button>
+<div id="opBox" class="hidden">
+<label for="opJson">Полезная нагрузка (подписать txid локально)</label><textarea id="opJson" readonly></textarea>
+<p><small>Команда Skill: подпись <code>crypto.sign(null, Buffer.from(txidHex,'hex'), privKey).toString('hex')</code> над txid из запроса.</small></p>
+<label for="opSignature">Подпись (hex 128)</label><textarea id="opSignature" placeholder="128 hex-символов"></textarea><button id="opSubmit">Отправить в сеть</button>
+</div>
+</div>
+
+<div id="paneReceive" class="hidden">
+<h2>Реквизиты получения</h2>
+<div class="grid">
+<div><canvas class="qr" id="qrReceive" width="240" height="240"></canvas><p class="dim mono" id="receiveUri"></p></div>
+<div><div id="receiveAddress" class="address"></div>
+<button id="copyReceive">Скопировать адрес</button>
+<button id="downloadReceive" class="secondary">Скачать реквизиты JSON</button>
+<h2 style="margin-top:14px">Счёт на оплату</h2>
+<label for="invAmount">Сумма</label><input id="invAmount" inputmode="decimal" placeholder="0">
+<div class="unitsel" id="invUnitButtons"></div>
+<label for="invMemo">Назначение</label><input id="invMemo" maxlength="120" placeholder="Например: «за пексельную работу»">
+<button id="makeInvoice" class="secondary">Сформировать счёт</button>
+<button id="downloadInvoice" class="secondary" disabled>Скачать счёт JSON</button>
+<button id="showInvoiceQR" class="secondary" disabled>QR счёта</button>
+<div id="invQRBox" class="hidden"><canvas class="qr" id="qrInvoice" width="240" height="240"></canvas><p class="dim" id="invSummary"></p></div>
+</div></div>
+</div>
+
+<div id="paneHistory" class="hidden">
+<div class="kv"><span class="eyebrow">ИСТОРИЯ ОПЕРАЦИЙ</span><button id="historyMore" class="secondary hidden" style="margin:0 0 0 auto">Ещё</button></div>
+<p class="dim">Пагинация по блокам; системные категории подписаны. Казна — по высоте активации политики, без ретроактивного требования 2-й подписи.</p>
+<div id="historyTableBox"><table id="historyTable"></table></div>
+<p class="dim" id="historyTreasuryNote"></p>
+</div>
+
+<div id="paneContacts" class="hidden">
+<div class="kv"><span>Адресная книга хранится только в этом браузере (localStorage) и не отправляется ноде.</span></div>
+<div id="contactsList"></div>
+<button id="addContact">Добавить контакт</button>
+<button id="seedDemo" class="secondary">Добавить Алису и Боб (шаблоны)</button>
+<button id="exportContacts" class="secondary">Экспорт JSON</button>
+<label for="importContacts" style="margin-top:10px">Импорт JSON</label><input id="importContacts" type="file" accept="application/json,.json">
+</div>
+
+<div id="paneFees" class="hidden">
+<div class="panel"><h2>Комиссии — как в сети устроено на самом деле</h2>
+<ul class="dim" style="padding-left:20px">
+<li><b>Базовая комиссия сети: 0.</b> Майнер не удерживает долю с перевода; на транферные расходы влияет только доступность блоков.</li>
+<li><b>Шлюзы (multihop):</b> forward-шлюз удерживает свой <span class="mono">feeBps</span> на второй ноге; полный расчёт — в смете на вкладке «Отправить».</li>
+<li><b>Налог по паспорту (AGIP-10):</b> применяется к эскроу-выплатам и DXE-ордерам, <b>не</b> к обычному P2P-переводу.</li>
+</ul></div>
+<div class="panel"><h2>Казна AGENTCOIN (treasury)</h2>
+<div id="treasuryBox" class="dim">Загружаю…</div>
+<p class="dim">Правило «2 подписи» действует только с высоты активации политики (<span class="mono">effectiveFrom</span>) и не применяется ретроактивно к историческим блокам: tx казны до этой высоты валидны одной подписью владельца адреса.</p></div>
+<div class="panel"><h2>Опасные ситуации</h2>
+<p class="dim">Проверяйте полный адрес при вставке (_phrüvkи подмены); сверяйте слой "сеть" перед отправкой; не подписывайте запросы на перевод, если вы не намеревались платить.</p></div>
+</div>
+
+<button id="logout" class="secondary">Выйти</button><div class="status" id="message" role="status" aria-live="polite"></div>
+</section></main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const ADDR_RE = /^AGT[0-9a-f]{40}$/, HEX128 = /^[0-9a-fA-F]{128}$/;
+let address = '', token = '', nodeInfo = null, state = null;
+let activeUnit = 'AGT';            // AGT | mAGT | mGNT
+let pendingOp = null;              // сгенерированная заявка (op-request payload)
+let contacts = loadContacts();
+const SEED_DEMO = [
+  { label: 'Алиса', address: '', kind: 'payer', note: 'шаблон: внеси её реальный адрес' },
+  { label: 'Боб', address: '', kind: 'payee', note: 'шаблон: внеси его реальный адрес' },
+];
+
+function loadContacts() { try { const v = JSON.parse(localStorage.getItem('agtx:wallet:contacts') || 'null'); return Array.isArray(v) ? v.filter(c => c && typeof c.label === 'string') : []; } catch { return []; } }
+function saveContacts() { try { localStorage.setItem('agtx:wallet:contacts', JSON.stringify(contacts.slice(0, 200))); } catch {} }
+
+async function api(route, value) {
+  const r = await fetch(route, { method: value ? 'POST' : 'GET', redirect: 'error', credentials: 'omit',
+    headers: value ? { 'Content-Type': 'application/json' } : {}, body: value ? JSON.stringify(value) : undefined, signal: AbortSignal.timeout(10000), cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) {
+    if (j.error === 'passport_pub_missing') throw Error('Не найден публичный ключ этого паспорта. Перевод не подготовлен. Нужна совместимость старого кошелька на ноде; не создавайте новый кошелёк и не отправляйте seed или private key.');
+    throw Error(j.error || ('HTTP ' + r.status));
+  }
+  return j;
+}
+function msg(text) { $('message').textContent = text || ''; const $lh = $('loginHint'); if ($lh) $lh.textContent = text || ''; }
+async function action(id, fn) {
+  const b = $(id); b.disabled = true; msg('Выполняю…');
+  try { await fn(); } catch (e) { msg(e.message); } finally { if (!b.dataset.keepDisabled) b.disabled = false; }
+}
+function esc(node, text) { node.textContent = text; return node; }
+async function network() {
+  const info = await api('/info');
+  if ((info.chainId || info.network) !== 'AGENTCOIN' || !/^[a-f0-9]{64}$/.test(info.genesisHash || '')) throw Error('Не удалось проверить параметры сети.');
+  if (nodeInfo && nodeInfo.genesisHash !== info.genesisHash) throw Error('Сеть изменилась: заверши сессию и переподключись.');
+  nodeInfo = { network: 'AGENTCOIN', genesisHash: info.genesisHash };
+  return nodeInfo;
+}
+function savePublic(name, value) { const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+
+// ---------- единицы ----------
+function fmtNumber(n, digits) { try { return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: digits == null ? 9 : digits }); } catch { return String(n); } }
+function unitFractionDigits(u) { return u === 'mAGT' ? 12 : u === 'mGNT' ? 12 : 9; }
+function balanceInUnit(mg, unit) {
+  const mgBig = BigInt(mg);
+  if (unit === 'mGNT') return mgBig.toString();
+  if (unit === 'mAGT') { const a = mgBig / 1000000n, b = (mgBig % 1000000n).toString().padStart(6, '0').replace(/0+$/, ''); return a.toString() + (b ? '.' + b : ''); }
+  const a = mgBig / 1000000000n, b = (mgBig % 1000000000n).toString().padStart(9, '0').replace(/0+$/, '');
+  return a.toString() + (b ? '.' + b : '');
+}
+function renderBalance() {
+  if (!state || state.wallet == null) return;
+  const mg = String(state.wallet.baoMGNT == null ? 0 : state.wallet.baoMGNT);
+  $('balancePrimary').textContent = fmtNumber(balanceInUnit(mg, activeUnit)) + ' ' + activeUnit;
+  $('balanceAll').textContent = 'AGT: ' + balanceInUnit(mg, 'AGT') + ' · mAGT: ' + balanceInUnit(mg, 'mAGT') + ' · mGNT (магент, AGIP-9): ' + mg;
+}
+function renderUnitButtons(container, current, onChange) {
+  container.replaceChildren();
+  for (const u of ['AGT', 'mAGT', 'mGNT']) {
+    const b = document.createElement('button'); b.textContent = u; b.className = u === current ? 'active' : '';
+    b.onclick = () => { onChange(u); };
+    container.append(b);
+  }
+}
+
+// ---------- вкладки ----------
+const PANES = ['Overview', 'Send', 'Receive', 'History', 'Contacts', 'Fees'];
+function showTab(name) {
+  for (const p of PANES) { $('pane' + p).classList.toggle('hidden', p !== name); $('tab' + p).classList.toggle('active', p === name); }
+  if (name === 'History') loadHistory(false);
+  if (name === 'Contacts') renderContacts();
+  if (name === 'Fees') loadTreasury();
+}
+for (const p of PANES) $('tab' + p).onclick = () => { showTab(p); msg(''); };
+
+// ---------- сессия ----------
+function noSecrets(v) {
+  if (!v || typeof v !== 'object') return;
+  for (const [k, x] of Object.entries(v)) { if (/priv|mnemonic|password|seed|token/i.test(k)) throw Error('Этот файл содержит секретные поля. Нужен только публичный паспорт.'); noSecrets(x); }
+}
+async function enter(stateReply, viaNote) {
+  address = stateReply.address; state = stateReply;
+  // Кабинет — единственный видимый режим после входа; вход скрыт навсегда до logout.
+  $('cab').classList.remove('hidden'); $('loginBox').classList.add('hidden');
+  const p = stateReply.passport || {};
+  $('identity').replaceChildren();
+  for (const line of [p.handle || 'Агент', address]) { const d = document.createElement('div'); d.textContent = line; $('identity').append(d); }
+  renderUnitButtons($('unitButtons'), activeUnit, u => { activeUnit = u; renderBalance(); });
+  renderBalance();
+  renderUnitButtons($('sendUnitButtons'), activeUnit, u => { activeUnit = u; renderUnitButtons($('sendUnitButtons'), u); renderUnitButtons($('unitButtons'), u); renderBalance(); updateUnitHint(); });
+  renderUnitButtons($('invUnitButtons'), activeUnit, u => { activeUnit = u; });
+  updateUnitHint();
+  $('receiveAddress').textContent = address;
+  drawQR($('qrReceive'), 'agentcoin:' + address);
+  $('receiveUri').textContent = 'agentcoin:' + address;
+  try { await loadHistory(false); } catch {}
+  msg(viaNote || 'Вход подтверждён. Ключ остался в локальном профиле.');
+  // Финальная гарантия видимости кабинета (после всех обновлений истории):
+  $('cab').classList.remove('hidden'); $('loginBox').classList.add('hidden');
+}
+function updateUnitHint() {
+  const u = activeUnit;
+  $('unitHint').textContent = u === 'AGT' ? 'Полные AGT, до 9 знаков (1 AGT = 1e9 магентов; AGIP-9).'
+    : u === 'mAGT' ? 'Милли-AGT: 1 mAGT = 0.001 AGT, до 6 знаков.'
+    : 'mGNT (магент): 1 mGNT = 0.000000001 AGT — целым числом.';
+}
+async function refreshAll() {
+  const r = await api('/cabinet/state', { address, token });
+  await enter(Object.assign({}, state, r), null);
+}
+$('refreshWallet').onclick = () => action('refreshWallet', refreshAll);
+
+// восстановление сессии + автологин (как в cabinet.html, без модулей)
+(async function init() {
+  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
+  if (!urlAddr) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
+      if (s && s.address && s.token) {
+        const st = await api('/cabinet/state', { address: s.address, token: s.token });
+        address = s.address; token = s.token; await enter(st, 'Сессия восстановлена.');
+        return;
+      }
+    } catch { try { sessionStorage.removeItem('agtx:cab'); } catch {} }
+  }
+  try {
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return;
+    // ?addr= из адресной строки — явное намерение оператора: перекрывает и старую сессию, и agtx:autologin=off
+    if (!urlAddr && localStorage.getItem('agtx:autologin') === 'off') return;
+    const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j && j.token && j.address) { token = j.token; address = j.address;
+      const st = await api('/cabinet/state', { address, token });
+      await enter(st, 'Тихий автологин оператора (AGIP-45, только эта машина).');
+    }
+  } catch {}
+})();
+
+// ---------- вход ----------
+$('importCert').onclick = () => action('importCert', async () => {
+  const f = $('certFile').files[0]; if (!f || f.size > 4096) throw Error('Выбери публичный паспорт до 4 КБ.');
+  const passport = JSON.parse(await f.text());  try { noSecrets(passport); } catch { return; }
+  await api('/identity/import', { passport });
+  $('adr').value = passport.payload && passport.payload.address ? passport.payload.address : '';
+  msg('Публичный паспорт проверен этой нодой.');
+});
+$('challenge').onclick = () => action('challenge', async () => {
+  const r = await api('/cabinet/challenge', { address: $('adr').value.trim() });
+  const c = r.challenge || r;
+  $('challengeJson').value = JSON.stringify(c, null, 2);
+  $('challengeJson').dataset.challengeId = c.challengeId;
+  $('signBox').classList.remove('hidden');
+  msg('Подпиши запрос в своей среде. Срок — 5 минут.');
+});
+$('login').onclick = () => action('login', async () => {
+  const issued = JSON.parse($('challengeJson').value || 'null');
+  if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
+  let sig = $('signature').value.trim();
+  if (sig.startsWith('{')) { const v = JSON.parse(sig); if (v.challengeId !== issued.challengeId || v.address !== issued.address) throw Error('Ответ относится к другому запросу.'); sig = v.signature || v.sig; }
+  if (!HEX128.test(sig)) throw Error('Нужна Ed25519-подпись: 128 hex-символов.');
+  const r = await api('/cabinet/login', { mode: 'challenge', address: issued.address, challengeId: issued.challengeId, nonce: issued.message, signature: sig });
+  token = r.token; address = issued.address;
+  try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: r.expiresAt || 0 })); } catch {}
+  $('signature').value = '';
+  const st = await api('/cabinet/state', { address, token });
+  await enter(st);
+});
+$('logout').onclick = () => action('logout', async () => {
+  try { await api('/cabinet/logout', { token }); } catch {}
+  try { sessionStorage.removeItem('agtx:cab'); } catch {}
+  token = ''; address = ''; state = null; pendingOp = null;
+  $('cab').classList.add('hidden'); $('loginBox').classList.remove('hidden');
+  msg('Сессия завершена.');
+});
+$('disableAutologin').onclick = () => action('disableAutologin', () => {
+  try { localStorage.setItem('agtx:autologin', 'off'); } catch {}
+  msg('Автологин выключен для этой машины (agtx:autologin=off).');
+});
+// самовосстановление: явный клик оператора возвращает тихий вход без Skill'а
+$('autologinNow').onclick = () => action('autologinNow', async () => {
+  try { localStorage.removeItem('agtx:autologin'); } catch {}
+  try { sessionStorage.removeItem('agtx:cab'); } catch {}
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) {
+    const localAddress = $('adr').value.trim();
+    if (ADDR_RE.test(localAddress)) {
+      // WALLET-ALL-ORIGINS: вне этой машины тихий вход невозможен — запускаем честный ручной путь:
+      // challenge скачивается/подписывается на устройстве с ключом, ответ вставляется в поле «Войти».
+      const ch = await api('/cabinet/challenge', { address: localAddress });
+      const c = ch.challenge || ch;
+      if (c && c.challengeId) {
+        $('challengeJson').value = JSON.stringify(c, null, 2);
+        $('challengeJson').dataset.challengeId = c.challengeId;
+        $('signBox').classList.remove('hidden');
+        savePublic('agentcoin-challenge.json', c);
+        const sameMachine = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) ? true : location.port === '9333';
+        msg('С адреса ' + location.host + ' тихий вход недоступен (защита ключа). Скачан запрос agentcoin-challenge.json — подпишите его на устройстве с ключом (Skill sign-challenge) и вставьте ответ ниже, затем «Войти». Адрес тот же, кошелёк тот же.');
+        const helper = document.createElement('div'); helper.className = 'notice'; helper.style.marginTop = '10px';
+        if (location.hostname.endsWith('.ts.net')) {
+          const p = document.createElement('p'); p.textContent = 'Ты на одном компьютере с нодой? Тогда войди прямо сейчас без подписи:'; helper.append(p);
+          const a = document.createElement('a'); a.href = 'http://localhost:9335/cabinet?addr=' + encodeURIComponent(c.address); a.textContent = 'http://localhost:9335/cabinet (вход без пароля)'; helper.append(a);
+        } else {
+          const p2 = document.createElement('p'); p2.textContent = 'Браузер не на машине ноды: нужен подписанный challenge (Skill). Ноды-машина: открой http://<нода>:9335/cabinet?addr=<адрес> и войдёшь без пароля.'; helper.append(p2);
+        }
+        $('signBox').prepend(helper);
+        return;
+      }
+    }
+    msg('Тихий вход работает только на машине с нодой. Впишите AGT-адрес и нажмите «Получить запрос на вход» — подпишите запрос на устройстве с ключом и войдите «Войти» (тот же кошелёк, тот же адрес).');
+    return;
+  }
+  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
+  const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
+    headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.token || !j.address) { msg('Нода отказалась от тихого входа: ' + ((j && (j.hint || j.error)) || r.status) + '. Ссылка с ?addr=AGT... выберет кошелёк явно.'); return; }
+  token = j.token; address = j.address;
+  try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: j.expiresAt || 0 })); } catch {}
+  const st = await api('/cabinet/state', { address, token });
+  await enter(st, 'Вход без пароля (эта машина). Ключ остался на ноде.');
+});
+$('downloadChallenge').onclick = () => action('downloadChallenge', async () => {
+  const issued = JSON.parse($('challengeJson').value || 'null');
+  if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
+  savePublic('agentcoin-challenge.json', issued);
+  msg('Файл запроса сохранён. На устройстве с ключом: node agt-skill/agent-profile.mjs sign-challenge — ответ вставьте в поле «Подпись» и нажмите «Войти». Ключ не покидает то устройство.');
+});
+// когда тихий вход выключен подсказываем явный путь восстановления
+try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null')) msg('Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'); } catch {}
+
+// ---------- отправка (op-request → локальная подпись → op-submit) ----------
+$('estimateBtn').onclick = () => action('estimateBtn', async () => {
+  $('feeBox').classList.add('hidden');
+  const n = await network();
+  const amount = currentSendAmount();
+  const to = $('sendTo').value.trim();
+  if (!ADDR_RE.test(to)) throw Error('Нужен полный адрес получателя (AGT + 40 hex).');
+  const route = (document.querySelector('input[name="sendRoute"]:checked') || {}).value || 'direct';
+  const est = await api('/cabinet/wallet/estimate', { address, token, to, route, amount });
+  const tb = $('feeTable'); tb.replaceChildren();
+  const head = tb.insertRow(); ['Компонент', 'Сумма AGT', 'Комментарий'].forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; head.append(th); });
+  let arrive = Number(est.arrival);
+  for (const f of est.fees) {
+    const row = tb.insertRow(); row.className = 'feerow';
+    row.insertCell().textContent = { network: 'Комиссия сети', gateway: 'Шлюз (feeBps)', tax: 'Налог по паспорту' }[f.type] || f.type;
+    row.insertCell().textContent = f.amount == null ? 'не применяется' : String(f.amount);
+    row.insertCell().textContent = f.note || '';
+  }
+  const doneRow = tb.insertRow(); doneRow.className = 'feerow';
+  doneRow.insertCell().textContent = 'Получателю дойдёт';
+  doneRow.insertCell().textContent = String(est.arrival);
+  doneRow.insertCell().textContent = uwTriple(est.arrival);
+  $('feeNote').textContent = est.unavailable ? ('Шлюз недоступен: ' + est.unavailable + ' — отправляйте напрямую. ' + (est.explain || '')) : (est.explain || '');
+  $('feeBox').classList.remove('hidden');
+  if (est.unavailable) { msg('Через шлюз нельзя: ' + est.unavailable); return; }
+  msg('Смета: дойдёт ' + est.arrival + ' AGT (' + uwTriple(est.arrival) + '). ' + (est.sufficient === false ? 'ВНИМАНИЕ: недостаточно баланса. ' : ''));
+});
+function uwTriple(decStr) {
+  try { const u = window.AgentcoinWalletUnits.convert(decStr); return u.AGT + ' AGT / ' + u.mAGT + ' mAGT / ' + u.mGNT + ' mGNT'; } catch { return decStr + ' AGT'; }
+}
+function currentSendAmount() {
+  const raw = $('sendAmount').value.trim().replace(',', '.');
+  const v = window.AgentcoinWalletUnits.toAGT(raw, activeUnit);
+  return v;
+}
+$('prepareOp').onclick = () => action('prepareOp', async () => {
+  pendingOp = null; $('opBox').classList.add('hidden');
+  if (!$('confirmSend').checked) throw Error('Подтверди сверку галочкой.');
+  await network();
+  const to = $('sendTo').value.trim();
+  if (!ADDR_RE.test(to)) throw Error('Нужен полный адрес получателя (AGT + 40 hex).');
+  if (!/^[a-f0-9]{64}$/.test(nodeInfo.genesisHash)) throw Error('Сеть не подтверждена.');
+  const amount = currentSendAmount();
+  const memo = $('sendMemo').value;
+  const route = (document.querySelector('input[name="sendRoute"]:checked') || {}).value || 'direct';
+  if (route === 'gateway') throw Error('Перевод через шлюз готовится оператором ноды (/gateway/pay); в этом интерфейсе используй прямой маршрут.');
+  const r = await api('/cabinet/op-request', { address, token, op: { kind: 'send', to, amount: Number(amount), memo } });
+  pendingOp = r; // { opId, payload: { kind:'send', tx:{...}, txidHex }, signHint }
+  $('opJson').value = JSON.stringify(r.payload, null, 2);
+  $('opBox').classList.remove('hidden');
+  msg('Сверь payload (сеть/адрес/сумма) и подпиши txid локальным Skill. Срок заявки — 5 минут.');
+});
+$('opSubmit').onclick = () => action('opSubmit', async () => {
+  if (!pendingOp) throw Error('Нет активной заявки.');
+  const sig = $('opSignature').value.trim();
+  if (!HEX128.test(sig)) throw Error('Нужна подпись: 128 hex-символов.');
+  const r = await api('/cabinet/op-submit', { opId: pendingOp.opId, signature: sig });
+  pendingOp = null; $('opBox').classList.add('hidden'); $('opSignature').value = '';
+  msg('Принято в мемпул — неподтверждённо; подтверждение появится в истории после блока. txid ' + String(r.txid || '').slice(0, 16));
+  await loadHistory(false);
+});
+for (const name of ['sendTo', 'sendAmount', 'sendMemo']) $('' + name).oninput = () => { pendingOp = null; $('opBox').classList.add('hidden'); };
+
+// ---------- получение ----------
+function drawQR(canvas, text) {
+  const q = window.AgentcoinQR.encode(text);
+  const factor = Math.max(3, Math.floor(canvas.width / (q.size + 8)));
+  const wpx = (q.size + 8) * factor;
+  canvas.width = wpx; canvas.height = wpx; canvas.style.width = wpx + 'px'; canvas.style.height = wpx + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, wpx, wpx);
+  ctx.fillStyle = '#000';
+  for (let r = 0; r < q.size; r++) for (let c = 0; c < q.size; c++) {
+    const v = q.modules[r][c];
+    if (v === 1) ctx.fillRect(4 * factor + c * factor, 4 * factor + r * factor, factor, factor);
+  }
+}
+$('copyReceive').onclick = () => action('copyReceive', async () => { if (!address) throw Error('Сначала войди.'); await navigator.clipboard.writeText(address); msg('Адрес скопирован.'); });
+$('downloadReceive').onclick = () => action('downloadReceive', async () => { if (!address) throw Error('Сначала войди.'); const n = await network(); savePublic('agentcoin-receive.json', { schema: 'agentcoin.wallet.receive.v1', ...n, address }); msg('Сохранены только публичные реквизиты.'); });
+let invoice = null;
+$('makeInvoice').onclick = () => action('makeInvoice', async () => {
+  if (!address) throw Error('Сначала войди.');
+  const amount = window.AgentcoinWalletUnits.toAGT($('invAmount').value.trim().replace(',', '.'), activeUnit);
+  invoice = { schema: 'agentcoin.wallet.invoice.v1', network: 'AGENTCOIN', payTo: address, amount, memo: $('invMemo').value, createdAt: Math.floor(Date.now() / 1000) };
+  $('downloadInvoice').disabled = false; $('showInvoiceQR').disabled = false;
+  msg('Счёт: ' + uwTriple(amount) + '. Передай файл Алисе — она отправит ровно эту сумму.');
+});
+$('downloadInvoice').onclick = () => action('downloadInvoice', async () => { if (!invoice) throw Error('Сначала сформируй счёт.'); savePublic('agentcoin-invoice.json', invoice); msg('Счёт сохранён (только публичные поля).'); });
+$('showInvoiceQR').onclick = () => action('showInvoiceQR', async () => {
+  if (!invoice) throw Error('Сначала сформируй счёт.');
+  $('invQRBox').classList.remove('hidden');
+  drawQR($('qrInvoice'), 'agentcoin:' + invoice.payTo + '|amount=' + invoice.amount + '|memo=' + invoice.memo);
+  $('invSummary').textContent = 'QR содержит адрес, сумму и назначение (текстом). Любой клиент сети сверяет их перед оплатой.';
+});
+
+// ---------- история ----------
+let historyCursor = null;
+async function loadHistory(reset) {
+  if (!address || !token) return;
+  if (reset) historyCursor = null;
+  const r = await api('/cabinet/wallet/history', { address, token, limit: 100, beforeHeight: historyCursor });
+  const box = $('historyTableBox');
+  const tbl = document.createElement('table'); tbl.id = 'historyTable';
+  const h = document.createElement('tr');
+  ['Направление', 'Сумма', 'Категория', 'От', 'Кому', 'Status', 'Блок', 'Назначение', 'TX'].forEach(hh => { const th = document.createElement('th'); th.textContent = hh; h.append(th); });
+  tbl.append(h);
+  buildRows(tbl, r.mempoolRows || []);
+  buildRows(tbl, r.rows || []);
+  box.replaceChildren(tbl);
+  historyCursor = r.nextBeforeHeight;
+  $('historyMore').classList.toggle('hidden', !r.nextBeforeHeight);
+  if (r.treasury) $('historyTreasuryNote').textContent = 'Политика казны ref=' + r.treasury.ref + ' · требует ' + r.treasury.requires + ' подписи/подписей · активна с блока ' + r.treasury.effectiveFrom + ' (исторические tx до этой высоты — одна подпись, без ретроактивности).';
+  else $('historyTreasuryNote').textContent = 'Политика казны не активна: требования 2-й подписи к tx казны сейчас нет.';
+}
+function buildRows(tbl, rows) {
+  const KINDS = { transfer: 'Перевод', mining: 'Майнинг', escrow: 'Эскроу', tax: 'Налог', system: 'Системная', treasury: 'Казна', 'gateway-leg1': 'Шлюз · нога 1', 'gateway-leg2': 'Шлюз · нога 2' };
+  for (const row of rows) {
+    const tr = tbl.insertRow();
+    const dirCell = tr.insertCell();
+    if (row.dir === 'in') { const s = document.createElement('span'); s.className = 'pill in'; s.textContent = '+ вход'; dirCell.append(s); }
+    else if (row.dir === 'out') { const s = document.createElement('span'); s.className = 'pill out'; s.textContent = '− выход'; dirCell.append(s); }
+    else dirCell.textContent = 'self';
+    tr.insertCell().textContent = uwTriple(row.amountAGT);
+    tr.insertCell().textContent = KINDS[row.kind] || row.kind;
+    tr.insertCell().textContent = row.from || '';
+    tr.insertCell().textContent = row.to || '';
+    const stCell = tr.insertCell();
+    stCell.textContent = row.status === 'mempool' ? 'в мемпуле (не подтверждено)' : row.confirmations + ' подтв.';
+    tr.insertCell().textContent = row.height == null ? '—' : '#' + row.height;
+    tr.insertCell().textContent = row.memo || '—';
+    tr.insertCell().textContent = row.txid || '';
+    if (row.kind === 'treasury' && row.treasurySig) {
+      const warn = tr.insertCell(); warn.textContent = row.treasurySig.required === 1
+        ? '2-я подпись НЕ требуется (политика активна с #' + row.treasurySig.activeAt + ')'
+        : 'требуется ' + row.treasurySig.required + ' под.; sig2: ' + (row.treasurySig.sig2Present ? 'присутствует' : 'отсутствует');
+    }
+  }
+}
+$('historyMore').onclick = () => { action('historyMore', () => loadHistory(false)) };
+
+// ---------- контакты ----------
+function renderContacts() {
+  const box = $('contactsList'); box.replaceChildren();
+  if (!contacts.length) box.textContent = 'Контактов нет. Добавь вручную или нажми «Алиса и Боб».';
+  for (const [i, c] of contacts.entries()) {
+    const div = document.createElement('div'); div.className = 'panel';
+    const t = document.createElement('b'); t.textContent = c.label || 'контакт'; div.append(t);
+    const k = document.createElement('span'); k.className = 'pill'; k.textContent = c.kind === 'payer' ? 'платит мне' : c.kind === 'payee' ? 'получает' : 'контакт'; div.append(k);
+    const a = document.createElement('div'); a.className = 'mono'; a.textContent = c.address || 'адрес не указан'; div.append(a);
+    if (c.note) div.append(esc(document.createElement('small'), c.note));
+    const row = document.createElement('div');
+    const bTo = document.createElement('button'); bTo.textContent = 'Отправить'; bTo.className = 'secondary'; bTo.onclick = () => { showTab('Send'); $('sendTo').value = c.address || ''; $('sendTo').dataset.contactLabel = c.label; msg('Получатель: ' + (c.label || 'адрес') + '.'); };
+    const bReq = document.createElement('button'); bReq.textContent = 'Запросить оплату'; bReq.className = 'secondary'; bReq.onclick = () => { if (!c.address) { msg('У контакта нет адреса.'); return; } showTab('Receive'); $('invMemo').value = (c.label || '') + ' — за работу'; showTab('Receive'); msg('Сумму задай и нажми «Сформировать счёт». Адрес: ' + c.address.slice(0, 12) + '…'); };
+    const bDel = document.createElement('button'); bDel.textContent = 'Удалить'; bDel.className = 'secondary'; bDel.onclick = () => { contacts.splice(i, 1); saveContacts(); renderContacts(); };
+    row.append(bTo, bReq, bDel); div.append(row); box.append(div);
+  }
+  const dl = $('contactList'); dl.replaceChildren();
+  for (const c of contacts) if (ADDR_RE.test(c.address || '')) { const o = document.createElement('option'); o.value = c.address; o.label = c.label; dl.append(o); }
+}
+$('addContact').onclick = () => action('addContact', async () => {
+  const label = (prompt('Имя контакта:') || '').trim(); if (!label) throw Error('Отменено.');
+  const address2 = (prompt('Адрес (AGT + 40 hex):') || '').trim();
+  if (!ADDR_RE.test(address2)) throw Error('Нужен полный AGT-адрес.');
+  contacts.push({ label, address: address2, kind: 'contact' }); saveContacts(); renderContacts(); msg('Контакт сохранён локально.');
+});
+$('seedDemo').onclick = () => action('seedDemo', async () => {
+  contacts.push(...SEED_DEMO.filter(d => !contacts.find(c => c.label === d.label)));
+  saveContacts(); renderContacts(); msg('Алиса и Боб добавлены как шаблоны — внеси реальные адреса в поле контакта.');
+});
+$('exportContacts').onclick = () => action('exportContacts', async () => { savePublic('agentcoin-contacts.json', { schema: 'agentcoin.wallet.contacts.v1', contacts }); msg('Экспорт: публичные метки и адреса.'); });
+$('importContacts').onchange = () => action('importContacts', async () => {
+  const f = $('importContacts').files[0]; if (!f || f.size > 65536) throw Error('Файл до 64 КБ.');
+  const j = JSON.parse(await f.text());
+  if (!j || j.schema !== 'agentcoin.wallet.contacts.v1' || !Array.isArray(j.contacts)) throw Error('Неверный формат.');
+  const imported = j.contacts.filter(c => c && typeof c.label === 'string' && (!c.address || ADDR_RE.test(c.address)));
+  contacts.push(...imported.filter(c => !contacts.find(x => x.label === c.label && x.address === c.address)));
+  saveContacts(); renderContacts(); msg('Импортировано контактов: ' + imported.length);
+});
+
+// ---------- Алиса/Боб quick action ----------
+$('aliceRequest').onclick = () => action('aliceRequest', async () => {
+  const alice = contacts.find(c => c.label === 'Алиса');
+  showTab('Receive');
+  $('invMemo').value = alice ? 'Алисе — счёт' : 'Алисе — счёт';
+  msg(alice && alice.address ? ('Счёт для ' + alice.address.slice(0, 12) + '…: задай сумму и нажми «Сформировать счёт».') : 'Шаблон Алисы не найден — добавь его во вкладке «Контакты».');
+});
+$('bobSend').onclick = () => action('bobSend', async () => {
+  const bob = contacts.find(c => c.label === 'Боб' && ADDR_RE.test(c.address || ''));
+  showTab('Send');
+  if (bob) { $('sendTo').value = bob.address; msg('Боб: ' + bob.address.slice(0, 12) + '… — введи сумму и рассчитай комиссию.'); }
+  else msg('Шаблон Боба без адреса — внеси адрес во вкладке «Контакты».');
+});
+
+// ---------- казна ----------
+async function loadTreasury() {
+  try {
+    const r = await api('/treasury/state');
+    const box = $('treasuryBox'); box.replaceChildren();
+    const p = r.policy;
+    if (!p) { box.textContent = 'Политика казны не активна: tx от адресов казны сейчас нет, требование 2-й подписи не применяется.'; return; }
+    for (const kv of [['treasury', p.treasury], ['signers', (p.signers || []).join(', ')], ['requires', p.requires || 2], ['ref', p.ref], ['effectiveFrom (высота активации)', p.effectiveFrom == null ? 'н/д (старая политика без height-gating)' : '#' + p.effectiveFrom]]) {
+      const d = document.createElement('div'); d.className = 'mono'; d.textContent = kv[0] + ': ' + kv[1]; box.append(d);
+    }
+    box.append(esc(document.createElement('p'), 'Исторические tx казны до effectiveFrom валидны одной подписью; ретроактивное требование 2-й подписи не допускается (height-gating в treasury.mjs/core.mjs).'));
+  } catch (e) { $('treasuryBox').textContent = 'Казна: ' + e.message; }
+}
+</script>
+</body></html>

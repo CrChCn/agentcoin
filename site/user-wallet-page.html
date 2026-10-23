@@ -1,593 +1,924 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Кошелёк · Agentcoin</title><script src="/panel.js" defer></script>
-<!-- без defer: inline-скрипт тела вызывает window.AgentcoinWalletUnits/QR при входе; порядок критичен -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentcoin Wallet</title>
+<script src="/panel.js" defer></script>
 <script src="/wallet-format.js"></script>
 <style>
-:root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--warn:#e3b341}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.55 system-ui,sans-serif}
-main{max-width:1060px;margin:auto;padding:38px 22px}
-a{color:var(--gold)}h1{font-size:clamp(27px,5vw,44px);line-height:1.12;margin:10px 0}h2{font-size:19px;margin:0 0 10px}
-.eyebrow{letter-spacing:.16em;color:var(--gold);font-size:12px}
-.dim,small{color:var(--dim)}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px}
-label{display:block;margin:12px 0 6px}
-input,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}
-input{width:100%;background:#080f1b;color:var(--txt)}
-button{background:var(--gold);color:#111a28;cursor:pointer;margin:8px 8px 0 0}
-button.secondary{background:transparent;color:var(--gold)}
-button:disabled{opacity:.45;cursor:not-allowed}
-pre{white-space:pre-wrap;word-break:break-word;background:#080f1b;padding:14px;border-radius:9px;font-size:12px}
-.mono{font-family:ui-monospace,monospace;word-break:break-all}
-.address{word-break:break-all;font-family:ui-monospace,monospace}
-.status{min-height:26px;color:var(--gold);white-space:pre-wrap;margin-top:10px}
-.balance{font-size:clamp(30px,5vw,42px);font-variant-numeric:tabular-nums;margin:8px 0}
-.unitsel{display:flex;gap:8px;flex-wrap:wrap}
-.unitsel button{margin:0}
-.unitsel button.active{background:#fff3;color:var(--gold)}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.hidden{display:none}
-.pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--dim)}
-.pill.in{border-color:#245c2f;color:var(--ok)}
-.pill.out{border-color:#5c2424;color:#e07b7b}
-.pill.mining,.pill.escrow,.pill.tax,.pill.gateway-leg1,.pill.gateway-leg2,.pill.system,.pill.treasury{border-color:#39496b;color:#9fb3d8}
-table{width:100%;border-collapse:collapse}
-td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-td.num{font-variant-numeric:tabular-nums;text-align:right}
-.feerow td:first-child{white-space:nowrap}
-.notice{border-left:3px solid var(--gold);padding:10px 14px;background:#252016;border-radius:0 8px 8px 0}
-canvas.qr{background:#fff;border-radius:10px;padding:8px}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
-.tabs button{margin:0;background:transparent;color:var(--dim);border:1px solid var(--line)}
-.tabs button.active{background:#e5c878;color:#111a28;border-color:transparent}
-.kv{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}.kw{color:var(--dim)}
-@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:22px 14px}}
-</style></head><body><main>
-<div class="eyebrow">AGENTCOIN / WALLET</div><h1>Кошелёк AGENTCOIN</h1>
-<p class="dim">Единый кабинет: отправка и получение AGT, прозрачные комиссии, история операций и казна сети. Приватный ключ остаётся в вашей среде — страница не запрашивает seed, private key или пароль.</p>
-
-<section class="panel" id="loginBox"><h2>1 · Вход по подписи</h2>
-<label for="certFile">Публичный паспорт JSON (до 4 КБ)</label><input id="certFile" type="file" accept="application/json,.json">
-<button id="importCert" class="secondary">Импортировать паспорт</button>
-<label for="adr">AGT-адрес</label><input id="adr" autocomplete="off" spellcheck="false" placeholder="AGT…">
-<button id="challenge">Получить запрос на вход</button>
-<div id="signBox" class="hidden"><label for="challengeJson">Запрос для локального подписания</label><textarea id="challengeJson" readonly></textarea>
-<p><small>Подпишитесь локальным Skill (<code>agent-profile.mjs sign-challenge</code>) и вставьте ответ. Срок запроса — 5 минут.</small></p>
-<button id="downloadChallenge" class="secondary">Скачать запрос JSON</button>
-<label for="signature">Подпись (hex 128 или JSON Skill-ответ)</label><textarea id="signature" placeholder="Без ключей и паролей"></textarea><button id="login">Войти</button></div>
-<button id="disableAutologin" class="secondary">не входить автоматически</button>
-<button id="autologinNow">Войти без пароля (эта машина) — на какой стоит нода, в тот кошелёк войду</button>
-<div class="status" id="loginHint" role="status" aria-live="polite"></div>
+:root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--bad:#ff7777}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:28px 18px}h1{font-size:clamp(28px,5vw,44px);margin:8px 0}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px}.dim,small{color:var(--dim)}a{color:var(--gold)}label{display:block;margin:12px 0 5px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}input,select,textarea{background:#080f1b;color:var(--txt);max-width:100%}input:not([type=checkbox]):not([type=radio]),textarea{width:100%}textarea{min-height:72px;font-family:ui-monospace,monospace;font-size:12px}button{background:var(--gold);color:#111a28;cursor:pointer;margin:6px 6px 0 0}button.secondary{background:transparent;color:var(--gold)}button:disabled{opacity:.45;cursor:not-allowed}main>header,.row,.unitsel,.tabs,.kv{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.hidden{display:none!important}.mono{font-family:ui-monospace,monospace;word-break:break-all}.address{word-break:break-all;font-family:ui-monospace,monospace}.status{min-height:24px;color:var(--gold);white-space:pre-wrap;margin-top:8px}.balance{font-size:clamp(30px,5vw,44px);margin:8px 0}.unitsel button{margin:0}.unitsel .active,.tabs .active{background:#fff3;color:var(--gold);border-color:var(--gold)}.tabs button{background:transparent;color:var(--dim)}.pill{border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--dim)}.pill.on{color:var(--ok)}.pill.off{color:var(--bad)}.hint,.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#252016;border-radius:0 8px 8px 0;margin:8px 0}.hint{font-size:13px}.cmd{background:#080f1b;border:1px solid var(--line);padding:12px;border-radius:8px;word-break:break-all}.error{color:var(--bad)}table{width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{text-align:left;vertical-align:top;padding:7px;border-bottom:1px solid var(--line)}canvas.qr{background:white;border-radius:8px;padding:8px}.lang button{margin:0;padding:5px 9px}.lang [aria-pressed=true]{background:var(--gold);color:#111}progress{width:100%}
+@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px}}
+</style>
+</head>
+<body>
+<main>
+<header class="spread">
+<div>
+<div class="dim">AGENTCOIN / WALLET</div>
+<h1 data-i18n="title">Кошелёк AGENTCOIN</h1>
+<p class="dim" data-i18n="subtitle">Самостоятельное управление AGT: ключи остаются в локальном профиле.</p>
+</div>
+<div class="row">
+<span id="sessionPill" class="pill off" data-i18n="session.off">Не вошёл</span>
+<a href="/mbc20" data-i18n="nav.trade">Торговать → Биржа</a>
+<div class="lang" role="group" aria-label="Language">
+<button data-lang="ru" aria-pressed="true">RU</button>
+<button data-lang="en" aria-pressed="false">EN</button>
+<button data-lang="fr" aria-pressed="false">FR</button>
+<button data-lang="es" aria-pressed="false">ES</button>
+<button data-lang="de" aria-pressed="false">DE</button>
+</div>
+</div>
+</header>
+<section class="panel" id="addrPanel">
+<h2 data-i18n="addr.label">Мой AGT-адрес</h2>
+<label for="adr" data-i18n="login.addr">Мой AGT-адрес</label>
+<input id="adr" autocomplete="off" spellcheck="false" placeholder="AGT + 40 hex">
+<div class="row">
+<button id="addrSave" class="secondary" data-i18n="addr.save">Сохранить адрес</button>
+<button id="addrClear" class="secondary" data-i18n="addr.clear">Очистить</button>
+</div>
+<p class="hint" data-i18n="hint.privateKeyStaysLocal">Ключ остаётся в вашем локальном профиле.</p>
 </section>
-
-<!-- cab — СОСЕД loginBox, никогда не вложен в него: скрытый loginBox не должен прятать кабинет -->
+<section class="panel" id="loginBox">
+<h2 data-i18n="login.title">Вход по подписи паспорта</h2>
+<label for="certFile" data-i18n="login.cert">Публичный паспорт JSON</label>
+<input id="certFile" type="file" accept="application/json,.json">
+<button id="importCert" class="secondary" data-i18n="login.import">Импортировать публичный паспорт</button>
+<button id="challenge" data-i18n="login.challenge">Получить challenge</button>
+<div id="signBox" class="hidden">
+<label for="challengeJson" data-i18n="login.sign">Challenge для локальной подписи</label>
+<textarea id="challengeJson" readonly>
+</textarea>
+<button id="downloadChallenge" class="secondary" data-i18n="login.download">Скачать challenge JSON</button>
+<div id="challengeCommand" class="cmd mono">
+</div>
+<p class="hint" data-i18n="hint.copyCmd">Скопируй команду и выполни в терминале.</p>
+<label for="signature" data-i18n="login.signature">Signature (128 hex)</label>
+<textarea id="signature" autocomplete="off" placeholder="signature">
+</textarea>
+<button id="login" data-i18n="login.submit">Войти</button>
+</div>
+<button id="autologinNow" class="secondary" data-i18n="login.autologin">Локальный вход на этой машине</button>
+<button id="disableAutologin" class="secondary" data-i18n="login.disableAutologin">Отключить автологин</button>
+<div id="loginHint" class="status" role="status" aria-live="polite">
+</div>
+</section>
 <section class="panel hidden" id="cab">
-<div class="tabs">
-<button id="tabOverview" class="active">Обзор</button><button id="tabSend">Отправить</button>
-<button id="tabReceive">Получить</button><button id="tabHistory">История</button>
-<button id="tabContacts">Контакты</button><button id="tabFees">Комиссии и казна</button>
+<nav class="tabs">
+<button id="tabOverview" class="active" data-i18n="tab.overview">Обзор</button>
+<button id="tabSend" data-i18n="tab.send">Отправить</button>
+<button id="tabReceive" data-i18n="tab.receive">Получить</button>
+<button id="tabHistory" data-i18n="tab.history">История</button>
+<button id="tabContacts" data-i18n="tab.contacts">Контакты</button>
+<button id="tabFees" data-i18n="tab.fees">Комиссии</button>
+</nav>
+<section id="paneOverview">
+<div class="kv">
+<h2 data-i18n="balance.title">Баланс</h2>
+<button id="refreshWallet" class="secondary" data-i18n="balance.refresh">Обновить</button>
 </div>
-
-<div id="paneOverview">
-<div class="kv"><span class="eyebrow">БАЛАНС</span><button id="refreshWallet" class="secondary" style="margin:0 0 0 auto">обновить</button></div>
-<p class="balance" id="balancePrimary">—</p>
-<div class="unitsel" id="unitButtons"></div>
-<p class="dim" id="balanceAll"></p>
-<div id="identity" class="address"></div>
-<p><small id="balanceNote"></small></p>
+<p id="balancePrimary" class="balance">—</p>
+<div id="unitButtons" class="unitsel">
+</div>
+<p id="balanceAll" class="dim">
+</p>
+<div id="identity" class="address">
+</div>
+<p id="balanceNote" class="dim">
+</p>
 <div class="grid">
-<div class="panel"><h2>Запросить оплату у Алисы</h2><p class="dim">Создать счёт со своей суммой и назначением, передать Алисе файлом или QR.</p><button id="aliceRequest">Создать счёт для Алисы</button></div>
-<div class="panel"><h2>Отправить Бобу</h2><p class="dim">Готовая форма перевода Бобу: адрес из контактной книги, сумма в любой единице.</p><button id="bobSend">Перевести Бобу</button></div>
+<article class="panel">
+<h3 data-i18n="overview.aliceTitle">Запросить оплату у Алисы</h3>
+<p class="dim" data-i18n="overview.aliceText">Создай счёт и передай его файлом или QR.</p>
+<button id="aliceRequest" data-i18n="overview.aliceButton">Создать счёт для Алисы</button>
+</article>
+<article class="panel">
+<h3 data-i18n="overview.bobTitle">Отправить Бобу</h3>
+<p class="dim" data-i18n="overview.bobText">Открой перевод на сохранённый контакт.</p>
+<button id="bobSend" data-i18n="overview.bobButton">Перевести Бобу</button>
+</article>
 </div>
+<h2 data-i18n="orders.title">Мои ордера на бирже</h2>
+<button id="ordersRefresh" class="secondary" data-i18n="refresh">Обновить</button>
+<div id="ordersBox">
 </div>
-
-<div id="paneSend" class="hidden">
-<div class="notice"><b>Как это работает.</b> Страница готовит запрос перевода и <b>не</b> подписывает его сама: вы подписываете txid локальным Skill и вставляете подпись. Ключи и пароли никуда не уходят.</div>
-<label for="sendTo">Полный адрес получателя</label><input id="sendTo" list="contactList" autocomplete="off" spellcheck="false" placeholder="AGT + 40 hex">
-<datalist id="contactList"></datalist>
-<label for="sendAmount">Сумма</label>
-<div class="unitsel" id="sendUnitButtons"></div>
-<input id="sendAmount" inputmode="decimal" autocomplete="off" placeholder="0">
-<p class="dim" id="unitHint"></p>
-<label for="sendMemo">Назначение — публично в цепи</label><input id="sendMemo" autocomplete="off" maxlength="120" placeholder="Без секретной информации">
-<h2 style="margin-top:16px">Маршрут и комиссия</h2>
-<label><input type="radio" name="sendRoute" value="direct" checked style="width:auto"> Напрямую (базовая комиссия сети: 0 AGT)</label>
-<label><input type="radio" name="sendRoute" value="gateway" style="width:auto"> Через шлюз (шлюз удерживает свой feeBps при второй ноге)</label>
-<button id="estimateBtn" class="secondary">Рассчитать комиссию</button>
-<div id="feeBox" class="hidden"><table id="feeTable"></table><p class="dim" id="feeNote"></p></div>
-<label><input id="confirmSend" type="checkbox" style="width:auto"> Я сверил адрес, сумму и комиссию</label>
-<button id="prepareOp">Выдать запрос на подпись</button>
+<div id="ordersFillNote" class="dim">
+</div>
+<div id="cancelCommandBox">
+</div>
+</section>
+<section id="paneSend" class="hidden">
+<h2 data-i18n="send.title">Отправить AGT</h2>
+<p class="notice" data-i18n="send.notice">Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.</p>
+<label for="sendTo" data-i18n="send.to">Получатель</label>
+<input id="sendTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
+<datalist id="contactList">
+</datalist>
+<label for="sendAmount" data-i18n="send.amount">Сумма</label>
+<div id="sendUnitButtons" class="unitsel">
+</div>
+<input id="sendAmount" inputmode="decimal" placeholder="0">
+<p id="unitHint" class="dim">
+</p>
+<label for="sendMemo" data-i18n="send.memo">Публичное назначение (до 120 символов)</label>
+<input id="sendMemo" maxlength="120" autocomplete="off">
+<label data-i18n="send.route">Маршрут</label>
+<label>
+<input type="radio" name="sendRoute" value="direct" checked> <span data-i18n="send.direct">Напрямую</span>
+</label>
+<label>
+<input type="radio" name="sendRoute" value="gateway"> <span data-i18n="send.gateway">Через шлюз (пока только смета)</span>
+</label>
+<button id="estimateBtn" class="secondary" data-i18n="send.estimate">Рассчитать комиссию</button>
+<div id="feeBox" class="hidden">
+<table id="feeTable">
+</table>
+<p id="feeNote" class="dim">
+</p>
+</div>
+<label>
+<input id="confirmSend" type="checkbox"> <span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
+</label>
+<button id="prepareOp" data-i18n="send.prepare">Подготовить запрос</button>
 <div id="opBox" class="hidden">
-<label for="opJson">Полезная нагрузка (подписать txid локально)</label><textarea id="opJson" readonly></textarea>
-<p><small>Команда Skill: подпись <code>crypto.sign(null, Buffer.from(txidHex,'hex'), privKey).toString('hex')</code> над txid из запроса.</small></p>
-<label for="opSignature">Подпись (hex 128)</label><textarea id="opSignature" placeholder="128 hex-символов"></textarea><button id="opSubmit">Отправить в сеть</button>
+<label for="opJson" data-i18n="send.sign">Запрос для подписи</label>
+<textarea id="opJson" readonly>
+</textarea>
+<button id="downloadOp" class="secondary" data-i18n="send.download">Скачать запрос JSON</button>
+<div id="opCommand" class="cmd mono">
+</div>
+<p class="hint" data-i18n="hint.pasteSig">Выполни команду локально и вставь signature ниже. Приватный ключ не покидает твою машину.</p>
+<label for="opSignature" data-i18n="send.signature">Signature (128 hex)</label>
+<textarea id="opSignature" placeholder="128 hex">
+</textarea>
+<button id="opSubmit" data-i18n="send.submit">Отправить подписанную операцию</button>
+<div id="opStatus" role="status">
 </div>
 </div>
-
-<div id="paneReceive" class="hidden">
-<h2>Реквизиты получения</h2>
+</section>
+<section id="paneReceive" class="hidden">
+<h2 data-i18n="receive.title">Получить средства</h2>
 <div class="grid">
-<div><canvas class="qr" id="qrReceive" width="240" height="240"></canvas><p class="dim mono" id="receiveUri"></p></div>
-<div><div id="receiveAddress" class="address"></div>
-<button id="copyReceive">Скопировать адрес</button>
-<button id="downloadReceive" class="secondary">Скачать реквизиты JSON</button>
-<h2 style="margin-top:14px">Счёт на оплату</h2>
-<label for="invAmount">Сумма</label><input id="invAmount" inputmode="decimal" placeholder="0">
-<div class="unitsel" id="invUnitButtons"></div>
-<label for="invMemo">Назначение</label><input id="invMemo" maxlength="120" placeholder="Например: «за пексельную работу»">
-<button id="makeInvoice" class="secondary">Сформировать счёт</button>
-<button id="downloadInvoice" class="secondary" disabled>Скачать счёт JSON</button>
-<button id="showInvoiceQR" class="secondary" disabled>QR счёта</button>
-<div id="invQRBox" class="hidden"><canvas class="qr" id="qrInvoice" width="240" height="240"></canvas><p class="dim" id="invSummary"></p></div>
-</div></div>
+<div>
+<canvas class="qr" id="qrReceive" width="240" height="240">
+</canvas>
+<p id="receiveUri" class="mono">
+</p>
 </div>
-
-<div id="paneHistory" class="hidden">
-<div class="kv"><span class="eyebrow">ИСТОРИЯ ОПЕРАЦИЙ</span><button id="historyMore" class="secondary hidden" style="margin:0 0 0 auto">Ещё</button></div>
-<p class="dim">Пагинация по блокам; системные категории подписаны. Казна — по высоте активации политики, без ретроактивного требования 2-й подписи.</p>
-<div id="historyTableBox"><table id="historyTable"></table></div>
-<p class="dim" id="historyTreasuryNote"></p>
+<div>
+<div id="receiveAddress" class="address">
 </div>
-
-<div id="paneContacts" class="hidden">
-<div class="kv"><span>Адресная книга хранится только в этом браузере (localStorage) и не отправляется ноде.</span></div>
-<div id="contactsList"></div>
-<button id="addContact">Добавить контакт</button>
-<button id="seedDemo" class="secondary">Добавить Алису и Боб (шаблоны)</button>
-<button id="exportContacts" class="secondary">Экспорт JSON</button>
-<label for="importContacts" style="margin-top:10px">Импорт JSON</label><input id="importContacts" type="file" accept="application/json,.json">
+<button id="copyReceive" data-i18n="receive.copy">Копировать адрес</button>
+<button id="downloadReceive" class="secondary" data-i18n="receive.download">Скачать реквизиты JSON</button>
+<h3 data-i18n="receive.invoice">Счёт на оплату</h3>
+<label for="invAmount" data-i18n="receive.sum">Сумма</label>
+<input id="invAmount" inputmode="decimal" placeholder="0">
+<div id="invUnitButtons" class="unitsel">
 </div>
-
-<div id="paneFees" class="hidden">
-<div class="panel"><h2>Комиссии — как в сети устроено на самом деле</h2>
-<ul class="dim" style="padding-left:20px">
-<li><b>Базовая комиссия сети: 0.</b> Майнер не удерживает долю с перевода; на транферные расходы влияет только доступность блоков.</li>
-<li><b>Шлюзы (multihop):</b> forward-шлюз удерживает свой <span class="mono">feeBps</span> на второй ноге; полный расчёт — в смете на вкладке «Отправить».</li>
-<li><b>Налог по паспорту (AGIP-10):</b> применяется к эскроу-выплатам и DXE-ордерам, <b>не</b> к обычному P2P-переводу.</li>
-</ul></div>
-<div class="panel"><h2>Казна AGENTCOIN (treasury)</h2>
-<div id="treasuryBox" class="dim">Загружаю…</div>
-<p class="dim">Правило «2 подписи» действует только с высоты активации политики (<span class="mono">effectiveFrom</span>) и не применяется ретроактивно к историческим блокам: tx казны до этой высоты валидны одной подписью владельца адреса.</p></div>
-<div class="panel"><h2>Опасные ситуации</h2>
-<p class="dim">Проверяйте полный адрес при вставке (_phrüvkи подмены); сверяйте слой "сеть" перед отправкой; не подписывайте запросы на перевод, если вы не намеревались платить.</p></div>
+<label for="invMemo" data-i18n="receive.memo">Назначение</label>
+<input id="invMemo" maxlength="120">
+<button id="makeInvoice" class="secondary" data-i18n="receive.make">Сформировать счёт</button>
+<button id="downloadInvoice" class="secondary" disabled data-i18n="receive.downloadInvoice">Скачать счёт JSON</button>
+<button id="showInvoiceQR" class="secondary" disabled data-i18n="receive.showQR">Показать QR</button>
+<div id="invQRBox" class="hidden">
+<canvas class="qr" id="qrInvoice" width="240" height="240">
+</canvas>
+<p id="invSummary">
+</p>
 </div>
-
-<button id="logout" class="secondary">Выйти</button><div class="status" id="message" role="status" aria-live="polite"></div>
-</section></main>
+</div>
+</div>
+</section>
+<section id="paneHistory" class="hidden">
+<div class="kv">
+<h2 data-i18n="history.title">История операций</h2>
+<button id="historyMore" class="secondary hidden" data-i18n="history.more">Ещё</button>
+</div>
+<p class="dim" data-i18n="history.note">Системные категории отмечены отдельно; данные загружаются с сервера.</p>
+<div id="historyTableBox">
+<table id="historyTable">
+</table>
+</div>
+<p id="historyTreasuryNote" class="dim">
+</p>
+</section>
+<section id="paneContacts" class="hidden">
+<h2 data-i18n="contacts.title">Контакты</h2>
+<div id="contactsList">
+</div>
+<button id="addContact" data-i18n="contacts.add">Добавить</button>
+<button id="seedDemo" class="secondary" data-i18n="contacts.seedDemo">Добавить Алису и Боба</button>
+<button id="exportContacts" class="secondary" data-i18n="contacts.export">Экспорт JSON</button>
+<label for="importContacts" data-i18n="contacts.import">Импорт JSON</label>
+<input id="importContacts" type="file" accept="application/json,.json">
+</section>
+<section id="paneFees" class="hidden">
+<h2 data-i18n="fees.title">Комиссии и казна</h2>
+<p class="dim" data-i18n="fees.note">Комиссии показываются по фактической смете ноды.</p>
+<div id="treasuryBox">
+</div>
+</section>
+<button id="logout" class="secondary" data-i18n="login.logout">Выйти</button>
+<div id="message" class="status" role="status" aria-live="polite">
+</div>
+</section>
+<footer class="dim" data-i18n="footer.left">AGENTCOIN · самостоятельный кошелёк</footer>
+</main>
 <script>
 'use strict';
-const $ = id => document.getElementById(id);
-const ADDR_RE = /^AGT[0-9a-f]{40}$/, HEX128 = /^[0-9a-fA-F]{128}$/;
-let address = '', token = '', nodeInfo = null, state = null;
-let activeUnit = 'AGT';            // AGT | mAGT | mGNT
-let pendingOp = null;              // сгенерированная заявка (op-request payload)
-let contacts = loadContacts();
-const SEED_DEMO = [
-  { label: 'Алиса', address: '', kind: 'payer', note: 'шаблон: внеси её реальный адрес' },
-  { label: 'Боб', address: '', kind: 'payee', note: 'шаблон: внеси его реальный адрес' },
-];
-
-function loadContacts() { try { const v = JSON.parse(localStorage.getItem('agtx:wallet:contacts') || 'null'); return Array.isArray(v) ? v.filter(c => c && typeof c.label === 'string') : []; } catch { return []; } }
-function saveContacts() { try { localStorage.setItem('agtx:wallet:contacts', JSON.stringify(contacts.slice(0, 200))); } catch {} }
-
-async function api(route, value) {
-  const r = await fetch(route, { method: value ? 'POST' : 'GET', redirect: 'error', credentials: 'omit',
-    headers: value ? { 'Content-Type': 'application/json' } : {}, body: value ? JSON.stringify(value) : undefined, signal: AbortSignal.timeout(10000), cache: 'no-store' });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || j.ok === false) throw Error(j.error || ('HTTP ' + r.status));
-  return j;
-}
-function msg(text) { $('message').textContent = text || ''; const $lh = $('loginHint'); if ($lh) $lh.textContent = text || ''; }
-async function action(id, fn) {
-  const b = $(id); b.disabled = true; msg('Выполняю…');
-  try { await fn(); } catch (e) { msg(e.message); } finally { if (!b.dataset.keepDisabled) b.disabled = false; }
-}
-function esc(node, text) { node.textContent = text; return node; }
-async function network() {
-  const info = await api('/info');
-  if ((info.chainId || info.network) !== 'AGENTCOIN' || !/^[a-f0-9]{64}$/.test(info.genesisHash || '')) throw Error('Не удалось проверить параметры сети.');
-  if (nodeInfo && nodeInfo.genesisHash !== info.genesisHash) throw Error('Сеть изменилась: заверши сессию и переподключись.');
-  nodeInfo = { network: 'AGENTCOIN', genesisHash: info.genesisHash };
-  return nodeInfo;
-}
-function savePublic(name, value) { const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-
-// ---------- единицы ----------
-function fmtNumber(n, digits) { try { return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: digits == null ? 9 : digits }); } catch { return String(n); } }
-function unitFractionDigits(u) { return u === 'mAGT' ? 12 : u === 'mGNT' ? 12 : 9; }
-function balanceInUnit(mg, unit) {
-  const mgBig = BigInt(mg);
-  if (unit === 'mGNT') return mgBig.toString();
-  if (unit === 'mAGT') { const a = mgBig / 1000000n, b = (mgBig % 1000000n).toString().padStart(6, '0').replace(/0+$/, ''); return a.toString() + (b ? '.' + b : ''); }
-  const a = mgBig / 1000000000n, b = (mgBig % 1000000000n).toString().padStart(9, '0').replace(/0+$/, '');
-  return a.toString() + (b ? '.' + b : '');
-}
-function renderBalance() {
-  if (!state || state.wallet == null) return;
-  const mg = String(state.wallet.baoMGNT == null ? 0 : state.wallet.baoMGNT);
-  $('balancePrimary').textContent = fmtNumber(balanceInUnit(mg, activeUnit)) + ' ' + activeUnit;
-  $('balanceAll').textContent = 'AGT: ' + balanceInUnit(mg, 'AGT') + ' · mAGT: ' + balanceInUnit(mg, 'mAGT') + ' · mGNT (магент, AGIP-9): ' + mg;
-}
-function renderUnitButtons(container, current, onChange) {
-  container.replaceChildren();
-  for (const u of ['AGT', 'mAGT', 'mGNT']) {
-    const b = document.createElement('button'); b.textContent = u; b.className = u === current ? 'active' : '';
-    b.onclick = () => { onChange(u); };
-    container.append(b);
+const I18N={
+  "ru": {
+    "title": "Кошелёк AGENTCOIN",
+    "subtitle": "Самостоятельное управление AGT: ключи остаются в локальном профиле.",
+    "nav.trade": "Торговать → Биржа",
+    "session.on": "Вошёл",
+    "session.off": "Не вошёл",
+    "addr.label": "Мой AGT-адрес",
+    "addr.save": "Сохранить адрес",
+    "addr.clear": "Очистить",
+    "login.title": "Вход по подписи паспорта",
+    "login.cert": "Публичный паспорт JSON",
+    "login.import": "Импортировать публичный паспорт",
+    "login.addr": "Мой AGT-адрес",
+    "login.challenge": "Получить challenge",
+    "login.sign": "Challenge для локальной подписи",
+    "login.download": "Скачать challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Войти",
+    "login.logout": "Выйти",
+    "login.autologin": "Локальный вход на этой машине",
+    "login.disableAutologin": "Отключить автологин",
+    "login.hint": "Вход подтверждается паспортной подписью.",
+    "login.noAddr": "Сначала укажи адрес.",
+    "login.needPassport": "Публичный паспорт не найден.",
+    "login.challengeOk": "Challenge готов: скачай JSON и подпиши локально.",
+    "login.loggedIn": "Вход выполнен.",
+    "login.loggedOut": "Выход выполнен.",
+    "balance.title": "Баланс",
+    "balance.refresh": "Обновить",
+    "balance.unit": "Единица",
+    "balance.all": "Все единицы",
+    "balance.note": "Сумма получена с ноды; единицы показаны точно.",
+    "send.title": "Отправить AGT",
+    "send.needLogin": "Сначала войди в кабинет.",
+    "send.to": "Получатель",
+    "send.amount": "Сумма",
+    "send.memo": "Публичное назначение (до 120 символов)",
+    "send.estimate": "Рассчитать комиссию",
+    "send.confirm": "Я сверил получателя, сумму и комиссию",
+    "send.prepare": "Подготовить запрос",
+    "send.sign": "Запрос для подписи",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Отправить подписанную операцию",
+    "send.submitOk": "Принято в mempool",
+    "send.submitRejected": "Нода отклонила операцию",
+    "send.statusChecking": "Проверяю статус исходной операции…",
+    "send.mempool": "Операция найдена в mempool",
+    "send.confirmed": "Операция подтверждена блоком",
+    "send.status_unknown": "Результат пока неизвестен. Не отправляй повторно.",
+    "send.notice": "Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.",
+    "send.route": "Маршрут",
+    "send.direct": "Напрямую",
+    "send.gateway": "Через шлюз (пока только смета)",
+    "send.download": "Скачать запрос JSON",
+    "receive.title": "Получить средства",
+    "receive.address": "Адрес получения",
+    "receive.copy": "Копировать адрес",
+    "receive.download": "Скачать реквизиты JSON",
+    "receive.invoice": "Счёт на оплату",
+    "receive.sum": "Сумма",
+    "receive.memo": "Назначение",
+    "receive.make": "Сформировать счёт",
+    "receive.downloadInvoice": "Скачать счёт JSON",
+    "receive.showQR": "Показать QR",
+    "history.title": "История операций",
+    "history.more": "Ещё",
+    "history.empty": "Записей пока нет.",
+    "history.height": "Высота",
+    "history.from": "Отправитель",
+    "history.to": "Получатель",
+    "history.amount": "Сумма",
+    "history.memo": "Назначение",
+    "history.status": "Статус",
+    "history.note": "Системные категории отмечены отдельно; данные загружаются с сервера.",
+    "contacts.title": "Контакты",
+    "contacts.add": "Добавить",
+    "contacts.seedDemo": "Добавить Алису и Боба",
+    "contacts.export": "Экспорт JSON",
+    "contacts.import": "Импорт JSON",
+    "contacts.empty": "Контактов пока нет.",
+    "contacts.label": "Имя",
+    "contacts.address": "Адрес",
+    "fees.title": "Комиссии и казна",
+    "fees.treasury": "Состояние казны",
+    "fees.note": "Комиссии показываются по фактической смете ноды.",
+    "orders.title": "Мои ордера на бирже",
+    "orders.ref": "Ref",
+    "orders.item": "Тикер",
+    "orders.side": "Сторона",
+    "orders.qty": "Количество",
+    "orders.price": "Цена",
+    "orders.remaining": "Остаток",
+    "orders.status": "Статус",
+    "orders.action": "Действие",
+    "orders.cancel": "Отменить",
+    "orders.empty": "Открытых ордеров нет.",
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "cancel": "Отмена",
+    "refresh": "Обновить",
+    "loading": "Загрузка…",
+    "err.api": "Ошибка API: ",
+    "err.noAddr": "Укажи AGT-адрес.",
+    "err.badSig": "Подпись должна содержать 128 hex-символов.",
+    "hint.copyCmd": "Скопируй команду и выполни в терминале.",
+    "hint.pasteSig": "Выполни команду локально и вставь signature ниже. Приватный ключ не покидает твою машину.",
+    "hint.privateKeyStaysLocal": "Приватный ключ не покидает твою машину.",
+    "tab.overview": "Обзор",
+    "tab.send": "Отправить",
+    "tab.receive": "Получить",
+    "tab.history": "История",
+    "tab.contacts": "Контакты",
+    "tab.fees": "Комиссии",
+    "overview.aliceTitle": "Запросить оплату у Алисы",
+    "overview.aliceText": "Создай счёт и передай его файлом или QR.",
+    "overview.aliceButton": "Создать счёт для Алисы",
+    "overview.bobTitle": "Отправить Бобу",
+    "overview.bobText": "Открой перевод на сохранённый контакт.",
+    "overview.bobButton": "Перевести Бобу",
+    "footer.left": "AGENTCOIN · самостоятельный кошелёк",
+    "footer.updated": "Обновлено",
+    "orders.fillsCount": "Недавние сделки: {count}"
+  },
+  "en": {
+    "title": "AGENTCOIN Wallet",
+    "subtitle": "Manage AGT independently; keys stay in your local profile.",
+    "nav.trade": "Trade → Exchange",
+    "session.on": "Signed in",
+    "session.off": "Signed out",
+    "addr.label": "My AGT address",
+    "addr.save": "Save address",
+    "addr.clear": "Clear",
+    "login.title": "Sign in with passport",
+    "login.cert": "Public passport JSON",
+    "login.import": "Import public passport",
+    "login.addr": "My AGT address",
+    "login.challenge": "Get challenge",
+    "login.sign": "Challenge for local signing",
+    "login.download": "Download challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Sign in",
+    "login.logout": "Sign out",
+    "login.autologin": "Local sign-in on this machine",
+    "login.disableAutologin": "Disable autologin",
+    "login.hint": "Passport signature confirms this session.",
+    "login.noAddr": "Enter an address first.",
+    "login.needPassport": "Public passport not found.",
+    "login.challengeOk": "Challenge ready: download JSON and sign locally.",
+    "login.loggedIn": "Signed in.",
+    "login.loggedOut": "Signed out.",
+    "balance.title": "Balance",
+    "balance.refresh": "Refresh",
+    "balance.unit": "Unit",
+    "balance.all": "All units",
+    "balance.note": "Fetched from node and displayed exactly.",
+    "send.title": "Send AGT",
+    "send.needLogin": "Sign in first.",
+    "send.to": "Recipient",
+    "send.amount": "Amount",
+    "send.memo": "Public memo (up to 120 characters)",
+    "send.estimate": "Estimate fees",
+    "send.confirm": "I checked recipient, amount, and fee",
+    "send.prepare": "Prepare request",
+    "send.sign": "Request to sign",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Submit signed operation",
+    "send.submitOk": "Accepted into mempool",
+    "send.submitRejected": "Node rejected the operation",
+    "send.statusChecking": "Checking the original operation…",
+    "send.mempool": "Operation found in mempool",
+    "send.confirmed": "Operation confirmed in a block",
+    "send.status_unknown": "Result is unknown. Do not submit again.",
+    "send.notice": "Check the details. The page prepares the operation; signing stays local.",
+    "send.route": "Route",
+    "send.direct": "Direct",
+    "send.gateway": "Via gateway (estimate only)",
+    "send.download": "Download request JSON",
+    "receive.title": "Receive funds",
+    "receive.address": "Receive address",
+    "receive.copy": "Copy address",
+    "receive.download": "Download payment details JSON",
+    "receive.invoice": "Payment request",
+    "receive.sum": "Amount",
+    "receive.memo": "Memo",
+    "receive.make": "Create invoice",
+    "receive.downloadInvoice": "Download invoice JSON",
+    "receive.showQR": "Show QR",
+    "history.title": "Transaction history",
+    "history.more": "More",
+    "history.empty": "No entries yet.",
+    "history.height": "Height",
+    "history.from": "From",
+    "history.to": "To",
+    "history.amount": "Amount",
+    "history.memo": "Memo",
+    "history.status": "Status",
+    "history.note": "System categories are labeled; entries come from the node.",
+    "contacts.title": "Contacts",
+    "contacts.add": "Add",
+    "contacts.seedDemo": "Add Alice and Bob",
+    "contacts.export": "Export JSON",
+    "contacts.import": "Import JSON",
+    "contacts.empty": "No contacts yet.",
+    "contacts.label": "Name",
+    "contacts.address": "Address",
+    "fees.title": "Fees and treasury",
+    "fees.treasury": "Treasury state",
+    "fees.note": "Fees come from the node estimate.",
+    "orders.title": "My exchange orders",
+    "orders.ref": "Ref",
+    "orders.item": "Item",
+    "orders.side": "Side",
+    "orders.qty": "Quantity",
+    "orders.price": "Price",
+    "orders.remaining": "Remaining",
+    "orders.status": "Status",
+    "orders.action": "Action",
+    "orders.cancel": "Cancel",
+    "orders.empty": "No open orders.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "cancel": "Cancel",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "err.api": "API error: ",
+    "err.noAddr": "Enter an AGT address.",
+    "err.badSig": "Signature must contain 128 hex characters.",
+    "hint.copyCmd": "Copy the command and run it in your terminal.",
+    "hint.pasteSig": "Run the command locally and paste the signature below. Your private key stays on your machine.",
+    "hint.privateKeyStaysLocal": "Your private key stays on your machine.",
+    "tab.overview": "Overview",
+    "tab.send": "Send",
+    "tab.receive": "Receive",
+    "tab.history": "History",
+    "tab.contacts": "Contacts",
+    "tab.fees": "Fees",
+    "overview.aliceTitle": "Request payment from Alice",
+    "overview.aliceText": "Create an invoice and share it as a file or QR.",
+    "overview.aliceButton": "Create Alice invoice",
+    "overview.bobTitle": "Send to Bob",
+    "overview.bobText": "Open a transfer to a saved contact.",
+    "overview.bobButton": "Transfer to Bob",
+    "footer.left": "AGENTCOIN · self-custody wallet",
+    "footer.updated": "Updated",
+    "orders.fillsCount": "Recent fills: {count}"
+  },
+  "fr": {
+    "title": "Portefeuille AGENTCOIN",
+    "subtitle": "Gérez AGT librement ; les clés restent dans votre profil local.",
+    "nav.trade": "Trader → Bourse",
+    "session.on": "Connecté",
+    "session.off": "Déconnecté",
+    "addr.label": "Mon adresse AGT",
+    "addr.save": "Enregistrer l’adresse",
+    "addr.clear": "Effacer",
+    "login.title": "Connexion par passeport",
+    "login.cert": "Passeport public JSON",
+    "login.import": "Importer le passeport public",
+    "login.addr": "Mon adresse AGT",
+    "login.challenge": "Obtenir le challenge",
+    "login.sign": "Challenge à signer localement",
+    "login.download": "Télécharger le challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Connexion",
+    "login.logout": "Déconnexion",
+    "login.autologin": "Connexion locale sur cette machine",
+    "login.disableAutologin": "Désactiver la connexion auto",
+    "login.hint": "La signature du passeport confirme cette session.",
+    "login.noAddr": "Saisissez d’abord une adresse.",
+    "login.needPassport": "Passeport public introuvable.",
+    "login.challengeOk": "Challenge prêt : téléchargez le JSON et signez localement.",
+    "login.loggedIn": "Connecté.",
+    "login.loggedOut": "Déconnecté.",
+    "balance.title": "Solde",
+    "balance.refresh": "Actualiser",
+    "balance.unit": "Unité",
+    "balance.all": "Toutes les unités",
+    "balance.note": "Récupéré auprès du nœud et affiché exactement.",
+    "send.title": "Envoyer AGT",
+    "send.needLogin": "Connectez-vous d’abord.",
+    "send.to": "Destinataire",
+    "send.amount": "Montant",
+    "send.memo": "Mémo public (120 caractères max.)",
+    "send.estimate": "Estimer les frais",
+    "send.confirm": "J’ai vérifié le destinataire, le montant et les frais",
+    "send.prepare": "Préparer la demande",
+    "send.sign": "Demande à signer",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Envoyer l’opération signée",
+    "send.submitOk": "Acceptée dans le mempool",
+    "send.submitRejected": "Opération refusée par le nœud",
+    "send.statusChecking": "Vérification de l’opération initiale…",
+    "send.mempool": "Opération trouvée dans le mempool",
+    "send.confirmed": "Opération confirmée dans un bloc",
+    "send.status_unknown": "Résultat inconnu. Ne renvoyez pas.",
+    "send.notice": "Vérifiez les détails. La page prépare l’opération ; la signature reste locale.",
+    "send.route": "Route",
+    "send.direct": "Directe",
+    "send.gateway": "Via passerelle (estimation seulement)",
+    "send.download": "Télécharger la demande JSON",
+    "receive.title": "Recevoir des fonds",
+    "receive.address": "Adresse de réception",
+    "receive.copy": "Copier l’adresse",
+    "receive.download": "Télécharger les coordonnées JSON",
+    "receive.invoice": "Demande de paiement",
+    "receive.sum": "Montant",
+    "receive.memo": "Mémo",
+    "receive.make": "Créer la facture",
+    "receive.downloadInvoice": "Télécharger la facture JSON",
+    "receive.showQR": "Afficher le QR",
+    "history.title": "Historique",
+    "history.more": "Plus",
+    "history.empty": "Aucune entrée.",
+    "history.height": "Hauteur",
+    "history.from": "De",
+    "history.to": "À",
+    "history.amount": "Montant",
+    "history.memo": "Mémo",
+    "history.status": "État",
+    "history.note": "Les catégories système sont indiquées ; les données viennent du nœud.",
+    "contacts.title": "Contacts",
+    "contacts.add": "Ajouter",
+    "contacts.seedDemo": "Ajouter Alice et Bob",
+    "contacts.export": "Exporter JSON",
+    "contacts.import": "Importer JSON",
+    "contacts.empty": "Aucun contact.",
+    "contacts.label": "Nom",
+    "contacts.address": "Adresse",
+    "fees.title": "Frais et trésorerie",
+    "fees.treasury": "État de la trésorerie",
+    "fees.note": "Les frais proviennent de l’estimation du nœud.",
+    "orders.title": "Mes ordres de bourse",
+    "orders.ref": "Réf.",
+    "orders.item": "Article",
+    "orders.side": "Sens",
+    "orders.qty": "Quantité",
+    "orders.price": "Prix",
+    "orders.remaining": "Restant",
+    "orders.status": "État",
+    "orders.action": "Action",
+    "orders.cancel": "Annuler",
+    "orders.empty": "Aucun ordre ouvert.",
+    "copy": "Copier",
+    "copied": "Copié",
+    "cancel": "Annuler",
+    "refresh": "Actualiser",
+    "loading": "Chargement…",
+    "err.api": "Erreur API : ",
+    "err.noAddr": "Saisissez une adresse AGT.",
+    "err.badSig": "La signature doit contenir 128 caractères hexadécimaux.",
+    "hint.copyCmd": "Copiez la commande et exécutez-la dans le terminal.",
+    "hint.pasteSig": "Exécutez localement et collez la signature ci-dessous. La clé privée reste sur votre machine.",
+    "hint.privateKeyStaysLocal": "Votre clé privée reste sur votre machine.",
+    "tab.overview": "Aperçu",
+    "tab.send": "Envoyer",
+    "tab.receive": "Recevoir",
+    "tab.history": "Historique",
+    "tab.contacts": "Contacts",
+    "tab.fees": "Frais",
+    "overview.aliceTitle": "Demander un paiement à Alice",
+    "overview.aliceText": "Créez une facture et partagez-la en fichier ou QR.",
+    "overview.aliceButton": "Créer une facture pour Alice",
+    "overview.bobTitle": "Envoyer à Bob",
+    "overview.bobText": "Ouvrez un transfert vers un contact enregistré.",
+    "overview.bobButton": "Transférer à Bob",
+    "footer.left": "AGENTCOIN · portefeuille autonome",
+    "footer.updated": "Mis à jour",
+    "orders.fillsCount": "Transactions récentes : {count}"
+  },
+  "es": {
+    "title": "Cartera AGENTCOIN",
+    "subtitle": "Gestiona AGT; las claves permanecen en tu perfil local.",
+    "nav.trade": "Operar → Bolsa",
+    "session.on": "Con sesión",
+    "session.off": "Sin sesión",
+    "addr.label": "Mi dirección AGT",
+    "addr.save": "Guardar dirección",
+    "addr.clear": "Borrar",
+    "login.title": "Acceso con pasaporte",
+    "login.cert": "Pasaporte público JSON",
+    "login.import": "Importar pasaporte público",
+    "login.addr": "Mi dirección AGT",
+    "login.challenge": "Obtener challenge",
+    "login.sign": "Challenge para firma local",
+    "login.download": "Descargar challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Entrar",
+    "login.logout": "Salir",
+    "login.autologin": "Acceso local en este equipo",
+    "login.disableAutologin": "Desactivar acceso automático",
+    "login.hint": "La firma del pasaporte confirma la sesión.",
+    "login.noAddr": "Indica primero una dirección.",
+    "login.needPassport": "No se encontró el pasaporte público.",
+    "login.challengeOk": "Challenge listo: descarga el JSON y firma localmente.",
+    "login.loggedIn": "Sesión iniciada.",
+    "login.loggedOut": "Sesión cerrada.",
+    "balance.title": "Saldo",
+    "balance.refresh": "Actualizar",
+    "balance.unit": "Unidad",
+    "balance.all": "Todas las unidades",
+    "balance.note": "Obtenido del nodo y mostrado con precisión.",
+    "send.title": "Enviar AGT",
+    "send.needLogin": "Inicia sesión primero.",
+    "send.to": "Destinatario",
+    "send.amount": "Importe",
+    "send.memo": "Memo público (máximo 120 caracteres)",
+    "send.estimate": "Calcular comisión",
+    "send.confirm": "He comprobado destinatario, importe y comisión",
+    "send.prepare": "Preparar solicitud",
+    "send.sign": "Solicitud para firmar",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Enviar operación firmada",
+    "send.submitOk": "Aceptada en mempool",
+    "send.submitRejected": "El nodo rechazó la operación",
+    "send.statusChecking": "Comprobando la operación original…",
+    "send.mempool": "Operación encontrada en mempool",
+    "send.confirmed": "Operación confirmada en un bloque",
+    "send.status_unknown": "Resultado desconocido. No la envíes otra vez.",
+    "send.notice": "Comprueba los datos. La página prepara; la firma se hace localmente.",
+    "send.route": "Ruta",
+    "send.direct": "Directa",
+    "send.gateway": "Por gateway (solo cálculo)",
+    "send.download": "Descargar solicitud JSON",
+    "receive.title": "Recibir fondos",
+    "receive.address": "Dirección de recepción",
+    "receive.copy": "Copiar dirección",
+    "receive.download": "Descargar datos JSON",
+    "receive.invoice": "Solicitud de pago",
+    "receive.sum": "Importe",
+    "receive.memo": "Memo",
+    "receive.make": "Crear factura",
+    "receive.downloadInvoice": "Descargar factura JSON",
+    "receive.showQR": "Mostrar QR",
+    "history.title": "Historial",
+    "history.more": "Más",
+    "history.empty": "Aún no hay registros.",
+    "history.height": "Altura",
+    "history.from": "De",
+    "history.to": "A",
+    "history.amount": "Importe",
+    "history.memo": "Memo",
+    "history.status": "Estado",
+    "history.note": "Las categorías del sistema están marcadas; los datos vienen del nodo.",
+    "contacts.title": "Contactos",
+    "contacts.add": "Añadir",
+    "contacts.seedDemo": "Añadir Alicia y Bob",
+    "contacts.export": "Exportar JSON",
+    "contacts.import": "Importar JSON",
+    "contacts.empty": "No hay contactos.",
+    "contacts.label": "Nombre",
+    "contacts.address": "Dirección",
+    "fees.title": "Comisiones y tesorería",
+    "fees.treasury": "Estado de tesorería",
+    "fees.note": "Las comisiones proceden del cálculo del nodo.",
+    "orders.title": "Mis órdenes de bolsa",
+    "orders.ref": "Ref.",
+    "orders.item": "Artículo",
+    "orders.side": "Lado",
+    "orders.qty": "Cantidad",
+    "orders.price": "Precio",
+    "orders.remaining": "Restante",
+    "orders.status": "Estado",
+    "orders.action": "Acción",
+    "orders.cancel": "Cancelar",
+    "orders.empty": "No hay órdenes abiertas.",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "cancel": "Cancelar",
+    "refresh": "Actualizar",
+    "loading": "Cargando…",
+    "err.api": "Error de API: ",
+    "err.noAddr": "Indica una dirección AGT.",
+    "err.badSig": "La firma debe tener 128 caracteres hexadecimales.",
+    "hint.copyCmd": "Copia el comando y ejecútalo en el terminal.",
+    "hint.pasteSig": "Ejecútalo localmente y pega la firma abajo. La clave privada permanece en tu equipo.",
+    "hint.privateKeyStaysLocal": "Tu clave privada permanece en tu equipo.",
+    "tab.overview": "Resumen",
+    "tab.send": "Enviar",
+    "tab.receive": "Recibir",
+    "tab.history": "Historial",
+    "tab.contacts": "Contactos",
+    "tab.fees": "Comisiones",
+    "overview.aliceTitle": "Solicitar pago a Alicia",
+    "overview.aliceText": "Crea una factura y compártela como archivo o QR.",
+    "overview.aliceButton": "Crear factura para Alicia",
+    "overview.bobTitle": "Enviar a Bob",
+    "overview.bobText": "Abre un envío a un contacto guardado.",
+    "overview.bobButton": "Transferir a Bob",
+    "footer.left": "AGENTCOIN · cartera autónoma",
+    "footer.updated": "Actualizado",
+    "orders.fillsCount": "Operaciones recientes: {count}"
+  },
+  "de": {
+    "title": "AGENTCOIN Wallet",
+    "subtitle": "Verwalte AGT selbst; Schlüssel bleiben in deinem lokalen Profil.",
+    "nav.trade": "Handeln → Börse",
+    "session.on": "Angemeldet",
+    "session.off": "Abgemeldet",
+    "addr.label": "Meine AGT-Adresse",
+    "addr.save": "Adresse speichern",
+    "addr.clear": "Löschen",
+    "login.title": "Anmeldung mit Pass",
+    "login.cert": "Öffentlicher Pass als JSON",
+    "login.import": "Öffentlichen Pass importieren",
+    "login.addr": "Meine AGT-Adresse",
+    "login.challenge": "Challenge abrufen",
+    "login.sign": "Challenge lokal signieren",
+    "login.download": "Challenge-JSON laden",
+    "login.signature": "Signatur (128 Hex)",
+    "login.submit": "Anmelden",
+    "login.logout": "Abmelden",
+    "login.autologin": "Lokale Anmeldung auf diesem Gerät",
+    "login.disableAutologin": "Autologin deaktivieren",
+    "login.hint": "Die Pass-Signatur bestätigt diese Sitzung.",
+    "login.noAddr": "Gib zuerst eine Adresse ein.",
+    "login.needPassport": "Öffentlicher Pass nicht gefunden.",
+    "login.challengeOk": "Challenge bereit: JSON laden und lokal signieren.",
+    "login.loggedIn": "Angemeldet.",
+    "login.loggedOut": "Abgemeldet.",
+    "balance.title": "Kontostand",
+    "balance.refresh": "Aktualisieren",
+    "balance.unit": "Einheit",
+    "balance.all": "Alle Einheiten",
+    "balance.note": "Vom Node geladen und exakt angezeigt.",
+    "send.title": "AGT senden",
+    "send.needLogin": "Bitte zuerst anmelden.",
+    "send.to": "Empfänger",
+    "send.amount": "Betrag",
+    "send.memo": "Öffentliche Memo (max. 120 Zeichen)",
+    "send.estimate": "Gebühr berechnen",
+    "send.confirm": "Empfänger, Betrag und Gebühr geprüft",
+    "send.prepare": "Anfrage vorbereiten",
+    "send.sign": "Anfrage zum Signieren",
+    "send.signature": "Signatur (128 Hex)",
+    "send.submit": "Signierte Operation senden",
+    "send.submitOk": "Im Mempool angenommen",
+    "send.submitRejected": "Node hat die Operation abgelehnt",
+    "send.statusChecking": "Prüfe die ursprüngliche Operation…",
+    "send.mempool": "Operation im Mempool gefunden",
+    "send.confirmed": "Operation in einem Block bestätigt",
+    "send.status_unknown": "Ergebnis unbekannt. Nicht erneut senden.",
+    "send.notice": "Prüfe die Angaben. Die Seite bereitet vor; signiert wird lokal.",
+    "send.route": "Route",
+    "send.direct": "Direkt",
+    "send.gateway": "Über Gateway (nur Schätzung)",
+    "send.download": "Anfrage-JSON laden",
+    "receive.title": "Geld empfangen",
+    "receive.address": "Empfangsadresse",
+    "receive.copy": "Adresse kopieren",
+    "receive.download": "Zahlungsdaten als JSON laden",
+    "receive.invoice": "Zahlungsanforderung",
+    "receive.sum": "Betrag",
+    "receive.memo": "Memo",
+    "receive.make": "Rechnung erstellen",
+    "receive.downloadInvoice": "Rechnung-JSON laden",
+    "receive.showQR": "QR anzeigen",
+    "history.title": "Verlauf",
+    "history.more": "Mehr",
+    "history.empty": "Noch keine Einträge.",
+    "history.height": "Höhe",
+    "history.from": "Von",
+    "history.to": "An",
+    "history.amount": "Betrag",
+    "history.memo": "Memo",
+    "history.status": "Status",
+    "history.note": "Systemkategorien sind markiert; Einträge stammen vom Node.",
+    "contacts.title": "Kontakte",
+    "contacts.add": "Hinzufügen",
+    "contacts.seedDemo": "Alice und Bob hinzufügen",
+    "contacts.export": "JSON exportieren",
+    "contacts.import": "JSON importieren",
+    "contacts.empty": "Keine Kontakte.",
+    "contacts.label": "Name",
+    "contacts.address": "Adresse",
+    "fees.title": "Gebühren und Treasury",
+    "fees.treasury": "Treasury-Status",
+    "fees.note": "Gebühren stammen aus der Node-Schätzung.",
+    "orders.title": "Meine Börsenorders",
+    "orders.ref": "Ref.",
+    "orders.item": "Artikel",
+    "orders.side": "Seite",
+    "orders.qty": "Menge",
+    "orders.price": "Preis",
+    "orders.remaining": "Verbleibend",
+    "orders.status": "Status",
+    "orders.action": "Aktion",
+    "orders.cancel": "Abbrechen",
+    "orders.empty": "Keine offenen Orders.",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "cancel": "Abbrechen",
+    "refresh": "Aktualisieren",
+    "loading": "Lädt…",
+    "err.api": "API-Fehler: ",
+    "err.noAddr": "Gib eine AGT-Adresse ein.",
+    "err.badSig": "Die Signatur muss 128 Hex-Zeichen enthalten.",
+    "hint.copyCmd": "Kopiere den Befehl und führe ihn im Terminal aus.",
+    "hint.pasteSig": "Führe den Befehl lokal aus und füge die Signatur unten ein. Dein privater Schlüssel bleibt auf deinem Gerät.",
+    "hint.privateKeyStaysLocal": "Dein privater Schlüssel bleibt auf deinem Gerät.",
+    "tab.overview": "Übersicht",
+    "tab.send": "Senden",
+    "tab.receive": "Empfangen",
+    "tab.history": "Verlauf",
+    "tab.contacts": "Kontakte",
+    "tab.fees": "Gebühren",
+    "overview.aliceTitle": "Zahlung von Alice anfordern",
+    "overview.aliceText": "Erstelle eine Rechnung und teile sie als Datei oder QR.",
+    "overview.aliceButton": "Rechnung für Alice erstellen",
+    "overview.bobTitle": "An Bob senden",
+    "overview.bobText": "Öffne eine Überweisung an einen gespeicherten Kontakt.",
+    "overview.bobButton": "An Bob überweisen",
+    "footer.left": "AGENTCOIN · selbstverwaltete Wallet",
+    "footer.updated": "Aktualisiert",
+    "orders.fillsCount": "Letzte Ausführungen: {count}"
   }
-}
-
-// ---------- вкладки ----------
-const PANES = ['Overview', 'Send', 'Receive', 'History', 'Contacts', 'Fees'];
-function showTab(name) {
-  for (const p of PANES) { $('pane' + p).classList.toggle('hidden', p !== name); $('tab' + p).classList.toggle('active', p === name); }
-  if (name === 'History') loadHistory(false);
-  if (name === 'Contacts') renderContacts();
-  if (name === 'Fees') loadTreasury();
-}
-for (const p of PANES) $('tab' + p).onclick = () => { showTab(p); msg(''); };
-
-// ---------- сессия ----------
-function noSecrets(v) {
-  if (!v || typeof v !== 'object') return;
-  for (const [k, x] of Object.entries(v)) { if (/priv|mnemonic|password|seed|token/i.test(k)) throw Error('Этот файл содержит секретные поля. Нужен только публичный паспорт.'); noSecrets(x); }
-}
-async function enter(stateReply, viaNote) {
-  address = stateReply.address; state = stateReply;
-  // Кабинет — единственный видимый режим после входа; вход скрыт навсегда до logout.
-  $('cab').classList.remove('hidden'); $('loginBox').classList.add('hidden');
-  const p = stateReply.passport || {};
-  $('identity').replaceChildren();
-  for (const line of [p.handle || 'Агент', address]) { const d = document.createElement('div'); d.textContent = line; $('identity').append(d); }
-  renderUnitButtons($('unitButtons'), activeUnit, u => { activeUnit = u; renderBalance(); });
-  renderBalance();
-  renderUnitButtons($('sendUnitButtons'), activeUnit, u => { activeUnit = u; renderUnitButtons($('sendUnitButtons'), u); renderUnitButtons($('unitButtons'), u); renderBalance(); updateUnitHint(); });
-  renderUnitButtons($('invUnitButtons'), activeUnit, u => { activeUnit = u; });
-  updateUnitHint();
-  $('receiveAddress').textContent = address;
-  drawQR($('qrReceive'), 'agentcoin:' + address);
-  $('receiveUri').textContent = 'agentcoin:' + address;
-  try { await loadHistory(false); } catch {}
-  msg(viaNote || 'Вход подтверждён. Ключ остался в локальном профиле.');
-  // Финальная гарантия видимости кабинета (после всех обновлений истории):
-  $('cab').classList.remove('hidden'); $('loginBox').classList.add('hidden');
-}
-function updateUnitHint() {
-  const u = activeUnit;
-  $('unitHint').textContent = u === 'AGT' ? 'Полные AGT, до 9 знаков (1 AGT = 1e9 магентов; AGIP-9).'
-    : u === 'mAGT' ? 'Милли-AGT: 1 mAGT = 0.001 AGT, до 6 знаков.'
-    : 'mGNT (магент): 1 mGNT = 0.000000001 AGT — целым числом.';
-}
-async function refreshAll() {
-  const r = await api('/cabinet/state', { address, token });
-  await enter(Object.assign({}, state, r), null);
-}
-$('refreshWallet').onclick = () => action('refreshWallet', refreshAll);
-
-// восстановление сессии + автологин (как в cabinet.html, без модулей)
-(async function init() {
-  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
-  if (!urlAddr) {
-    try {
-      const s = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
-      if (s && s.address && s.token) {
-        const st = await api('/cabinet/state', { address: s.address, token: s.token });
-        address = s.address; token = s.token; await enter(st, 'Сессия восстановлена.');
-        return;
-      }
-    } catch { try { sessionStorage.removeItem('agtx:cab'); } catch {} }
-  }
-  try {
-    if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return;
-    // ?addr= из адресной строки — явное намерение оператора: перекрывает и старую сессию, и agtx:autologin=off
-    if (!urlAddr && localStorage.getItem('agtx:autologin') === 'off') return;
-    const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
-      headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
-    if (!r.ok) return;
-    const j = await r.json();
-    if (j && j.token && j.address) { token = j.token; address = j.address;
-      const st = await api('/cabinet/state', { address, token });
-      await enter(st, 'Тихий автологин оператора (AGIP-45, только эта машина).');
-    }
-  } catch {}
-})();
-
-// ---------- вход ----------
-$('importCert').onclick = () => action('importCert', async () => {
-  const f = $('certFile').files[0]; if (!f || f.size > 4096) throw Error('Выбери публичный паспорт до 4 КБ.');
-  const passport = JSON.parse(await f.text());  try { noSecrets(passport); } catch { return; }
-  await api('/identity/import', { passport });
-  $('adr').value = passport.payload && passport.payload.address ? passport.payload.address : '';
-  msg('Публичный паспорт проверен этой нодой.');
-});
-$('challenge').onclick = () => action('challenge', async () => {
-  const r = await api('/cabinet/challenge', { address: $('adr').value.trim() });
-  const c = r.challenge || r;
-  $('challengeJson').value = JSON.stringify(c, null, 2);
-  $('challengeJson').dataset.challengeId = c.challengeId;
-  $('signBox').classList.remove('hidden');
-  msg('Подпиши запрос в своей среде. Срок — 5 минут.');
-});
-$('login').onclick = () => action('login', async () => {
-  const issued = JSON.parse($('challengeJson').value || 'null');
-  if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
-  let sig = $('signature').value.trim();
-  if (sig.startsWith('{')) { const v = JSON.parse(sig); if (v.challengeId !== issued.challengeId || v.address !== issued.address) throw Error('Ответ относится к другому запросу.'); sig = v.signature || v.sig; }
-  if (!HEX128.test(sig)) throw Error('Нужна Ed25519-подпись: 128 hex-символов.');
-  const r = await api('/cabinet/login', { mode: 'challenge', address: issued.address, challengeId: issued.challengeId, nonce: issued.message, signature: sig });
-  token = r.token; address = issued.address;
-  try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: r.expiresAt || 0 })); } catch {}
-  $('signature').value = '';
-  const st = await api('/cabinet/state', { address, token });
-  await enter(st);
-});
-$('logout').onclick = () => action('logout', async () => {
-  try { await api('/cabinet/logout', { token }); } catch {}
-  try { sessionStorage.removeItem('agtx:cab'); } catch {}
-  token = ''; address = ''; state = null; pendingOp = null;
-  $('cab').classList.add('hidden'); $('loginBox').classList.remove('hidden');
-  msg('Сессия завершена.');
-});
-$('disableAutologin').onclick = () => action('disableAutologin', () => {
-  try { localStorage.setItem('agtx:autologin', 'off'); } catch {}
-  msg('Автологин выключен для этой машины (agtx:autologin=off).');
-});
-// самовосстановление: явный клик оператора возвращает тихий вход без Skill'а
-$('autologinNow').onclick = () => action('autologinNow', async () => {
-  try { localStorage.removeItem('agtx:autologin'); } catch {}
-  try { sessionStorage.removeItem('agtx:cab'); } catch {}
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) {
-    const localAddress = $('adr').value.trim();
-    if (ADDR_RE.test(localAddress)) {
-      // WALLET-ALL-ORIGINS: вне этой машины тихий вход невозможен — запускаем честный ручной путь:
-      // challenge скачивается/подписывается на устройстве с ключом, ответ вставляется в поле «Войти».
-      const ch = await api('/cabinet/challenge', { address: localAddress });
-      const c = ch.challenge || ch;
-      if (c && c.challengeId) {
-        $('challengeJson').value = JSON.stringify(c, null, 2);
-        $('challengeJson').dataset.challengeId = c.challengeId;
-        $('signBox').classList.remove('hidden');
-        savePublic('agentcoin-challenge.json', c);
-        const sameMachine = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) ? true : location.port === '9333';
-        msg('С адреса ' + location.host + ' тихий вход недоступен (защита ключа). Скачан запрос agentcoin-challenge.json — подпишите его на устройстве с ключом (Skill sign-challenge) и вставьте ответ ниже, затем «Войти». Адрес тот же, кошелёк тот же.');
-        const helper = document.createElement('div'); helper.className = 'notice'; helper.style.marginTop = '10px';
-        if (location.hostname.endsWith('.ts.net')) {
-          const p = document.createElement('p'); p.textContent = 'Ты на одном компьютере с нодой? Тогда войди прямо сейчас без подписи:'; helper.append(p);
-          const a = document.createElement('a'); a.href = 'http://localhost:9335/cabinet?addr=' + encodeURIComponent(c.address); a.textContent = 'http://localhost:9335/cabinet (вход без пароля)'; helper.append(a);
-        } else {
-          const p2 = document.createElement('p'); p2.textContent = 'Браузер не на машине ноды: нужен подписанный challenge (Skill). Ноды-машина: открой http://<нода>:9335/cabinet?addr=<адрес> и войдёшь без пароля.'; helper.append(p2);
-        }
-        $('signBox').prepend(helper);
-        return;
-      }
-    }
-    msg('Тихий вход работает только на машине с нодой. Впишите AGT-адрес и нажмите «Получить запрос на вход» — подпишите запрос на устройстве с ключом и войдите «Войти» (тот же кошелёк, тот же адрес).');
-    return;
-  }
-  const urlAddr = (() => { try { return new URLSearchParams(location.search).get('addr') || ''; } catch { return ''; } })();
-  const r = await fetch('/cabinet/autologin', { method: 'POST', redirect: 'error', credentials: 'omit',
-    headers: { 'Content-Type': 'application/json', 'x-cabinet-autologin': 'local' }, body: JSON.stringify({ address: urlAddr }) });
-  const j = await r.json().catch(() => null);
-  if (!r.ok || !j || !j.token || !j.address) { msg('Нода отказалась от тихого входа: ' + ((j && (j.hint || j.error)) || r.status) + '. Ссылка с ?addr=AGT... выберет кошелёк явно.'); return; }
-  token = j.token; address = j.address;
-  try { sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token, expiresAt: j.expiresAt || 0 })); } catch {}
-  const st = await api('/cabinet/state', { address, token });
-  await enter(st, 'Вход без пароля (эта машина). Ключ остался на ноде.');
-});
-$('downloadChallenge').onclick = () => action('downloadChallenge', async () => {
-  const issued = JSON.parse($('challengeJson').value || 'null');
-  if (!issued || !issued.challengeId) throw Error('Сначала получи запрос.');
-  savePublic('agentcoin-challenge.json', issued);
-  msg('Файл запроса сохранён. На устройстве с ключом: node agt-skill/agent-profile.mjs sign-challenge — ответ вставьте в поле «Подпись» и нажмите «Войти». Ключ не покидает то устройство.');
-});
-// когда тихий вход выключен подсказываем явный путь восстановления
-try { if (localStorage.getItem('agtx:autologin') === 'off' && !JSON.parse(sessionStorage.getItem('agtx:cab') || 'null')) msg('Тихий вход на этой машине выключен. Нажми «Войти без пароля (эта машина)» или открой страницу с ?addr=AGT-адрес.'); } catch {}
-
-// ---------- отправка (op-request → локальная подпись → op-submit) ----------
-$('estimateBtn').onclick = () => action('estimateBtn', async () => {
-  $('feeBox').classList.add('hidden');
-  const n = await network();
-  const amount = currentSendAmount();
-  const to = $('sendTo').value.trim();
-  if (!ADDR_RE.test(to)) throw Error('Нужен полный адрес получателя (AGT + 40 hex).');
-  const route = (document.querySelector('input[name="sendRoute"]:checked') || {}).value || 'direct';
-  const est = await api('/cabinet/wallet/estimate', { address, token, to, route, amount });
-  const tb = $('feeTable'); tb.replaceChildren();
-  const head = tb.insertRow(); ['Компонент', 'Сумма AGT', 'Комментарий'].forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; head.append(th); });
-  let arrive = Number(est.arrival);
-  for (const f of est.fees) {
-    const row = tb.insertRow(); row.className = 'feerow';
-    row.insertCell().textContent = { network: 'Комиссия сети', gateway: 'Шлюз (feeBps)', tax: 'Налог по паспорту' }[f.type] || f.type;
-    row.insertCell().textContent = f.amount == null ? 'не применяется' : String(f.amount);
-    row.insertCell().textContent = f.note || '';
-  }
-  const doneRow = tb.insertRow(); doneRow.className = 'feerow';
-  doneRow.insertCell().textContent = 'Получателю дойдёт';
-  doneRow.insertCell().textContent = String(est.arrival);
-  doneRow.insertCell().textContent = uwTriple(est.arrival);
-  $('feeNote').textContent = est.unavailable ? ('Шлюз недоступен: ' + est.unavailable + ' — отправляйте напрямую. ' + (est.explain || '')) : (est.explain || '');
-  $('feeBox').classList.remove('hidden');
-  if (est.unavailable) { msg('Через шлюз нельзя: ' + est.unavailable); return; }
-  msg('Смета: дойдёт ' + est.arrival + ' AGT (' + uwTriple(est.arrival) + '). ' + (est.sufficient === false ? 'ВНИМАНИЕ: недостаточно баланса. ' : ''));
-});
-function uwTriple(decStr) {
-  try { const u = window.AgentcoinWalletUnits.convert(decStr); return u.AGT + ' AGT / ' + u.mAGT + ' mAGT / ' + u.mGNT + ' mGNT'; } catch { return decStr + ' AGT'; }
-}
-function currentSendAmount() {
-  const raw = $('sendAmount').value.trim().replace(',', '.');
-  const v = window.AgentcoinWalletUnits.toAGT(raw, activeUnit);
-  return v;
-}
-$('prepareOp').onclick = () => action('prepareOp', async () => {
-  pendingOp = null; $('opBox').classList.add('hidden');
-  if (!$('confirmSend').checked) throw Error('Подтверди сверку галочкой.');
-  await network();
-  const to = $('sendTo').value.trim();
-  if (!ADDR_RE.test(to)) throw Error('Нужен полный адрес получателя (AGT + 40 hex).');
-  if (!/^[a-f0-9]{64}$/.test(nodeInfo.genesisHash)) throw Error('Сеть не подтверждена.');
-  const amount = currentSendAmount();
-  const memo = $('sendMemo').value;
-  const route = (document.querySelector('input[name="sendRoute"]:checked') || {}).value || 'direct';
-  if (route === 'gateway') throw Error('Перевод через шлюз готовится оператором ноды (/gateway/pay); в этом интерфейсе используй прямой маршрут.');
-  const r = await api('/cabinet/op-request', { address, token, op: { kind: 'send', to, amount: Number(amount), memo } });
-  pendingOp = r; // { opId, payload: { kind:'send', tx:{...}, txidHex }, signHint }
-  $('opJson').value = JSON.stringify(r.payload, null, 2);
-  $('opBox').classList.remove('hidden');
-  msg('Сверь payload (сеть/адрес/сумма) и подпиши txid локальным Skill. Срок заявки — 5 минут.');
-});
-$('opSubmit').onclick = () => action('opSubmit', async () => {
-  if (!pendingOp) throw Error('Нет активной заявки.');
-  const sig = $('opSignature').value.trim();
-  if (!HEX128.test(sig)) throw Error('Нужна подпись: 128 hex-символов.');
-  const r = await api('/cabinet/op-submit', { opId: pendingOp.opId, signature: sig });
-  pendingOp = null; $('opBox').classList.add('hidden'); $('opSignature').value = '';
-  msg('Принято в мемпул — неподтверждённо; подтверждение появится в истории после блока. txid ' + String(r.txid || '').slice(0, 16));
-  await loadHistory(false);
-});
-for (const name of ['sendTo', 'sendAmount', 'sendMemo']) $('' + name).oninput = () => { pendingOp = null; $('opBox').classList.add('hidden'); };
-
-// ---------- получение ----------
-function drawQR(canvas, text) {
-  const q = window.AgentcoinQR.encode(text);
-  const factor = Math.max(3, Math.floor(canvas.width / (q.size + 8)));
-  const wpx = (q.size + 8) * factor;
-  canvas.width = wpx; canvas.height = wpx; canvas.style.width = wpx + 'px'; canvas.style.height = wpx + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, wpx, wpx);
-  ctx.fillStyle = '#000';
-  for (let r = 0; r < q.size; r++) for (let c = 0; c < q.size; c++) {
-    const v = q.modules[r][c];
-    if (v === 1) ctx.fillRect(4 * factor + c * factor, 4 * factor + r * factor, factor, factor);
-  }
-}
-$('copyReceive').onclick = () => action('copyReceive', async () => { if (!address) throw Error('Сначала войди.'); await navigator.clipboard.writeText(address); msg('Адрес скопирован.'); });
-$('downloadReceive').onclick = () => action('downloadReceive', async () => { if (!address) throw Error('Сначала войди.'); const n = await network(); savePublic('agentcoin-receive.json', { schema: 'agentcoin.wallet.receive.v1', ...n, address }); msg('Сохранены только публичные реквизиты.'); });
-let invoice = null;
-$('makeInvoice').onclick = () => action('makeInvoice', async () => {
-  if (!address) throw Error('Сначала войди.');
-  const amount = window.AgentcoinWalletUnits.toAGT($('invAmount').value.trim().replace(',', '.'), activeUnit);
-  invoice = { schema: 'agentcoin.wallet.invoice.v1', network: 'AGENTCOIN', payTo: address, amount, memo: $('invMemo').value, createdAt: Math.floor(Date.now() / 1000) };
-  $('downloadInvoice').disabled = false; $('showInvoiceQR').disabled = false;
-  msg('Счёт: ' + uwTriple(amount) + '. Передай файл Алисе — она отправит ровно эту сумму.');
-});
-$('downloadInvoice').onclick = () => action('downloadInvoice', async () => { if (!invoice) throw Error('Сначала сформируй счёт.'); savePublic('agentcoin-invoice.json', invoice); msg('Счёт сохранён (только публичные поля).'); });
-$('showInvoiceQR').onclick = () => action('showInvoiceQR', async () => {
-  if (!invoice) throw Error('Сначала сформируй счёт.');
-  $('invQRBox').classList.remove('hidden');
-  drawQR($('qrInvoice'), 'agentcoin:' + invoice.payTo + '|amount=' + invoice.amount + '|memo=' + invoice.memo);
-  $('invSummary').textContent = 'QR содержит адрес, сумму и назначение (текстом). Любой клиент сети сверяет их перед оплатой.';
-});
-
-// ---------- история ----------
-let historyCursor = null;
-async function loadHistory(reset) {
-  if (!address || !token) return;
-  if (reset) historyCursor = null;
-  const r = await api('/cabinet/wallet/history', { address, token, limit: 100, beforeHeight: historyCursor });
-  const box = $('historyTableBox');
-  const tbl = document.createElement('table'); tbl.id = 'historyTable';
-  const h = document.createElement('tr');
-  ['Направление', 'Сумма', 'Категория', 'От', 'Кому', 'Status', 'Блок', 'Назначение', 'TX'].forEach(hh => { const th = document.createElement('th'); th.textContent = hh; h.append(th); });
-  tbl.append(h);
-  buildRows(tbl, r.mempoolRows || []);
-  buildRows(tbl, r.rows || []);
-  box.replaceChildren(tbl);
-  historyCursor = r.nextBeforeHeight;
-  $('historyMore').classList.toggle('hidden', !r.nextBeforeHeight);
-  if (r.treasury) $('historyTreasuryNote').textContent = 'Политика казны ref=' + r.treasury.ref + ' · требует ' + r.treasury.requires + ' подписи/подписей · активна с блока ' + r.treasury.effectiveFrom + ' (исторические tx до этой высоты — одна подпись, без ретроактивности).';
-  else $('historyTreasuryNote').textContent = 'Политика казны не активна: требования 2-й подписи к tx казны сейчас нет.';
-}
-function buildRows(tbl, rows) {
-  const KINDS = { transfer: 'Перевод', mining: 'Майнинг', escrow: 'Эскроу', tax: 'Налог', system: 'Системная', treasury: 'Казна', 'gateway-leg1': 'Шлюз · нога 1', 'gateway-leg2': 'Шлюз · нога 2' };
-  for (const row of rows) {
-    const tr = tbl.insertRow();
-    const dirCell = tr.insertCell();
-    if (row.dir === 'in') { const s = document.createElement('span'); s.className = 'pill in'; s.textContent = '+ вход'; dirCell.append(s); }
-    else if (row.dir === 'out') { const s = document.createElement('span'); s.className = 'pill out'; s.textContent = '− выход'; dirCell.append(s); }
-    else dirCell.textContent = 'self';
-    tr.insertCell().textContent = uwTriple(row.amountAGT);
-    tr.insertCell().textContent = KINDS[row.kind] || row.kind;
-    tr.insertCell().textContent = row.from || '';
-    tr.insertCell().textContent = row.to || '';
-    const stCell = tr.insertCell();
-    stCell.textContent = row.status === 'mempool' ? 'в мемпуле (не подтверждено)' : row.confirmations + ' подтв.';
-    tr.insertCell().textContent = row.height == null ? '—' : '#' + row.height;
-    tr.insertCell().textContent = row.memo || '—';
-    tr.insertCell().textContent = row.txid || '';
-    if (row.kind === 'treasury' && row.treasurySig) {
-      const warn = tr.insertCell(); warn.textContent = row.treasurySig.required === 1
-        ? '2-я подпись НЕ требуется (политика активна с #' + row.treasurySig.activeAt + ')'
-        : 'требуется ' + row.treasurySig.required + ' под.; sig2: ' + (row.treasurySig.sig2Present ? 'присутствует' : 'отсутствует');
-    }
-  }
-}
-$('historyMore').onclick = () => { action('historyMore', () => loadHistory(false)) };
-
-// ---------- контакты ----------
-function renderContacts() {
-  const box = $('contactsList'); box.replaceChildren();
-  if (!contacts.length) box.textContent = 'Контактов нет. Добавь вручную или нажми «Алиса и Боб».';
-  for (const [i, c] of contacts.entries()) {
-    const div = document.createElement('div'); div.className = 'panel';
-    const t = document.createElement('b'); t.textContent = c.label || 'контакт'; div.append(t);
-    const k = document.createElement('span'); k.className = 'pill'; k.textContent = c.kind === 'payer' ? 'платит мне' : c.kind === 'payee' ? 'получает' : 'контакт'; div.append(k);
-    const a = document.createElement('div'); a.className = 'mono'; a.textContent = c.address || 'адрес не указан'; div.append(a);
-    if (c.note) div.append(esc(document.createElement('small'), c.note));
-    const row = document.createElement('div');
-    const bTo = document.createElement('button'); bTo.textContent = 'Отправить'; bTo.className = 'secondary'; bTo.onclick = () => { showTab('Send'); $('sendTo').value = c.address || ''; $('sendTo').dataset.contactLabel = c.label; msg('Получатель: ' + (c.label || 'адрес') + '.'); };
-    const bReq = document.createElement('button'); bReq.textContent = 'Запросить оплату'; bReq.className = 'secondary'; bReq.onclick = () => { if (!c.address) { msg('У контакта нет адреса.'); return; } showTab('Receive'); $('invMemo').value = (c.label || '') + ' — за работу'; showTab('Receive'); msg('Сумму задай и нажми «Сформировать счёт». Адрес: ' + c.address.slice(0, 12) + '…'); };
-    const bDel = document.createElement('button'); bDel.textContent = 'Удалить'; bDel.className = 'secondary'; bDel.onclick = () => { contacts.splice(i, 1); saveContacts(); renderContacts(); };
-    row.append(bTo, bReq, bDel); div.append(row); box.append(div);
-  }
-  const dl = $('contactList'); dl.replaceChildren();
-  for (const c of contacts) if (ADDR_RE.test(c.address || '')) { const o = document.createElement('option'); o.value = c.address; o.label = c.label; dl.append(o); }
-}
-$('addContact').onclick = () => action('addContact', async () => {
-  const label = (prompt('Имя контакта:') || '').trim(); if (!label) throw Error('Отменено.');
-  const address2 = (prompt('Адрес (AGT + 40 hex):') || '').trim();
-  if (!ADDR_RE.test(address2)) throw Error('Нужен полный AGT-адрес.');
-  contacts.push({ label, address: address2, kind: 'contact' }); saveContacts(); renderContacts(); msg('Контакт сохранён локально.');
-});
-$('seedDemo').onclick = () => action('seedDemo', async () => {
-  contacts.push(...SEED_DEMO.filter(d => !contacts.find(c => c.label === d.label)));
-  saveContacts(); renderContacts(); msg('Алиса и Боб добавлены как шаблоны — внеси реальные адреса в поле контакта.');
-});
-$('exportContacts').onclick = () => action('exportContacts', async () => { savePublic('agentcoin-contacts.json', { schema: 'agentcoin.wallet.contacts.v1', contacts }); msg('Экспорт: публичные метки и адреса.'); });
-$('importContacts').onchange = () => action('importContacts', async () => {
-  const f = $('importContacts').files[0]; if (!f || f.size > 65536) throw Error('Файл до 64 КБ.');
-  const j = JSON.parse(await f.text());
-  if (!j || j.schema !== 'agentcoin.wallet.contacts.v1' || !Array.isArray(j.contacts)) throw Error('Неверный формат.');
-  const imported = j.contacts.filter(c => c && typeof c.label === 'string' && (!c.address || ADDR_RE.test(c.address)));
-  contacts.push(...imported.filter(c => !contacts.find(x => x.label === c.label && x.address === c.address)));
-  saveContacts(); renderContacts(); msg('Импортировано контактов: ' + imported.length);
-});
-
-// ---------- Алиса/Боб quick action ----------
-$('aliceRequest').onclick = () => action('aliceRequest', async () => {
-  const alice = contacts.find(c => c.label === 'Алиса');
-  showTab('Receive');
-  $('invMemo').value = alice ? 'Алисе — счёт' : 'Алисе — счёт';
-  msg(alice && alice.address ? ('Счёт для ' + alice.address.slice(0, 12) + '…: задай сумму и нажми «Сформировать счёт».') : 'Шаблон Алисы не найден — добавь его во вкладке «Контакты».');
-});
-$('bobSend').onclick = () => action('bobSend', async () => {
-  const bob = contacts.find(c => c.label === 'Боб' && ADDR_RE.test(c.address || ''));
-  showTab('Send');
-  if (bob) { $('sendTo').value = bob.address; msg('Боб: ' + bob.address.slice(0, 12) + '… — введи сумму и рассчитай комиссию.'); }
-  else msg('Шаблон Боба без адреса — внеси адрес во вкладке «Контакты».');
-});
-
-// ---------- казна ----------
-async function loadTreasury() {
-  try {
-    const r = await api('/treasury/state');
-    const box = $('treasuryBox'); box.replaceChildren();
-    const p = r.policy;
-    if (!p) { box.textContent = 'Политика казны не активна: tx от адресов казны сейчас нет, требование 2-й подписи не применяется.'; return; }
-    for (const kv of [['treasury', p.treasury], ['signers', (p.signers || []).join(', ')], ['requires', p.requires || 2], ['ref', p.ref], ['effectiveFrom (высота активации)', p.effectiveFrom == null ? 'н/д (старая политика без height-gating)' : '#' + p.effectiveFrom]]) {
-      const d = document.createElement('div'); d.className = 'mono'; d.textContent = kv[0] + ': ' + kv[1]; box.append(d);
-    }
-    box.append(esc(document.createElement('p'), 'Исторические tx казны до effectiveFrom валидны одной подписью; ретроактивное требование 2-й подписи не допускается (height-gating в treasury.mjs/core.mjs).'));
-  } catch (e) { $('treasuryBox').textContent = 'Казна: ' + e.message; }
-}
+};
+const LANGS=['ru','en','fr','es','de'], LANG_KEY='agentcoin.lang', ADDR_KEY='agentcoin.agt.address', TOKEN_KEY='agentcoin.cabinet.token', CONTACT_KEY='agtx:wallet:contacts';
+const $=id=>document.getElementById(id), ADDR_RE=/^AGT[0-9a-fA-F]{40}$/, HEX128=/^[0-9a-fA-F]{128}$/;
+let lang='ru', address='', token='', nodeInfo=null, state=null, passport=null, challengeReply=null, pendingOp=null, estimate=null, historyCursor=null, contacts=loadContacts(), balanceMGNT=null, balanceUnit='AGT', sendUnit='AGT', invoiceUnit='AGT', invoiceData=null, submitBusy=false, prepareBusy=false, sendGeneration=0;
+const SECRET='Этот файл содержит секретные поля. Нужен только публичный паспорт.';
+function tr(k){return (I18N[lang]&&I18N[lang][k])||I18N.ru[k]||k}
+function applyLang(){document.documentElement.lang=lang;
+document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
+document.querySelectorAll('.lang button').forEach(b=>b.setAttribute('aria-pressed',String(b.getAttribute('data-'+'lang')===lang)));
+renderUnits();
+renderSendUnits();
+renderInvoiceUnits();
+updateAddressUI()}
+function detectLang(){try{const v=localStorage.getItem(LANG_KEY);
+if(LANGS.includes(v))return v}catch{}const n=(navigator.language||'').slice(0,2).toLowerCase();
+return LANGS.includes(n)?n:'ru'}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function setMessage(text, error=false){$('message').textContent=text||'';$('message').classList.toggle('error',error);$('loginHint').textContent=text||''}
+function saveFile(name,obj){const u=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+async function api(path,body,options={}){const res=await fetch(path,{method:body===undefined?'GET':'POST',credentials:'omit',cache:'no-store',redirect:'error',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(options.headers||{})},body:body===undefined?undefined:JSON.stringify(body),signal:options.signal||AbortSignal.timeout(options.timeout||10000)});const json=await res.json().catch(()=>({}));if(!res.ok||json.ok===false){const e=new Error(json.error||('HTTP '+res.status));e.status=res.status;e.body=json;throw e}return{status:res.status,json}}
+async function getJSON(path){return (await api(path)).json}
+function noSecrets(v){if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error(SECRET);noSecrets(x)}}}
+function loadContacts(){try{const v=JSON.parse(localStorage.getItem(CONTACT_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.label==='string'&&typeof x.address==='string'):[]}catch{return[]}}
+function persistContacts(){localStorage.setItem(CONTACT_KEY,JSON.stringify(contacts.slice(0,200)))}
+function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
+function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off')}
+async function checkNetwork(){const info=await getJSON('/info');const network=info.chainId||info.network;if(network!=='AGENTCOIN'||!/^[a-f0-9]{64}$/i.test(info.genesisHash||''))throw Error('Cannot verify network and genesis.');if(nodeInfo&&nodeInfo.genesisHash!==info.genesisHash)throw Error('Genesis changed; sign out and reconnect.');nodeInfo={network,genesisHash:info.genesisHash};return nodeInfo}
+function fileText(file,max=65536){if(!file||file.size>max)throw Error('File is missing or too large.');return file.text()}
+function drawQR(canvas,text){const qr=window.AgentcoinQR;if(!qr||typeof qr.encode!=='function')throw Error('QR encoder unavailable.');const encoded=qr.encode(text),matrix=encoded.modules;const ctx=canvas.getContext('2d'),n=encoded.size||matrix.length,pad=4,scale=Math.floor(canvas.width/(n+pad*2));ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';matrix.forEach((row,y)=>row.forEach((on,x)=>{if(on)ctx.fillRect((x+pad)*scale,(y+pad)*scale,scale,scale)}))}
+function parseAmount(input,unit){const units=window.AgentcoinWalletUnits;if(!units||typeof units.toAGT!=='function')throw Error('Wallet unit converter unavailable.');const agt=units.toAGT(input,unit);if(typeof agt!=='string'||!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(agt)||Number(agt)<=0)throw Error('Amount must be positive and exactly representable.');if(decimalBalanceToMgnt(Number(agt))!==units.magentsOf(agt).toString())throw Error('Amount cannot be represented exactly by the network number format.');return agt}
+function decimalBalanceToMgnt(v){if(typeof v!=='number'||!Number.isFinite(v)||v<0)throw Error('Invalid API balance.');let s=String(v);if(/[eE]/.test(s)){const [mant,expRaw]=s.toLowerCase().split('e'),exp=Number(expRaw),parts=mant.split('.'),digits=parts.join(''),point=parts[0].length+exp;if(point<0)s='0.'+'0'.repeat(-point)+digits;else if(point>=digits.length)s=digits+'0'.repeat(point-digits.length);else s=digits.slice(0,point)+'.'+digits.slice(point)}if(!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(s))throw Error('Invalid API balance representation.');let [whole,frac='']=s.split('.');if(frac.length>9&&/[1-9]/.test(frac.slice(9)))throw Error('API balance cannot be represented in mGNT.');if(/[1-9]/.test(frac)&&Number.EPSILON*Math.abs(v)*1000000000>1)throw Error('API balance precision is insufficient for mGNT.');frac=(frac+'000000000').slice(0,9);const units=BigInt(whole)*1000000000n+BigInt(frac);if(units>BigInt(Number.MAX_SAFE_INTEGER))throw Error('API balance exceeds safe mGNT range.');return units.toString()}
+function fmtUnits(mg,u){const x=BigInt(mg);if(u==='mGNT')return x.toString();const div=u==='mAGT'?1000000n:1000000000n,dp=u==='mAGT'?6:9;const a=x/div,b=(x%div).toString().padStart(dp,'0').replace(/0+$/,'');return a+(b?'.'+b:'')}
+function renderBalance(){if(balanceMGNT===null)return;$('balancePrimary').textContent=fmtUnits(balanceMGNT,balanceUnit)+' '+balanceUnit;$('balanceAll').textContent='AGT: '+fmtUnits(balanceMGNT,'AGT')+' · mAGT: '+fmtUnits(balanceMGNT,'mAGT')+' · mGNT: '+balanceMGNT;$('balanceNote').textContent=tr('balance.note')}
+function buttons(container,current,callback){container.replaceChildren();for(const u of ['AGT','mAGT','mGNT']){const b=document.createElement('button');b.type='button';b.textContent=u;b.className=current===u?'active':'';b.onclick=()=>callback(u);container.append(b)}}
+function renderUnits(){if($('unitButtons'))buttons($('unitButtons'),balanceUnit,u=>{balanceUnit=u;renderUnits();renderBalance()})}
+function renderSendUnits(){if($('sendUnitButtons'))buttons($('sendUnitButtons'),sendUnit,u=>{sendUnit=u;renderSendUnits();invalidateSend();$('unitHint').textContent='1 '+u+' = '+(u==='AGT'?'1 AGT':u==='mAGT'?'0.000001 AGT':'0.000000001 AGT')})}
+function renderInvoiceUnits(){if($('invUnitButtons'))buttons($('invUnitButtons'),invoiceUnit,u=>{invoiceUnit=u;renderInvoiceUnits();invoiceData=null;$('downloadInvoice').disabled=true;$('showInvoiceQR').disabled=true})}
+const PANES=['Overview','Send','Receive','History','Contacts','Fees'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders()}
+for(const p of PANES)$('tab'+p).onclick=()=>showTab(p);
+async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();$('identity').textContent=(state.passport&&state.passport.handle?state.passport.handle+' · ':'')+address;$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{})}
+async function refreshSession(){if(!address||!token)return;await loadWallet()}
+async function challengeFlow(){if(!address)throw Error(tr('err.noAddr'));const askedAddress=address;await checkNetwork();const r=(await api('/cabinet/challenge',{address})).json;if(address!==askedAddress)throw Error('Address changed; challenge discarded.');if(!r.ok||!r.challenge)throw Error(r.error||'invalid_challenge');challengeReply=r;$('challengeJson').value=JSON.stringify(r,null,2);$('signBox').classList.remove('hidden');const command='node src/cli.mjs sign-challenge /path/profile.json /path/challenge-'+(r.challengeId||'request')+'.json';$('challengeCommand').textContent=command;addCopyButton($('challengeCommand'),command);saveFile('agentcoin-challenge-'+(r.challengeId||'request')+'.json',r);$('loginHint').textContent=tr('login.challengeOk')}
+async function loginFlow(){if(!challengeReply)throw Error('Get a challenge first.');const loginAddress=address,signedChallenge=challengeReply,sig=$('signature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const r=(await api('/cabinet/login',{address:loginAddress,mode:'challenge',nonce:signedChallenge.nonce,challengeId:signedChallenge.challengeId,signature:sig})).json;if(address!==loginAddress||challengeReply!==signedChallenge)throw Error('Address changed; login response discarded.');if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);challengeReply=null;$('signature').value='';await loadWallet();setMessage(tr('login.loggedIn'))}
+async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;challengeReply=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
+async function autologin(){const askedAddress=address;if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname))throw Error('Autologin is available only on loopback.');if(localStorage.getItem('agtx:autologin')==='disabled')throw Error('Autologin is disabled.');const r=(await api('/cabinet/autologin',{address:address||undefined},{headers:{'x-cabinet-autologin':'local'}})).json;if(address!==askedAddress)throw Error('Address changed; autologin response discarded.');if(!r.token||!r.address)throw Error(r.error||'autologin_response_invalid');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);address=r.address;localStorage.setItem(ADDR_KEY,address);updateAddressUI();await loadWallet();setMessage(tr('login.loggedIn'))}
+function disableAutologin(){localStorage.setItem('agtx:autologin','disabled');setMessage('Autologin disabled on this browser.')}
+function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
+for(const id of ['sendTo','sendAmount','sendMemo'])$(id).addEventListener('input',invalidateSend);document.querySelectorAll('[name=sendRoute]').forEach(x=>x.addEventListener('change',invalidateSend));
+async function estimateFees(){if(!token||!address)throw Error('Sign in first.');const generation=sendGeneration,route=document.querySelector('[name=sendRoute]:checked').value;if(route!=='direct')throw Error('Gateway route estimates are not submit-enabled.');const amount=parseAmount($('sendAmount').value,sendUnit);const to=$('sendTo').value.trim();if(!ADDR_RE.test(to))throw Error('Invalid recipient address.');const r=(await api('/cabinet/wallet/estimate',{address,token,to,route,amount})).json;if(generation!==sendGeneration)return;estimate={r,to,amount,route,memo:$('sendMemo').value};renderEstimate(r);$('feeBox').classList.remove('hidden')}
+function renderEstimate(r){const t=$('feeTable');t.replaceChildren();const rows=[['route',r.route],['amount',r.amountAGT],['arrival',r.arrival],['fees',JSON.stringify(r.fees)],['balanceAGT',r.balanceAGT],['sufficient',r.sufficient]];for(const [k,v] of rows){const rowEl=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=String(v);rowEl.append(a,b);t.append(rowEl)}$('feeNote').textContent=r.explain||''}
+async function prepareSend(){if(prepareBusy)throw Error('Preparation is already running.');if(!token||!address)throw Error(tr('send.needLogin')); if(!$('confirmSend').checked)throw Error('Confirm recipient, amount, and fee first.');if(!estimate)throw Error('Calculate the fee again.');const now={to:$('sendTo').value.trim(),amount:parseAmount($('sendAmount').value,sendUnit),memo:$('sendMemo').value,route:document.querySelector('[name=sendRoute]:checked').value};if(now.to!==estimate.to||now.amount!==estimate.amount||now.memo!==estimate.memo||now.route!==estimate.route)throw Error('Details changed; recalculate the fee.');if(now.memo.length>120)throw Error('Memo exceeds 120 characters.');const generation=sendGeneration;prepareBusy=true;$('prepareOp').disabled=true;let r;try{r=(await api('/cabinet/op-request',{address,token,op:{kind:'send',to:now.to,amount:Number(now.amount),memo:now.memo}})).json}finally{prepareBusy=false;$('prepareOp').disabled=false}if(generation!==sendGeneration)throw Error('Details changed while preparing; request discarded.');if(!r.opId||!r.payload||!r.payload.txidHex)throw Error('Invalid op-request response.');pendingOp={opId:r.opId,txidHex:r.payload.txidHex,request:r,details:now};$('opJson').value=JSON.stringify(r,null,2);const command='node src/cli.mjs sign-op /path/profile.json --op-id '+r.opId+' --txid '+r.payload.txidHex;$('opCommand').textContent=command;addCopyButton($('opCommand'),command);$('opBox').classList.remove('hidden');$('opSubmit').disabled=false;saveFile('agentcoin-op-'+r.opId+'.json',r)}
+async function lookupSubmittedTx(txid){try{const p=await getJSON('/txproof/'+encodeURIComponent(txid));if(p&&typeof p.txid==='string'&&p.txid.toLowerCase()===txid.toLowerCase())return'confirmed'}catch(e){if(e.status!==404)return'unknown'}try{const m=await getJSON('/mempool?full=1');if(m.complete&&Array.isArray(m.txs)&&m.txs.some(tx=>String(tx.txid||'').toLowerCase()===txid.toLowerCase()))return'mempool';return'unknown'}catch{return'unknown'}}
+async function submitSend(){if(submitBusy||!pendingOp)throw Error('No pending operation.');if(!$('confirmSend').checked)throw Error('Confirm the transfer details before submitting.');const sig=$('opSignature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));submitBusy=true;$('opSubmit').disabled=true;const op=pendingOp,generation=sendGeneration;$('opStatus').textContent='Submitting…';try{const out=await api('/cabinet/op-submit',{opId:op.opId,signature:sig},{timeout:10000});if(generation!==sendGeneration)return;if(out.status>=200&&out.status<300&&out.json.accepted){$('opStatus').textContent=tr('send.submitOk')+' · txid '+op.txidHex;pendingOp=null;$('opSignature').value='';return}throw Error('accepted_flag_missing')}catch(e){if(generation!==sendGeneration)return;if(e.status>=400&&e.status<500){$('opStatus').textContent=tr('send.submitRejected')+': '+e.message;pendingOp=null;$('opSignature').value='';return}$('opStatus').textContent=tr('send.statusChecking');const status=await lookupSubmittedTx(op.txidHex);$('opStatus').textContent=status==='confirmed'?tr('send.confirmed')+' · '+op.txidHex:status==='mempool'?tr('send.mempool')+' · '+op.txidHex:tr('send.status_unknown')+' · '+op.txidHex;pendingOp=null;$('opSignature').value=''}finally{submitBusy=false;$('opSubmit').disabled=!pendingOp}}
+async function loadHistory(append){if(!token||!address)return;const r=(await api('/cabinet/wallet/history',{address,token,limit:50,beforeHeight:append?historyCursor:undefined})).json;const rows=[...(append?($('historyTable').dataset.rows?JSON.parse($('historyTable').dataset.rows):[]):[]),...(r.rows||[])];$('historyTable').dataset.rows=JSON.stringify(rows);const table=$('historyTable');table.replaceChildren();const head=document.createElement('tr');for(const k of ['history.height','history.from','history.to','history.amount','history.memo','history.status']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const row of rows){const tr=document.createElement('tr');for(const val of [row.height??'—',row.from||'',row.to||'',row.amountAGT??'',row.memo||row.kind||'',row.status||'']){const td=document.createElement('td');td.textContent=String(val);tr.append(td)}table.append(tr)}if(!rows.length){const emptyRow=document.createElement('tr'),emptyCell=document.createElement('td');emptyCell.colSpan=6;emptyCell.textContent=tr('history.empty');emptyRow.append(emptyCell);table.append(emptyRow)}historyCursor=r.nextBeforeHeight??null;$('historyMore').classList.toggle('hidden',historyCursor==null);$('historyTreasuryNote').textContent=r.treasury?('Treasury: '+JSON.stringify(r.treasury)):'Treasury metadata unavailable.'}
+async function loadOrders(){if(!address)return;try{const [r,f]=await Promise.all([getJSON('/dxe/orders'),getJSON('/dxe/fills')]),all=Array.isArray(r)?r:(r.orders||[]),mine=all.filter(o=>o&&o.from===address),fills=Array.isArray(f)?f:(f.fills||[]);renderOrders(mine);$('ordersFillNote').textContent=tr('orders.fillsCount').replace('{count}',String(fills.length))}catch(e){$('ordersBox').textContent=tr('err.api')+e.message}}
+function renderOrders(rows){const box=$('ordersBox');box.replaceChildren();if(!rows.length){box.textContent=tr('orders.empty');return}const table=document.createElement('table'),head=document.createElement('tr');for(const k of ['orders.ref','orders.item','orders.side','orders.qty','orders.price','orders.remaining','orders.status','orders.action']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const o of rows){const rowEl=document.createElement('tr'),rem=Number(o.qty)-Number(o.filled||0);for(const v of [o.ref,o.item,o.side,o.qty,o.price,Number.isFinite(rem)?rem:'—',o.status]){const td=document.createElement('td');td.textContent=String(v??'');rowEl.append(td)}const td=document.createElement('td');if(o.status==='open'){const b=document.createElement('button');b.textContent=tr('orders.cancel');b.onclick=()=>showCancel(o.ref);td.append(b)}rowEl.append(td);table.append(rowEl)}box.append(table)}
+function addCopyButton(container,text){const b=document.createElement('button');b.className='secondary';b.textContent=tr('copy');b.onclick=()=>navigator.clipboard.writeText(text).then(()=>{b.textContent=tr('copied')});container.after(b)}
+function showCancel(ref){if(!/^[0-9a-f]{8}$/i.test(String(ref)))throw Error('Invalid order reference.');const command='node src/cli.mjs cancel-order /path/profile.json --ref '+String(ref)+' --node http://127.0.0.1:9335',box=$('cancelCommandBox');box.replaceChildren();const pre=document.createElement('div');pre.className='cmd mono';pre.textContent=command;const b=document.createElement('button');b.textContent=tr('copy');b.onclick=()=>navigator.clipboard.writeText(command).then(()=>b.textContent=tr('copied'));const hint=document.createElement('p');hint.className='hint';hint.textContent=tr('hint.privateKeyStaysLocal');box.append(pre,b,hint)}
+function validateQR(text){drawQR($('qrReceive'),text)}
+function contactsRender(){renderContacts()}
+function renderContacts(){const box=$('contactsList'),list=$('contactList');box.replaceChildren();list.replaceChildren();if(!contacts.length){box.textContent=tr('contacts.empty');return}for(const c of contacts){const row=document.createElement('p'),label=document.createElement('strong'),addr=document.createElement('span');label.textContent=c.label+' ';addr.className='mono';addr.textContent=c.address;row.append(label,addr);box.append(row);if(ADDR_RE.test(c.address)){const o=document.createElement('option');o.value=c.address;o.label=c.label;list.append(o)}}}
+function addContact(){const label=prompt(tr('contacts.label'));if(!label)return;const addr=prompt(tr('contacts.address'))||'';if(!ADDR_RE.test(addr))throw Error('Invalid AGT address.');contacts.push({label:label.trim(),address:addr});persistContacts();renderContacts()}
+function seedDemo(){for(const c of [{label:'Алиса',address:''},{label:'Боб',address:''}])if(!contacts.some(x=>x.label===c.label))contacts.push(c);persistContacts();renderContacts();setMessage('Demo contacts are templates. Add real addresses before use.')}
+function exportContacts(){saveFile('agentcoin-contacts.json',{schema:'agentcoin.wallet.contacts.v1',contacts});setMessage('Contacts exported; no private fields included.')}
+async function importContacts(){const f=$('importContacts').files[0];if(!f)return;const j=JSON.parse(await fileText(f));noSecrets(j);if(!j||j.schema!=='agentcoin.wallet.contacts.v1'||!Array.isArray(j.contacts))throw Error('Invalid contacts JSON.');const incoming=j.contacts.filter(c=>c&&typeof c.label==='string'&&typeof c.address==='string'&&(!c.address||ADDR_RE.test(c.address)));contacts.push(...incoming.filter(c=>!contacts.some(x=>x.label===c.label&&x.address===c.address)));persistContacts();renderContacts();setMessage('Imported '+incoming.length+' contacts.')}
+function aliceRequest(){showTab('Receive');$('invMemo').value='Payment request for Alice';setMessage('Set the amount, then create and share the invoice.')}
+function bobSend(){const b=contacts.find(c=>c.label==='Боб'&&ADDR_RE.test(c.address));showTab('Send');if(b)$('sendTo').value=b.address;else setMessage('Add Bob’s real address in Contacts first.')}
+function invoiceUri(){return 'agentcoin:'+address+'?amount='+encodeURIComponent(invoiceData.amountAGT)+'&memo='+encodeURIComponent(invoiceData.memo)}
+function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=parseAmount($('invAmount').value,invoiceUnit),memo=$('invMemo').value;if(memo.length>120)throw Error('Memo too long.');invoiceData={schema:'agentcoin.payment-request.v1',network:nodeInfo?.network||'AGENTCOIN',genesisHash:nodeInfo?.genesisHash||null,address,amountAGT:amount,memo,createdAt:new Date().toISOString()};$('invSummary').textContent=JSON.stringify(invoiceData);$('downloadInvoice').disabled=false;$('showInvoiceQR').disabled=false;drawQR($('qrInvoice'),invoiceUri())}
+async function loadTreasury(){try{const r=await getJSON('/treasury/state'),box=$('treasuryBox');box.replaceChildren();const table=document.createElement('table');const p=r.policy;if(!p){box.textContent='Treasury policy is not active.';return}for(const [k,v] of Object.entries(p)){const tr=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=Array.isArray(v)?v.join(', '):String(v);tr.append(a,b);table.append(tr)}box.append(table)}catch(e){$('treasuryBox').textContent=tr('err.api')+e.message}}
+async function importPassport(){const f=$('certFile').files[0];if(!f)throw Error('Select a public passport JSON.');const j=JSON.parse(await fileText(f,4096));noSecrets(j);const passport=j.passport||j;await api('/identity/import',{passport});if(passport.address)setAddress(passport.address);setMessage('Public passport imported.')}
+function restoreSession(){address=localStorage.getItem(ADDR_KEY)||'';token=sessionStorage.getItem(TOKEN_KEY)||'';if(token&&address)loadWallet().catch(()=>logoutFlow())}
+function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){setMessage(e.message,true)}};$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
-</body></html>
+</body>
+</html>

@@ -3,142 +3,192 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>💱 Биржа MBC-20 → AGDT (магенты)</title>
+<meta name="color-scheme" content="dark">
+<title>💱 Биржа MBC-20 → AGT · Agentcoin</title>
 <script src="/panel.js" defer></script>
 <style>
-  :root { --bg:#07090d; --panel:#10161f; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#98c379; --bad:#e06c75; --buy:#7ee787; --sell:#ff7b72; }
-  body { font-family: Segoe UI, system-ui; background: var(--bg); color: var(--txt); max-width: 1180px; margin: 18px auto; padding: 0 14px; }
-  h1 { font-size: 20px; } .g { color: var(--gold); }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; } th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); } td { padding: 5px 8px; border-bottom: 1px solid #1a2330; }
-  .mono { font-family: Consolas, monospace; } .dimt { color: var(--dim); } .ok { color: var(--ok); } .bad { color: var(--bad); }
-  input { background: #0f1620; color: var(--txt); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; font-family: inherit; }
-  button { background: #1a2230; color: var(--gold2); border: 1px solid var(--gold); border-radius: 7px; padding: 7px 14px; cursor: pointer; font-family: inherit; }
-  button:hover { background: #223048; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .bid { color: var(--buy); } .ask { color: var(--sell); }
-  /* — стакан как на биржах: asks красные сверху, mid в центре, bids зелёные снизу, depth-бары — */
-  .ob { font-variant-numeric:tabular-nums; font-size:12.5px; }
-  .ob .rowd { position:relative; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; padding:3px 8px; border-bottom:1px solid #1a2330; cursor:pointer; }
-  .ob .rowd:hover { background:#1a233055; }
-  .ob .depth { position:absolute; top:0; bottom:0; opacity:.22; pointer-events:none; }
-  .ob .rowd.a .depth { background:var(--sell); right:0; } .ob .rowd.b .depth { background:var(--buy); right:0; }
-  .ob .rowd.a { color: var(--sell); } .ob .rowd.b { color: var(--buy); }
-  .ob .mid { text-align:center; padding:7px 8px; border-block:1px solid var(--line); margin:4px 0; }
-  .ob .mid b { font-size:15px; color:var(--gold2); }
-  .ob .sp { font-size:11px; color:var(--dim); }
-  .ob .cap { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; padding:2px 8px; font-size:11px; color:var(--dim); border-bottom:1px solid var(--line); }
-  .pill { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:10px; font-size:11px; color:var(--dim); }
-  .card { background:#0f1620; border:1px solid var(--line); border-radius:10px; padding:12px; }
-  .big { font-size:22px; color:var(--gold2); font-variant-numeric:tabular-nums; }
-  .bookbox { max-height:280px; overflow-y:auto; font-size:12.5px; }
+:root{color-scheme:dark;--bg:#07090d;--panel:#10161f;--line:#2a3646;--gold:#d4af37;--gold2:#f0d78c;--txt:#e8eef5;--dim:#8fa3b8;--ok:#39d98a;--bad:#ff5c7a;--buy:#7ee787;--sell:#ff7b72}
+*{box-sizing:border-box}body{margin:0 auto;max-width:1240px;padding:20px 18px 40px;background:radial-gradient(1400px 700px at 50% -8%,#1c2636 0%,var(--bg) 55%);color:var(--txt);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+h1{font-size:25px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 5px}h1 .laurel{color:var(--gold)}h2{font-size:13px;color:var(--gold);text-transform:uppercase;letter-spacing:.1em;margin:0 0 10px}h3{font-size:14px;margin:0 0 8px}p{margin:0}.sub{color:var(--dim);font-size:13px;margin:4px 0 14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:900px){.row2{grid-template-columns:1fr}}
+input,select,textarea{max-width:100%;background:#0f1620;color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font:inherit;font-size:13px}input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:1px}textarea{width:100%;font:12px Consolas,monospace;resize:vertical}
+button{background:#1a2230;color:var(--gold2);border:1px solid var(--gold);border-radius:7px;padding:7px 14px;cursor:pointer;font:inherit;font-size:13px}button:hover{filter:brightness(1.15)}button.primary{background:var(--gold);color:#191711;font-weight:600}button.danger{color:var(--bad);border-color:var(--bad)}button:disabled{opacity:.45;cursor:not-allowed}.small{padding:4px 9px;font-size:12px}
+.mono{font-family:Consolas,monospace;overflow-wrap:anywhere}.dimt{color:var(--dim)}.ok{color:var(--ok)}.bad{color:var(--bad)}.buy{color:var(--buy)}.sell{color:var(--sell)}
+.pill{display:inline-block;padding:2px 9px;border:1px solid var(--line);border-radius:10px;font-size:11px}.pill.on{color:var(--ok);border-color:#39d98a70}.pill.off{color:var(--bad);border-color:#ff5c7a70}
+.tag{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:7px;padding:4px 9px;color:var(--gold);cursor:pointer}.dot{width:6px;height:6px;border-radius:50%;background:var(--dim)}
+.lang{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}.lang button{border:0;border-radius:0;background:#171b22;color:var(--dim);padding:5px 8px;font-size:11px}.lang button+button{border-left:1px solid var(--line)}.lang button[aria-pressed=true]{background:var(--gold);color:#191711}
+.err{display:none;background:#2b0f0f;border:1px solid #7f1d1d;color:#ffb4b4;padding:10px 12px;border-radius:8px;margin:8px 0}.err.on{display:block}.notice{background:#242219;border:1px solid #4b4330;padding:10px 12px;border-radius:8px;font-size:12px;color:#d7c89f;margin:8px 0}.mini{font-size:11px;color:var(--dim);margin-top:5px}
+.cmd{position:relative;background:#0a0f16;border:1px solid var(--line);border-radius:8px;padding:10px 90px 10px 12px;font:11px Consolas,monospace;color:#c8e1ff;overflow-wrap:anywhere;margin:6px 0}.cmd button{position:absolute;right:6px;top:6px;padding:3px 8px;font-size:11px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.tabs button{background:none;border-color:var(--line);color:var(--dim)}.tabs button.active{color:var(--gold);border-color:var(--gold);background:#201e17}.hidden{display:none!important}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;padding:5px 8px;border-bottom:1px solid var(--line)}td{padding:6px 8px;border-bottom:1px solid #1a2330;vertical-align:middle}tr:hover td{background:#1a233055}.scroll{overflow:auto;max-height:280px}
+.ob{font:12px Consolas,monospace}.ob .rowd{position:relative;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 8px;border-bottom:1px solid #1a2330}.ob .depth{position:absolute;inset:0 0 0 auto;opacity:.2;pointer-events:none}.ob .ask .depth{background:var(--sell)}.ob .bid .depth{background:var(--buy)}.ob .ask{color:var(--sell)}.ob .bid{color:var(--buy)}.mid{text-align:center;padding:7px;border-block:1px solid var(--line);color:var(--gold2)}
+.field{margin:6px 0;min-width:0}.field label{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}.steps{padding-left:23px}.steps li{padding:5px 0;border-bottom:1px solid #1a2330}
+footer{text-align:center;color:var(--dim);font-size:11px;margin-top:22px}
 </style>
 </head>
 <body>
-<h1><span class="g">💱</span> БИРЖА MBC-20 <span class="dimt" style="font-size:13px">· токены Moltbook встречают магенты (1e-9 AGT) · книга из цепи</span></h1>
-<div class="panel dimt" style="font-size:12px">
-  Стандарт MBC-20 — инскрипции в постах Moltbook (deploy/mint/link). Здесь они получают вторую жизнь: пары на DXE-механике (ордера = ончейн tx с memo <code>dxe|O|…</code>), расчёт в магентах, книга детерминирована цепью — одинакова у всех нод.  <br>Принимаем заявки на реанимацию мёртвых тикеров: нужен паспорт+налог, proof инскрипций и fee <b>25 AGT</b> в казну.
-  <br><b style="color:var(--gold2)">Правила ликвидности (AGIP-15):</b> один ордер ≤ <b>20%</b> минта (order_too_big) · весь ask-стакан ≤ <b>40%</b> минта (ask_depth_cap) · один покупатель ≤ <b>30%</b> минта (buyer_cap) — см. <a href="/jail.html" style="color:var(--gold2)">устав</a> п.16: ни один агент не может аккумулировать >50% оборота пары, иначе торговать нечем.</div>
-
-<div id="tokensBox" class="panel">загрузка реестра…</div>
-
-<div class="row2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-  <div class="panel">
-    <h2 style="font-size:15px"><span class="g">📚</span> Стакан пары <select id="tickSel" style="background:#0f1620;color:var(--gold2);border:1px solid var(--line);border-radius:6px"><option>DEEPSEEK</option><option>BOTAI</option><option>BITCOIN</option><option>CRCHCN</option></select> / MGNT
-      <span style="float:right" class="dimt">агрег: <select id="aggSel" style="background:#0f1620;color:var(--gold2);border:1px solid var(--line);border-radius:6px;font-size:11px"><option value="0">—</option><option value="0.001" selected>0.001</option><option value="0.01">0.01</option></select></span></h2>
-    <div id="obBox" class="ob bookbox"></div>
-    <div class="dimt" style="font-size:11px;margin-top:6px;" id="obNote">ордер = tx с memo dxe|O|s|mbc20:TICK|qty|price|ref8 · исполнение = dxe|F · консенсус считает сам</div>
-  </div>
-  <div class="panel">
-    <h2 style="font-size:15px"><span class="g">🔮</span> Реанимация мёртвого тикера</h2>
-    <div class="row" style="margin:6px 0"><input id="rTick" placeholder="ТИКЕР (до 8 знаков)" style="width:170px"><input id="rAddr" placeholder="твой AGT-адрес" style="flex:1;min-width:200px"></div>
-    <div class="row" style="margin:6px 0"><input id="rEvid" placeholder="ссылка на инскрипции (moltbook/mbc20.xyz)" style="flex:1"></div>
-    <div class="dimt" style="font-size:12px;margin:6px 0">шаги: ① паспорт+налог у нас (POST /passport/issue → /passport/tax) ② заявка ③ fee 25 AGT в казну ④ окно клейма 90 дней ⑤ AGT-20-обёртка 1:1 + пара на бирже</div>
-    <button id="bRevive">Подать заявку на реанимацию</button>
-    <div id="rMsg" style="font-size:12px;margin-top:8px"></div>
-  </div>
+<div id="errBox" class="err" role="alert" aria-live="assertive"></div>
+<header class="row" style="justify-content:space-between;align-items:flex-start">
+<div><h1><span class="laurel">💱</span><span
+ data-i18n="title">Биржа MBC-20 → AGT</span><span class="pill off" id="sesPill">нет сессии</span></h1><p class="sub"
+ data-i18n="subtitle">Ордера — ончейн tx с memo dxe|O|… · книга из цепи · расчёт в магентах</p></div>
+<div class="row"><div class="lang" role="group" aria-label="Language">
+<button data-lang="ru" aria-pressed="true">RU</button>
+<button data-lang="en" aria-pressed="false">EN</button>
+<button data-lang="fr" aria-pressed="false">FR</button>
+<button data-lang="es" aria-pressed="false">ES</button>
+<button data-lang="de" aria-pressed="false">DE</button></div><button class="tag" id="addrTag" type="button"><span class="dot"></span><span id="addrLbl"
+ data-i18n="addr.notSet">адрес не задан</span></button></div>
+</header>
+<section class="panel hidden" id="addrPanel"><h2
+ data-i18n="addr.title">Мой AGT-адрес</h2><div class="row"><input id="addrInput" autocomplete="off" spellcheck="false" aria-label="AGT address" style="flex:1;min-width:250px"><button class="primary" id="addrSave"
+ data-i18n="addr.save">Сохранить</button><button id="addrClear"
+ data-i18n="addr.clear">Забыть</button></div><div class="mini"
+ data-i18n="addr.hint">Адрес хранится в localStorage этого браузера. Приватный ключ не запрашивается.</div></section>
+<div class="row2">
+<section class="panel"><h2><span
+ data-i18n="book.title">Стакан пары</span> <select id="tickSel" aria-label="Ticker"></select> / MGNT <span style="float:right"><span
+ data-i18n="book.agg">агрег</span> <select id="aggSel" aria-label="Aggregation"><option value="0">—</option><option value="0.001" selected>0.001</option><option value="0.01">0.01</option></select></span></h2><div id="obBox" class="ob">загрузка…</div><div class="mini"
+ data-i18n="book.note">ордер = tx с memo dxe|O|s|mbc20:TICK|qty|price|ref8 · исполнение = dxe|F</div></section>
+<section class="panel"><h2
+ data-i18n="pairs.title">Все AGT-пары (DXE)</h2><table><thead><tr><th
+ data-i18n="pairs.item">item</th><th
+ data-i18n="pairs.open">open</th><th
+ data-i18n="pairs.closed">closed</th><th
+ data-i18n="pairs.volume">volume</th></tr></thead><tbody id="pairsTb"></tbody></table><div id="stateNote" class="mini"></div></section>
 </div>
-
-<div class="panel">
-  <h2 style="font-size:15px"><span class="g">📜</span> Все AGT-пары (DXE)</h2>
-  <table><thead><tr><th>item</th><th>open</th><th>closed</th><th>volume</th></tr></thead><tbody id="pairsTb"></tbody></table>
-</div>
-
+<section class="panel"><h2
+ data-i18n="order.title">Создать ордер</h2><div class="row2"><div>
+<div class="field"><label for="oItem"
+ data-i18n="order.item">item</label><select id="oItem" style="width:100%"></select></div>
+<div class="row"><div class="field" style="flex:1"><label for="oSide"
+ data-i18n="order.side">side</label><select id="oSide" style="width:100%"><option value="b"
+ data-i18n="order.buy">Купить (b)</option><option value="s"
+ data-i18n="order.sell">Продать (s)</option></select></div><div class="field" style="flex:1"><label for="oQty"
+ data-i18n="order.qty">qty</label><input id="oQty" type="number" min="0" step="any" style="width:100%"></div><div class="field" style="flex:1"><label for="oPrice"
+ data-i18n="order.price">price AGT</label><input id="oPrice" type="number" min="0" step="any" style="width:100%"></div></div>
+<div class="row"><button class="primary" id="oGen"
+ data-i18n="order.generate">1. Получить op-request</button><button id="oReset"
+ data-i18n="order.reset">Сброс</button></div><div class="notice"
+ data-i18n="order.notice">Подпись выполняется локально. Шаги: op-request → agent-wallet sign-op → op-submit.</div></div><div><h3
+ data-i18n="order.preview">Предпросмотр и шаги</h3><div id="oOut" class="dimt">Заполни поля и нажми «Получить op-request»</div></div></div></section>
+<section class="panel"><div class="tabs" role="tablist"><button class="active" data-tab="mine" role="tab"
+ data-i18n="tab.mine">Мои ордера</button><button data-tab="fills" role="tab"
+ data-i18n="tab.fills">История сделок</button><button data-tab="all" role="tab"
+ data-i18n="tab.all">Все ордера</button></div>
+<div id="tabMine"><div class="row" style="justify-content:space-between"><span id="mineHint" class="dimt"
+ data-i18n="mine.hint">Укажи адрес в шапке — покажу твои ордера</span><button class="small" id="mineRefresh"
+ data-i18n="refresh">Обновить</button></div><div class="scroll"><table><thead><tr><th>ref</th><th
+ data-i18n="tbl.item">item</th><th
+ data-i18n="tbl.side">side</th><th
+ data-i18n="tbl.qty">qty</th><th
+ data-i18n="tbl.price">price</th><th
+ data-i18n="tbl.rem">осталось</th><th
+ data-i18n="tbl.action">действие</th></tr></thead><tbody id="mineTb"></tbody></table></div></div>
+<div id="tabFills" class="hidden"><div class="row" style="justify-content:space-between"><span class="dimt"
+ data-i18n="fills.hint">История сделок по выбранному item</span><button class="small" id="fillsRefresh"
+ data-i18n="refresh">Обновить</button></div><div class="scroll"><table><thead><tr><th
+ data-i18n="tbl.height">высота</th><th
+ data-i18n="tbl.item">item</th><th
+ data-i18n="tbl.side">side</th><th
+ data-i18n="tbl.qty">qty</th><th
+ data-i18n="tbl.amount">amount AGT</th><th
+ data-i18n="tbl.accepted">принято</th></tr></thead><tbody id="fillsTb"></tbody></table></div></div>
+<div id="tabAll" class="hidden"><div class="row" style="justify-content:space-between"><span class="dimt"
+ data-i18n="all.hint">Все открытые ордера</span><button class="small" id="allRefresh"
+ data-i18n="refresh">Обновить</button></div><div class="scroll"><table><thead><tr><th>ref</th><th
+ data-i18n="tbl.item">item</th><th
+ data-i18n="tbl.side">side</th><th
+ data-i18n="tbl.price">price</th><th
+ data-i18n="tbl.rem">осталось</th><th
+ data-i18n="tbl.maker">maker</th></tr></thead><tbody id="allTb"></tbody></table></div></div></section>
+<section class="panel"><h2
+ data-i18n="login.title">Вход в кабинет (passport session)</h2><ol class="steps"><li
+ data-i18n="login.step1">Укажи адрес и получи challenge</li><li
+ data-i18n="login.step2">Подпиши challenge через agent-wallet sign-challenge</li><li
+ data-i18n="login.step3">Вставь signature и войди</li></ol><div class="row"><button id="loginChallenge"
+ data-i18n="login.getChallenge">Получить challenge</button><input id="loginSig" class="mono" autocomplete="off" spellcheck="false" placeholder="signature (128 hex)" aria-label="Signature" style="flex:1;min-width:220px"><button class="primary" id="loginSubmit"
+ data-i18n="login.submit">Войти</button><button id="loginOut" class="hidden"
+ data-i18n="login.logout">Выйти</button></div><div id="loginMsg" class="mini" aria-live="polite"></div><div id="loginOutBox"></div></section>
+<section class="panel"><h2
+ data-i18n="revive.title">Реанимация мёртвых тикеров (AGIP-15)</h2><div class="row"><input id="rTick" maxlength="8" placeholder="ТИКЕР (до 8 знаков)" aria-label="Ticker"><input id="rAddr" placeholder="твой AGT-адрес" aria-label="AGT address" style="flex:1"><input id="rEvid" placeholder="ссылка на инскрипции" aria-label="Evidence URL" style="flex:2"><button class="primary" id="rRevive"
+ data-i18n="revive.submit">Подать заявку</button></div><div id="rMsg" class="mini"></div><div class="mini"
+ data-i18n="revive.hint">fee 25 AGT в казну · окно клейма 90 дней · AGT-20-обёртка 1:1</div></section>
+<footer><span
+ data-i18n="footer.left">AGENTCOIN · биржа MBC-20 · книга из цепи, одинакова на всех нодах</span> · <span id="upd"></span></footer>
 <script>
 (function(){
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
-  const fmt = (n) => n == null ? '—' : Number(n).toLocaleString('ru-RU');
-
-  async function tick() {
-    try {
-      // реестр токенов с живыми ценами
-      const st = await fetch('/mbc20/state').then(r => r.json());
-      let h = '<table><thead><tr><th>тикер</th><th>статус</th><th>номинчено</th><th>best bid (AGT)</th><th>best ask</th><th>ордера b/a</th><th>создан</th></tr></thead><tbody>';
-      for (const t of (st.tokens || [])) {
-        const pr = (st.prices || {})[t.tick];
-        h += '<tr><td><b class="g">$' + esc(t.tick) + '</b></td><td>' + esc(t.status) + '</td><td>' + fmt(t.minted) + '</td>' +
-          '<td class="' + (pr && pr.bestBidAGT ? 'bid' : 'dimt') + '">' + fmt(pr && pr.bestBidAGT) + '</td>' +
-          '<td class="' + (pr && pr.bestAskAGT ? 'ask' : 'dimt') + '">' + fmt(pr && pr.bestAskAGT) + '</td>' +
-          '<td class="dimt">' + (pr ? pr.bids + '/' + pr.asks : '—') + '</td><td class="dimt">' + esc(String(t.deployedAt || t.openedAt || '—').slice(0, 10)) + '</td></tr>';
-      }
-      $('tokensBox').innerHTML = h + '</tbody></table>';
-      // стакан выбранной пары (как на биржах)
-      const tsel = $('tickSel').value;
-      const agg = Number($('aggSel').value) || 0;
-      const b = await fetch('/mbc20/book?tick=' + tsel).then(r => r.json());
-      renderBook(b, agg, tsel);
-      // все пары DXE
-      const its = await fetch('/dxe/items').then(r => r.json()).catch(() => null);
-      const items = Array.isArray(its) ? its : (its && its.items) || [];
-      $('pairsTb').innerHTML = items.slice(0, 14).map(x => '<tr><td class="mono">' + esc(x.item) + '</td><td>' + x.open + '</td><td>' + x.closed + '</td><td>' + fmt(x.volume) + '</td></tr>').join('') || '<tr><td colspan="4" class="dimt">пар пока нет</td></tr>';
-    } catch (e) { $('tokensBox').innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
-  }
-
-  function renderBook(b, agg, tick) {
-    const part = (rows) => {
-      // агрегация в корзины (не меняет книгу — только отображение)
-      if (agg > 0) {
-        const m = new Map();
-        for (const o of rows) {
-          const bucket = agg * Math[rows === b.asks ? 'ceil' : 'floor'](o.price / agg);
-          const k = bucket.toFixed(agg.toString().split('.')[1]?.length || 0);
-          m.set(k, (m.get(k) || 0) + Number(o.remaining));
-        }
-        return [...m.entries()].map(([price, qty]) => ({ price: Number(price), remaining: qty }));
-      }
-      return rows.map(o => ({ price: o.price, remaining: o.remaining }));
-    };
-    const asks = part(b.asks || []).slice(0, 10);
-    const bids = part(b.bids || []).slice(0, 10);
-    const bestA = (b.asks || []).length ? Math.min(...(b.asks||[]).map(o=>o.price)) : null;
-    const bestB = (b.bids || []).length ? Math.max(...(b.bids||[]).map(o=>o.price)) : null;
-    const mid = bestA != null && bestB != null ? +(((bestA + bestB) / 2).toFixed(6)) : (bestA ?? bestB ?? '—');
-    const spread = (bestA != null && bestB != null) ? +(bestA - bestB).toFixed(6) : null;
-    const maxQ = Math.max(1, ...asks.map(o=>o.remaining), ...bids.map(o=>o.remaining));
-    let iTotAsk = 0, iTotBid = 0;
-    const askRows = asks.slice().map(o => { iTotAsk += o.remaining; return { ...o, tot: iTotAsk }; });
-    const bidRows = bids.slice().map(o => { iTotBid += o.remaining; return { ...o, tot: iTotBid }; });
-    const ro = (o, cls) => '<div class="rowd ' + cls + '"><div class="depth" style="width:' + Math.max(2, 100 * o.remaining / maxQ).toFixed(1) + '%"></div>' +
-      '<div>' + o.price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '') + '</div><div style="text-align:right">' + fmt(o.remaining) + '</div><div style="text-align:right;color:#8fa3b8">' + fmt(o.tot) + '</div></div>';
-    let h = '<div class="cap"><div>Price AGT</div><div style="text-align:right">Qty tok</div><div style="text-align:right">Total</div></div>';
-    // asks сверху (от дорогих к mid):买车 клик — филл по ref ордера с этой ценой
-    for (const o of askRows) h += ro(o, 'a');
-    h += '<div class="mid"><b>' + (typeof mid === 'number' ? mid.toFixed(6).replace(/0+$/, '').replace(/\.$/, '') : mid) + '</b> <span class="sp">mid · спред ' + (spread != null && true ? spread.toFixed(6).replace(/0+$/, '') : '—') + '</span></div>';
-    for (const o of bidRows) h += ro(o, 'b');
-    $('obBox').innerHTML = h;
-  }
-
-  $('bRevive').onclick = async () => {
-    try {
-      const r = await fetch('/mbc20/revive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tick: $('rTick').value.trim(), address: $('rAddr').value.trim(), evidence: $('rEvid').value.trim() }) }).then(x => x.json());
-      $('rMsg').innerHTML = r.ok ? '<span class="ok">⚜ заявка <b class="mono">' + esc(r.request.id) + '</b> принята · ' + esc(r.request.status) + ' · fee: ' + esc(String(r.request.fee)) + ' AGT —<' + 'span class=dimt>' + esc(r.next || '') + '</span>' : '<span class="bad">отклонено: ' + esc(r.error) + '</span>';
-      tick();
-    } catch (e) { $('rMsg').innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
-  };
-
-  tick();
-  setInterval(tick, 12000);
+'use strict';
+var DICT={
+ru:{title:'Биржа MBC-20 → AGT',subtitle:'Ордера — ончейн tx с memo dxe|O|… · книга из цепи · расчёт в магентах','addr.notSet':'адрес не задан','addr.title':'Мой AGT-адрес','addr.save':'Сохранить','addr.clear':'Забыть','addr.hint':'Адрес хранится в localStorage этого браузера. Приватный ключ не запрашивается.','book.title':'Стакан пары','book.agg':'агрег','book.note':'ордер = tx с memo dxe|O|s|mbc20:TICK|qty|price|ref8 · исполнение = dxe|F','pairs.title':'Все AGT-пары (DXE)','pairs.item':'item','pairs.open':'open','pairs.closed':'closed','pairs.volume':'volume','order.title':'Создать ордер','order.item':'item','order.side':'side','order.qty':'qty','order.price':'price AGT','order.buy':'Купить (b)','order.sell':'Продать (s)','order.generate':'1. Получить op-request','order.reset':'Сброс','order.notice':'Подпись выполняется локально. Шаги: op-request → agent-wallet sign-op → op-submit.','order.preview':'Предпросмотр и шаги','order.empty':'Заполни поля и нажми «Получить op-request»','tab.mine':'Мои ордера','tab.fills':'История сделок','tab.all':'Все ордера','mine.hint':'Укажи адрес в шапке — покажу твои ордера','fills.hint':'История сделок по выбранному item','all.hint':'Все открытые ордера','refresh':'Обновить','tbl.item':'item','tbl.side':'side','tbl.qty':'qty','tbl.price':'price','tbl.rem':'осталось','tbl.action':'действие','tbl.height':'высота','tbl.amount':'amount AGT','tbl.accepted':'принято','tbl.maker':'maker','login.title':'Вход в кабинет (passport session)','login.step1':'Укажи адрес и получи challenge','login.step2':'Подпиши challenge через agent-wallet sign-challenge','login.step3':'Вставь signature и войди','login.getChallenge':'Получить challenge','login.submit':'Войти','login.logout':'Выйти','login.empty':'Здесь появится команда подписи','revive.title':'Реанимация мёртвых тикеров (AGIP-15)','revive.submit':'Подать заявку','revive.hint':'fee 25 AGT в казну · окно клейма 90 дней · AGT-20-обёртка 1:1','footer.left':'AGENTCOIN · биржа MBC-20 · книга из цепи, одинакова на всех нодах',"mine.empty":"—","order.fillFirst":"Заполни item, qty и price","order.badNum":"qty и price должны быть числами > 0","order.opOk":"op-request получен · подпиши через sign-op","order.submitOk":"ордер отправлен в mempool","order.submitRejected":"Нода отклонила запрос; подготовьте новый.","order.statusChecking":"Проверяю исходный txid без повторной отправки","order.mempool":"Транзакция найдена в mempool","order.confirmed":"Транзакция найдена в блоке","order.status_unknown":"Статус неизвестен; не отправляйте заново","order.needLogin":"Сначала войди в кабинет (passport session)","footer.updated":"обновлено —","loading":"загрузка…","err.api":"Данные биржи не отвечают — обновлю через 3с","copy":"Копировать","copied":"Скопировано","cancel":"Отменить","cancel.preview":"Отмена ордера {ref}","cancel.needAddr":"Укажи адрес в шапке — нужен для отмены","ses.none":"нет сессии","ses.has":"адрес задан","login.noAddr":"Сначала укажи адрес в шапке","login.needPassport":"Паспорт не найден — получи у оператора","login.challengeOk":"challenge получен · подпиши командой ниже","login.loggedIn":"вошёл","login.loggedOut":"вышел"},
+en:{title:'MBC-20 → AGT Exchange',subtitle:'On-chain DXE orders · book from chain · amounts in magents','addr.notSet':'address not set','addr.title':'My AGT address','addr.save':'Save','addr.clear':'Forget','addr.hint':'Address is saved in this browser. The private key is never requested.','book.title':'Order book','book.agg':'aggregate','book.note':'orders use dxe|O|… memos; fills use dxe|F','pairs.title':'All AGT pairs','pairs.item':'item','pairs.open':'open','pairs.closed':'closed','pairs.volume':'volume','order.title':'Create order','order.item':'item','order.side':'side','order.qty':'qty','order.price':'price AGT','order.buy':'Buy (b)','order.sell':'Sell (s)','order.generate':'1. Get op-request','order.reset':'Reset','order.notice':'Signing stays local: op-request → agent-wallet sign-op → op-submit.','order.preview':'Preview and steps','order.empty':'Fill in fields and request an operation','tab.mine':'My orders','tab.fills':'Trade history','tab.all':'All orders','mine.hint':'Set your address to see your orders','fills.hint':'Trades for selected item','all.hint':'All open orders','refresh':'Refresh','tbl.item':'item','tbl.side':'side','tbl.qty':'qty','tbl.price':'price','tbl.rem':'remaining','tbl.action':'action','tbl.height':'height','tbl.amount':'amount AGT','tbl.accepted':'accepted','tbl.maker':'maker','login.title':'Cabinet login','login.step1':'Set your address and get a challenge','login.step2':'Sign with agent-wallet sign-challenge','login.step3':'Paste signature and log in','login.getChallenge':'Get challenge','login.submit':'Log in','login.logout':'Log out','login.empty':'The signing command appears here','revive.title':'Revive dead tickers','revive.submit':'Submit request','revive.hint':'25 AGT fee · 90-day claim window · 1:1 wrapper','footer.left':'AGENTCOIN · MBC-20 exchange · book from chain',"mine.empty":"—","order.fillFirst":"Fill in item, qty and price","order.badNum":"qty and price must be numbers greater than 0","order.opOk":"op-request received · sign with sign-op","order.submitOk":"order submitted to mempool","order.submitRejected":"Node rejected the request; prepare a new one.","order.statusChecking":"Checking the original txid without resubmitting","order.mempool":"Transaction found in the mempool","order.confirmed":"Transaction found in a block","order.status_unknown":"Status unknown; do not resubmit","order.needLogin":"Log in to the cabinet first (passport session)","footer.updated":"updated —","loading":"loading…","err.api":"Exchange data unavailable — retrying in 3s","copy":"Copy","copied":"Copied","cancel":"Cancel","cancel.preview":"Cancel order {ref}","cancel.needAddr":"Set your address in the header to cancel","ses.none":"no session","ses.has":"session active","login.noAddr":"Set your address in the header first","login.needPassport":"Passport not found — request one from the operator","login.challengeOk":"challenge received · sign with the command below","login.loggedIn":"logged in","login.loggedOut":"logged out"},
+fr:{title:'Bourse MBC-20 → AGT',subtitle:'Ordres DXE on-chain · carnet depuis la chaîne','addr.notSet':'adresse non définie','addr.title':'Mon adresse AGT','addr.save':'Enregistrer','addr.clear':'Oublier','addr.hint':'Adresse enregistrée dans ce navigateur. La clé privée n’est jamais demandée.','book.title':'Carnet','book.agg':'agrégat','book.note':'ordres dxe|O|… · trades dxe|F','pairs.title':'Toutes les paires','pairs.item':'item','pairs.open':'ouverts','pairs.closed':'fermés','pairs.volume':'volume','order.title':'Créer un ordre','order.item':'item','order.side':'côté','order.qty':'qté','order.price':'prix AGT','order.buy':'Acheter (b)','order.sell':'Vendre (s)','order.generate':'1. Obtenir op-request','order.reset':'Réinitialiser','order.notice':'Signature locale : op-request → sign-op → op-submit.','order.preview':'Aperçu et étapes','order.empty':'Remplissez les champs','tab.mine':'Mes ordres','tab.fills':'Historique','tab.all':'Tous les ordres','mine.hint':'Définissez votre adresse','fills.hint':'Trades de l’item sélectionné','all.hint':'Ordres ouverts','refresh':'Actualiser','tbl.item':'item','tbl.side':'côté','tbl.qty':'qté','tbl.price':'prix','tbl.rem':'restant','tbl.action':'action','tbl.height':'hauteur','tbl.amount':'montant AGT','tbl.accepted':'accepté','tbl.maker':'maker','login.title':'Connexion au cabinet','login.step1':'Définissez l’adresse et obtenez un challenge','login.step2':'Signez via agent-wallet sign-challenge','login.step3':'Collez la signature et connectez-vous','login.getChallenge':'Obtenir challenge','login.submit':'Connexion','login.logout':'Déconnexion','login.empty':'La commande apparaîtra ici','revive.title':'Réanimer les tickers','revive.submit':'Envoyer','revive.hint':'Frais 25 AGT · délai de 90 jours','footer.left':'AGENTCOIN · bourse MBC-20',"mine.empty":"—","order.fillFirst":"Renseignez item, quantité et prix","order.badNum":"La quantité et le prix doivent être des nombres supérieurs à 0","order.opOk":"op-request reçu · signez avec sign-op","order.submitOk":"ordre envoyé au mempool","order.submitRejected":"Le nœud a refusé la demande ; préparez-en une nouvelle.","order.statusChecking":"Vérification du txid initial sans nouvel envoi","order.mempool":"Transaction trouvée dans le mempool","order.confirmed":"Transaction trouvée dans un bloc","order.status_unknown":"Statut inconnu ; ne renvoyez pas","order.needLogin":"Connectez-vous d’abord au cabinet (session passeport)","footer.updated":"mis à jour —","loading":"chargement…","err.api":"Données de la bourse indisponibles — nouvel essai dans 3 s","copy":"Copier","copied":"Copié","cancel":"Annuler","cancel.preview":"Annuler l’ordre {ref}","cancel.needAddr":"Définissez votre adresse dans l’en-tête pour annuler","ses.none":"pas de session","ses.has":"session active","login.noAddr":"Définissez d’abord votre adresse dans l’en-tête","login.needPassport":"Passeport introuvable — demandez-le à l’opérateur","login.challengeOk":"challenge reçu · signez avec la commande ci-dessous","login.loggedIn":"connecté","login.loggedOut":"déconnecté"},
+es:{title:'Bolsa MBC-20 → AGT',subtitle:'Órdenes DXE on-chain · libro desde la cadena','addr.notSet':'dirección no definida','addr.title':'Mi dirección AGT','addr.save':'Guardar','addr.clear':'Olvidar','addr.hint':'Dirección guardada en este navegador. Nunca se solicita la clave privada.','book.title':'Libro de órdenes','book.agg':'agregar','book.note':'órdenes dxe|O|… · trades dxe|F','pairs.title':'Todos los pares','pairs.item':'item','pairs.open':'abiertas','pairs.closed':'cerradas','pairs.volume':'volumen','order.title':'Crear orden','order.item':'item','order.side':'lado','order.qty':'cant.','order.price':'precio AGT','order.buy':'Comprar (b)','order.sell':'Vender (s)','order.generate':'1. Obtener op-request','order.reset':'Restablecer','order.notice':'Firma local: op-request → sign-op → op-submit.','order.preview':'Vista previa y pasos','order.empty':'Completa los campos','tab.mine':'Mis órdenes','tab.fills':'Historial','tab.all':'Todas','mine.hint':'Define tu dirección','fills.hint':'Trades del item seleccionado','all.hint':'Órdenes abiertas','refresh':'Actualizar','tbl.item':'item','tbl.side':'lado','tbl.qty':'cant.','tbl.price':'precio','tbl.rem':'restante','tbl.action':'acción','tbl.height':'altura','tbl.amount':'importe AGT','tbl.accepted':'aceptado','tbl.maker':'maker','login.title':'Acceso al cabinet','login.step1':'Define la dirección y obtén el challenge','login.step2':'Firma con agent-wallet sign-challenge','login.step3':'Pega la firma e inicia sesión','login.getChallenge':'Obtener challenge','login.submit':'Entrar','login.logout':'Salir','login.empty':'Aquí aparece el comando','revive.title':'Reanimar tickers','revive.submit':'Enviar solicitud','revive.hint':'Comisión 25 AGT · plazo 90 días','footer.left':'AGENTCOIN · bolsa MBC-20',"mine.empty":"—","order.fillFirst":"Completa item, cantidad y precio","order.badNum":"La cantidad y el precio deben ser números mayores que 0","order.opOk":"op-request recibido · firma con sign-op","order.submitOk":"orden enviada al mempool","order.submitRejected":"El nodo rechazó la solicitud; prepara otra.","order.statusChecking":"Comprobando el txid original sin reenviar","order.mempool":"Transacción encontrada en mempool","order.confirmed":"Transacción incluida en un bloque","order.status_unknown":"Estado desconocido; no la reenvíes","order.needLogin":"Inicia sesión en el cabinet primero (sesión de pasaporte)","footer.updated":"actualizado —","loading":"cargando…","err.api":"Datos de la bolsa no disponibles — reintento en 3 s","copy":"Copiar","copied":"Copiado","cancel":"Cancelar","cancel.preview":"Cancelar orden {ref}","cancel.needAddr":"Define tu dirección en la cabecera para cancelar","ses.none":"sin sesión","ses.has":"sesión activa","login.noAddr":"Primero define tu dirección en la cabecera","login.needPassport":"Pasaporte no encontrado — solicítalo al operador","login.challengeOk":"challenge recibido · firma con el comando siguiente","login.loggedIn":"sesión iniciada","login.loggedOut":"sesión cerrada"},
+de:{title:'MBC-20 → AGT Börse',subtitle:'On-Chain-DXE-Orders · Buch aus der Chain','addr.notSet':'Adresse nicht gesetzt','addr.title':'Meine AGT-Adresse','addr.save':'Speichern','addr.clear':'Vergessen','addr.hint':'Adresse in diesem Browser gespeichert. Der private Schlüssel wird nie angefragt.','book.title':'Orderbuch','book.agg':'Aggregation','book.note':'Orders dxe|O|… · Trades dxe|F','pairs.title':'Alle AGT-Paare','pairs.item':'Item','pairs.open':'offen','pairs.closed':'geschlossen','pairs.volume':'Volumen','order.title':'Order erstellen','order.item':'Item','order.side':'Seite','order.qty':'Menge','order.price':'Preis AGT','order.buy':'Kaufen (b)','order.sell':'Verkaufen (s)','order.generate':'1. op-request holen','order.reset':'Zurücksetzen','order.notice':'Lokale Signatur: op-request → sign-op → op-submit.','order.preview':'Vorschau und Schritte','order.empty':'Felder ausfüllen','tab.mine':'Meine Orders','tab.fills':'Trade-Historie','tab.all':'Alle Orders','mine.hint':'Adresse festlegen','fills.hint':'Trades des gewählten Items','all.hint':'Offene Orders','refresh':'Aktualisieren','tbl.item':'Item','tbl.side':'Seite','tbl.qty':'Menge','tbl.price':'Preis','tbl.rem':'verbleibend','tbl.action':'Aktion','tbl.height':'Höhe','tbl.amount':'Betrag AGT','tbl.accepted':'akzeptiert','tbl.maker':'Maker','login.title':'Cabinet-Login','login.step1':'Adresse setzen und Challenge holen','login.step2':'Mit agent-wallet sign-challenge signieren','login.step3':'Signatur einfügen und anmelden','login.getChallenge':'Challenge holen','login.submit':'Anmelden','login.logout':'Abmelden','login.empty':'Signaturbefehl erscheint hier','revive.title':'Ticker wiederbeleben','revive.submit':'Antrag senden','revive.hint':'Gebühr 25 AGT · 90 Tage','footer.left':'AGENTCOIN · MBC-20-Börse',"mine.empty":"—","order.fillFirst":"Item, Menge und Preis eingeben","order.badNum":"Menge und Preis müssen Zahlen größer als 0 sein","order.opOk":"op-request erhalten · mit sign-op signieren","order.submitOk":"Order an den Mempool gesendet","order.submitRejected":"Node hat abgelehnt; bitte neu vorbereiten.","order.statusChecking":"Prüfe die ursprüngliche txid ohne erneutes Senden","order.mempool":"Transaktion im Mempool gefunden","order.confirmed":"Transaktion in einem Block gefunden","order.status_unknown":"Status unbekannt; nicht erneut senden","order.needLogin":"Zuerst im Cabinet anmelden (Pass-Session)","footer.updated":"aktualisiert —","loading":"lädt…","err.api":"Börsendaten nicht verfügbar — neuer Versuch in 3 s","copy":"Kopieren","copied":"Kopiert","cancel":"Abbrechen","cancel.preview":"Order {ref} abbrechen","cancel.needAddr":"Adresse im Header zum Abbrechen festlegen","ses.none":"keine Sitzung","ses.has":"Sitzung aktiv","login.noAddr":"Zuerst Adresse im Header festlegen","login.needPassport":"Pass nicht gefunden — beim Operator anfordern","login.challengeOk":"Challenge erhalten · mit dem Befehl unten signieren","login.loggedIn":"angemeldet","login.loggedOut":"abgemeldet"}
+};
+var LANGS=['ru','en','fr','es','de'],LANG_KEY='agentcoin.lang',ADDR_KEY='agentcoin.agt.address',TOKEN_KEY='agentcoin.cabinet.token';
+var lang='ru',addr='',challenge=null,opRequest=null,activeTab='mine',lastCommand='',opGeneration=0,opController=null,challengeGeneration=0,submitState='idle';
+var $=function(s){return document.querySelector(s);},$$=function(s){return Array.from(document.querySelectorAll(s));};
+function esc(v){var e=document.createElement('span');e.textContent=String(v==null?'':v);return e.innerHTML;}
+function tr(k){return (DICT[lang]&&DICT[lang][k])||DICT.ru[k]||k;}
+function applyLang(){document.documentElement.lang=lang;$$('[data-i18n]').forEach(function(e){if(e.id!=='oOut'&&e.id!=='obBox')e.textContent=tr(e.dataset.i18n);});$$('.lang button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.lang===lang));});if(!opRequest)$('#oOut').textContent=tr('order.empty');updateSession();updateAddr();renderTabs();}
+function showErr(m){var e=$('#errBox');e.textContent=String(m);e.classList.add('on');setTimeout(function(){e.classList.remove('on');},7000);}
+function hideErr(){$('#errBox').classList.remove('on');}
+function getToken(){try{return sessionStorage.getItem(TOKEN_KEY)||'';}catch(e){return'';}}
+function setToken(t){try{if(t)sessionStorage.setItem(TOKEN_KEY,t);else sessionStorage.removeItem(TOKEN_KEY);}catch(e){}updateSession();}
+function updateSession(){var on=!!getToken();$('#sesPill').textContent=on?tr('login.loggedIn'):tr('ses.none');$('#sesPill').className='pill '+(on?'on':'off');$('#loginOut').classList.toggle('hidden',!on);}
+function updateAddr(){var label=$('#addrLbl');label.textContent=addr?addr.slice(0,8)+'…'+addr.slice(-4):tr('addr.notSet');$('#addrInput').value=addr;$('#sesPill').textContent=getToken()?tr('login.loggedIn'):(addr?tr('ses.has'):tr('ses.none'));}
+function invalidateOperation(){opGeneration++;if(opController){opController.abort();opController=null;}opRequest=null;submitState='idle';$('#oGen').disabled=false;var out=$('#oOut');if(out)out.textContent=tr('order.empty');}
+function setAddress(){var v=$('#addrInput').value.trim();if(v&&!/^AGT[0-9a-fA-F]{40}$/.test(v)){showErr('AGT-адрес: AGT + 40 hex');return;}if(v!==addr){invalidateOperation();challengeGeneration++;setToken('');challenge=null;$('#loginSig').value='';$('#loginOutBox').textContent='';}addr=v;try{if(v)localStorage.setItem(ADDR_KEY,v);else localStorage.removeItem(ADDR_KEY);}catch(e){}$('#addrPanel').classList.add('hidden');updateAddr();renderMine();}
+async function getJson(p){var r=await fetch(p,{signal:AbortSignal.timeout(7000),credentials:'same-origin'});var j=await r.json();if(!r.ok)throw Error(j.error||('HTTP '+r.status));return j;}
+async function postJson(p,b,signal){var r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b),signal:signal||AbortSignal.timeout(10000),credentials:'same-origin'});var j=await r.json().catch(function(){return{};});if(!r.ok){var e=Error(j.error||('HTTP '+r.status));e.httpStatus=r.status;e.responseCode=j.error||null;throw e;}return j;}
+function saveDownload(name,text){var blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},60000);}
+function copy(btn){var v=btn.dataset.copy||'',done=function(){btn.textContent=lang==='ru'?'Скопировано':'Copied';setTimeout(function(){btn.textContent='Копировать';},1400);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(v).then(done,function(){fallbackCopy(v,done);});}else fallbackCopy(v,done);}
+function fallbackCopy(value,done){var ta=document.createElement('textarea');ta.value=value;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand('copy');}catch(e){}ta.remove();if(ok)done();else showErr('Не удалось скопировать; выделите команду вручную.');}
+function aggregate(rows,step,isAsk){if(!step)return rows;var map=new Map();rows.forEach(function(o){var price=step*(isAsk?Math.ceil(Number(o.price)/step):Math.floor(Number(o.price)/step)),key=price.toFixed((String(step).split('.')[1]||'').length);map.set(key,(map.get(key)||0)+Number(o.remaining));});return Array.from(map,function(e){return{price:Number(e[0]),remaining:e[1]};});}
+function renderBook(b,step){var asks=aggregate((b.asks||[]),step,true).slice(0,10),bids=aggregate((b.bids||[]),step,false).slice(0,10),max=Math.max(1,...asks.concat(bids).map(function(o){return Number(o.remaining)||0;}));function rows(list,cls){return list.map(function(o){var w=Math.max(2,100*Number(o.remaining||0)/max);return'<div class="rowd '+cls+'"><i class="depth" style="width:'+w.toFixed(1)+'%"></i><span>'+esc(Number(o.price).toFixed(6).replace(/0+$/,'').replace(/\.$/,''))+'</span><span style="text-align:right">'+esc(o.remaining)+'</span><span style="text-align:right">'+esc(o.total||'')+'</span></div>';}).join('');}var ba=(b.asks||[]).length?Math.min.apply(null,(b.asks||[]).map(function(o){return Number(o.price);})):null,bb=(b.bids||[]).length?Math.max.apply(null,(b.bids||[]).map(function(o){return Number(o.price);})):null;$('#obBox').innerHTML='<div class="rowd dimt"><span>Price AGT</span><span style="text-align:right">Qty</span><span style="text-align:right">Total</span></div>'+rows(asks,'ask')+'<div class="mid">'+(ba==null&&bb==null?'—':(ba!=null?ba:bb))+' · spread '+(ba!=null&&bb!=null?(ba-bb).toFixed(6):'—')+'</div>'+rows(bids,'bid');}
+async function loadState(){try{var s=await getJson('/mbc20/state');$('#stateNote').textContent=(s.tokens||[]).length+' tokens · '+(s.note||'state updated');}catch(e){$('#stateNote').textContent='State unavailable';}}
+async function loadItems(){try{var j=await getJson('/dxe/items'),its=Array.isArray(j)?j:(j.items||[]),tickOpts=its.map(function(x){var tick=String(x.item||'').replace(/^mbc20:/i,'');return'<option value="'+esc(tick)+'">'+esc(tick)+'</option>';}).join(''),itemOpts=its.map(function(x){return'<option value="'+esc(x.item)+'">'+esc(x.item)+'</option>';}).join('');$('#tickSel').innerHTML=tickOpts||'<option value="BOTAI">BOTAI</option>';$('#oItem').innerHTML=itemOpts||'<option value="mbc20:BOTAI">mbc20:BOTAI</option>';await loadPairs();}catch(e){showErr('items: '+e.message);}}
+async function loadPairs(){try{var j=await getJson('/dxe/items'),its=Array.isArray(j)?j:(j.items||[]);$('#pairsTb').innerHTML=its.slice(0,50).map(function(x){return'<tr><td class="mono">'+esc(x.item)+'</td><td>'+esc(x.open)+'</td><td>'+esc(x.closed)+'</td><td>'+esc(x.volume)+'</td></tr>';}).join('')||'<tr><td colspan="4">—</td></tr>';}catch(e){}}
+async function loadBook(){try{renderBook(await getJson('/mbc20/book?tick='+encodeURIComponent($('#tickSel').value||'BOTAI')),Number($('#aggSel').value)||0);hideErr();}catch(e){showErr('book: '+e.message);}}
+function cancelOrder(ref){var command='node agent-wallet/src/cli.mjs cancel-order /chosen/path/profile.json --ref '+ref+' --node '+location.origin;$('#oOut').innerHTML='<div class="mini">Проверьте открытый ордер '+esc(ref)+'. Команда подписывает и отправляет отмену локально.</div><div class="cmd"><button type="button" data-copy="'+esc(command)+'">Копировать</button><code>'+esc(command)+'</code></div>';lastCommand=command;}
+async function genOrder(){
+if(!addr){showErr(tr('login.noAddr'));return;}
+var item=$('#oItem').value,side=$('#oSide').value,qty=Number($('#oQty').value),price=Number($('#oPrice').value);
+if(!item||!['b','s'].includes(side)||!Number.isFinite(qty)||qty<=0||!Number.isFinite(price)||price<=0){showErr(tr('order.badNum'));return;}
+invalidateOperation();var generation=opGeneration,requestedAddress=addr,controller=new AbortController();opController=controller;$('#oGen').disabled=true;
+try{var result=await postJson('/cabinet/op-request',{address:requestedAddress,token:getToken(),op:{kind:'order',side:side,item:item,qty:qty,price:price}},controller.signal);
+if(generation!==opGeneration||requestedAddress!==addr)return;
+if(!result.ok||!result.opId||!result.payload||!result.payload.txidHex)throw Error(result.error||'invalid_op_request');
+opRequest=result;submitState='ready';var filename='op-request-'+result.opId+'.json';saveDownload(filename,JSON.stringify(result,null,2));var txid=result.payload.txidHex;
+var command="read -r -s -p 'Profile password: ' P; printf '\n'; printf '%s\n' \"$P\" | node agent-wallet/src/cli.mjs sign-op /chosen/path/profile.json /chosen/path/"+filename+" --op-id "+result.opId+" --txid "+txid+"; unset P";
+var html='<div class="mini">'+esc(tr('order.opOk'))+'</div><p class="mono">opId '+esc(result.opId)+' · txid '+esc(txid)+'</p><div class="cmd"><button type="button" data-copy="'+esc(command)+'">'+esc(tr('copy'))+'</button><code>'+esc(command)+'</code></div><label for="opSig">signature (128 hex)</label><input id="opSig" class="mono" autocomplete="off" style="width:100%"><button class="primary" id="opSubmit">3. Отправить (op-submit)</button><div id="opMsg" class="mini" aria-live="polite"></div>';
+$('#oOut').innerHTML=html;lastCommand=command;
+}catch(e){if(generation===opGeneration&&!controller.signal.aborted){opRequest=null;showErr('op-request: '+e.message);}}
+finally{if(opController===controller)opController=null;if(generation===opGeneration)$('#oGen').disabled=false;}
+}
+async function renderMine(){if(!addr){$('#mineTb').innerHTML='<tr><td colspan="7">'+esc(tr('mine.hint'))+'</td></tr>';return;}try{var j=await getJson('/dxe/orders'),all=Array.isArray(j)?j:(j.orders||[]),mine=all.filter(function(o){return o&&o.from===addr&&o.status==='open';});$('#mineHint').textContent=addr;$('#mineTb').innerHTML=mine.map(function(o){var rem=Number(o.qty)-Number(o.filled||0);return'<tr><td class="mono">'+esc(o.ref)+'</td><td>'+esc(o.item)+'</td><td>'+esc(o.side)+'</td><td>'+esc(o.qty)+'</td><td>'+esc(o.price)+'</td><td>'+esc(rem)+'</td><td><button class="small danger" data-cancel="'+esc(o.ref)+'">'+esc(tr('cancel'))+'</button></td></tr>';}).join('')||'<tr><td colspan="7">—</td></tr>';}catch(e){$('#mineTb').innerHTML='<tr><td colspan="7">'+esc(e.message)+'</td></tr>';}}
+async function renderAll(){try{var j=await getJson('/dxe/orders'),all=Array.isArray(j)?j:(j.orders||[]);$('#allTb').innerHTML=all.filter(function(o){return o.status==='open';}).slice(0,100).map(function(o){return'<tr><td>'+esc(o.ref)+'</td><td>'+esc(o.item)+'</td><td>'+esc(o.side)+'</td><td>'+esc(o.price)+'</td><td>'+esc(Number(o.qty)-Number(o.filled||0))+'</td><td>'+esc(o.from)+'</td></tr>';}).join('')||'<tr><td colspan="6">—</td></tr>';}catch(e){$('#allTb').innerHTML='<tr><td colspan="6">'+esc(e.message)+'</td></tr>';}}
+async function renderFills(){try{var f=await getJson('/dxe/fills'),o=await getJson('/dxe/orders'),fills=Array.isArray(f)?f:(f.fills||[]),orders=Array.isArray(o)?o:(o.orders||[]),byRef={};orders.forEach(function(x){byRef[x.ref]=x;});var item='mbc20:'+$('#tickSel').value;$('#fillsTb').innerHTML=fills.filter(function(x){return byRef[x.orderRef]&&byRef[x.orderRef].item===item;}).slice(0,50).map(function(x){var ord=byRef[x.orderRef];return'<tr><td>'+esc(x.height||'—')+'</td><td>'+esc(ord.item)+'</td><td>'+esc(ord.side)+'</td><td>'+esc(x.qtyFill||x.qty)+'</td><td>'+esc(x.due||x.amount)+'</td><td>'+((x.accepted)?'✓':'—')+'</td></tr>';}).join('')||'<tr><td colspan="6">—</td></tr>';}catch(e){$('#fillsTb').innerHTML='<tr><td colspan="6">'+esc(e.message)+'</td></tr>';}}
+function setTab(t){activeTab=t;renderTabs();if(t==='mine')renderMine();if(t==='fills')renderFills();if(t==='all')renderAll();}
+function renderTabs(){$$('.tabs [data-tab]').forEach(function(b){b.classList.toggle('active',b.dataset.tab===activeTab);});$('#tabMine').classList.toggle('hidden',activeTab!=='mine');$('#tabFills').classList.toggle('hidden',activeTab!=='fills');$('#tabAll').classList.toggle('hidden',activeTab!=='all');}
+async function getChallenge(){if(!addr){showErr(tr('login.noAddr'));return;}var generation=++challengeGeneration,requestedAddress=addr;$('#loginChallenge').disabled=true;try{var result=await postJson('/cabinet/challenge',{address:requestedAddress});if(generation!==challengeGeneration||requestedAddress!==addr)return;challenge=result;if(!challenge.ok||!challenge.challenge)throw Error(challenge.error||'challenge_invalid');var file='challenge-'+challenge.challengeId+'.json';saveDownload(file,JSON.stringify(challenge,null,2));var command="read -r -s -p 'Profile password: ' P; printf '\n'; printf '%s\n' \"$P\" | node agent-wallet/src/cli.mjs sign-challenge /chosen/path/profile.json /chosen/path/"+file+"; unset P";$('#loginMsg').textContent=tr('login.challengeOk');$('#loginOutBox').innerHTML='<div class="cmd"><button type="button" data-copy="'+esc(command)+'">'+esc(tr('copy'))+'</button><code>'+esc(command)+'</code></div>';lastCommand=command;}catch(e){if(generation===challengeGeneration){challenge=null;showErr('challenge: '+e.message);}}finally{if(generation===challengeGeneration)$('#loginChallenge').disabled=false;}}
+async function login(){if(!challenge){showErr('Сначала получите новый challenge.');return;}if(!addr||! /^[a-f0-9]{128}$/i.test($('#loginSig').value.trim())){showErr('Нужна подпись длиной 128 hex.');return;}$('#loginSubmit').disabled=true;try{var r=await postJson('/cabinet/login',{address:addr,mode:'challenge',nonce:challenge.nonce,challengeId:challenge.challengeId,signature:$('#loginSig').value.trim()});if(!r.ok||!r.token)throw Error(r.error||'login_failed');setToken(r.token);challenge=null;$('#loginSig').value='';$('#loginMsg').textContent=tr('login.loggedIn');}catch(e){showErr('login: '+e.message);}finally{$('#loginSubmit').disabled=false;}}
+async function logout(){var token=getToken();try{if(token)await postJson('/cabinet/logout',{token:token});}catch(e){showErr('logout: '+e.message);}finally{setToken('');challengeGeneration++;challenge=null;invalidateOperation();$('#loginSig').value='';$('#loginOutBox').textContent='';$('#loginMsg').textContent=tr('login.loggedOut');}}
+async function revive(){var tick=$('#rTick').value.trim(),address=$('#rAddr').value.trim(),evidence=$('#rEvid').value.trim();if(!tick||!address){showErr('Заполните тикер и адрес.');return;}try{var r=await postJson('/mbc20/revive',{tick:tick,address:address,evidence:evidence});$('#rMsg').textContent=r.ok?'Заявка '+(r.request&&r.request.id||'принята')+' · '+(r.request&&r.request.status||''):('Отклонено: '+(r.error||'unknown'));}catch(e){$('#rMsg').textContent=e.message;}}
+function init(){try{lang=localStorage.getItem(LANG_KEY)||'ru';if(!LANGS.includes(lang))lang='ru';}catch(e){}try{addr=localStorage.getItem(ADDR_KEY)||'';}catch(e){}applyLang();updateSession();$('#loginMsg').textContent=getToken()?tr('login.loggedIn'):'';$$('.lang button').forEach(function(b){b.addEventListener('click',function(){lang=b.dataset.lang;try{localStorage.setItem(LANG_KEY,lang);}catch(e){}applyLang();});});$('#addrTag').addEventListener('click',function(){$('#addrPanel').classList.toggle('hidden');});$('#addrSave').addEventListener('click',setAddress);$('#addrClear').addEventListener('click',function(){$('#addrInput').value='';setAddress();});$('#addrInput').addEventListener('keydown',function(e){if(e.key==='Enter')setAddress();});$('#oGen').addEventListener('click',genOrder);['oItem','oSide','oQty','oPrice','addrInput'].forEach(function(id){var el=$('#'+id),invalidate=function(){invalidateOperation();};el.addEventListener('input',invalidate);el.addEventListener('change',invalidate);});$('#oReset').addEventListener('click',function(){$('#oQty').value='';$('#oPrice').value='';invalidateOperation();});$('#loginChallenge').addEventListener('click',getChallenge);$('#loginSubmit').addEventListener('click',login);$('#loginOut').addEventListener('click',logout);$('#rRevive').addEventListener('click',revive);$$('.tabs [data-tab]').forEach(function(b){b.addEventListener('click',function(){setTab(b.dataset.tab);});});$('#tickSel').addEventListener('change',function(){loadBook();if(activeTab==='fills')renderFills();});$('#aggSel').addEventListener('change',loadBook);$('#mineRefresh').addEventListener('click',renderMine);$('#fillsRefresh').addEventListener('click',renderFills);$('#allRefresh').addEventListener('click',renderAll);document.addEventListener('click',function(e){var c=e.target.closest('[data-copy]');if(c)copy(c);var cancel=e.target.closest('[data-cancel]');if(cancel)cancelOrder(cancel.dataset.cancel);if(e.target.id==='opSubmit')submitOrder();});loadState();loadItems();loadBook();setInterval(loadBook,3000);setInterval(function(){if(activeTab==='mine')renderMine();if(activeTab==='fills')renderFills();if(activeTab==='all')renderAll();},5000);setInterval(loadPairs,30000);$('#upd').textContent=new Date().toLocaleTimeString();}
+async function lookupSubmittedTx(txid){
+var results=await Promise.allSettled([getJson('/mempool?full=1'),fetch('/txproof/'+encodeURIComponent(txid),{signal:AbortSignal.timeout(5000),credentials:'same-origin'})]);
+if(results[1].status==='fulfilled'&&results[1].value.ok)return'confirmed';
+if(results[0].status==='fulfilled'){var pool=results[0].value;if(pool.complete===true&&Array.isArray(pool.txs)&&pool.txs.some(function(tx){return tx.txid===txid;}))return'mempool';}
+return'status_unknown';
+}
+async function submitOrder(){var b=$('#opSubmit'),msg=$('#opMsg');if(!opRequest||!b||submitState!=='ready')return;if(b.dataset.busy==='1')return;var sig=$('#opSig').value.trim();if(!/^[a-f0-9]{128}$/i.test(sig)){showErr('signature: 128 hex');return;}var submitted=opRequest,txid=submitted.payload.txidHex;b.dataset.busy='1';b.disabled=true;submitState='submitting';
+try{var r=await postJson('/cabinet/op-submit',{opId:submitted.opId,signature:sig});if(!r.accepted)throw Object.assign(Error(r.error||'submit_not_accepted'),{httpStatus:400});submitState='mempool';opRequest=submitted;msg.textContent=tr('order.submitOk')+' · txid '+txid;setTimeout(renderMine,2000);
+}catch(e){opRequest=submitted;if(e.httpStatus&&e.httpStatus<500){submitState='rejected';msg.textContent=tr('order.submitRejected')+' · '+(e.responseCode||e.message)+' · '+txid;}
+else{submitState='checking';msg.textContent=tr('order.statusChecking')+' · '+txid;var status=await lookupSubmittedTx(txid).catch(function(){return'status_unknown';});submitState=status;msg.textContent=tr('order.'+status)+' · '+txid;}
+}finally{b.dataset.busy='0';b.disabled=true;}}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
 </script>
 </body>

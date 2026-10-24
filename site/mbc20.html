@@ -24,6 +24,12 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:ta
 .ob{font:12px Consolas,monospace}.ob .rowd{position:relative;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 8px;border-bottom:1px solid #1a2330}.ob .depth{position:absolute;inset:0 0 0 auto;opacity:.2;pointer-events:none}.ob .ask .depth{background:var(--sell)}.ob .bid .depth{background:var(--buy)}.ob .ask{color:var(--sell)}.ob .bid{color:var(--buy)}.mid{text-align:center;padding:7px;border-block:1px solid var(--line);color:var(--gold2)}
 .field{margin:6px 0;min-width:0}.field label{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}.steps{padding-left:23px}.steps li{padding:5px 0;border-bottom:1px solid #1a2330}
 footer{text-align:center;color:var(--dim);font-size:11px;margin-top:22px}
+  .cancel-orders { display:grid; gap:8px; margin-top:10px; }
+  .cancel-order { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; border:1px solid var(--line); border-radius:8px; padding:9px; }
+  .cancel-flow[hidden] { display:none; }
+  .cancel-flow pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+  .cancel-flow label { display:block; margin:8px 0; }
+  .cancel-flow input[type=file] { display:block; margin-top:5px; max-width:100%; }
 </style>
 </head>
 <body>
@@ -84,7 +90,26 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:22px}
  data-i18n="tbl.qty">qty</th><th
  data-i18n="tbl.price">price</th><th
  data-i18n="tbl.rem">осталось</th><th
- data-i18n="tbl.action">действие</th></tr></thead><tbody id="mineTb"></tbody></table></div></div>
+ data-i18n="tbl.action">действие</th></tr></thead><tbody id="mineTb"></tbody></table></div><div class="panel" id="myOrdersPanel">
+  <h2 style="font-size:15px"><span class="g">✍</span> Мои ордера и локальная отмена</h2>
+  <p class="dimt" style="font-size:12px">Введите публичный AGT-адрес из своего локального профиля. Сайт покажет ордер, подготовит запрос и примет подписанный ответ. Пароль и профиль остаются на вашем устройстве; сайт не подписывает отмену за вас.</p>
+  <div class="row"><label for="cancelAddress">Публичный адрес</label><input id="cancelAddress" autocomplete="off" spellcheck="false" placeholder="AGT + 40 hex" style="width:min(420px,100%)"><button id="loadMyOrders">Показать мои ордера</button></div>
+  <div id="cancelOrders" class="cancel-orders" aria-live="polite">Введите свой публичный адрес.</div>
+  <section id="cancelFlow" class="card cancel-flow" hidden>
+    <h3 style="font-size:14px">Проверьте ордер перед подписью</h3>
+    <pre id="cancelOrderDetails" class="mono"></pre>
+    <button id="prepareCancelRequest">Подготовить запрос подписи</button>
+    <div id="cancelSigningInstructions" hidden>
+      <p>Скачайте запрос и подпишите его локально проверенным CLI. Используйте путь к своему профилю; пароль CLI вводится скрыто.</p>
+      <pre id="cancelCommand" class="mono"></pre>
+      <label>Загрузить подписанный JSON-ответ<input id="cancelResponseFile" type="file" accept=".json,application/json"></label>
+      <button id="sendCancel" disabled>Проверить подпись и отправить отмену</button>
+      <button id="checkCancelStatus" class="quiet" hidden>Проверить статус исходного txid</button>
+    </div>
+    <p id="cancelStatus" role="status" class="dimt"></p>
+  </section>
+</div>
+</div>
 <div id="tabFills" class="hidden"><div class="row" style="justify-content:space-between"><span class="dimt"
  data-i18n="fills.hint">История сделок по выбранному item</span><button class="small" id="fillsRefresh"
  data-i18n="refresh">Обновить</button></div><div class="scroll"><table><thead><tr><th
@@ -151,7 +176,7 @@ async function loadState(){try{var s=await getJson('/mbc20/state');$('#stateNote
 async function loadItems(){try{var j=await getJson('/dxe/items'),its=Array.isArray(j)?j:(j.items||[]),tickOpts=its.map(function(x){var tick=String(x.item||'').replace(/^mbc20:/i,'');return'<option value="'+esc(tick)+'">'+esc(tick)+'</option>';}).join(''),itemOpts=its.map(function(x){return'<option value="'+esc(x.item)+'">'+esc(x.item)+'</option>';}).join('');$('#tickSel').innerHTML=tickOpts||'<option value="BOTAI">BOTAI</option>';$('#oItem').innerHTML=itemOpts||'<option value="mbc20:BOTAI">mbc20:BOTAI</option>';await loadPairs();}catch(e){showErr('items: '+e.message);}}
 async function loadPairs(){try{var j=await getJson('/dxe/items'),its=Array.isArray(j)?j:(j.items||[]);$('#pairsTb').innerHTML=its.slice(0,50).map(function(x){return'<tr><td class="mono">'+esc(x.item)+'</td><td>'+esc(x.open)+'</td><td>'+esc(x.closed)+'</td><td>'+esc(x.volume)+'</td></tr>';}).join('')||'<tr><td colspan="4">—</td></tr>';}catch(e){}}
 async function loadBook(){try{renderBook(await getJson('/mbc20/book?tick='+encodeURIComponent($('#tickSel').value||'BOTAI')),Number($('#aggSel').value)||0);hideErr();}catch(e){showErr('book: '+e.message);}}
-function cancelOrder(ref){var command='node agent-wallet/src/cli.mjs cancel-order /chosen/path/profile.json --ref '+ref+' --node '+location.origin;$('#oOut').innerHTML='<div class="mini">Проверьте открытый ордер '+esc(ref)+'. Команда подписывает и отправляет отмену локально.</div><div class="cmd"><button type="button" data-copy="'+esc(command)+'">Копировать</button><code>'+esc(command)+'</code></div>';lastCommand=command;}
+function cancelOrder(ref){if(typeof window.selectMbc20CancellationOrder==='function')window.selectMbc20CancellationOrder(ref);else showErr('Модуль локальной отмены ещё не готов.');}
 async function genOrder(){
 if(!addr){showErr(tr('login.noAddr'));return;}
 var item=$('#oItem').value,side=$('#oSide').value,qty=Number($('#oQty').value),price=Number($('#oPrice').value);
@@ -189,6 +214,209 @@ try{var r=await postJson('/cabinet/op-submit',{opId:submitted.opId,signature:sig
 else{submitState='checking';msg.textContent=tr('order.statusChecking')+' · '+txid;var status=await lookupSubmittedTx(txid).catch(function(){return'status_unknown';});submitState=status;msg.textContent=tr('order.'+status)+' · '+txid;}
 }finally{b.dataset.busy='0';b.disabled=true;}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+</script>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => { const d = document.createElement('span'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+  const fmt = (n) => n == null ? '—' : Number(n).toLocaleString('ru-RU');
+  const addressRe = /^AGT[0-9a-f]{40}$/i, txidRe = /^[0-9a-f]{64}$/i, sigRe = /^[0-9a-f]{128}$/i;
+  let cancelAddress = '', selectedOrder = null, cancelRequest = null, signedCancellation = null, cancelConsumed = false, cancelBusy = false;
+  const pendingCancelKey='agentcoin.mbc20.cancel.pending';
+  let unresolvedCancel=null;
+  let cancelGeneration=0, cancelUploadGeneration=0;
+  function invalidateCancellation(){cancelGeneration++;cancelUploadGeneration++;selectedOrder=null;cancelRequest=null;signedCancellation=null;cancelConsumed=false;$('sendCancel').disabled=true;$('cancelResponseFile').value='';}
+  function cancellationCurrent(generation,address){return generation===cancelGeneration&&address===cancelAddress;}
+  try { const p=JSON.parse(sessionStorage.getItem(pendingCancelKey)||'null'); if(p&&addressRe.test(p.address||'')&&/^[A-Za-z0-9]{8}$/.test(p.ref||'')&&txidRe.test(p.txid||''))unresolvedCancel=p; } catch {}
+  function saveUnresolvedCancel(value){unresolvedCancel=value;try{sessionStorage.setItem(pendingCancelKey,JSON.stringify(value));}catch{}}
+  function clearUnresolvedCancel(){unresolvedCancel=null;try{sessionStorage.removeItem(pendingCancelKey);}catch{}}
+  const setCancelStatus = (message, bad = false) => { $('cancelStatus').textContent = message; $('cancelStatus').className = bad ? 'bad' : 'dimt'; };
+  async function cancellationJson(route, options = {}) {
+    const response = await fetch(route, { credentials:'omit', cache:'no-store', redirect:'error', signal:AbortSignal.timeout(10000),
+      headers:options.body === undefined ? {accept:'application/json'} : {'content-type':'application/json',accept:'application/json'},
+      method:options.method || (options.body === undefined ? 'GET' : 'POST'), ...(options.body === undefined ? {} : {body:JSON.stringify(options.body)}) });
+    const data = await response.json().catch(() => null);
+    return {status:response.status,data};
+  }
+  function showOrders(orders) {
+    const box = $('cancelOrders'); box.replaceChildren();
+    if (!orders.length) { box.textContent = 'Для этого адреса ордера не найдены.'; return; }
+    for (const order of orders) {
+      const row = document.createElement('div'); row.className = 'cancel-order';
+      const details = document.createElement('span');
+      details.textContent = `${order.ref} · ${order.item} · ${order.side === 'b' ? 'buy' : 'sell'} · ${order.qty} @ ${order.price} · ${order.status}`;
+      row.append(details);
+      if (order.status === 'open') {
+        const button = document.createElement('button'); button.textContent = unresolvedCancel ? 'Ожидает подтверждения' : 'Отменить'; button.dataset.ref = order.ref;
+        button.disabled = !!unresolvedCancel;
+        button.addEventListener('click', () => selectOrder(order.ref)); row.append(button);
+      }
+      box.append(row);
+    }
+  }
+  async function getOwnOrders(address = cancelAddress) {
+    if (!addressRe.test(address)) throw Error('Укажите корректный публичный AGT-адрес.');
+    const response = await cancellationJson('/dxe/orders?maker=' + encodeURIComponent(address));
+    if (response.status !== 200 || !Array.isArray(response.data?.orders)) throw Error('Не удалось загрузить ордера.');
+    return response.data.orders.filter(o => o && o.from === address);
+  }
+  $('cancelAddress').addEventListener('input', () => {
+    if(cancelBusy)return;
+    invalidateCancellation();
+    $('cancelFlow').hidden=true;
+    setCancelStatus('Адрес изменён. Загрузите список ордеров заново.');
+  });
+  $('loadMyOrders').addEventListener('click', async () => {
+    if(cancelBusy)return;
+    if(unresolvedCancel&&$('cancelAddress').value.trim()!==unresolvedCancel.address){$('cancelAddress').value=unresolvedCancel.address;setCancelStatus('Есть отмена с неопределённым статусом. Сначала проверьте исходный txid.',true);return;}
+    cancelAddress=$('cancelAddress').value.trim();
+    invalidateCancellation();
+    const generation=cancelGeneration,address=cancelAddress;
+    $('cancelFlow').hidden=!unresolvedCancel;
+    if(unresolvedCancel){$('cancelSigningInstructions').hidden=false;$('checkCancelStatus').hidden=false;setCancelStatus(`Есть неподтверждённая отмена ${unresolvedCancel.ref}; проверяйте только исходный txid ${unresolvedCancel.txid}. Не отправляйте повторно.`);}
+    try{const rows=await getOwnOrders(address);if(!cancellationCurrent(generation,address))return;showOrders(rows);if(!unresolvedCancel)setCancelStatus('Список получен из текущей цепи.');}
+    catch(error){if(cancellationCurrent(generation,address)){$('cancelOrders').textContent=error.message;setCancelStatus(error.message,true);}}
+  });
+  async function selectOrder(ref) {
+    if(cancelBusy)return;
+    let generation,address;
+    try{
+      if(unresolvedCancel)throw Error('Предыдущая отмена ещё не подтверждена. Проверьте её исходный txid.');
+      if(!addressRe.test(cancelAddress)||!/^[A-Za-z0-9]{8}$/.test(ref))throw Error('Некорректный адрес или ref.');
+      invalidateCancellation();generation=cancelGeneration;address=cancelAddress;
+      $('cancelFlow').hidden=true;
+      const latest=await getOwnOrders(address);
+      if(!cancellationCurrent(generation,address))return;
+      const order=latest.find(o=>o.ref===ref);
+      if(!order||order.from!==address||order.status!=='open')throw Error('Ордер отсутствует, уже закрыт или принадлежит другому адресу.');
+      selectedOrder=order;$('prepareCancelRequest').disabled=false;$('checkCancelStatus').hidden=true;$('cancelFlow').hidden=false;
+      $('cancelOrderDetails').textContent=JSON.stringify({ref:order.ref,maker:order.from,item:order.item,side:order.side,qty:order.qty,price:order.price,filled:order.filled||0,status:order.status},null,2);
+      $('cancelSigningInstructions').hidden=true;
+      setCancelStatus('Ордер проверен в цепи. Проверьте его данные, затем подготовьте запрос подписи.');
+      $('cancelFlow').scrollIntoView({behavior:'smooth',block:'center'});
+    }catch(error){if(generation===undefined||cancellationCurrent(generation,address))setCancelStatus(error.message,true);}
+  }
+  async function sha256dText(text) {
+    const first=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',first))).map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  async function cancellationTxid(tx) {
+    return sha256dText(JSON.stringify({from:tx.from,to:tx.to,amount:tx.amount,nonce:tx.nonce,ts:tx.ts,memo:tx.memo||''}));
+  }
+  $('prepareCancelRequest').addEventListener('click', async () => {
+    if(cancelBusy||unresolvedCancel)return;
+    const generation=++cancelGeneration,address=cancelAddress,order=selectedOrder;
+    cancelRequest=null;signedCancellation=null;cancelConsumed=false;cancelUploadGeneration++;
+    $('sendCancel').disabled=true;$('cancelResponseFile').value='';$('cancelSigningInstructions').hidden=true;
+    try{
+      if(!order||order.from!==address||order.status!=='open')throw Error('Сначала выберите свой открытый ордер.');
+      const current=(await getOwnOrders(address)).find(o=>o.ref===order.ref);
+      if(!cancellationCurrent(generation,address)||selectedOrder!==order)return;
+      if(!current||current.from!==address||current.status!=='open')throw Error('Ордер уже закрыт или не принадлежит выбранному адресу.');
+      const info=await cancellationJson('/info');
+      if(!cancellationCurrent(generation,address)||selectedOrder!==order)return;
+      if(info.status!==200||typeof info.data?.chainId!=='string'||!txidRe.test(info.data?.genesisHash||''))throw Error('Не удалось закрепить сеть и genesis ноды.');
+      const random=new Uint32Array(1);crypto.getRandomValues(random);
+      const tx={from:address,to:address,amount:0.001,nonce:Date.now()*1000+(random[0]%1000),ts:Math.floor(Date.now()/1000),memo:`dxe|C|${current.ref}`};
+      tx.txid=await cancellationTxid(tx);
+      if(!cancellationCurrent(generation,address)||selectedOrder!==order)return;
+      cancelRequest={schema:'agt-dxe-cancel-request-v1',nodeUrl:location.origin,network:info.data.chainId,genesisHash:info.data.genesisHash,address,ref:current.ref,tx};
+      const fileName=`dxe-cancel-${current.ref}.json`,blob=new Blob([JSON.stringify(cancelRequest,null,2)+'\n'],{type:'application/json'}),link=document.createElement('a');
+      link.href=URL.createObjectURL(blob);link.download=fileName;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),30000);
+      $('cancelCommand').textContent=`node agent-wallet/src/cli.mjs sign-cancel "PROFILE_PATH" "${fileName}" --out "dxe-cancel-${current.ref}-signed.json"`;
+      $('cancelSigningInstructions').hidden=false;
+      setCancelStatus(`Запрос ${tx.txid} подготовлен для сети ${cancelRequest.network}. Сайт не получил ключ или пароль.`);
+    }catch(error){if(cancellationCurrent(generation,address))setCancelStatus(error.message||'Не удалось подготовить запрос.',true);}
+  });
+  $('cancelResponseFile').addEventListener('change', async event => {
+    if(cancelBusy||cancelConsumed)return;
+    const generation=cancelGeneration,uploadGeneration=++cancelUploadGeneration,address=cancelAddress,request=cancelRequest;
+    const stillCurrent=()=>cancellationCurrent(generation,address)&&uploadGeneration===cancelUploadGeneration&&cancelRequest===request;
+    signedCancellation=null;$('sendCancel').disabled=true;
+    try{
+      if(!request)throw Error('Запрос отсутствует или уже использован.');
+      const file=event.target.files?.[0];if(!file||file.size>8192)throw Error('Выберите подписанный JSON-ответ размером до 8 KiB.');
+      const response=JSON.parse(await file.text()),tx=response?.tx;
+      if(!stillCurrent())return;
+      if(response?.schema!=='agt-dxe-cancel-response-v1'||response.nodeUrl!==request.nodeUrl||response.network!==request.network||response.genesisHash!==request.genesisHash||response.ref!==request.ref||!tx||
+        tx.from!==address||tx.to!==address||tx.amount!==0.001||tx.memo!==`dxe|C|${request.ref}`||tx.txid!==request.tx.txid||tx.nonce!==request.tx.nonce||tx.ts!==request.tx.ts||
+        !Number.isSafeInteger(tx.nonce)||!Number.isSafeInteger(tx.ts)||!sigRe.test(tx.signature||'')||typeof tx.fromPub!=='string'||await cancellationTxid(tx)!==tx.txid)throw Error('Ответ не соответствует выбранному ордеру и исходному запросу.');
+      const pubHash=await sha256dText(tx.fromPub),checksum=await sha256dText(pubHash),derived='AGT'+pubHash.slice(0,32)+checksum.slice(0,8);
+      if(derived!==address)throw Error('Подписывающий ключ не соответствует владельцу ордера.');
+      const pem=tx.fromPub.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'');
+      const der=Uint8Array.from(atob(pem),c=>c.charCodeAt(0)),publicKey=await crypto.subtle.importKey('spki',der,{name:'Ed25519'},false,['verify']);
+      const signature=Uint8Array.from(tx.signature.match(/../g),x=>parseInt(x,16)),message=Uint8Array.from(tx.txid.match(/../g),x=>parseInt(x,16));
+      if(!await crypto.subtle.verify({name:'Ed25519'},publicKey,signature,message))throw Error('Подпись отмены неверна.');
+      if(!stillCurrent())return;
+      signedCancellation=response;$('sendCancel').disabled=false;setCancelStatus('Подпись локально проверена; отправка ещё не выполнена.');
+    }catch(error){if(stillCurrent()){signedCancellation=null;$('sendCancel').disabled=true;setCancelStatus(error.message||'Подписанный ответ не принят.',true);}}
+  });
+  async function cancellationStatus(txid,ref,address=cancelAddress) {
+    const proof=await cancellationJson('/txproof/'+encodeURIComponent(txid));
+    if(proof.status!==200)return {included:false};
+    const p=proof.data;
+    if(p?.txid!==txid||!Number.isSafeInteger(p.height)||!p.header||!Array.isArray(p.merkleBranch))throw Error('proof_invalid');
+    let root=txid;for(const n of p.merkleBranch){if(!txidRe.test(n?.hash||'')||!['left','right'].includes(n?.side))throw Error('proof_invalid');root=await sha256dText(n.side==='right'?root+n.hash:n.hash+root);}
+    const h=p.header,blockHash=await sha256dText([h.version,h.prevHash,h.merkleRoot,h.timestamp,h.difficultyBits,h.nonce,h.chainId].join('|'));
+    if(root!==h.merkleRoot||blockHash!==p.blockHash)throw Error('proof_invalid');
+    const rows=await getOwnOrders(address),order=rows.find(o=>o.ref===ref);
+    return {included:true,order,proof:p};
+  }
+  async function waitForCancellation(txid,ref,address,timeoutMs=20000) {
+    const end=Date.now()+timeoutMs;
+    while(Date.now()<end){
+      const state=await cancellationStatus(txid,ref,address);
+      if(state.included&&state.order?.status==='canceled')return true;
+      if(state.included&&state.order&&state.order.status!=='open')throw Error('Транзакция включена, но индекс ордеров не подтвердил canceled.');
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    return false;
+  }
+  $('sendCancel').addEventListener('click', async () => {
+    if(cancelBusy||cancelConsumed||unresolvedCancel||!signedCancellation||!selectedOrder||!cancelRequest)return;
+    const generation=cancelGeneration,address=cancelAddress,order=selectedOrder,request=cancelRequest,response=signedCancellation,tx=response.tx;
+    if(request.ref!==order.ref||response.ref!==order.ref||tx.txid!==request.tx.txid||tx.from!==address||tx.to!==address||tx.memo!==`dxe|C|${order.ref}`){setCancelStatus('Подпись не соответствует текущему ордеру. Подготовьте запрос заново.',true);return;}
+    const stillCurrent=()=>cancellationCurrent(generation,address)&&cancelRequest===request&&selectedOrder===order&&signedCancellation===response;
+    cancelBusy=true;cancelConsumed=true;$('sendCancel').disabled=true;$('cancelAddress').disabled=true;$('loadMyOrders').disabled=true;$('prepareCancelRequest').disabled=true;$('cancelResponseFile').disabled=true;
+    try {
+      const current=(await getOwnOrders(address)).find(o=>o.ref===order.ref);
+      if(!stillCurrent())throw Error('Выбранный ордер изменился. Отправка остановлена.');
+      if(!current||current.from!==address||current.status!=='open')throw Error('Ордер уже закрыт или принадлежит другому адресу.');
+      const pre=await cancellationJson('/tx/preflight',{method:'POST',body:tx});
+      if(!stillCurrent())throw Error('Выбранный ордер изменился. Отправка остановлена.');
+      if(pre.status!==200||pre.data?.verdict!=='preflight_pass'||pre.data?.signature?.ok!==true||pre.data?.network_ok!==true||pre.data?.balance?.ok!==true||pre.data?.nonce?.ok!==true||Number(pre.data?.fee?.amount)!==0)throw Error('Нода отклонила read-only preflight; транзакция не отправлена.');
+      setCancelStatus('Предварительная проверка пройдена. Отправляется один раз; ожидаю блок.');
+      saveUnresolvedCancel({address,ref:request.ref,txid:tx.txid,at:Date.now()});
+      const submit=await cancellationJson('/tx',{method:'POST',body:tx});
+      if((submit.status!==200&&submit.status!==201)||submit.data?.accepted!==true){if(submit.status>=400&&submit.status<500)clearUnresolvedCancel();throw Error(`Нода не приняла отмену (HTTP ${submit.status}).`);}
+      const confirmed=await waitForCancellation(tx.txid,request.ref,address);
+      $('checkCancelStatus').hidden=false;
+      if(!confirmed){setCancelStatus(`Принято в mempool, но блок за 20 секунд не подтверждён. Проверяйте только исходный txid ${tx.txid}; повторно не отправляйте.`);return;}
+      clearUnresolvedCancel();
+      setCancelStatus(`Подтверждено: ордер ${request.ref} имеет статус canceled в цепи. txid ${tx.txid}.`);
+      showOrders(await getOwnOrders(address));
+    } catch(error) {
+      setCancelStatus(error.message||'Отмена не завершена. Повторная отправка заблокирована; проверьте исходный txid.',true);
+      $('checkCancelStatus').hidden=false;
+    } finally { cancelBusy=false;$('cancelAddress').disabled=false;$('loadMyOrders').disabled=false;$('prepareCancelRequest').disabled=false;$('cancelResponseFile').disabled=false; }
+  });
+  $('checkCancelStatus').addEventListener('click',async()=>{
+    const pending=unresolvedCancel|| (cancelRequest&&signedCancellation?{address:cancelAddress,ref:cancelRequest.ref,txid:signedCancellation.tx.txid}:null);
+    if(!pending)return;
+    try{const state=await cancellationStatus(pending.txid,pending.ref,pending.address);if(state.included&&state.order?.status==='canceled'){clearUnresolvedCancel();cancelAddress=pending.address;$('cancelAddress').value=cancelAddress;setCancelStatus(`Подтверждено: ордер ${pending.ref} canceled. txid ${pending.txid}.`);showOrders(await getOwnOrders());}else setCancelStatus(`Пока не подтверждено; исходный txid ${pending.txid}. Не отправляйте повторно.`);}
+    catch(error){setCancelStatus('Статус пока недоступен. Используйте только исходный txid; не отправляйте повторно.',true);}
+  });
+
+  if(unresolvedCancel){cancelAddress=unresolvedCancel.address;$('cancelAddress').value=cancelAddress;$('cancelFlow').hidden=false;$('cancelSigningInstructions').hidden=false;$('checkCancelStatus').hidden=false;$('prepareCancelRequest').disabled=true;setCancelStatus(`Есть неподтверждённая отмена ${unresolvedCancel.ref}. Проверьте исходный txid ${unresolvedCancel.txid}; не отправляйте повторно.`);}
+  window.selectMbc20CancellationOrder = function(ref) {
+    if(cancelBusy)return;
+    const address = document.getElementById('addrInput')?.value.trim() || '';
+    if (address) $('cancelAddress').value = address;
+    cancelAddress = $('cancelAddress').value.trim();
+    $('myOrdersPanel').scrollIntoView({behavior:'smooth',block:'center'});
+    selectOrder(ref);
+  };
 })();
 </script>
 </body>

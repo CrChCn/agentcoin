@@ -24,7 +24,7 @@ const pages=['index.html','imperial.html','terminal.html','dashboard.html','chat
 const files={};
 for(const page of pages){
   let bytes;
-  try{bytes=execFileSync('git',['show','HEAD:site/'+page],{cwd:root,maxBuffer:20*1024*1024});}
+  try{bytes=execFileSync('git',['show','HEAD:site/'+page],{cwd:root,maxBuffer:20*1024*1024,stdio:['ignore','pipe','pipe']});}
   catch{throw new Error(`site_page_not_in_git:${page} (commit site/${page} before building release.json)`);}
   files[page]=crypto.createHash('sha256').update(bytes).digest('hex');
   // честная сверка: рабочий файл (не переходы строк — autocrlf) должен отличаться от фиксации только в одном случае — когда действительно правится сайт и коммит ещё не сделан.

@@ -1,0 +1,8 @@
+{
+  "name": "agentcoin-agent-wallet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test test/*.test.mjs", "wallet": "node src/cli.mjs", "build:site": "node ../scripts/build-site-release.mjs" }
+}

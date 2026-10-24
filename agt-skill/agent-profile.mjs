@@ -8,6 +8,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { txDigest, verifyTransaction, unitsOfAmountBigInt, escrowReceiptDigest } from '../core.mjs';
 import { createSeedWallet, recoverFromMnemonic } from '../bip39-lite.mjs';
 import {
   canonicalAgentChallenge, validateAgentChallenge, canonicalAgentPublicKey,
@@ -250,6 +251,114 @@ export async function signProfileChallenge({ profilePath = DEFAULT_PROFILE_PATH,
   if (typeof challenge.message !== 'string' || challenge.message !== message) fail('challenge_message_mismatch');
   const signature = crypto.sign(null, Buffer.from(message, 'utf8'), secret.privKey).toString('hex');
   return { challengeId: challenge.challengeId, address: secret.address, pub: secret.pub, signature };
+}
+
+/** Sign one exact, explicitly reviewed Agentcoin v1 transfer in the existing encrypted profile. */
+export async function signProfileWalletIntent({ profilePath = DEFAULT_PROFILE_PATH, password, request,
+  expectedNetwork, expectedGenesisHash, expectedNodeUrl, now = Date.now() } = {}) {
+  if (!request || Object.getPrototypeOf(request) !== Object.prototype ||
+      Object.keys(request).sort().join('|') !== 'genesisHash|intent|network|schema' ||
+      request.schema !== 'agentcoin.wallet.intent.v1') fail('invalid_wallet_intent_request');
+  if (typeof expectedNetwork !== 'string' || !/^[a-f0-9]{64}$/.test(expectedGenesisHash || '') ||
+      !/^https:\/\//.test(expectedNodeUrl || '') && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(expectedNodeUrl || '')) fail('wallet_trust_pin_mismatch');
+  if (request.network !== expectedNetwork || request.genesisHash !== expectedGenesisHash) fail('wallet_trust_pin_mismatch');
+  const intent = request.intent;
+  if (!intent || Object.getPrototypeOf(intent) !== Object.prototype ||
+      Object.keys(intent).sort().join('|') !== 'amount|createdAt|expiresAt|from|memo|nonce|to' ||
+      !/^AGT[0-9a-f]{40}$/.test(intent.from || '') || !/^AGT[0-9a-f]{40}$/.test(intent.to || '') ||
+      typeof intent.amount !== 'string' || !/^(0|[1-9]\d*)(\.\d{1,9})?$/.test(intent.amount) ||
+      !Number.isSafeInteger(intent.createdAt) || !Number.isSafeInteger(intent.expiresAt) || intent.expiresAt <= Math.floor(now / 1000) ||
+      intent.expiresAt <= intent.createdAt || intent.expiresAt - intent.createdAt > 300 || !Number.isSafeInteger(intent.nonce) ||
+      typeof intent.memo !== 'string' || Buffer.byteLength(intent.memo, 'utf8') > 512 || /[\u0000-\u001f\u007f]/.test(intent.memo)) fail('invalid_wallet_intent');
+  const [whole, fraction = ''] = intent.amount.split('.');
+  const units = BigInt(whole) * 1000000000n + BigInt(fraction.padEnd(9, '0'));
+  if (units < 1n || units > BigInt(Number.MAX_SAFE_INTEGER)) fail('wallet_amount_out_of_range');
+  try { if (unitsOfAmountBigInt(Number(intent.amount)) !== units) fail('wallet_amount_not_exact_in_network_format'); }
+  catch { fail('wallet_amount_not_exact_in_network_format'); }
+  const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+  if (secret.network !== expectedNetwork || intent.from !== secret.address) fail('wallet_profile_mismatch');
+  const tx = { from: intent.from, fromPub: secret.pub, to: intent.to, amount: Number(intent.amount),
+    nonce: intent.nonce, ts: intent.createdAt, memo: intent.memo };
+  tx.txid = txDigest(tx);
+  tx.signature = crypto.sign(null, Buffer.from(tx.txid, 'hex'), secret.privKey).toString('hex');
+  if (addressFromPub(tx.fromPub) !== tx.from || !verifyTransaction(tx)) fail('wallet_signature_self_check_failed');
+  return { schema: 'agentcoin.wallet.signed.v1', network: expectedNetwork, genesisHash: expectedGenesisHash,
+    intent: structuredClone(intent), tx };
+}
+
+/** Sign the current cabinet op-request payload (AGIP-46) without trusting its node pins. */
+export async function signProfileWalletOperation({ profilePath = DEFAULT_PROFILE_PATH, password, operation,
+  expectedNetwork, expectedGenesisHash, expectedNodeOrigin } = {}) {
+  if (typeof expectedNetwork !== 'string' || !/^[a-f0-9]{64}$/.test(expectedGenesisHash || '') ||
+      typeof expectedNodeOrigin !== 'string') fail('wallet_trust_pin_mismatch');
+  let origin; try { origin = new URL(expectedNodeOrigin).origin; } catch { fail('wallet_trust_pin_mismatch'); }
+  if (origin !== expectedNodeOrigin || !/^https:\/\//.test(origin) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(origin)) fail('wallet_trust_pin_mismatch');
+  if (!operation || Object.getPrototypeOf(operation) !== Object.prototype || Object.keys(operation).sort().join('|') !== 'opId|payload|schema|sourceOrigin' || operation.schema !== 'agt-agent-wallet-op-v1' ||
+      typeof operation.sourceOrigin !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(operation.opId || '') ||
+      !operation.payload || Object.getPrototypeOf(operation.payload) !== Object.prototype) fail('invalid_wallet_operation');
+  let sourceOrigin; try { sourceOrigin = new URL(operation.sourceOrigin).origin; } catch { fail('invalid_wallet_operation'); }
+  if (sourceOrigin !== operation.sourceOrigin || !/^https:\/\//.test(sourceOrigin) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(sourceOrigin)) fail('invalid_wallet_operation');
+  if (sourceOrigin !== origin) fail('origin_mismatch');
+  const p = operation.payload;
+  if (p.kind === 'job-claim') {
+    if (Object.keys(p).sort().join('|') !== 'address|amount|digestHex|employer|escId|kind|taskHash|worker' ||
+        !/^AGT[0-9a-f]{40}$/.test(p.address || '') || !/^AGT[0-9a-f]{40}$/.test(p.worker || '') ||
+        !/^AGT[0-9a-f]{40}$/.test(p.employer || '') || typeof p.escId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(p.escId) ||
+        typeof p.taskHash !== 'string' || !/^[a-f0-9]{64}$/.test(p.taskHash) || typeof p.digestHex !== 'string' || !/^[a-f0-9]{64}$/.test(p.digestHex) ||
+        typeof p.amount !== 'number' || !Number.isFinite(p.amount) || p.amount <= 0 || p.address !== p.worker ||
+        escrowReceiptDigest(p.escId, p.taskHash, p.worker, p.amount) !== p.digestHex) fail('invalid_wallet_operation');
+    const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+    if (secret.network !== expectedNetwork || p.worker !== secret.address) fail('wallet_profile_or_digest_mismatch');
+    const signature = crypto.sign(null, Buffer.from(p.digestHex, 'hex'), secret.privKey).toString('hex');
+    if (!crypto.verify(null, Buffer.from(p.digestHex, 'hex'), secret.pub, Buffer.from(signature, 'hex'))) fail('wallet_signature_self_check_failed');
+    return { schema: 'agt-agent-wallet-signed-op-v1', opId: operation.opId, digestHex: p.digestHex, signature, pub: secret.pub,
+      network: expectedNetwork, genesisHash: expectedGenesisHash, sourceOrigin: origin };
+  }
+
+  const hasRef = Object.keys(p).sort().join('|') === 'kind|ref|tx|txidHex';
+  if (!['send', 'order'].includes(p.kind) || (!hasRef && Object.keys(p).sort().join('|') !== 'kind|tx|txidHex') ||
+      !p.tx || Object.getPrototypeOf(p.tx) !== Object.prototype || Object.keys(p.tx).sort().join('|') !== 'amount|from|fromPub|memo|nonce|to|ts|txid' ||
+      p.txidHex !== p.tx.txid) fail('invalid_wallet_operation');
+  const tx = p.tx;
+  if (typeof tx.from !== 'string' || typeof tx.to !== 'string' || !/^AGT[0-9a-f]{40}$/.test(tx.from) ||
+      !/^AGT[0-9a-f]{40}$/.test(tx.to) || typeof tx.amount !== 'number' || !Number.isFinite(tx.amount) ||
+      !Number.isSafeInteger(tx.nonce) || !Number.isSafeInteger(tx.ts) || typeof tx.memo !== 'string' ||
+      Buffer.byteLength(tx.memo, 'utf8') > 512 || /[\u0000-\u001f\u007f]/.test(tx.memo) ||
+      tx.ts > Math.floor(Date.now() / 1000) + 30 || Math.floor(Date.now() / 1000) - tx.ts > 300) fail('invalid_wallet_operation');
+  if (p.kind === 'send') {
+    if (hasRef || tx.to === tx.from) fail('invalid_wallet_operation');
+  } else {
+    const match = /^dxe\|O\|([bs])\|([^|\r\n]{1,40})\|((?:0\.\d+|[1-9]\d*(?:\.\d+)?))\|((?:0\.\d+|[1-9]\d*(?:\.\d+)?))\|([A-Za-z0-9]{8})$/.exec(tx.memo);
+    if (!hasRef || !match || !match[2].startsWith('mbc20:') || !Number.isFinite(Number(match[3])) || Number(match[3]) <= 0 ||
+        !Number.isFinite(Number(match[4])) || Number(match[4]) <= 0 || String(Number(match[3])) !== match[3] || String(Number(match[4])) !== match[4] ||
+        tx.to !== tx.from || tx.amount !== 0.001 || p.ref !== match[5]) fail('invalid_wallet_operation');
+  }
+  const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+  if (secret.network !== expectedNetwork || tx.from !== secret.address || tx.fromPub !== secret.pub || tx.txid !== txDigest(tx)) fail('wallet_profile_or_txid_mismatch');
+  // Parse the public site's amount through the same exact 1e-9-unit conversion as consensus.
+  unitsOfAmountBigInt(tx.amount);
+  const signature = crypto.sign(null, Buffer.from(tx.txid, 'hex'), secret.privKey).toString('hex');
+  if (!crypto.verify(null, Buffer.from(tx.txid, 'hex'), secret.pub, Buffer.from(signature, 'hex'))) fail('wallet_signature_self_check_failed');
+  return { schema: 'agt-agent-wallet-signed-op-v1', opId: operation.opId, txid: tx.txid, signature, pub: secret.pub,
+    network: expectedNetwork, genesisHash: expectedGenesisHash, sourceOrigin: origin };
+}
+
+/** Sign only a DXE cancellation self-transfer with the pinned local node and explicit ref. */
+export async function signProfileDxeCancellation({ profilePath = DEFAULT_PROFILE_PATH, password, tx,
+  expectedNetwork, expectedGenesisHash, expectedNodeOrigin, now = Date.now() } = {}) {
+  let origin; try { origin = new URL(expectedNodeOrigin).origin; } catch { fail('wallet_trust_pin_mismatch'); }
+  if (typeof expectedNetwork !== 'string' || !/^[a-f0-9]{64}$/.test(expectedGenesisHash || '') || origin !== expectedNodeOrigin ||
+      !/^https:\/\//.test(origin) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(origin)) fail('wallet_trust_pin_mismatch');
+  if (!tx || Object.getPrototypeOf(tx) !== Object.prototype || Object.keys(tx).sort().join('|') !== 'amount|from|fromPub|memo|nonce|to|ts|txid' ||
+      !/^AGT[0-9a-f]{40}$/.test(tx.from || '') || tx.to !== tx.from || tx.amount !== 0.001 ||
+      !/^dxe\|C\|[A-Za-z0-9]{8}$/.test(tx.memo || '') || !Number.isSafeInteger(tx.nonce) || !Number.isSafeInteger(tx.ts) ||
+      tx.ts > Math.floor(now / 1000) + 30 || Math.floor(now / 1000) - tx.ts > 300 || tx.txid !== txDigest(tx)) fail('invalid_dxe_cancellation');
+  const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+  if (secret.network !== expectedNetwork || tx.from !== secret.address || tx.fromPub !== secret.pub) fail('wallet_profile_or_txid_mismatch');
+  const signature = crypto.sign(null, Buffer.from(tx.txid, 'hex'), secret.privKey).toString('hex');
+  const signedTx = { ...tx, signature };
+  if (!verifyTransaction(signedTx)) fail('wallet_signature_self_check_failed');
+  return signedTx;
 }
 
 async function stdinJSON() {

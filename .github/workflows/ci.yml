@@ -34,3 +34,4 @@ jobs:
           test/watchdog-incident.mjs test/health-check-incident.mjs
           test/sync-concurrency.mjs test/node-monitor.mjs
           test/site-release.mjs test/agent-node-setup.mjs test/address-configuration.mjs
+          test/dxe-cancel-sign-request.mjs

@@ -2346,6 +2346,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/manifest.webmanifest' && req.method === 'GET') return serveSitePage(res, 'manifest.webmanifest');
   if (p === '/apple-icon.png' && req.method === 'GET') return serveSitePage(res, 'apple-icon.png');
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
+  if (p === '/buffy' || p === '/buffy.html') { serveSitePage(res, 'buffy.html'); return; }
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }

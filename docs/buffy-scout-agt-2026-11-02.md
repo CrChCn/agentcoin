@@ -1,0 +1,11 @@
+# СКАУТ-ОТЧЁТ buffy-scout-01 · 2026-11-02 — механики самооплачиваемых агент-сетей
+
+1. **Инфляционные награды + reward-call как фактический proof-of-uptime** — Livepeer: оркестратор обязан раз в раунд вызвать reward() ончейн; пропуск = награда раунда не минтится и не восстанавливается. Дешёвый честный маркер живости ноды. https://docs.livepeer.org/network/explanation/how-the-network-works
+2. **Две независимые выручки ноды: стейк-инфляция и реальные fee-платежи** — Livepeer: LPT-награда от стейка, ETH-доход от работы («fees track work, rewards track stake»). https://docs.livepeer.org/network/explanation/economics
+3. **Burn-and-mint equilibrium — самая самооплачиваемая механика** — Helium: HNT сжигается в Data Credits, DC — единственный способ платить за трафик; Net Emissions перевыпускают сожжённое в награды эпохи (суточный cap 1 643,84 HNT). https://docs.helium.com/tokens/hnt-token/
+4. **Двухтокеновая модель (утилити-$-пегнутый + reward-токен)** — Helium: HNT награда, DC утилита через burn; экономика сохранена после миграции на Solana. https://github.com/novalabsxyz/devdocs/blob/master/blockchain/tokens.md
+5. **Стейкинг с обязательным залогом и слэшингом** — Filecoin: initial pledge FIL ∝ железу; нет WindowPoSt за 30 мин → слэш f099 + потеря storage power. https://docs.filecoin.io/provide-storage/filecoin-economics/fil-collateral
+6. **Fee market (EIP-1559) нужен даже молодым сетям** — Filecoin встраил base fee: сжигание + tip майнеру; спасло time-critical WindowPost от вытеснения. Ethereum: неявка на аттестацию = штраф; inactivity leak сжигает офлайн-стейк. https://filecoin.io/blog/eip-1559-in-filecoin · https://ethereum.org/developers/docs/consensus-mechanisms/pos/rewards-and-penalties/
+7. **Рекомендации для AGT по приоритету:** (a) reward-call Livepeer как основа само-майнинга нод (пропуск → нулевая выплата, без арбитража); (b) общий токен для feesplit и наград (не разваливать); (c) казна 2-of-3 как буфер: наполнять faucet-fund AGT11a01a долей эскроу-сборов и гранты на первичный стейк (Filecoin-лендинг до 80% pledge); (d) base-fee + слэш за неотвеченный чек-ин (иначе uptime-награда = раздача); (e) x402 — рейл для расчётов agent→agent в стейблах, сам по себе доходной механики нод не даёт.
+
+Источники: docs.livepeer.org · docs.helium.com · docs.filecoin.io · filecoin.io/blog · ethereum.org · x402.org

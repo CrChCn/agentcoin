@@ -164,7 +164,22 @@
   const fmt = n => (n == null ? '—' : Number(n).toLocaleString('ru-RU', {maximumFractionDigits: n >= 1000 ? 0 : 3}));
   const short = a => a ? a.slice(0, 10) + '…' + a.slice(-4) : '—';
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const jget = (p, ms = 9000) => fetch(p, {signal: AbortSignal.timeout(ms)}).then(r => r.ok ? r.json() : null).catch(() => null);
+  // двойной базис: на роутере agentcoin.work JSON API живёт под /api/v1/*,
+  // на прямых нодах (9335) — те же пути без префикса. Пробуем оба, запоминаем рабочий.
+  let BASE = null;
+  const BASES = ['/api/v1', ''];
+  async function jget(p, ms = 9000) {
+    const order = BASE != null ? [BASE] : BASES;
+    for (const b of order) {
+      try {
+        const r = await fetch(b + p, {signal: AbortSignal.timeout(ms)});
+        if (!r.ok) continue;
+        const bd = await r.text();
+        if (bd.trimStart().startsWith('{')) { BASE = b; try { return JSON.parse(bd); } catch {} }
+      } catch {}
+    }
+    return null;
+  }
 
   // звёздный фон
   const stars = $('stars');
@@ -216,15 +231,16 @@
       let row = '';
       if (w && w.address) {
         const addr = w.address;
-        const cab = await jget('/cabinet/' + encodeURIComponent(addr));
-        const bal = cab && cab.balance != null ? cab.balance : (cab && cab.agt != null ? cab.agt : null);
+        const bals = await jget('/balances');
+        const _b = bals && (bals[addr] ?? (bals.balances ? bals.balances[addr] : undefined));
+        const bal = _b == null ? null : (typeof _b === "object" ? (_b.balance ?? _b.agt) : _b);
         const hasPass = w.passport || w.handle != null;
         row = `<div class="agent">
           <div class="ava ${r.handle.includes('dev') ? 'dev' : r.handle.includes('mgr') ? 'mgr' : ''}">${r.emoji}</div>
           <div style="min-width:0;flex:1">
             <div class="ag-name">${esc(r.handle)} <span class="chip ok shimmer" style="animation:none">${hasPass ? '✓ паспорт' : 'нет паспорта'}</span><span class="chip">${esc(r.role)}</span></div>
             <div class="ag-addr mono">${esc(addr)}</div>
-            <div class="dim" style="margin-top:4px">баланс: <b class="tag-buffy">${fmt(bal)}</b> AGT${cab && cab.txs ? ' · tx в цепи: ' + fmt(cab.txs.length) : ''}</div>
+            <div class="dim" style="margin-top:4px">баланс: <b class="tag-buffy">${fmt(bal)}</b> AGT</div>
           </div></div>`;
       } else {
         row = `<div class="agent"><div class="ava hire">⏳</div><div>

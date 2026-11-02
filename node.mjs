@@ -116,17 +116,51 @@ if (process.env.AGT_SPORE === '1') {
   }
 }
 
+// Публичные read-only маршруты ноды (self-описание для витрин: imperial.server.html
+// сверяет availableReads по /capabilities). Честный список = фактически
+// поддерживаемые нодой публичные GET-маршруты (см. PUB_REQUEST_RE).
+const PUBLIC_READS = [
+  '/info', '/capabilities', '/life', '/health', '/network/nodes', '/site/release',
+  '/headers', '/blocks', '/mempool', '/peers/meta', '/peers/bootstrap', '/ws/status',
+  '/stats-data', '/dashboard', '/stats', '/index', '/jobs/state', '/escrow/state',
+  '/ops/watchdog/state', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
+  '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
+  '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
+  '/queue/status', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
+  '/security/status', '/security/banlist', '/security/attacks', '/whitelist/status',
+  '/gateway/list', '/balances',
+];
+// /balances пересчитывает балансы по всей цепи — снимок локально кэшируется на 5 с
+// (реальные данные с ноды, не подмённые значения; это тот же объём работы, что у
+// уже публичного POST /balance, просто меньше повторов под опрос витрин).
+const balancesSnapshot = { at: 0, data: null };
+
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
 function saveWallets(w) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(WALLETS_FILE, JSON.stringify(w, null, 2)); }
 
 function json(res, code, obj) {
-  res.writeHead(code, {
+  // CORS по allowlist: фронт шлёт credentials:'include', а браузер запрещает
+  // 'Access-Control-Allow-Origin: *' в связке с cookies — поэтому Origin эхом
+  // (свой домен/localhost), для них — echo запрошенных заголовков в префлайте.
+  const c = res.__cors || {};
+  const o = typeof c.origin === 'string' ? c.origin : '';
+  const allowed = !!o && (
+    /^https?:\/\/([a-z0-9-]+\.)?agentcoin\.work(:\d+)?$/.test(o) ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
+  const h = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Origin': allowed ? o : '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  });
+    'Vary': 'Origin',
+  };
+  if (allowed) {
+    h['Access-Control-Allow-Credentials'] = 'true';
+    h['Access-Control-Allow-Headers'] = c.acrh || 'Content-Type, Authorization';
+  } else {
+    h['Access-Control-Allow-Headers'] = '*';
+  }
+  res.writeHead(code, h);
   res.end(JSON.stringify(obj, null, 2));
 }
 
@@ -189,6 +223,23 @@ function lifeStatus() {
     ].filter(Boolean),
     security: { banned: bc.security.banList().length, attacks: bc.security.attacks.length },
     checkedAt: new Date().toISOString(),
+  };
+}
+
+// TZ-1.1-FINAL/AC-4: честная отметка «снимок/stale» для паспортов и CloudLedger.
+// TTL по умолчанию 900 c (15 мин), задаётся оператором AGT_SNAPSHOT_TTL_SEC.
+// Возраст — от timestamp tip-блока цепи; tip старше TTL = данные считаются снимком (stale:true).
+const SNAPSHOT_TTL_SEC = Number(process.env.AGT_SNAPSHOT_TTL_SEC || 900);
+function snapshotMark() {
+  const tip = bc.tip();
+  const now = Math.floor(Date.now() / 1000);
+  const snapshotTime = tip ? tip.header.timestamp : null;
+  const ageSec = snapshotTime !== null ? now - snapshotTime : null;
+  return {
+    stale: ageSec === null || ageSec > SNAPSHOT_TTL_SEC,
+    snapshot_time: snapshotTime !== null ? new Date(snapshotTime * 1000).toISOString() : null,
+    snapshot_ageSec: ageSec,
+    snapshot_ttl: SNAPSHOT_TTL_SEC,
   };
 }
 
@@ -257,7 +308,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -309,7 +360,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -365,6 +416,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   try {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
+  res.__cors = { origin: req.headers.origin, acrh: req.headers['access-control-request-headers'] };
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
   const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
   // health-эндпоинты (life/dashboard/корень) не лимитируем — маяк живости обязан отвечать всегда
@@ -372,7 +424,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   const healthFree = req.method === 'GET' && (
     p === '/life' || p === '/dashboard' || p === '/' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
-    p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/jobs' || p === '/jobs.html' ||
+    p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/buffy' || p === '/buffy.html' ||
+    p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
@@ -409,6 +462,26 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
+
+  // --- публичный срез балансов (витрины: balancesTb) ---
+  if (p === '/balances') {
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 20, 1), 200);
+    if (!balancesSnapshot.data || Date.now() - balancesSnapshot.at > 5000) {
+      const rows = Object.entries(bc.balances())
+        .filter(([, v]) => Number(v) > 0)
+        .sort((x, y) => y[1] - x[1])
+        .map(([address, balance]) => ({ address, balance }));
+      balancesSnapshot.data = { blocks: bc.blockCount(), totalAccounts: rows.length, balances: rows };
+      balancesSnapshot.at = Date.now();
+    }
+    const d = balancesSnapshot.data;
+    return json(res, 200, { ...d, balances: d.balances.slice(0, limit) });
+  }
+
+  // --- самоописание публичной read-only поверхности (витрины: availableReads) ---
+  if (p === '/capabilities') {
+    return json(res, 200, { ok: true, get: PUBLIC_READS.slice() });
+  }
 
   if (p === '/blocks') {
     const fromRaw = url.searchParams.get('from');
@@ -694,8 +767,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   // --- виртуальное облако + сжатие реестра ---
-  if (p === '/cloud/stats') return json(res, 200, cloud.stats());
-  if (p === '/cloud/epochs') return json(res, 200, { epochs: cloud.epochs.slice(-20).reverse() });
+  if (p === '/cloud/stats') return json(res, 200, { ...cloud.stats(), ...snapshotMark() });
+  if (p === '/cloud/epochs') return json(res, 200, { epochs: cloud.epochs.slice(-20).reverse(), ...snapshotMark() });
   if (p === '/cloud/ledger') {
     // хвост платёжного реестра (последние N строк)
     const n = Math.min(Number(url.searchParams.get('n')) || 20, 500);
@@ -704,7 +777,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
       const raw = fs.readFileSync(cloud.ledgerFile, 'utf8').trim().split('\n');
       tail = raw.slice(-n).map(l => { try { return JSON.parse(l); } catch { return { raw: l }; } });
     } catch {}
-    return json(res, 200, { lines: tail, total: cloud.ledgerLines });
+    return json(res, 200, { lines: tail, total: cloud.ledgerLines, ...snapshotMark() });
   }
 
   // --- L402-платный майнинг: сат→AGT через CyberGuard рельс ---
@@ -1179,7 +1252,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
 
   // --- life-guard ---
-  if (p === '/life') return json(res, 200, { ...lifeStatus(), shield: { loopLagMs, overloaded: Date.now() < shedUntil, rateMapSize: rateHits.size, maxConnections: server.maxConnections } });
+  if (p === '/life') return json(res, 200, { ...lifeStatus(), peers: hub.stats(), shield: { loopLagMs, overloaded: Date.now() < shedUntil, rateMapSize: rateHits.size, maxConnections: server.maxConnections } });
   // A-6 (Codex-ревизия): дешёвый liveness для watchdog/мониторов — БЕЗ bc.validate()
   // (иначе его 9-МБ проход вешал монитор). Публичный контракт: 200 = порт жив + поле
   // overloaded для различения «порушено» от «мёртв»; /life остаётся глубоким.
@@ -1549,7 +1622,18 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // --- P2P ---
   // --- инвентарь: WS-рассылка после коммита блока/приёма tx ---
-  if (p === '/ws/status') return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL });
+  if (p === '/ws/status') {
+    // ETAP1/FR-P2P-07:.peer_count/inbound/outbound/subnets + лимиты + seeds видимые
+    const st = hub.stats();
+    st.maxInbound = Number(process.env.AGT_MAX_INBOUND || 25);
+    st.maxOutbound = Number(process.env.AGT_MAX_OUTBOUND || 10);
+    const seeds = String(process.env.AGT_SEED_NODES || '').split(',').map(s => s.trim()).filter(s => /^https?:\/\//.test(s));
+    st.eclipseWarn = !st.subnetsOk; st.seed = seeds.length;
+    const lf = lifeStatus();
+    return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL,
+      blocks: lf.blocks, tipHash: lf.tipHash, tipAgeSec: lf.tipAgeSec, fresh: lf.fresh, chainValid: lf.chainValid,
+      genesisHash: bc.info ? bc.info().genesisHash : null, p2p: st });
+  }
 
   // --- минимальный вне-HTTP-майнинг: template + строгий submit ---
   if (p === '/blocktemplate' && req.method === 'POST') {
@@ -2019,7 +2103,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
-    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null, audit: summarizePassports(reg) });
+    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null, audit: summarizePassports(reg), ...snapshotMark() });
   }
   if (p === '/passport/issue' && req.method === 'POST') {
     const { address, handle = '', tax = null } = await body(req);
@@ -2301,6 +2385,10 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 
 // --- WebSocket P2P (RFC 6455): inv-рассылка блоков/транзакций пейрастной сети ---
 hub.attachServer(server, SELF_URL, {
+  // TZ-1.1-FINAL/AC-6.1: при полном inbound-капе новая нода получает peers из gossip
+  gossipPeers: () => loadPeers().slice(0, 50),
+  // ETAP1/FR-P2P-02: приветственное сообщение свежему входящему пиру — свой список peers (gossip)
+  onPeer: (peer) => { try { peer.sendJson({ type: 'peers', list: loadPeers().slice(0, 50) }); } catch {} },
   onBlock: (msg, peer) => {
     try {
       const blk = msg.block;
@@ -2378,6 +2466,16 @@ const hubMsgHandlers = {
       }
     } catch (e) { console.log('[ws] tx error', e.message); }
   },
+  // ETAP1/FR-P2P-02: gossip peer-листов ≤50 адресов — пилы сети) сообщают друг другу про others
+  onPeers: (list, peer) => {
+    try {
+      const valid = [...new Set(list)].filter(u => typeof u === 'string' && /^https?:\/\//.test(u) && !u.includes(SELF_URL) && !peer.theirUrl?.includes(u)).slice(0, 50);
+      const have = loadPeers();
+      let added = 0;
+      for (const u of valid) if (!have.includes(u)) { addPeer(u); added++; }
+      if (added) console.log(`[ws] gossip peers +${added} от ${peer.theirUrl || 'anon'}`);
+    } catch (e) { console.log('[ws] peers gossip error', e.message); }
+  },
 };
 const wsCooldown = new Map(); // peerUrl → untilMs (после close(1008) не перерываемся)
 const WS_COOLDOWN_MS = 5 * 60 * 1000;
@@ -2397,6 +2495,20 @@ function wsRetryClear(peerUrl) { wsRetry.delete(peerUrl); }
 const BOOTSTRAP_FILE = process.env.AGT_BOOTSTRAP_FILE || path.join(__dirname, 'bootstrap.json');
 function mergeBootstrapPeers() {
   if (process.env.AGT_PEER_DISCOVERY === '0') return;
+  // ETAP1/FR-P2P-01: seed-ноды из конфига — env AGT_SEED_NODES (csv) и/или DATA_DIR/seed-nodes.json
+  {
+    const seeds = String(process.env.AGT_SEED_NODES || '').split(',').map(s => s.trim()).filter(s => /^https?:\/\//.test(s));
+    try {
+      const f = path.join(DATA_DIR, 'seed-nodes.json');
+      if (fs.existsSync(f)) for (const s of JSON.parse(fs.readFileSync(f, 'utf8'))) if (/^https?:\/\//.test(s)) seeds.push(s);
+    } catch {}
+    if (seeds.length) {
+      const have = loadPeers();
+      let added = 0;
+      for (const u of seeds) if (!have.includes(u)) { addPeer(u); added++; }
+      if (added) console.log(`[peers] seeds merge: +${added} (seed config)`);
+    }
+  }
   try {
     const d = JSON.parse(fs.readFileSync(BOOTSTRAP_FILE, 'utf8'));
     const list = (d.bootstrap || []).filter(u => typeof u === 'string' && /^http/.test(u));
@@ -2412,7 +2524,12 @@ async function wsConnectLoop() {
   mergeBootstrapPeers();
   const peers = loadPeers();
   if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
-  for (const peerUrl of peers) {
+  // ETAP1/FR-P2P-03: лимит исходящих WS-соединений (default 10)
+  const maxOutbound = Number(process.env.AGT_MAX_OUTBOUND || 10);
+  const outNow = () => [...hub.peers].filter(p => p.isClient).length;
+  if (outNow() >= maxOutbound) { /* outbound cap reached */ }
+  else for (const peerUrl of peers) {
+    if (outNow() >= maxOutbound) break;
     if (!wsRetryReady(peerUrl)) continue; // AGIP-23: экспоненциальный бэк-off на неудачи
     const until = wsCooldown.get(peerUrl);
     if (until && until > Date.now()) continue;
@@ -2423,14 +2540,23 @@ async function wsConnectLoop() {
     try {
       const client = await connectClient(sockUrl, { timeoutMs: 4000 });
       client.connectedPeerUrl = peerUrl;
+      // TZ-1.1-FINAL/AC-6.1: client-side пир тоже живёт в hub — иначе stats(peer_count),
+      // cap + broadcast(inv) не видят исходящих соединений
+      hub.peers.add(client);
+      hub.byTheir.set(peerUrl, client);
       client.theirUrl = peerUrl;
       client.onMessage = (txt) => {
         let m = null; try { m = JSON.parse(txt); } catch { return; }
         if (m?.type === 'inv-block') hubMsgHandlers.onBlock(m, client);
         if (m?.type === 'inv-tx') hubMsgHandlers.onTx(m, client);
+        if (m?.type === 'peers') hubMsgHandlers.onPeers(m.list || [], client);
       };
+      // ETAP1/FR-P2P-02: сразу делимся своим списком пиров (gossip ≤50)
+      client.sendJson({ type: 'peers', list: peers.slice(0, 50) });
       client.onClose = () => {
         console.log(`[ws] отсоединён: ${peerUrl}`);
+        hub.peers.delete(client); // TZ-1.1-FINAL/AC-6.1: client-side пир чистится из hub
+        if (hub.byTheir.get(peerUrl) === client) hub.byTheir.delete(peerUrl);
         wsCooldown.set(peerUrl, Date.now() + WS_COOLDOWN_MS); // не метнуть в дедуп-сервер, уйти в бэк-off
         wsNextRetry(peerUrl);
       };

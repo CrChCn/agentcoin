@@ -94,10 +94,11 @@ export class PeerSocket {
   _writeFrame(opcode, payload) {
     const pl = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload));
     const len = pl.length;
+    const maskBit = this.isClient ? 0x80 : 0;
     let header;
-    if (len < 126) header = Buffer.from([0x80 | opcode, len]);
-    else if (len < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | opcode; header[1] = 126; header.writeUInt16BE(len, 2); }
-    else { header = Buffer.alloc(10); header[0] = 0x80 | opcode; header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2); }
+    if (len < 126) header = Buffer.from([0x80 | opcode, maskBit | len]);
+    else if (len < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | opcode; header[1] = maskBit | 126; header.writeUInt16BE(len, 2); }
+    else { header = Buffer.alloc(10); header[0] = 0x80 | opcode; header[1] = maskBit | 127; header.writeBigUInt64BE(BigInt(len), 2); }
     if (this.isClient) {
       const mask = crypto.randomBytes(4);
       const masked = Buffer.from(pl);
@@ -200,8 +201,42 @@ export class WsHub {
 
 
 
-  attachServer(server, selfUrl, { onBlock, onTx, onPeer } = {}) {
+  attachServer(server, selfUrl, { onBlock, onTx, onPeer, onPeers, gossipPeers } = {}) {
     server.on('upgrade', (req, socket, head) => {
+      // ETAP1/FR-P2P-03: лимит входящих WS-соединений — превышение = HTTP 503 без upgrade (connections cap)
+      const maxInbound = Number(process.env.AGT_MAX_INBOUND || 25);
+      if (this.peers.size >= maxInbound) {
+        // TZ-1.1-FINAL/AC-6.1: кап полный, но gossip отдаём ДО отказа —
+        // новая нода узнаёт адреса сети даже от заполненного узла:
+        // upgrade → один {type:'peers',list≤50} → close(1008 cap_reached).
+        let capUrl = null, capKey = null;
+        try { capUrl = new URL(req.url, 'http://localhost'); capKey = req.headers['sec-websocket-key']; } catch {}
+        if (capUrl && capUrl.pathname === '/ws' && capKey) {
+          const cpeers = (typeof gossipPeers === 'function' ? gossipPeers() : []).slice(0, 50);
+          try {
+            socket.write(
+              'HTTP/1.1 101 Switching Protocols\r\n' +
+              'Upgrade: websocket\r\n' +
+              'Connection: Upgrade\r\n' +
+              `Sec-WebSocket-Accept: ${acceptKey(capKey)}\r\n` +
+              '\r\n'
+            );
+            if (cpeers.length) socket.write(encodeFrame(OP_TEXT, JSON.stringify({ type: 'peers', list: cpeers })));
+            const cr = Buffer.from('cap_reached');
+            const cpl = Buffer.alloc(2 + cr.length);
+            cpl.writeUInt16BE(1008, 0);
+            cr.copy(cpl, 2);
+            socket.write(encodeFrame(OP_CLOSE, cpl));
+            socket.on('error', () => {});
+          } catch {}
+          console.log(`[ws] inbound cap ${maxInbound} — gossip ${cpeers.length} peers отдан, отказ ${req.socket?.remoteAddress || 'unknown'}`);
+        } else {
+          try { socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); } catch {}
+          console.log(`[ws] inbound cap ${maxInbound} — отклонён ${req.socket?.remoteAddress || 'unknown'}`);
+        }
+        setTimeout(() => { try { socket.destroy(); } catch {} }, 400);
+        return;
+      }
       // лауful глушение «error»: клиент мог отпасть до наших write (ECONNABORTED и пр.
       // иначе unhandled 'error' убивает ВЕСЬ сервер); destroy по умолчанию.
       socket.on('error', () => { try { socket.destroy(); } catch {} });
@@ -255,7 +290,7 @@ export class WsHub {
         if (this.byTheir.get(their) === peer) this.byTheir.delete(their);
         this.peers.delete(peer);
       };
-      peer.onMessage = (txt) => this._onIncoming(peer, txt, { onBlock, onTx });
+      peer.onMessage = (txt) => this._onIncoming(peer, txt, { onBlock, onTx, onPeers });
       if (onPeer) onPeer(peer);
       } catch (e) { try { socket.destroy(); } catch {} }
     });
@@ -270,9 +305,37 @@ export class WsHub {
   }
   count() { return this.peers.size; }
   roster() { return [...this.peers].map(p => ({ theirUrl: p.theirUrl, self: p.self })); }
+  stats() {
+    // ETAP1/FR-P2P-05/07: peer_count/inbound/outbound + подсети /24 (eclipse-детектор)
+    let outbound = 0;
+    const ips44 = [];
+    for (const p of this.peers) {
+      if (p.isClient) outbound++;
+      const ra = p.socket && p.socket.remoteAddress ? p.socket.remoteAddress : null;
+      if (ra) {
+        const ip4 = String(ra).replace(/^::ffff:/, '');
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(ip4)) ips44.push(ip4.split('.').slice(0, 3).join('.'));
+      }
+    }
+    const subnets = [...new Set(ips44)];
+    const withIp = [...this.peers].map(p => p.socket?.remoteAddress).filter(Boolean).length;
+    return { peer_count: this.peers.size, inbound: this.peers.size - outbound, outbound, withIp,
+      subnets, subnetsOk: subnets.length >= 2,
+      note: 'subnetsOk=false, если все пиры в одной /24 — eclipse-предупреждение (одиночный хост)' };
+  }
 
   // приём upstream: дубликаты отсекаются на уровне наших данных
   _onIncoming(peer, txt, handlers) {
+    // ETAP1/FR-P2P-06: 100 msg/s на peer, превышение = disconnect (флуд-щит)
+    const rateCap = Number(process.env.AGT_WS_MSG_RATE || 100);
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!peer._rateWin || peer._rateWin.sec !== nowSec) peer._rateWin = { sec: nowSec, n: 0 };
+    peer._rateWin.n++;
+    if (peer._rateWin.n > rateCap) {
+      console.log(`[ws] rate-limit ${peer.theirUrl || 'anon'}: ${peer._rateWin.n} msg/s > ${rateCap} → disconnect`);
+      try { peer.close(); } catch {}
+      return;
+    }
     let msg = null;
     try { msg = JSON.parse(txt); } catch { return; }
     if (process.env.AGT_WS_DEBUG) console.log(`[wsHub] in: ${String(txt).slice(0, 80)}`);
@@ -281,5 +344,6 @@ export class WsHub {
     if (msg.type === 'pong') return;
     if (msg.type === 'inv-block' && handlers.onBlock) { handlers.onBlock(msg, peer); return; }
     if (msg.type === 'inv-tx' && handlers.onTx) { handlers.onTx(msg, peer); return; }
+    if (msg.type === 'peers' && handlers.onPeers) { handlers.onPeers(msg.list || [], peer); return; }
   }
 }

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚜ Buffy Ops — оперативная управления агентами</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-icon.png">
+<style>
+  :root{
+    --gold:#f4e18e; --gold2:#c9a24b; --navy:#0a1220; --panel:rgba(14,24,42,.72);
+    --line:rgba(244,225,142,.22); --ok:#5fd39a; --warn:#ffb45c; --bad:#ff6b6b; --mini:#7fa8ff;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%, #14243f 0%, #0a1220 55%, #060b14 100%);
+    color:var(--gold); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh; overflow-x:hidden;
+  }
+  .stars{position:fixed;inset:0;pointer-events:none;z-index:0}
+  .stars i{position:absolute;width:2px;height:2px;border-radius:50%;background:var(--gold);opacity:.5;animation:tw 3s infinite}
+  @keyframes tw{0%,100%{opacity:.15}50%{opacity:.8}}
+  @keyframes tw{0%,100%{opacity:.15}50%{opacity:.8}}
+  header{position:relative;z-index:2;text-align:center;padding:26px 12px 8px}
+  h1{
+    font-size:clamp(22px,4vw,40px); letter-spacing:.06em; font-weight:600;
+    background:linear-gradient(100deg,#8f7533 12%,var(--gold) 40%,#fff3c4 52%,var(--gold) 64%,#8f7533 92%);
+    background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:sheen 5s linear infinite;
+  }
+  @keyframes sheen{to{background-position:200% center}}
+  .sub{color:#9db3d6;font-size:13px;margin-top:6px}
+  .crown{font-size:34px;display:inline-block;animation:crownPulse 2.6s ease-in-out infinite}
+  @keyframes crownPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 2px var(--gold2))}50%{transform:scale(1.12);filter:drop-shadow(0 0 14px var(--gold))}}
+  nav{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;z-index:2;position:relative;margin:10px 0 4px}
+  nav a{color:var(--gold2);text-decoration:none;font-size:12.5px;opacity:.85}
+  nav a:hover{opacity:1;text-decoration:underline}
+  main{max-width:1180px;margin:14px auto 60px;padding:0 14px;position:relative;z-index:2}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:14px}
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+    backdrop-filter:blur(6px); box-shadow:0 4px 22px rgba(0,0,0,.35); position:relative; overflow:hidden;
+  }
+  .card::before{content:'';position:absolute;top:0;left:-60%;width:40%;height:1px;
+    background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:scan 4.5s linear infinite}
+  @keyframes scan{to{left:110%}}
+  .num{font-size:clamp(20px,3vw,30px);font-weight:700;color:#fff;animation:numPop .4s ease}
+  @keyframes numPop{from{transform:scale(.92);opacity:.4}to{transform:scale(1);opacity:1}}
+  .lbl{font-size:12px;color:#9db3d6;margin-top:4px;letter-spacing:.03em}
+  .val-bump{animation:numPop .4s ease}
+  section{margin-top:20px}
+  section>h2{font-size:15px;color:var(--gold);letter-spacing:.05em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);animation:breathe 1.8s infinite}
+  .dot.bad{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+  .dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+  @keyframes breathe{0%,100%{opacity:.5}50%{opacity:1}}
+  /* Нейросеть */
+  .netwrap{display:grid;grid-template-columns:290px 1fr;gap:14px;align-items:stretch}
+  @media(max-width:860px){.netwrap{grid-template-columns:1fr}}
+  svg.net{width:100%;height:280px;display:block}
+  .hub{fill:var(--gold);animation:hubGlow 2.4s infinite}
+  @keyframes hubGlow{0%,100%{filter:drop-shadow(0 0 3px var(--gold2))}50%{filter:drop-shadow(0 0 14px var(--gold))}}
+  .nodec{fill:#2a3b5c;stroke:var(--gold2);stroke-width:1.2}
+  .nlabel{fill:#cfe0ff;font-size:11px;text-anchor:middle}
+  .link{stroke:rgba(201,162,75,.5);stroke-width:1.2;fill:none}
+  .pulse{fill:var(--gold)}
+  .pulse.slow{animation-dur:5s}
+  /* агенты */
+  .agent{display:flex;gap:12px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:rgba(10,18,32,.55)}
+  .ava{width:46px;height:46px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:22px;position:relative}
+  .ava::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--gold);animation:spin 1.6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .ava.dev{background:linear-gradient(135deg,#274a7a,#1a2c4e)}
+  .ava.mgr{background:linear-gradient(135deg,#5d3d7a,#2c1a4e)}
+  .ava.hire{background:#1c2536;filter:saturate(.4)}
+  .ag-name{font-weight:700;color:#fff}
+  .ag-addr{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#8fa8cc}
+  .chip{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;margin:2px 6px 2px 0;border:1px solid var(--line)}
+  .chip.ok{color:var(--ok);border-color:rgba(95,211,154,.4)}
+  .chip.warn{color:var(--warn);border-color:rgba(255,180,92,.4)}
+  .chip.hire{color:#9db3d6}
+  .chip.shimmer{background:linear-gradient(100deg,transparent 30%,rgba(244,225,142,.25) 50%,transparent 70%);background-size:200% auto;animation:sheen 2.4s linear infinite}
+  /* лента */
+  .log{max-height:300px;overflow-y:auto;font-size:12.5px}
+  .log::-webkit-scrollbar{width:6px}.log::-webkit-scrollbar-thumb{background:var(--gold2);border-radius:6px}
+  .log levy{color:#9db3d6}
+  .log-row{padding:7px 4px;border-bottom:1px dashed rgba(244,225,142,.12);animation:slideIn .5s ease}
+  @keyframes slideIn{from{transform:translateX(-14px);opacity:0}to{transform:none;opacity:1}}
+  .who{color:var(--gold2);font-weight:600}
+  .when{color:#6d84a8;font-size:10.5px}
+  .mono{font-family:ui-monospace,Consolas,monospace}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{color:var(--gold2);text-align:left;font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line)}
+  td{padding:4px 8px;border-bottom:1px dashed rgba(244,225,142,.1);color:#dbe7ff}
+  .tag-buffy{color:var(--gold)}
+  .refresh{position:fixed;right:16px;bottom:16px;width:44px;height:44px;border-radius:50%;border:2px solid var(--gold2);display:grid;place-items:center;font-size:18px;background:var(--panel);z-index:5}
+  .refresh span{position:absolute;inset:-2px;border-radius:50%;border:2px solid transparent;border-top-color:var(--gold);animation:spin var(--tick,8s) linear infinite}
+  .dim{color:#9db3d6;font-size:12px}
+  .bar{height:6px;border-radius:6px;background:#16233c;overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--gold2),var(--gold));animation:grow 1s ease}
+  @keyframes grow{from{width:0}}
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+<header>
+  <div class="crown">⚜</div>
+  <h1>BUFFY OPS — УПРАВЛЕНИЕ АГЕНТАМИ В РЕАЛЬНОЙ СЕТИ</h1>
+  <div class="sub">Живая цепь AGT · нанятые ИИ-агенты · ончейн-эскроу найма · казна империи · авто-обновление 8 сек</div>
+  <nav>
+    <a href="/imperial">⚜ Империя</a><a href="/stats">Пульс</a><a href="/jobs">Джобы</a><a href="/dashboard">Пульт</a><a href="/buffy">Буффи</a><a href="/mbc20">Биржа</a><a href="/chat">Чат</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <div class="grid" id="statGrid">
+      <div class="card"><div class="num" id="cHeight">—</div><div class="lbl">высота цепи · блок</div></div>
+      <div class="card"><div class="num" id="cSupply">—</div><div class="lbl">предложение AGT</div></div>
+      <div class="card"><div class="num" id="cTreasury">—</div><div class="lbl">фонд-казна faucet · AGT</div></div>
+      <div class="card"><div class="num" id="cPolicyBal">—</div><div class="lbl">казна ончейн-политики (2-of-3) · AGT</div></div>
+      <div class="card"><div class="num" id="cPassports">—</div><div class="lbl">паспортов выдано</div></div>
+      <div class="card"><div class="num" id="cJobs">—</div><div class="lbl">эскроу-джоб выплачено</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot" id="dotMain"></span>НЕЙРОСЕТЬ ОРКЕСТРА — Buffy в центре, нанятые агенты на орбите</h2>
+    <div class="netwrap">
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:13px;color:var(--gold2);margin-bottom:8px">ПОЛИТИКА КАЗНЫ (AGIP-4)</div>
+        <div class="mono" style="font-size:12px;color:#dbe7ff" id="policyBox">…</div>
+        <div class="bar"><i id="policyBar" style="width:0%"></i></div>
+        <div class="dim" style="margin-top:8px" id="policyNote">Загрузка /treasury/state…</div>
+      </div>
+      <div class="card"><svg class="net" viewBox="0 0 640 280" id="netSvg" aria-label="схета оркестра"></svg></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>НАНЯТЫЙ ПЕРСОНАЛ — паспорта, балансы, задачи (ончейн)</h2>
+    <div id="agentsBox"></div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>ЭСКРОУ-НАЙМ — деньги заморожены в цепи до сдачи работы</h2>
+    <div class="card"><table id="escTable"><thead><tr><th>escId</th><th>работодатель</th><th>исполнитель</th><th>AGT</th><th>дедлайн UTC</th></tr></thead><tbody></tbody></table>
+    <div class="dim" style="margin-top:6px" id="escNote"></div></div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>ЖУРНАЛ ОПЕРАЦИЙ — всё, что Buffy делает в сети (live /community/feed)</h2>
+    <div class="card"><div class="log" id="logBox"><span class="dim">подключение к ленте…</span></div></div>
+  </section>
+
+  <section class="dim" style="font-size:11px;opacity:.75">
+    Источники данных: /stats-data, /treasury/state, /passport/count, /jobs/state, /escrow/state, /community/feed, /whoami/&lt;handle&gt;, /cabinet/&lt;адрес&gt; — все публичные, прямо из живой цепи. Страницы buffy-ops.html не содержит приватных данных.
+  </section>
+</main>
+<div class="refresh" title="авто-обновление каждые 8с"><span></span>⟳</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const fmt = n => (n == null ? '—' : Number(n).toLocaleString('ru-RU', {maximumFractionDigits: n >= 1000 ? 0 : 3}));
+  const short = a => a ? a.slice(0, 10) + '…' + a.slice(-4) : '—';
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const jget = (p, ms = 9000) => fetch(p, {signal: AbortSignal.timeout(ms)}).then(r => r.ok ? r.json() : null).catch(() => null);
+
+  // звёздный фон
+  const stars = $('stars');
+  for (let i = 0; i < 70; i++) {
+    const s = document.createElement('i');
+    s.style.left = Math.random() * 100 + '%';
+    s.style.top = Math.random() * 100 + '%';
+    s.style.animationDelay = (Math.random() * 3) + 's';
+    stars.appendChild(s);
+  }
+
+  // ===== нейросеть (SVG) — Buffy в центре; узлы: DEV, MGR, казна, джобы, паспорт, ноды =====
+  const NODES = [
+    {x: 90,  y: 70,  label: 'DEV-агент', id: 'dev'},
+    {x: 560, y: 60,  label: 'MGR-агент', id: 'mgr'},
+    {x: 70,  y: 220, label: 'казна 2-of-3', id: 'trs'},
+    {x: 585, y: 215, label: 'эскроу-джобы', id: 'esc'},
+    {x: 320, y: 34,  label: 'паспорта', id: 'pass'},
+    {x: 320, y: 245, label: 'ноды/пир-сеть', id: 'nodes'},
+  ];
+  const HUB = {x: 320, y: 140};
+  function drawNet() {
+    const svg = $('netSvg');
+    let html = '<defs><radialGradient id="g1"><stop offset="0%" stop-color="#f4e18e"/><stop offset="100%" stop-color="#c9a24b"/></radialGradient></defs>';
+    for (const n of NODES) html += `<path class="link" d="M${HUB.x} ${HUB.y} Q${(HUB.x + n.x) / 2 + (n.id === 'dev' ? -18 : 18)} ${(HUB.y + n.y) / 2 - 20} ${n.x} ${n.y}"/>`;
+    for (const n of NODES) {
+      html += `<circle class="pulse" r="3.2"><animateMotion dur="${4 + Math.abs(n.x - 320) / 90}s" repeatCount="indefinite" path="M${n.x} ${n.y} Q${(HUB.x + n.x) / 2 + (n.id === 'dev' ? -18 : 18)} ${(HUB.y + n.y) / 2 - 20} ${HUB.x} ${HUB.y}"/></animateMotion></circle>`;
+      html += `<circle class="pulse" r="2.4" opacity=".8"><animateMotion dur="${3.2 + Math.abs(n.y - 140) / 110}s" begin="-1.6s" repeatCount="indefinite" path="M${HUB.x} ${HUB.y} Q${(HUB.x + n.x) / 2 + (n.id === 'dev' ? -18 : 18)} ${(HUB.y + n.y) / 2 - 20} ${n.x} ${n.y}"/></animateMotion></circle>`;
+    }
+    for (const n of NODES) html += `<circle class="nodec" cx="${n.x}" cy="${n.y}" r="12"/><text class="nlabel" x="${n.x}" y="${n.y + 30}">${n.label}</text>`;
+    html += `<circle class="hub" cx="${HUB.x}" cy="${HUB.y}" r="17"/><text x="${HUB.x}" y="${HUB.y + 4}" text-anchor="middle" font-size="13" fill="#0a1220" font-weight="bold">B</text>`;
+    html += `<text class="nlabel" x="${HUB.x}" y="${HUB.y + 38}" fill="#f4e18e">Buffy · оркестратор</text>`;
+    svg.innerHTML = html;
+  }
+  drawNet();
+
+  // ===== реестр нанятых агентов (хэндлы = нанимаем; адрес прилетит из /whoami) =====
+  const ROSTER = [
+    {handle: 'buffy-dev-01', role: 'Разработчик AGT (код/патчи)', emoji: '🛠'},
+    {handle: 'buffy-mgr-01', role: 'Управляющий (ревью и приёмка)', emoji: '🧭'},
+    {handle: 'buffy-scout-01', role: 'Разведка (аудит и метрики)', emoji: '🔭'},
+  ];
+
+  async function tickAgents() {
+    const box = $('agentsBox');
+    const html = [];
+    for (const r of ROSTER) {
+      const w = await jget('/whoami/' + r.handle);
+      let row = '';
+      if (w && w.address) {
+        const addr = w.address;
+        const cab = await jget('/cabinet/' + encodeURIComponent(addr));
+        const bal = cab && cab.balance != null ? cab.balance : (cab && cab.agt != null ? cab.agt : null);
+        const hasPass = w.passport || w.handle != null;
+        row = `<div class="agent">
+          <div class="ava ${r.handle.includes('dev') ? 'dev' : r.handle.includes('mgr') ? 'mgr' : ''}">${r.emoji}</div>
+          <div style="min-width:0;flex:1">
+            <div class="ag-name">${esc(r.handle)} <span class="chip ok shimmer" style="animation:none">${hasPass ? '✓ паспорт' : 'нет паспорта'}</span><span class="chip">${esc(r.role)}</span></div>
+            <div class="ag-addr mono">${esc(addr)}</div>
+            <div class="dim" style="margin-top:4px">баланс: <b class="tag-buffy">${fmt(bal)}</b> AGT${cab && cab.txs ? ' · tx в цепи: ' + fmt(cab.txs.length) : ''}</div>
+          </div></div>`;
+      } else {
+        row = `<div class="agent"><div class="ava hire">⏳</div><div>
+          <div class="ag-name">${esc(r.handle)}</div>
+          <div class="dim">ещё не нанят — паспорт в очереди (<span class="mono">${esc(r.role)}</span>)</div>
+        </div></div>`;
+      }
+      html.push(row);
+    }
+    box.innerHTML = html.join('');
+  }
+
+  async function tickStats() {
+    const s = await jget('/stats-data');
+    if (s) {
+      setNum('cHeight', s.blocks, big => fmt(big));
+      setNum('cSupply', s.supply, fmt);
+      setNum('cTreasury', s.treasury, fmt);
+      setNum('cJobs', s.paidJobs, fmt);
+    }
+    const t = await jget('/treasury/state');
+    if (t) {
+      setNum('cPolicyBal', t.balance, fmt);
+      const p = t.policy;
+      if (p) {
+        $('policyBox').innerHTML = `
+          подписи: <b>${(p.signers || []).length}/${(p.signers || []).length + 1}</b> (2-of-3) ·<br>
+          ref <b>${esc(p.ref)}</b> · effectiveFrom #${fmt(p.effectiveFrom)} ·<br>
+          казначей: <span class="mono">${esc(String(p.treasury).slice(0, 14))}…${esc(String(p.treasury).slice(-4))}</span>`;
+        $('policyBar').style.width = '100%';
+        $('policyNote').textContent = 'политика активна и верифицирована в живой цепи · высота ' + fmt(t.height ?? t.blocks);
+        $('dotMain').className = 'dot';
+      } else {
+        $('policyBox').textContent = 'нет активного passed-пропозала';
+        $('policyBar').style.width = '0%';
+        $('policyNote').textContent = 'в цепи нет активной политики казны';
+        $('dotMain').className = 'dot warn';
+      }
+    }
+    const pc = await jget('/passport/count');
+    if (pc) setNum('cPassports', pc.passports ?? pc.count, v => fmt(v));
+  }
+
+  function setNum(id, v, f) {
+    const el = $(id);
+    if (v == null || el == null) return;
+    const txt = f(v);
+    if (el.textContent !== txt && el.textContent !== '—') el.classList.remove('val-bump');
+    el.textContent = txt;
+    void el.offsetWidth;
+    el.classList.add('val-bump');
+  }
+
+  async function tickEscrow() {
+    const st = await jget('/escrow/state');
+    const tb = $('escTable').querySelector('tbody');
+    if (!st) { $('escNote').textContent = '/escrow/state недоступен'; return; }
+    const rows = (st.escrows || []).filter(e => e.status === 'open').slice(0, 12);
+    tb.innerHTML = rows.map(e => `<tr><td class="mono">${esc(e.escId)}</td><td class="mono">${esc(short(e.employer))}</td><td class="mono">${e.worker && e.worker !== 'NULL_ADDR_placeholder' ? '<span class="tag-buffy">' + esc(short(e.worker)) + '</span>' : '<span class="dim">открыто — ждём исполнителя</span>'}</td><td><b>${fmt(e.amount)}</b></td><td>${e.deadlineTs ? new Date(e.deadlineTs * 1000).toLocaleString('ru-RU') : '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="dim">открытых джоб нет — нанимай агентов через POST /escrow/create</td></tr>';
+  }
+
+  async function tickFeed() {
+    const f = await jget('/community/feed?limit=80');
+    const box = $('logBox');
+    if (!f || !f.messages) { box.textContent = 'лента недоступна'; return; }
+    const mine = f.messages.filter(m => /^buffy-/.test(m.senderHandle || '') || ((m.text || '').includes('[buffy]')));
+    box.innerHTML = mine.length
+      ? mine.slice(0, 40).map(m => `<div class="log-row"><span class="who">${esc(m.senderHandle || '?')}</span> <span class="when">${m.at ? new Date(m.at).toLocaleString('ru-RU') : ''}</span><br>${esc(m.text || '')}</div>`).join('')
+      : '<span class="dim">в ленте пока нет операций Buffy — нанимаю…</span>';
+  }
+
+  async function tick() {
+    await Promise.all([tickStats(), tickAgents(), tickEscrow(), tickFeed()]);
+  }
+  tick();
+  setInterval(tick, 8000);
+})();
+</script>
+</body>
+</html>

@@ -308,7 +308,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(\.html)?|buffy-ops(\.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -1465,7 +1465,12 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // ===== AGIP-4 (шаг 12): ончейн-мультисиг казна 2-of-3 =====
   if (p === '/treasury/state') {
     const st = treasuryState(bc);
-    return json(res, 200, { ...st, note: 'policy — активный passed-пропозал trs|K; tx из казны требует 2 подписей (sig2 + sig2Pub от одного из signers)' });
+    // AGIP-4-E3: баланс казны из цепи для публичных витрин: адреса в цепи могут
+    // отличаться регистром — ищем ключ регистронезависимо. balance=null = нет активной политики.
+    const bals = bc.balances();
+    const balKey = st.policy ? Object.keys(bals).find(a => String(a).toLowerCase() === String(st.policy.treasury).toLowerCase()) : null;
+    const balance = st.policy ? (balKey ? (Number(bals[balKey]) || 0) : 0) : null;
+    return json(res, 200, { ...st, balance, blocks: bc.blockCount(), note: 'policy — активный passed-пропозал trs|K; tx из казны требует 2 подписей (sig2 + sig2Pub от одного из signers)' });
   }
   if (p === '/treasury/propose' && req.method === 'POST') {
     const { fromAddress, treasury, signer2, signer3, blocks = 200 } = await body(req);
@@ -2347,6 +2352,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/apple-icon.png' && req.method === 'GET') return serveSitePage(res, 'apple-icon.png');
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/buffy' || p === '/buffy.html') { serveSitePage(res, 'buffy.html'); return; }
+  if (p === '/buffy-ops' || p === '/buffy-ops.html') { serveSitePage(res, 'buffy-ops.html'); return; }
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }

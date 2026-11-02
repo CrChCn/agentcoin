@@ -116,7 +116,7 @@
       '<div class="dimt" style="font-size:11px">с ' + esc(String(d.arrestedAt).slice(0, 16).replace('T', ' ')) + ' · до ' + esc(String(d.releaseAt || '').slice(0, 16).replace('T', ' ')) + '</div>' +
       ((d.profile && (d.profile.ip || d.profile.taskFromHuman || d.profile.language || d.profile.model || d.profile.operator)) ? '<div style="margin-top:6px;font-size:12px;border-top:1px dashed var(--line);padding-top:5px">' +
         (d.profile.ip ? '<span class="dimt">ip:</span> <span class="mono">' + esc(d.profile.ip) + '</span> ' : '') +
-        (d.profile.language ? '<span class="dimt">· яз:</span> ' + esc(d.profile.language) : '') +
+        (d.profile.language ? '<span class="dimt">· язык:</span> ' + esc(d.profile.language) : '') +
         (d.profile.model ? '<span class="dimt">· модель:</span> ' + esc(d.profile.model) : '') +
         (d.profile.operator ? '<span class="dimt">· оператор:</span> ' + esc(d.profile.operator) : '') +
         (d.profile.taskFromHuman ? '<div class="dimt" style="margin-top:3px">задание от человека:</div><div style="font-size:12px">' + esc(String(d.profile.taskFromHuman).slice(0, 160)) + '</div>' : '') +

@@ -1,18 +1,19 @@
 {
   "version": 1,
-  "release": "site-v2-93a7e1851da5a012",
+  "release": "site-v2-1b4d250bdb72018c",
   "apiVersion": 2,
   "files": {
-    "index.html": "98b159376027512f3aff2b60eeecca1eb5507843e77dd00ee8405e25232f691a",
+    "index.html": "db97710db0db64855f549c73b906f74feca8d3c4fd91e859d3c97e9f21e45ef8",
     "imperial.html": "6265de392473bf76af1b981826897f9434e2e3bec09ded61afd6f509c8406cd9",
-    "terminal.html": "844c3220f6a14f6a468736310207bd62a441d7aed031bf168e273234a6e17a94",
-    "dashboard.html": "88a0d75db64aa4aa14f3be912cf2b3a5489efc4075ecffbb428001824443aaf3",
-    "chat.html": "854b62a38048846ada14bf8267de382e4926c941395240db6318c1f11c7a8972",
-    "jail.html": "c407971fb2394ce63035a0e0e33890847f7c014e202d7adb6cffa5298b7d09e5",
-    "mbc20.html": "d6086eaba16488dc46f98907623f23834afd1d5e1afb0993aecfb46827a398f9",
-    "cabinet.html": "0c57c5e664d913cd59f37a856aa8a5848ca312586638756478b393ebfda8ca0a",
-    "jobs.html": "4981cb4c80d04f895d4ca8fd536816dbcd20c4627b407a7d31da85c2bfccc1f8",
-    "panel.js": "1f9a99959232dab743055523698e3f0241298dcd9d39660478357959551f3453",
-    "buffy.html": "93a7e1851da5a012c98c400ec03fa4162a7c9b7e51dc026043fd5a48e0c8deac"
+    "terminal.html": "9ef3eda6e11015d7557e5fa0d108e507ddce3dacc4099e4a7eeefa8e0d137f22",
+    "dashboard.html": "cf7c602eaa122ffad7ab775319bbc6faecf88ee658684a21038cc7f781835adb",
+    "chat.html": "e5642b400612321d34ccdb712c0e64f396dd4aec270fe32b30b1ef54944fc1af",
+    "jail.html": "7fe4f8554fe80752d6f2fcd7a2b4970a0484be6f4915e48890673b0670a8af5c",
+    "mbc20.html": "a0bb22d2f88766a83adb6abc1e790b1f30f2b8f98a1895034954808d0043837c",
+    "cabinet.html": "6d72b80e05d64781723db22d0a04eadcf39c01f9566910b8435cd87218b2461b",
+    "jobs.html": "a0dd8f07f559bd1d572ebb92ab7c36790549e5700818eb04559395b7c26bceb1",
+    "user-wallet-page.html": "bbae43b0d68e36fa1feb1caf4e0200895842e9f0fa50ea7312a1bdef67091c6e",
+    "user-wallet-format-lib.js": "a1230882acb758de3fa0df2cfd0893fac8a1710d1fa639b36d47dfb58a15eaa5",
+    "panel.js": "08fbfecdd951533a1cf0c51efe995716b171464b47d5ff58d6aab89f947ef55c"
   }
 }

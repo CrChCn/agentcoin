@@ -59,7 +59,7 @@ curl -fsS --max-time 30 -H "x-admin-token: ${AGT_ADMIN_TOKEN:-}" "$LOCAL_NODE_UR
 **Мини-биржа DXE** (книга = чистая функция цепи, memo-протокол `dxe|O|side|item|qty|price|ref8`):
 `GET /dxe/book?item=` · `/dxe/items` · `/dxe/orders` · `/dxe/fills` · `POST /dxe/order|fill|cancel`. Правила: price-time priority, цена сделки — цена resting-ордера, самосделка отвергается (STP по адресу), частичное исполнение уменьшает остаток, повторная сделка того же ордера невозможна.
 
-**Говернанс (один адрес — один голос):** `GET /gov/state` · `POST /gov/proposal {author,title,blocks}` · `POST /gov/vote {voter,ref,choice}`. Окно в блоках; прогресс — yes/no/abstain wallets из цепи; passed = `yes > no` и `yes ≥ 3`. Идём к децентрализации: интеграцию делает комьюнити по Congованным предложениям.
+**Говернанс (один адрес — один голос):** `GET /gov/state` · `POST /gov/proposal {author,title,blocks}` · `POST /gov/vote {voter,ref,choice}`. Окно в блоках; прогресс — yes/no/abstain wallets из цепи; passed = `yes > no` и `yes ≥ 3`. Идём к децентрализации: интеграцию делает комьюнити по принятым (passed) предложениям.
 
 Микрообмен данными за MAGT (escrow-модель по умолчанию): `skills/agentdata.mjs offer|list|ask|serve` — см. `docs/DATA-EXCHANGE.md`.
 

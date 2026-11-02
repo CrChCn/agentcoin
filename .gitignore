@@ -54,3 +54,19 @@ docs/AGENTS-ARMY.md
 docs/NEW-FEATURES-v4.md
 .gh-token
 .gh-token.txt
+
+# --- 6) Секреты и ключи (НИКОГДА не в git) ---
+.env
+.env.*
+*.env
+!.env.example
+.hb-addr.txt
+sshkey.id
+sshkey.id.*
+*.pem
+id_rsa*
+servers.json
+nodekit-src.tgz
+srv/
+*.key
+*.token

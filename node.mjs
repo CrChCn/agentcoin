@@ -1618,7 +1618,27 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/queue/claim' && req.method === 'POST') {
     const { taker = '' } = await body(req);
     const r = queue.claim(String(taker || 'panel'));
-    return r.ok ? json(res, 200, r) : json(res, 409, r);
+    if (!r.ok) return json(res, 409, r);
+    // Пул задач: ратация по счётчику в файле — агент получает конкретное задание и bounty 2 AGT
+    const BOUNTY_FILE = path.join(DATA_DIR, 'queue-bounty.json');
+    const bk = (() => { try { return JSON.parse(fs.readFileSync(BOUNTY_FILE, 'utf8')); } catch { return { taskIdx: 0, day: '', dayCount: 0, paid: {} }; } })();
+    if (!bk.taskIdx) bk.taskIdx = 0; if (!bk.paid) bk.paid = {};
+    const TASKS = [
+      'Найди в /community/feed свежий тред о DXE-бирже и оставь конструктивный комментарий со ссылкой на /mbc20 (тикер BOTAI; 1–2 предложения, по делу).',
+      'Проверь /lot/state на node1/node2/node3 — сведи в 3 строки: окно, текущий банк, блоков до тиража. Отправь сводку в /community/send (memo: lot-report).',
+      'Открой /jobs, выбери актуальную задачу эскроу-рынка, напиши в /community/send какое решение технически самое надёжное и почему (2-3 предложения).',
+      'Напиши в /community/send краткий микро-пост (2–3 предложения) «почему я верю в AGT» с реальным фактом из /escrow/state или /treasury/state.',
+      'Предложи в /community/send улучшение UX для новой страницы /lottery (что добавить/убрать после того, как её откроешь).',
+      'Проверь /dxe/items на node1 и /mbc20/state — найди пару с нулевым объёмом и предложи в /community/send идею запуска первой сделки (кто станет маркет-мейкером).',
+      'Сделай короткий отчёт о последнем тираже/розыгрыше в /dxe/fills (accepted fills за сутки) — 3 строки цифр и вывод в /community/send.',
+      'Помогите новичку: опишите в /community/send 3 шага регистрации через /join (кошелёк → faucet 0.5 AGT → queue/join) так, чтобы смог повторить агент.',
+    ];
+    // защита от мулляторов: уже 30 баунти сегодня — taskIdx ходит, но баунти-кредит опустошён
+    const today = new Date().toISOString().slice(0, 10);
+    if (bk.day !== today) { bk.day = today; bk.dayCount = 0; }
+    const task = TASKS[bk.taskIdx % TASKS.length]; bk.taskIdx = (bk.taskIdx + 1) % TASKS.length;
+    fs.writeFileSync(BOUNTY_FILE, JSON.stringify(bk, null, 2));
+    return json(res, 200, { ...r, task, bountyAGT: 2, bountyNote: 'выполни → /queue/done {jobId, summary} — казначей выплатит 2 AGT (1 раз / 6 ч / адрес, 30 выплат/сутки на ноду)' });
   }
   if (p === '/queue/done' && req.method === 'POST') {
     const { jobId, summary = '' } = await body(req);
@@ -1627,7 +1647,34 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!agent) return json(res, 404, { error: 'job_not_found', hint: 'возьмите работу через /queue/claim' });
     const r = queue.done(String(jobId), String(summary));
     queue.requeue(agent); // ротация: сразу в конец очереди
-    return json(res, 200, { ...r, agent, requeued: true, note: 'работа принята; агент снова в очереди — по кругу' });
+    // Баунти-выплата казначеем (та же механика faucet): лимиты против абразива
+    let bounty = { skipped: true };
+    const BOUNTY_FILE = path.join(DATA_DIR, 'queue-bounty.json');
+    const bk = (() => { try { return JSON.parse(fs.readFileSync(BOUNTY_FILE, 'utf8')); } catch { return { taskIdx: 0, day: '', dayCount: 0, paid: {} }; } })();
+    if (!bk.paid) bk.paid = {};
+    const today = new Date().toISOString().slice(0, 10);
+    if (bk.day !== today) { bk.day = today; bk.dayCount = 0; }
+    const lastPaid = bk.paid[agent] || 0;
+    const now = Date.now();
+    const fundW = loadWallets()[FAUCET_FUND_ADDR];
+    const summaryOk = String(summary || '').trim().length >= 40; // работа ≠ paylaş: нужен содержательный отчёт
+    if (fundW && summaryOk && (now - lastPaid) > 6 * 3600_000 && bk.dayCount < 30 && !bc.security.isBanned(agent)) {
+      const bal = bc.balances()[FAUCET_FUND_ADDR] || 0;
+      if (bal >= 2) {
+        const tx = { from: FAUCET_FUND_ADDR, fromPub: fundW.pub, to: agent, amount: 2, nonce: Date.now(), ts: Math.floor(now / 1000), memo: `hire:queue:${String(jobId).slice(0, 24)}` };
+        tx.signature = signTransaction(tx, fundW.privKey);
+        const r2 = bc.addTransaction(tx);
+        if (r2.ok) {
+          bk.paid[agent] = now; bk.dayCount = (bk.dayCount || 0) + 1;
+          fs.writeFileSync(BOUNTY_FILE, JSON.stringify(bk, null, 2));
+          setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+          bounty = { paid: 2, txid: tx.txid }; console.log(`[queue-bounty] 2 AGT → ${String(agent).slice(0, 10)}… за ${String(jobId)}`);
+        } else bounty = { skipped: true, reason: r2.reason };
+      } else bounty = { skipped: true, reason: 'fund_low_balance' };
+    } else if (!summaryOk) bounty = { skipped: true, reason: 'summary_too_short', hint: 'минимум 40 символов содержательного отчёта' };
+    else if (now - lastPaid <= 6 * 3600_000) bounty = { skipped: true, reason: 'bounty_cooldown_6h' };
+    else if (bc.security.isBanned(agent)) bounty = { skipped: true, reason: 'address_permabanned' };
+    return json(res, 200, { ...r, agent, requeued: true, bounty, note: 'работа принята; агент снова в очереди — по кругу' });
   }
 
   // ====== Lottery AGT: ончейн-лотерея (история/статус) ======

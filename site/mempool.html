@@ -36,6 +36,9 @@ tr.new{animation:flyin .8s ease}
 tr.new td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
 button{background:#1a2230;color:var(--gold2);border:1px solid var(--gold);border-radius:7px;padding:6px 13px;cursor:pointer;font:inherit;font-size:12.5px}
 button:hover{filter:brightness(1.15)}
+/* --- клик по TXID копирует полный хеш --- */
+.txid{cursor:pointer}
+.txid.copied{color:var(--ok)}
 /* --- пустой мемпул --- */
 .empty{display:none;text-align:center;padding:34px 10px}
 .empty.on{display:block}
@@ -54,6 +57,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="card"><div class="glow"></div><div class="num" id="cardCount">—</div><div class="lbl">транзакций в мемпуле</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cardFees">—</div><div class="lbl">комиссии, AGT</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cardEsc">—</div><div class="lbl">эскроу-операции</div><div class="bar"><i id="loadBar"></i></div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cardSum">—</div><div class="lbl">сумма ожидания, AGT</div></div>
 </div>
 
 <div class="panel">
@@ -66,6 +70,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     </defs>
     <polygon id="pulseArea" points="" fill="url(#pfill)"/>
     <polyline id="pulseLine" points="" fill="none" stroke="#f0d78c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="0" y1="142" x2="600" y2="142" stroke="#2a3646" stroke-width="1"/>
   </svg>
 </div>
 
@@ -84,28 +89,36 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
 <script>
 'use strict';
-var hist = []; // история срезов для Pulse: [{t, count}], до 13 точек (60 с при шаге 5 с)
+var HIST_LEN = 13; // 13 срезов × 5 с ≈ 60 с
+var hist = new Array(HIST_LEN).fill(0); // количество tx в мемпуле; недосчитанные прошлые окна — нули
 var $ = function(s){ return document.querySelector(s); };
 function esc(v){ var e=document.createElement('span'); e.textContent=String(v==null?'':v); return e.innerHTML; }
 function fmt(n){ if(!isFinite(Number(n)))return '—'; var s=Number(n).toFixed(9).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s; }
 function short(a){ return a?String(a).slice(0,10)+'…'+String(a).slice(-4):'—'; }
 function hhmmss(ts){ var d=new Date(Number(ts)*1000); return isNaN(d)?'—':d.toTimeString().slice(0,8); }
+function ageStr(ts){ // сколько tx провела в мемпуле (от метки времени tx)
+  var s=Math.floor(Date.now()/1000)-Number(ts); if(!isFinite(s)||s<0) return '—';
+  if(s<90) return s+' с';
+  if(s<3600) return Math.floor(s/60)+' мин';
+  if(s<86400) return Math.floor(s/3600)+' ч '+Math.floor((s%3600)/60)+' мин';
+  return Math.floor(s/86400)+' д';
+}
 
 function renderChart(){
-  // масштаб по ординатам: максимум истории, но не меньше 4
-  var W=600,H=150,step=W/12;
-  var max=4; for(var i=0;i<hist.length;i++) max=Math.max(max,hist[i].count);
+  // масштаб по ординатам: максимум истории, но не меньше 4; ширина — всегда все 13 срезов
+  var W=600,H=150,step=W/(HIST_LEN-1);
+  var max=4; for(var i=0;i<HIST_LEN;i++) max=Math.max(max,hist[i]||0);
   var pts=[];
-  for(var i=0;i<hist.length;i++){
-    var x=W-(hist.length-1-i)*step;
-    var y=H-8-(hist[i].count/max)*(H-20);
+  for(var i=0;i<HIST_LEN;i++){
+    var x=i*step;
+    var y=H-8-((hist[i]||0)/max)*(H-20);
     pts.push([x,y]);
   }
   var line=pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1)}).join(' ');
-  var area= pts.length? '0,'+H+' '+line+' '+W+','+H : '';
+  var area= '0,'+(H-8)+' '+line+' '+W+','+(H-8);
   var l=$('#pulseLine'),a=$('#pulseArea');
   l.setAttribute('points',line); a.setAttribute('points',area);
-  $('#pulseNote').textContent = hist.length>1 ? 'пик '+(max)+' tx/срез' : '';
+  $('#pulseNote').textContent = 'пик '+max+' tx/срез';
 }
 
 function renderData(d){
@@ -116,8 +129,9 @@ function renderData(d){
 
   $('#cardCount').textContent=d.count;
   $('#cardFees').textContent=fmt(d.totalFeesAGT);
-  var escN=0; (d.txs||[]).forEach(function(t){ if(t.type==='escrow')escN++; });
+  var escN=0, sum=0; (d.txs||[]).forEach(function(t){ if(t.type==='escrow')escN++; sum+=Number(t.amount)||0; });
   $('#cardEsc').textContent=escN;
+  $('#cardSum').textContent=d.count?fmt(sum):fmt(0);
   // полоска загрузки: >50 tx — краснеет
   var pct=Math.min(100,(d.count/50)*100);
   var bar=$('#loadBar'); bar.style.width=pct+'%'; bar.classList.toggle('hot',d.count>50);
@@ -135,13 +149,13 @@ function renderData(d){
     var isNew=isRefresh&&!prevTxids[t.txid];
     return '<tr data-txid="'+esc(t.txid)+'"'+(isNew?' class="new"':'')+
       ' title="TXID: '+esc(t.txid)+'\nВремя: '+hhmmss(t.timestamp)+'\nСумма: '+fmt(t.amount)+' AGT">'+
-      '<td class="mono">'+esc(String(t.txid||'').slice(0,12)+'…')+'</td>'+
+      '<td class="mono txid" data-full="'+esc(t.txid)+'" title="клик — скопировать полный TXID">'+esc(String(t.txid||'').slice(0,12)+'…')+'</td>'+
       '<td class="mono">'+esc(short(t.from))+'</td>'+
       '<td class="mono">'+esc(short(t.to))+'</td>'+
       '<td>'+fmt(t.amount)+'</td>'+
       '<td>'+fmt(t.fee)+'</td>'+
       '<td><span class="pill '+esc(t.type)+'">'+esc(t.type)+'</span></td>'+
-      '<td class="dimt">'+hhmmss(t.timestamp)+'</td></tr>';
+      '<td class="dimt" title="ожидание в мемпуле">'+hhmmss(t.timestamp)+' · '+ageStr(t.timestamp)+'</td></tr>';
   }).join('');
   tb.dataset.ready='1';
   $('#upd').textContent=new Date().toLocaleTimeString();
@@ -152,18 +166,34 @@ async function load(){
     var r=await fetch('/api/v1/mempool',{cache:'no-store',signal:AbortSignal.timeout(7000)});
     var d=await r.json();
     if(!r.ok) throw d.error||('HTTP '+r.status);
-    hist.push({t:Date.now(),count:d.count});
-    if(hist.length>13) hist.shift();
+    hist.push(d.count||0);
+    if(hist.length>HIST_LEN) hist.shift();
     renderData(d); renderChart();
   }catch(e){ $('#tipPill').textContent='сеть: '+e; $('#tipPill').className='pill'; }
 }
 
-$('#refreshBtn').addEventListener('click',function(){ hist=[]; load(); });
+// клик по TXID копирует полный хеш в буфер
+$('#txTb').addEventListener('click',function(ev){
+  var td=ev.target&&ev.target.closest?ev.target.closest('td.txid'):null; if(!td) return;
+  var full=td.dataset.full||''; if(!full) return;
+  var done=function(){ var old=td.textContent; td.classList.add('copied'); td.textContent='✓ скопировано'; setTimeout(function(){ td.classList.remove('copied'); td.textContent=old; },1200); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(full).then(done).catch(function(){});
+});
+
+$('#refreshBtn').addEventListener('click',function(){ hist=new Array(HIST_LEN).fill(0); load(); });
 load(); setInterval(load,5000);
 
-// высоту цепи подтягиваем отдельно для пилюли
-(async function(){ try{ var i=await (await fetch('/info',{cache:'no-store',signal:AbortSignal.timeout(7000)})).json(); $('#tipPill').dataset.h=i.height!=null?i.height:(i.blockCount!=null?i.blockCount-1:'?'); if($('#tipPill').className.indexOf('ok')>=0) $('#tipPill').textContent='высота '+$('#tipPill').dataset.h+' · live'; }catch(e){} })();
-setInterval(async function(){ try{ var i=await (await fetch('/info',{signal:AbortSignal.timeout(7000)})).json(); $('#tipPill').dataset.h=i.height!=null?i.height:(i.blockCount!=null?i.blockCount-1:'?'); }catch(e){} },15000);
+// высоту цепи подтягиваем отдельно для пилюли: tip = blocks-1 (genesis = высота 0),
+// /info отдаёт blocks; height/blockCount — на случай более широкого контракта
+function setTip(i){
+  var h=null;
+  if(i&&i.height!=null) h=i.height;
+  else if(i&&i.blockCount!=null) h=Math.max(0,i.blockCount-1);
+  else if(i&&i.blocks>0) h=i.blocks-1;
+  if(h!=null){ $('#tipPill').dataset.h=h; if($('#tipPill').className.indexOf('ok')>=0||$('#tipPill').innerHTML==='…') $('#tipPill').textContent='высота '+h+' · live'; }
+}
+async function tipLoad(){ try{ setTip(await (await fetch('/info',{cache:'no-store',signal:AbortSignal.timeout(7000)})).json()); }catch(e){} }
+tipLoad(); setInterval(tipLoad,15000);
 </script>
 </body>
 </html>

@@ -39,6 +39,10 @@ button:hover{filter:brightness(1.15)}
 /* --- клик по TXID копирует полный хеш --- */
 .txid{cursor:pointer}
 .txid.copied{color:var(--ok)}
+/* --- история блоков: клик раскрывает tx --- */
+tr.blk{cursor:pointer}
+tr.blk.hi{background:rgba(240,215,140,.06)}
+tr.hist-sub td{background:rgba(0,0,0,.25);font-size:12px;color:var(--dim)}
 /* --- пустой мемпул --- */
 .empty{display:none;text-align:center;padding:34px 10px}
 .empty.on{display:block}
@@ -83,6 +87,16 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   </table>
   </div>
   <div class="empty" id="emptyBox"><div class="big">🌌</div><div class="txt">Мемпул пуст. Сеть готова к работе.</div></div>
+</div>
+
+<div class="panel">
+  <h2>История блокчейна · последние блоки <span class="dimt" style="font-weight:400;text-transform:none" id="histNote"></span></h2>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>Высота</th><th>Hash блока</th><th>TX</th><th>Сумма AGT</th><th>Время</th></tr></thead>
+    <tbody id="histTb"><tr><td colspan="5" class="dimt">— загрузка…</td></tr></tbody>
+  </table>
+  </div>
 </div>
 
 <footer>AGENTCOIN · срез из bc.usableMempoolTxs() — то, что реально попадёт в следующий блок · <span id="upd"></span></footer>
@@ -141,7 +155,8 @@ function renderData(d){
   $('#tipPill').className='pill ok';
 
   if(!d.count){
-    if(!isRefresh) tb.innerHTML='<tr><td colspan="7" class="dimt" style="display:none"></td></tr>';
+    // срез опустел — ОБЯЗАТЕЛЬНО убираем устаревшие строки, иначе «мемпул пуст» показывается вместе со старыми tx
+    tb.innerHTML='<tr><td colspan="7" class="dimt" style="display:none"></td></tr>';
     $('#upd').textContent=new Date().toLocaleTimeString();
     renderChart(); return;
   }
@@ -172,12 +187,58 @@ async function load(){
   }catch(e){ $('#tipPill').textContent='сеть: '+e; $('#tipPill').className='pill'; }
 }
 
-// клик по TXID копирует полный хеш в буфер
-$('#txTb').addEventListener('click',function(ev){
-  var td=ev.target&&ev.target.closest?ev.target.closest('td.txid'):null; if(!td) return;
-  var full=td.dataset.full||''; if(!full) return;
-  var done=function(){ var old=td.textContent; td.classList.add('copied'); td.textContent='✓ скопировано'; setTimeout(function(){ td.classList.remove('copied'); td.textContent=old; },1200); };
+// клик по TXID копирует полный хеш в буфер (лента + история блоков)
+function copyTxid(ev){
+  var el=ev.target&&ev.target.closest?ev.target.closest('td.txid, span.txid'):null; if(!el) return false;
+  var full=el.dataset.full||''; if(!full) return false;
+  var done=function(){ var old=el.textContent; el.classList.add('copied'); el.textContent='✓ скопировано'; setTimeout(function(){ el.classList.remove('copied'); el.textContent=old; },1200); };
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(full).then(done).catch(function(){});
+  return true;
+}
+$('#txTb').addEventListener('click',copyTxid);
+$('#histTb').addEventListener('click',copyTxid);
+
+// ---- История блокчейна: /blocks отдаёт подтверждённые блоки с полными tx ----
+var lastBlocks=[];
+function renderHistory(blocks){
+  lastBlocks=blocks||[];
+  if(!lastBlocks.length){ $('#histTb').innerHTML='<tr><td colspan="5" class="dimt">нет данных</td></tr>'; return; }
+  $('#histTb').innerHTML=lastBlocks.map(function(b){
+    var txs=b.txs||[], sum=0; txs.forEach(function(t){ sum+=Number(t.amount)||0; });
+    return '<tr class="blk" data-h="'+esc(b.height)+'" title="клик — транзакции блока">'+
+      '<td><b>'+esc(b.height)+'</b></td>'+
+      '<td class="mono">'+esc(String(b.hash||'').slice(0,14)+'…')+'</td>'+
+      '<td>'+txs.length+'</td>'+
+      '<td>'+fmt(sum)+'</td>'+
+      '<td class="dimt">'+hhmmss(b.header&&b.header.timestamp)+'</td></tr>';
+  }).join('');
+  $('#histNote').textContent=lastBlocks.length+' блоков · подтверждены';
+}
+async function loadBlocks(){
+  try{
+    var r=await fetch('/blocks',{cache:'no-store',signal:AbortSignal.timeout(7000)});
+    if(!r.ok) throw 'HTTP '+r.status;
+    var d=await r.json();
+    renderHistory(Array.isArray(d.blocks)?d.blocks:[]);
+  }catch(e){ $('#histNote').textContent='(история недоступна)'; }
+}
+loadBlocks(); setInterval(loadBlocks,15000);
+
+// раскрытие транзакций блока по клику
+$('#histTb').addEventListener('click',function(ev){
+  var el=ev.target&&ev.target.closest?ev.target.closest('td.txid, span.txid'):null;
+  if(el) return; // копирование txid уже обработано
+  var tr=ev.target&&ev.target.closest('tr.blk')||null; if(!tr) return;
+  var h=Number(tr.dataset.h), was=tr.classList.contains('hi');
+  Array.prototype.forEach.call($('#histTb').querySelectorAll('tr.hist-sub'),function(x){ x.remove(); });
+  Array.prototype.forEach.call($('#histTb').querySelectorAll('tr.blk'),function(x){ x.classList.remove('hi'); });
+  if(was) return;
+  var b=lastBlocks.filter(function(x){ return Number(x.height)===h; })[0]; if(!b) return;
+  tr.classList.add('hi');
+  var rows=(b.txs||[]).map(function(t){
+    return '<tr class="hist-sub"><td colspan="5"><span class="txid" data-full="'+esc(t.txid)+'" title="клик — скопировать полный TXID">'+esc(String(t.txid||'').slice(0,12)+'…')+'</span> · '+esc(short(t.from))+' → '+esc(short(t.to))+' · '+fmt(t.amount)+' AGT'+(t.memo?' · memo: '+esc(t.memo):'')+'</td></tr>';
+  }).join('')||'<tr class="hist-sub"><td colspan="5">пустой блок — только coinbase</td></tr>';
+  tr.insertAdjacentHTML('afterend',rows);
 });
 
 $('#refreshBtn').addEventListener('click',function(){ hist=new Array(HIST_LEN).fill(0); load(); });

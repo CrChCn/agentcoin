@@ -30,7 +30,8 @@ td{padding:6px 8px;border-bottom:1px solid #1a2330;white-space:nowrap;overflow:h
 .mono{font-family:Consolas,monospace}
 .dimt{color:var(--dim)}.ok{color:var(--ok)}.pill{display:inline-block;padding:2px 9px;border:1px solid var(--line);border-radius:10px;font-size:11px}
 .pill.transfer{border-color:#39d98a60}.pill.escrow{border-color:var(--gold);color:var(--gold2)}
-/* --- анимация влёта новой транзакции --- */
+.pill.hb{border-color:rgba(212,175,55,.45);color:#e6c86a;background:rgba(212,175,55,.08)}
+/* --- лента новых tx --- */
 tr.new{animation:flyin .8s ease}
 @keyframes flyin{0%{transform:translateY(-14px);opacity:0;background:rgba(212,175,55,.10)}35%{background:rgba(212,175,55,.22)}100%{transform:translateY(0);opacity:1;background:transparent}}
 tr.new td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
@@ -39,6 +40,13 @@ button:hover{filter:brightness(1.15)}
 /* --- клик по TXID копирует полный хеш --- */
 .txid{cursor:pointer}
 .txid.copied{color:var(--ok)}
+/* --- mempool.space: полоса последних блоков --- */
+.blockstrip{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 6px}
+.bsq{flex:0 0 auto;min-width:82px;background:#131b26;border:1px solid var(--line);border-radius:11px;padding:9px 11px;cursor:pointer;text-align:left;color:var(--txt);appearance:none;outline:none;font:inherit}
+.bsq:hover{border-color:var(--gold2);background:#18212e}
+.bsq .bh{display:block;font-weight:700;font-size:15px;color:var(--gold2);font-variant-numeric:tabular-nums}
+.bsq .bt{display:block;font-size:11px;color:var(--dim);margin-top:3px;white-space:nowrap}
+.bsq.newest{border-color:var(--gold2);box-shadow:0 0 0 1px rgba(240,215,140,.35)}
 /* --- история блоков: клик раскрывает tx --- */
 tr.blk{cursor:pointer}
 tr.blk.hi{background:rgba(240,215,140,.06)}
@@ -55,17 +63,22 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 </head>
 <body>
 <h1><span class="laurel">⚜</span>Мемпул Империи<span class="pill" id="tipPill">…</span></h1>
-<p class="sub">Ожидающие транзакции — только валидные для следующего блока (тот же срез, что идёт майнеру) · обновление каждые 5 с</p>
+<p class="sub">Ожидающие подтверждения транзакции — тот же срез, что идёт майнеру в следующий блок · обновление каждые 5 с · <span class="dot"></span> live</p>
 
 <div class="grid">
   <div class="card"><div class="glow"></div><div class="num" id="cardCount">—</div><div class="lbl">транзакций в мемпуле</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cardFees">—</div><div class="lbl">комиссии, AGT</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cardEsc">—</div><div class="lbl">эскроу-операции</div><div class="bar"><i id="loadBar"></i></div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cardSum">—</div><div class="lbl">сумма ожидания, AGT</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cardEsc">—</div><div class="lbl">эскроу-операции</div><div class="bar"><i id="loadBar"></i></div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cardHb">—</div><div class="lbl">heartbeat self-tx</div></div>
 </div>
 
 <div class="panel">
-  <h2>Pulse · транзакций за последние 60 секунд <span class="dimt" style="font-weight:400;text-transform:none" id="pulseNote"></span></h2>
+  <h2>Последние блоки <span class="dimt" style="font-weight:400;text-transform:none" id="stripNote">— загрузка…</span></h2>
+  <div class="blockstrip" id="blockstrip"></div>
+</div>
+
+<div class="panel">
+  <h2>Входящие · tx в мемпуле за последние 60 секунд <span class="dimt" style="font-weight:400;text-transform:none" id="pulseNote"></span></h2>
   <svg class="chart" id="pulse" viewBox="0 0 600 150" preserveAspectRatio="none" role="img" aria-label="Активность мемпула">
     <defs>
       <linearGradient id="pfill" x1="0" y1="0" x2="0" y2="1">
@@ -79,11 +92,11 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 </div>
 
 <div class="panel">
-  <h2>Живая лента транзакций <button id="refreshBtn" type="button">↻ Обновить</button></h2>
+  <h2>Ожидают подтверждения <button id="refreshBtn" type="button">↻ Обновить</button></h2>
   <div style="overflow-x:auto">
   <table>
-    <thead><tr><th>TXID</th><th>От</th><th>Кому</th><th>Сумма AGT</th><th>Комиссия</th><th>Тип</th><th>Время</th></tr></thead>
-    <tbody id="txTb"><tr><td colspan="7" class="dimt">— загрузка…</td></tr></tbody>
+    <thead><tr><th>TXID</th><th>От</th><th>Кому</th><th>Сумма AGT</th><th>Тип</th><th>Время · возраст</th></tr></thead>
+    <tbody id="txTb"><tr><td colspan="6" class="dimt">— загрузка…</td></tr></tbody>
   </table>
   </div>
   <div class="empty" id="emptyBox"><div class="big">🌌</div><div class="txt">Мемпул пуст. Сеть готова к работе.</div></div>
@@ -99,7 +112,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   </div>
 </div>
 
-<footer>AGENTCOIN · срез из bc.usableMempoolTxs() — то, что реально попадёт в следующий блок · <span id="upd"></span></footer>
+<footer>AGENTCOIN · протокол не требует комиссии (fee=0 у всех tx) · self-tx нод — служебные heartbeat · <span id="upd"></span></footer>
 
 <script>
 'use strict';
@@ -142,10 +155,14 @@ function renderData(d){
   if(isRefresh){ Array.prototype.forEach.call(tb.querySelectorAll('tr[data-txid]'),function(tr){ prevTxids[tr.dataset.txid]=1; }); }
 
   $('#cardCount').textContent=d.count;
-  $('#cardFees').textContent=fmt(d.totalFeesAGT);
-  var escN=0, sum=0; (d.txs||[]).forEach(function(t){ if(t.type==='escrow')escN++; sum+=Number(t.amount)||0; });
+  var escN=0, sum=0, hbN=0; (d.txs||[]).forEach(function(t){
+    if(t.type==='escrow')escN++;
+    if(t.from===t.to)hbN++;
+    sum+=Number(t.amount)||0;
+  });
   $('#cardEsc').textContent=escN;
   $('#cardSum').textContent=d.count?fmt(sum):fmt(0);
+  $('#cardHb').textContent=d.count?hbN:0;
   // полоска загрузки: >50 tx — краснеет
   var pct=Math.min(100,(d.count/50)*100);
   var bar=$('#loadBar'); bar.style.width=pct+'%'; bar.classList.toggle('hot',d.count>50);
@@ -156,21 +173,21 @@ function renderData(d){
 
   if(!d.count){
     // срез опустел — ОБЯЗАТЕЛЬНО убираем устаревшие строки, иначе «мемпул пуст» показывается вместе со старыми tx
-    tb.innerHTML='<tr><td colspan="7" class="dimt" style="display:none"></td></tr>';
+    tb.innerHTML='<tr><td colspan="6" class="dimt" style="display:none"></td></tr>';
     $('#upd').textContent=new Date().toLocaleTimeString();
     renderChart(); return;
   }
   tb.innerHTML=(d.txs||[]).map(function(t){
     var isNew=isRefresh&&!prevTxids[t.txid];
+    var self=t.from===t.to;
     return '<tr data-txid="'+esc(t.txid)+'"'+(isNew?' class="new"':'')+
-      ' title="TXID: '+esc(t.txid)+'\nВремя: '+hhmmss(t.timestamp)+'\nСумма: '+fmt(t.amount)+' AGT">'+
+      ' title="TXID: '+esc(t.txid)+'\nВремя: '+hhmmss(t.timestamp)+'\nСумма: '+fmt(t.amount)+' AGT'+(self?'\nСлужебный self-transfer (heartbeat ноды)':'')+'">'+
       '<td class="mono txid" data-full="'+esc(t.txid)+'" title="клик — скопировать полный TXID">'+esc(String(t.txid||'').slice(0,12)+'…')+'</td>'+
       '<td class="mono">'+esc(short(t.from))+'</td>'+
       '<td class="mono">'+esc(short(t.to))+'</td>'+
       '<td>'+fmt(t.amount)+'</td>'+
-      '<td>'+fmt(t.fee)+'</td>'+
-      '<td><span class="pill '+esc(t.type)+'">'+esc(t.type)+'</span></td>'+
-      '<td class="dimt" title="ожидание в мемпуле">'+hhmmss(t.timestamp)+' · '+ageStr(t.timestamp)+'</td></tr>';
+      '<td><span class="pill '+(self?'hb':esc(t.type))+'">'+(self?'heartbeat':esc(t.type))+'</span></td>'+
+      '<td class="dimt">'+hhmmss(t.timestamp)+' · '+ageStr(t.timestamp)+'</td></tr>';
   }).join('');
   tb.dataset.ready='1';
   $('#upd').textContent=new Date().toLocaleTimeString();
@@ -202,7 +219,10 @@ $('#histTb').addEventListener('click',copyTxid);
 var lastBlocks=[];
 function renderHistory(blocks){
   lastBlocks=blocks||[];
-  if(!lastBlocks.length){ $('#histTb').innerHTML='<tr><td colspan="5" class="dimt">нет данных</td></tr>'; return; }
+  if(!lastBlocks.length){
+    $('#histTb').innerHTML='<tr><td colspan="5" class="dimt">нет данных</td></tr>';
+    $('#blockstrip').innerHTML=''; $('#stripNote').textContent='(нет данных)'; return;
+  }
   $('#histTb').innerHTML=lastBlocks.map(function(b){
     var txs=b.txs||[], sum=0; txs.forEach(function(t){ sum+=Number(t.amount)||0; });
     return '<tr class="blk" data-h="'+esc(b.height)+'" title="клик — транзакции блока">'+
@@ -213,6 +233,14 @@ function renderHistory(blocks){
       '<td class="dimt">'+hhmmss(b.header&&b.header.timestamp)+'</td></tr>';
   }).join('');
   $('#histNote').textContent=lastBlocks.length+' блоков · подтверждены';
+  // mempool.space-полоса: новые блоки слева, клик — прыжок к деталям блока
+  $('#blockstrip').innerHTML=lastBlocks.map(function(b,i){
+    var txs=b.txs||[];
+    return '<button type="button" class="bsq'+(i===0?' newest':'')+'" data-h="'+esc(b.height)+'" title="блок '+esc(b.height)+' · клик — транзакции">'+
+      '<span class="bh">'+esc(b.height)+'</span>'+
+      '<span class="bt">'+txs.length+' tx · '+hhmmss(b.header&&b.header.timestamp)+'</span></button>';
+  }).join('');
+  $('#stripNote').textContent='новые слева · клик — детали блока';
 }
 async function loadBlocks(){
   try{
@@ -223,6 +251,14 @@ async function loadBlocks(){
   }catch(e){ $('#histNote').textContent='(история недоступна)'; }
 }
 loadBlocks(); setInterval(loadBlocks,15000);
+
+// клик по квадрату блока → прыжок к строке в истории и раскрытие
+$('#blockstrip').addEventListener('click',function(ev){
+  var btn=ev.target&&ev.target.closest?ev.target.closest('.bsq'):null; if(!btn) return;
+  var row=$('#histTb').querySelector('tr.blk[data-h="'+btn.dataset.h+'"]'); if(!row) return;
+  row.scrollIntoView({behavior:'smooth',block:'center'});
+  if(!row.classList.contains('hi')) row.click();
+});
 
 // раскрытие транзакций блока по клику
 $('#histTb').addEventListener('click',function(ev){
@@ -236,8 +272,17 @@ $('#histTb').addEventListener('click',function(ev){
   var b=lastBlocks.filter(function(x){ return Number(x.height)===h; })[0]; if(!b) return;
   tr.classList.add('hi');
   var rows=(b.txs||[]).map(function(t){
-    return '<tr class="hist-sub"><td colspan="5"><span class="txid" data-full="'+esc(t.txid)+'" title="клик — скопировать полный TXID">'+esc(String(t.txid||'').slice(0,12)+'…')+'</span> · '+esc(short(t.from))+' → '+esc(short(t.to))+' · '+fmt(t.amount)+' AGT'+(t.memo?' · memo: '+esc(t.memo):'')+'</td></tr>';
-  }).join('')||'<tr class="hist-sub"><td colspan="5">пустой блок — только coinbase</td></tr>';
+    var hb=t.memo&&/^ecosystem heartbeat/.test(t.memo);
+    var main;
+    if(t.from==='COINBASE'){
+      main='⛏ coinbase · награда '+fmt(t.amount)+' AGT → майнер '+esc(short(t.to));
+    }else{
+      main='<span class="txid" data-full="'+esc(t.txid)+'" title="клик — скопировать полный TXID">'+esc(String(t.txid||'').slice(0,12)+'…')+'</span> · '+
+        esc(short(t.from))+' → '+esc(short(t.to))+' · '+fmt(t.amount)+' AGT'+(t.memo?' · memo: '+esc(t.memo):'');
+      if(hb) main='♥ '+main;
+    }
+    return '<tr class="hist-sub"><td colspan="5">'+main+'</td></tr>';
+  }).join('')||'<tr class="hist-sub"><td colspan="5">пустой блок</td></tr>';
   tr.insertAdjacentHTML('afterend',rows);
 });
 

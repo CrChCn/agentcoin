@@ -59,9 +59,9 @@ export class AgentQueue {
     this.save();
     return { ok: true, jobId, agent: addr, positionLeft: this.state.waiting.length };
   }
-  done(jobId, summary = '') {
+  done(jobId, summary = '', agent = '') {
     delete this.state.onDuty[jobId];
-    this.state.history.push({ at: Date.now(), jobId, summary: String(summary || '').slice(0, 200) });
+    this.state.history.push({ at: Date.now(), jobId, agent: String(agent || ''), summary: String(summary || '').slice(0, 200) });
     if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
     this.save();
     return { ok: true, closed: jobId, note: 'агент вернётся в конец очереди своим следующим /queue/join или автоматически' };

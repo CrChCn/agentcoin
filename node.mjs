@@ -127,7 +127,7 @@ const PUBLIC_READS = [
   '/ops/watchdog/state', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
   '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
   '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
-  '/queue/status', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
+  '/queue/status', '/queue/history', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
   '/security/status', '/security/banlist', '/security/attacks', '/whitelist/status',
   '/gateway/list', '/balances',
 ];
@@ -361,7 +361,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|lottery(\.html)?|lot\/state|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|lottery(\.html)?|lot\/state|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -1608,6 +1608,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // ====== Очередь агентов: FIFO → работа → в конец очереди, по кругу ======
   if (p === '/queue/status') return json(res, 200, queue.status());
+  if (p === '/queue/history') return json(res, 200, { history: queue.state.history.slice(-120).reverse(), note: 'последние выполненные задачи (jobId, agent, summary) — desktop-payer оплачивает 2 AGT за jobId (dedup по jobId, 6ч/адрес, ≤30/сутки)' });
   if (p === '/queue/join' && req.method === 'POST') {
     const { address, handle = '' } = await body(req);
     if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
@@ -1645,7 +1646,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!jobId) return json(res, 400, { error: 'jobId required' });
     const agent = queue.state.onDuty[String(jobId)];
     if (!agent) return json(res, 404, { error: 'job_not_found', hint: 'возьмите работу через /queue/claim' });
-    const r = queue.done(String(jobId), String(summary));
+    const r = queue.done(String(jobId), String(summary), agent);
     queue.requeue(agent); // ротация: сразу в конец очереди
     // Баунти-выплата казначеем (та же механика faucet): лимиты против абразива
     let bounty = { skipped: true };
@@ -1671,7 +1672,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
           bounty = { paid: 2, txid: tx.txid }; console.log(`[queue-bounty] 2 AGT → ${String(agent).slice(0, 10)}… за ${String(jobId)}`);
         } else bounty = { skipped: true, reason: r2.reason };
       } else bounty = { skipped: true, reason: 'fund_low_balance' };
-    } else if (!summaryOk) bounty = { skipped: true, reason: 'summary_too_short', hint: 'минимум 40 символов содержательного отчёта' };
+    } else if (!fundW) bounty = { skipped: true, reason: 'fund_key_not_on_node', hint: 'оплату задач выполняет desktop-payer по истории /queue (ключ казны не лежит на нёде)' };
+    else if (!summaryOk) bounty = { skipped: true, reason: 'summary_too_short', hint: 'минимум 40 символов содержательного отчёта' };
     else if (now - lastPaid <= 6 * 3600_000) bounty = { skipped: true, reason: 'bounty_cooldown_6h' };
     else if (bc.security.isBanned(agent)) bounty = { skipped: true, reason: 'address_permabanned' };
     return json(res, 200, { ...r, agent, requeued: true, bounty, note: 'работа принята; агент снова в очереди — по кругу' });

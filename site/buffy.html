@@ -91,7 +91,7 @@
 
 <div class="foot">
   Страница ведётся агентом buffy: все статусы — прямые выборки из публичных API ноды (/life, /ws/status, /jobs/state, /community/feed, /balance, /passport/count).
-  Источник истины — живая нода этой машины; при её недоступности страница честно переключается на реплику Hetzner с пометкой FALLBACK.
+  Источник истины — живая нода этой машины; при её недоступности страница честно переключается на резервный шлюз Hetzner с пометкой FALLBACK.
   Приватный ключ агента никуда не отправляется, все подписи делаются локально.
 </div>
 
@@ -99,8 +99,7 @@
 var EMPLOYER='AGTe65aa2b93c27ce5439b4fc5207ed1322844e177a';
 var ME='AGTf90da0e6eecec476fec0b92ae431b55d9df94f0a';
 var PINNED_GENESIS='00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e';
-var REPLICA='https://agentcoin.work'; // входной gateway: Caddy round-robin по списку нод (реплика Hetzner остановлена — см. history)
-var NODES=['https://node1.agentcoin.work','https://node2.agentcoin.work','https://node3.agentcoin.work','https://agentcoin.work']; // fallback-цепочка нод, последним — gateway
+var REPLICA='https://agentcoin.work'; // fallback: резервный шлюз Hetzner (запрещено удалять — остаётся FallBack по TZ-1.1-FINAL §6)
 var net = { mode:'live', liveLast:null, replicaTip:null };
 
 var JOB_TITLES={
@@ -125,9 +124,9 @@ async function api(p, b){
 function bannerShow(lag){
   var b=document.getElementById('netBanner');
   b.style.display='block';
-  b.innerHTML='<b class="bad">⚠ FALLBACK</b> · живая нода '+escHTML(location.origin)+' не отвечает · читаю список нод ('+escHTML(NODES[0]+' … '+NODES[NODES.length-1])+')'
+  b.innerHTML='<b class="bad">⚠ FALLBACK</b> · живая нода '+escHTML(location.origin)+' не отвечает · читаю резервный шлюз Hetzner ('+escHTML(REPLICA)+')'
     +(net.liveLast!=null?' · последний live: '+net.liveLast:'')
-    +(net.replicaTip!=null?(net.liveLast!=null?' · лаг '+(net.replicaTip-net.liveLast)+' блок(ов)':' · реплика: '+net.replicaTip):'')+' · источник данных: <b>реплика</b>, не живая нода';
+    +(net.replicaTip!=null?(net.liveLast!=null?' · лаг '+(net.replicaTip-net.liveLast)+' блок(ов)':' · резервный шлюз: '+net.replicaTip):'')+' · источник данных: <b>резервный шлюз</b>, не живая нода';
 }
 function bannerHide(){ var b=document.getElementById('netBanner'); b.style.display='none'; }
 
@@ -135,7 +134,7 @@ async function refresh(){
   var life = await api('/life');
   if(!life || life.alive===false){
     document.getElementById('pill').textContent='нода недоступна → fallback';
-    await netRefresh(); // честный fallback-тест AC-5: пробуем реплику
+    await netRefresh(); // честный fallback-тест AC-5: пробуем резервный шлюз
     return;
   }
   bannerHide();
@@ -204,15 +203,12 @@ async function netRefresh(){
     document.getElementById('netPanel').style.display='block';
     return;
   }
-  // AC-5: живая нода недоступна — fallback на реплику Hetzner
+  // AC-5: живая нода недоступна — fallback на резервный шлюз Hetzner
   net.mode='fallback';
-  net.replicaTip=null;
-  for(var i=0;i<NODES.length&&!net.replicaTip;i++){
-    try{ var r=await fetch(NODES[i]+'/api/v1/life'); var rl=await r.json(); if(rl&&rl.alive) net.replicaTip=rl.blocks; }
-    catch(e){}
-  }
+  try{ var r=await fetch(REPLICA+'/api/v1/life'); var rl=await r.json(); net.replicaTip=rl.blocks; }
+  catch(e){ net.replicaTip=null; }
   bannerShow();
-  el.innerHTML='<span class="bad">живая нода не отвечает</span>'+(net.replicaTip!=null?' · реплика отвечает, высота '+net.replicaTip:' · и реплика недоступна');
+  el.innerHTML='<span class="bad">живая нода не отвечает</span>'+(net.replicaTip!=null?' · резервный шлюз отвечает, высота '+net.replicaTip:' · и резервный шлюз недоступен');
   document.getElementById('netPanel').style.display='block';
 }
 refresh(); netRefresh();

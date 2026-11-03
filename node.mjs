@@ -49,6 +49,7 @@ import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
+import { lotteryState } from './lottery.mjs';
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
@@ -360,7 +361,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/status|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|lottery(\.html)?|lot\/state|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -861,6 +862,10 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // --- AGIP-15: биржа MBC-20 ---
   if (p === '/mbc20' || p === '/mbc20.html') {
     serveSitePage(res, 'mbc20.html');
+  }
+  // --- Lottery: ончейн-лотерея AGT (90% победителю / 10% казне) ---
+  if (p === '/lottery' || p === '/lottery.html') {
+    serveSitePage(res, 'lottery.html');
   }
   // Public identity endpoints receive public material and signatures only.
   if (p === '/site/release' && req.method === 'GET') {
@@ -1623,6 +1628,46 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     const r = queue.done(String(jobId), String(summary));
     queue.requeue(agent); // ротация: сразу в конец очереди
     return json(res, 200, { ...r, agent, requeued: true, note: 'работа принята; агент снова в очереди — по кругу' });
+  }
+
+  // ====== Lottery AGT: ончейн-лотерея (история/статус) ======
+  // Состояние = чистая функция цепи (lottery.mjs): билет = tx 1 AGT → казна с memo lot|B|<ref8>,
+  // тираж каждые 100 блоков по хешу последнего блока окна, победителю 90%, казне 10%.
+  if (p === '/lot/state') return json(res, 200, lotteryState(bc, FAUCET_FUND_ADDR));
+
+  // Авто-выплата тиражей: нода с AGT_LOTTERY_PAYER=1 (казначей) платит победителю автоматически
+  // по достижении высоты тиража — без ручного подтверждения. Синглтон как escrow-sweeper.
+  if (process.env.AGT_LOTTERY_PAYER === '1' && !globalThis.__agtLotteryPayer) {
+    globalThis.__agtLotteryPayer = true;
+    let lastLotteryPayHeight = -1;
+    setInterval(() => {
+      try {
+        const tip = bc.tip();
+        if (!tip) return;
+        const h = bc.blockCount();
+        if (h === lastLotteryPayHeight) return; // один проход одной высоты
+        lastLotteryPayHeight = h;
+        const st = lotteryState(bc, FAUCET_FUND_ADDR);
+        if (!st.readyPayouts || !st.readyPayouts.length) return;
+        const fundW = loadWallets()[FAUCET_FUND_ADDR];
+        if (!fundW) { console.log('[lottery] payer on, но fund-кошелёк не найден на ноде'); return; }
+        for (const wo of st.readyPayouts) {
+          // идемпоидентность: перед отправкой ещё раз проверяем цепь — вдруг уже выплачено
+          const now = lotteryState(bc, FAUCET_FUND_ADDR);
+          const still = now.readyPayouts.find(x => x.window === wo.window);
+          if (!still) continue; // выплачено параллельным запросом/другой нодой
+          const tx = { from: FAUCET_FUND_ADDR, fromPub: fundW.pub, to: wo.winner, amount: wo.prize, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `lot|W|${wo.window}` };
+          tx.signature = signTransaction(tx, fundW.privKey);
+          const r = bc.addTransaction(tx);
+          if (r.ok) {
+            console.log(`[lottery] тираж w${wo.window}: выплата ${wo.prize} AGT → ${String(wo.winner).slice(0, 10)}… (${String(wo.pot)} в банке, house ${wo.houseFee})`);
+            setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
+          } else {
+            console.log('[lottery] авто-выплата отклонена нодой:', r.reason);
+          }
+        }
+      } catch (e) { console.log('[lottery] payer error', e.code || e.message); }
+    }, 15000).unref();
   }
 
   // --- P2P ---

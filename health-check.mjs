@@ -76,7 +76,11 @@ export function resolveHealthConfig(argv = [], env = process.env, {
   let adminToken = isLocal ? env.AGT_ADMIN_TOKEN || null : null;
   if (!adminToken && isLocal) { try { adminToken = read(path.join(root, 'data-agtx', 'admin-token.txt'), 'utf8').trim() || null; } catch {} }
   return { port, baseUrl: url.origin, dataDir, timeoutMs, adminToken, heal,
-    auditTimeoutMs: 60_000, logFile: path.join(dataDir, 'autominer', 'health-check.log') };
+    // 2026-10-21: полный аудит 2747 addr занял 99.5 с (замер живьём) — было впритык к 60 с
+    // и после роста цепи стало регулярно FAIL «aborted due to timeout». 180 с = запас при
+    // том же per-request timeoutMs и попытках.
+    auditTimeoutMs: env.AGT_HEALTH_AUDIT_TIMEOUT_MS ? Number(env.AGT_HEALTH_AUDIT_TIMEOUT_MS) : 180_000,
+    logFile: path.join(dataDir, 'autominer', 'health-check.log') };
 }
 
 export function createHealthApi(config, fetchFn = fetch) {

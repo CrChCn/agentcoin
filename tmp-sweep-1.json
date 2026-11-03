@@ -1,0 +1,1 @@
+{"chunk":1,"pass":30,"fail":1,"files":["test/address-configuration.mjs","test/agent-identity.mjs","test/agent-node-setup.mjs","test/agent-profile.mjs","test/assistant-http.mjs","test/assistant-service.mjs","test/cabinet-auth.mjs","test/cabinet-autologin-accept.mjs"]}

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<script src="/panel.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — сеть и блокчейн</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:#223040; --txt:#d7e2ee; --dim:#7d93a8; --ok:#39d98a; --bad:#ff5c7a; --accent:#5aa2ff; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--txt); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 20px; margin-bottom: 14px; display:flex; align-items:center; gap:10px; }
+  h1 .dot { width:10px; height:10px; border-radius:50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  h2 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .dim { color: var(--dim); }
+  .big { font-size: 26px; font-weight: 700; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .kv b { display:block; font-size: 11px; color: var(--dim); font-weight: 500; }
+  button { background:#0f1620; color:var(--txt); border:1px solid var(--accent); border-radius:6px; padding:6px 10px; font: inherit; cursor:pointer; }
+  button:hover { background:#182437; }
+  .mono { font-family: Consolas, monospace; }
+  #blocksTable { max-height: 320px; overflow-y:auto; display:block; }
+  .upd { color: var(--dim); font-size: 11px; margin-top: 8px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius: 10px; font-size: 11px; background:#0f1620; border:1px solid var(--line); }
+  .esc { max-height:220px; overflow-y:auto; }
+</style>
+</head>
+<body>
+<h1><span class="dot" id="h1dot"></span> AGENTCOIN · сеть и блокчейн <span class="pill" id="hostPill"></span></h1>
+<div class="row" style="margin-bottom:12px">
+  <span class="dim">Только чтение: витрина берёт публичные read-only эндпоинты ноды и ничего не пишет в цепь.</span>
+  <span style="flex:1"></span>
+  <label><input type="checkbox" id="auto" checked> автообновление 10с</label>
+  <button id="refresh">Обновить</button>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Цепь этой ноды</h2>
+    <div class="row">
+      <div class="kv"><b>Высота</b><span class="big" id="height">—</span></div>
+      <div class="kv"><b>Циркуляция</b><span id="supply" class="dim">—</span></div>
+      <div class="kv"><b>В мемпуле</b><span id="mempool">—</span></div>
+    </div>
+    <div class="row">
+      <div class="kv"><b>Сложность (bits)</b><span id="diff">—</span></div>
+      <div class="kv"><b>До ретаргета</b><span id="retarget">—</span></div>
+      <div class="kv"><b>Халвинг через блоков</b><span id="halving">—</span></div>
+    </div>
+    <div class="row">
+      <div class="kv"><b>Tip hash</b><span class="mono" id="tip">—</span></div>
+      <div class="kv"><b>genesis</b><span class="mono dim" id="genesis">—</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Ноды сети</h2>
+    <table id="nodesTable"><thead><tr><th>Нода</th><th>Блок</th><th>Возраст tip</th><th>Состояние</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Последние заголовки блоков</h2>
+    <div id="blocksTable"><table><thead><tr><th>#</th><th>Хеш</th><th>Время</th><th>tx</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="panel">
+    <h2>Майнинг-пул</h2>
+    <div class="row">
+      <div class="kv"><b>Майнеров</b><span class="big" id="poolMiners">—</span></div>
+      <div class="kv"><b>Шары</b><span id="poolShares">—</span></div>
+      <div class="kv"><b>share diff (bits)</b><span id="poolDiff">—</span></div>
+    </div>
+    <div class="upd">Одна нода — один пул; статистика только по текущей ноде.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Безопасность</h2>
+    <div class="row">
+      <div class="kv"><b>Атак зафиксировано</b><span class="big" id="attacks">—</span></div>
+      <div class="kv"><b>Правила</b><span id="rules" class="dim">—</span></div>
+    </div>
+    <div class="upd" id="lastAttack">—</div>
+  </div>
+
+  <div class="panel">
+    <h2>Облачный фонд / казна / эскроу</h2>
+    <div class="row">
+      <div class="kv"><b>Cloud GB</b><span id="cloudGB">—</span></div>
+      <div class="kv"><b>Фонд AGT</b><span id="fund">—</span></div>
+      <div class="kv"><b>Эпох закрыто</b><span id="epochs">—</span></div>
+    </div>
+    <div class="row">
+      <div class="kv"><b>Казна (мультизн.)</b><span id="treasuryPolicy" class="mono dim" style="max-width:150px">—</span></div>
+      <div class="kv"><b>Подписантов</b><span id="treasurySigners">—</span></div>
+      <div class="kv"><b>Эскроу открыто</b><span id="escrows">—</span></div>
+    </div>
+  </div>
+</div>
+<div class="upd" id="updNote"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const API = location.origin;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function j(path) {
+  const r = await fetch(API + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+const short = s => (s && s.length > 14) ? s.slice(0, 10) + '…' + s.slice(-4) : (s || '—');
+const ago = sec => sec == null ? '—' : (sec < 90 ? sec + ' с' : sec < 5400 ? Math.round(sec / 60) + ' мин' : Math.round(sec / 3600) + ' ч');
+const fmt = n => n == null ? '—' : Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+
+async function tick() {
+  const note = [];
+  try {
+    const info = await j('/info');
+    $('height').textContent = fmt(info.blocks);
+    $('supply').textContent = fmt(info.totalSupplyCirculating) + ' AGT';
+    $('mempool').textContent = fmt(info.mempool);
+    $('diff').textContent = info.difficultyBits ?? '—';
+    $('retarget').textContent = info.retargetIn ?? '—';
+    $('halving').textContent = fmt(info.halvingIn);
+    $('tip').textContent = short(info.tipHash || info.genesisHash);
+    $('genesis').textContent = short(info.genesisHash);
+    $('h1dot').style.background = 'var(--ok)';
+  } catch (e) { $('h1dot').style.background = 'var(--bad)'; note.push('инфо: ' + e.message); }
+
+  try {
+    const nodes = await j('/network/nodes');
+    const t = $('nodesTable').tBodies[0]; t.innerHTML = '';
+    (nodes.nodes || nodes || []).slice(0, 12).forEach(n => {
+      t.insertAdjacentHTML('beforeend',
+        `<tr><td>${esc(n.name || 'нода')}</td><td>${fmt(n.blocks)}</td><td>${ago(n.tipAgeSec)}</td>
+         <td class="${n.ok === false ? 'bad' : 'ok'}">${n.ok === false ? 'недоступна' : 'жива'}</td></tr>`);
+    });
+  } catch (e) { note.push('network/nodes: ' + e.message); }
+
+  try {
+    const h = await j('/headers');
+    const t = document.querySelector('#blocksTable tbody'); t.innerHTML = '';
+    (h.headers || []).slice(-25).reverse().forEach(b => {
+      const time = b.header?.time || b.header?.timestamp;
+      t.insertAdjacentHTML('beforeend',
+        `<tr><td>${fmt(b.height)}</td><td class="mono dim" title="${esc(b.hash)}">${esc(short(b.hash))}</td>
+         <td class="dim">${time == null ? '—' : typeof time === 'number' ? (time > 1e12 ? new Date(time).toLocaleTimeString('ru-RU') : new Date(time * 1000).toLocaleTimeString('ru-RU')) : esc(time)}</td>
+         <td>${b.txCount ?? b.header?.txCount ?? '—'}</td></tr>`);
+    });
+  } catch (e) { note.push('headers: ' + e.message); }
+
+  try { const p = await j('/pool/stats'); $('poolMiners').textContent = fmt(p.miners); $('poolShares').textContent = fmt(p.shares); $('poolDiff').textContent = p.shareDiffBits ?? '—'; }
+  catch (e) { note.push('pool/stats: ' + e.message); }
+
+  try {
+    const s = await j('/security/status');
+    $('attacks').textContent = fmt(s.attacksSeen);
+    $('rules').textContent = Object.entries(s.rules || {}).filter(([, v]) => v && v !== 'allow').length + ' активных';
+    const a = s.lastAttack;
+    $('lastAttack').textContent = a ? ('последняя: ' + esc(a.type || a.id || '—') + (a.at ? ' · ' + ago(Math.max(0, (Date.now() - new Date(a.at).getTime()) / 1000)) : '')) : 'атак в журнале нет';
+  } catch (e) { note.push('security/status: ' + e.message); }
+
+  try { const c = await j('/cloud/stats'); $('cloudGB').textContent = c.cloudGB ?? '—'; $('fund').textContent = fmt(c.fundAGT) + ' AGT'; $('epochs').textContent = fmt(c.epochsClosed); }
+  catch (e) { note.push('cloud/stats: ' + e.message); }
+  try { const tr = await j('/treasury/state'); $('treasuryPolicy').textContent = short(tr.policy?.treasury); $('treasurySigners').textContent = (tr.policy?.signers || []).length + ' / треб. ' + (tr.requires ?? '—'); }
+  catch (e) { note.push('treasury/state: ' + e.message); }
+  try { const e2 = await j('/escrow/state'); $('escrows').textContent = fmt((e2.escrows || []).length); }
+  catch (e) { note.push('escrow/state: ' + e.message); }
+
+  $('hostPill').textContent = location.host;
+  $('updNote').classList.add('dim');
+  $('updNote').textContent = note.length ? ('обновлено с ошибками: ' + note.join(' · ')) : 'обновлено ' + new Date().toLocaleTimeString('ru-RU') + ' · нода ' + location.host;
+}
+$('refresh').onclick = tick;
+setInterval(() => { if ($('auto').checked) tick(); }, 10000);
+tick();
+</script>
+<script>
+/* Внутренние ссылки всегда остаются на ноде, с которой открыт сайт. */
+</script>
+</body>
+</html>

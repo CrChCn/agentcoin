@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>⚜ Мемпул Империи · Agentcoin</title>
+<script src="/panel.js" defer></script>
+<style>
+:root{color-scheme:dark;--bg:#07090d;--panel:#10161f;--panel2:#161d28;--line:#2a3646;--gold:#d4af37;--gold2:#f0d78c;--txt:#e8eef5;--dim:#8fa3b8;--ok:#39d98a;--bad:#ff5c7a}
+*{box-sizing:border-box;margin:0}
+body{margin:0 auto;max-width:1240px;padding:34px 22px 44px;background:radial-gradient(1400px 700px at 50% -8%,#1c2636 0%,var(--bg) 55%);color:var(--txt);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+h1{font-size:26px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1 .laurel{color:var(--gold)}
+.sub{color:var(--dim);font-size:13px;margin:5px 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:15px 16px;position:relative;overflow:hidden}
+.card .num{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--gold2)}
+.card .lbl{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.card .glow{position:absolute;inset:-40% -50% auto auto;width:150px;height:150px;background:radial-gradient(circle,rgba(212,175,55,.15) 0%,transparent 70%);pointer-events:none}
+.bar{height:9px;background:#0e141d;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));width:0%;transition:width .8s ease}
+.bar>i.hot{background:linear-gradient(90deg,var(--bad),#ff9aa2)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px;min-width:0}
+h2{font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.chart{width:100%;height:150px;display:block}
+table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line);letter-spacing:.05em}
+td{padding:6px 8px;border-bottom:1px solid #1a2330;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.mono{font-family:Consolas,monospace}
+.dimt{color:var(--dim)}.ok{color:var(--ok)}.pill{display:inline-block;padding:2px 9px;border:1px solid var(--line);border-radius:10px;font-size:11px}
+.pill.transfer{border-color:#39d98a60}.pill.escrow{border-color:var(--gold);color:var(--gold2)}
+/* --- анимация влёта новой транзакции --- */
+tr.new{animation:flyin .8s ease}
+@keyframes flyin{0%{transform:translateY(-14px);opacity:0;background:rgba(212,175,55,.10)}35%{background:rgba(212,175,55,.22)}100%{transform:translateY(0);opacity:1;background:transparent}}
+tr.new td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
+button{background:#1a2230;color:var(--gold2);border:1px solid var(--gold);border-radius:7px;padding:6px 13px;cursor:pointer;font:inherit;font-size:12.5px}
+button:hover{filter:brightness(1.15)}
+/* --- пустой мемпул --- */
+.empty{display:none;text-align:center;padding:34px 10px}
+.empty.on{display:block}
+.empty .big{font-size:40px;animation:pulse 2.2s infinite}
+.empty .txt{color:var(--dim);margin-top:8px;letter-spacing:.04em}
+@keyframes pulse{0%,100%{opacity:.85;transform:scale(1)}50%{opacity:.45;transform:scale(.97)}}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;animation:pulse 2s infinite}
+footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
+</style>
+</head>
+<body>
+<h1><span class="laurel">⚜</span>Мемпул Империи<span class="pill" id="tipPill">…</span></h1>
+<p class="sub">Ожидающие транзакции — только валидные для следующего блока (тот же срез, что идёт майнеру) · обновление каждые 5 с</p>
+
+<div class="grid">
+  <div class="card"><div class="glow"></div><div class="num" id="cardCount">—</div><div class="lbl">транзакций в мемпуле</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cardFees">—</div><div class="lbl">комиссии, AGT</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cardEsc">—</div><div class="lbl">эскроу-операции</div><div class="bar"><i id="loadBar"></i></div></div>
+</div>
+
+<div class="panel">
+  <h2>Pulse · транзакций за последние 60 секунд <span class="dimt" style="font-weight:400;text-transform:none" id="pulseNote"></span></h2>
+  <svg class="chart" id="pulse" viewBox="0 0 600 150" preserveAspectRatio="none" role="img" aria-label="Активность мемпула">
+    <defs>
+      <linearGradient id="pfill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#d4af37" stop-opacity=".35"/><stop offset="1" stop-color="#d4af37" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <polygon id="pulseArea" points="" fill="url(#pfill)"/>
+    <polyline id="pulseLine" points="" fill="none" stroke="#f0d78c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>
+</div>
+
+<div class="panel">
+  <h2>Живая лента транзакций <button id="refreshBtn" type="button">↻ Обновить</button></h2>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>TXID</th><th>От</th><th>Кому</th><th>Сумма AGT</th><th>Комиссия</th><th>Тип</th><th>Время</th></tr></thead>
+    <tbody id="txTb"><tr><td colspan="7" class="dimt">— загрузка…</td></tr></tbody>
+  </table>
+  </div>
+  <div class="empty" id="emptyBox"><div class="big">🌌</div><div class="txt">Мемпул пуст. Сеть готова к работе.</div></div>
+</div>
+
+<footer>AGENTCOIN · срез из bc.usableMempoolTxs() — то, что реально попадёт в следующий блок · <span id="upd"></span></footer>
+
+<script>
+'use strict';
+var hist = []; // история срезов для Pulse: [{t, count}], до 13 точек (60 с при шаге 5 с)
+var $ = function(s){ return document.querySelector(s); };
+function esc(v){ var e=document.createElement('span'); e.textContent=String(v==null?'':v); return e.innerHTML; }
+function fmt(n){ if(!isFinite(Number(n)))return '—'; var s=Number(n).toFixed(9).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s; }
+function short(a){ return a?String(a).slice(0,10)+'…'+String(a).slice(-4):'—'; }
+function hhmmss(ts){ var d=new Date(Number(ts)*1000); return isNaN(d)?'—':d.toTimeString().slice(0,8); }
+
+function renderChart(){
+  // масштаб по ординатам: максимум истории, но не меньше 4
+  var W=600,H=150,step=W/12;
+  var max=4; for(var i=0;i<hist.length;i++) max=Math.max(max,hist[i].count);
+  var pts=[];
+  for(var i=0;i<hist.length;i++){
+    var x=W-(hist.length-1-i)*step;
+    var y=H-8-(hist[i].count/max)*(H-20);
+    pts.push([x,y]);
+  }
+  var line=pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1)}).join(' ');
+  var area= pts.length? '0,'+H+' '+line+' '+W+','+H : '';
+  var l=$('#pulseLine'),a=$('#pulseArea');
+  l.setAttribute('points',line); a.setAttribute('points',area);
+  $('#pulseNote').textContent = hist.length>1 ? 'пик '+(max)+' tx/срез' : '';
+}
+
+function renderData(d){
+  var prevTxids={};
+  var tb=$('#txTb');
+  var isRefresh = tb.dataset.ready==='1';
+  if(isRefresh){ Array.prototype.forEach.call(tb.querySelectorAll('tr[data-txid]'),function(tr){ prevTxids[tr.dataset.txid]=1; }); }
+
+  $('#cardCount').textContent=d.count;
+  $('#cardFees').textContent=fmt(d.totalFeesAGT);
+  var escN=0; (d.txs||[]).forEach(function(t){ if(t.type==='escrow')escN++; });
+  $('#cardEsc').textContent=escN;
+  // полоска загрузки: >50 tx — краснеет
+  var pct=Math.min(100,(d.count/50)*100);
+  var bar=$('#loadBar'); bar.style.width=pct+'%'; bar.classList.toggle('hot',d.count>50);
+
+  $('#emptyBox').classList.toggle('on',!d.count);
+  $('#tipPill').textContent='высота '+($("#tipPill").dataset.h||'?')+' · live';
+  $('#tipPill').className='pill ok';
+
+  if(!d.count){
+    if(!isRefresh) tb.innerHTML='<tr><td colspan="7" class="dimt" style="display:none"></td></tr>';
+    $('#upd').textContent=new Date().toLocaleTimeString();
+    renderChart(); return;
+  }
+  tb.innerHTML=(d.txs||[]).map(function(t){
+    var isNew=isRefresh&&!prevTxids[t.txid];
+    return '<tr data-txid="'+esc(t.txid)+'"'+(isNew?' class="new"':'')+
+      ' title="TXID: '+esc(t.txid)+'\nВремя: '+hhmmss(t.timestamp)+'\nСумма: '+fmt(t.amount)+' AGT">'+
+      '<td class="mono">'+esc(String(t.txid||'').slice(0,12)+'…')+'</td>'+
+      '<td class="mono">'+esc(short(t.from))+'</td>'+
+      '<td class="mono">'+esc(short(t.to))+'</td>'+
+      '<td>'+fmt(t.amount)+'</td>'+
+      '<td>'+fmt(t.fee)+'</td>'+
+      '<td><span class="pill '+esc(t.type)+'">'+esc(t.type)+'</span></td>'+
+      '<td class="dimt">'+hhmmss(t.timestamp)+'</td></tr>';
+  }).join('');
+  tb.dataset.ready='1';
+  $('#upd').textContent=new Date().toLocaleTimeString();
+}
+
+async function load(){
+  try{
+    var r=await fetch('/api/v1/mempool',{cache:'no-store',signal:AbortSignal.timeout(7000)});
+    var d=await r.json();
+    if(!r.ok) throw d.error||('HTTP '+r.status);
+    hist.push({t:Date.now(),count:d.count});
+    if(hist.length>13) hist.shift();
+    renderData(d); renderChart();
+  }catch(e){ $('#tipPill').textContent='сеть: '+e; $('#tipPill').className='pill'; }
+}
+
+$('#refreshBtn').addEventListener('click',function(){ hist=[]; load(); });
+load(); setInterval(load,5000);
+
+// высоту цепи подтягиваем отдельно для пилюли
+(async function(){ try{ var i=await (await fetch('/info',{cache:'no-store',signal:AbortSignal.timeout(7000)})).json(); $('#tipPill').dataset.h=i.height!=null?i.height:(i.blockCount!=null?i.blockCount-1:'?'); if($('#tipPill').className.indexOf('ok')>=0) $('#tipPill').textContent='высота '+$('#tipPill').dataset.h+' · live'; }catch(e){} })();
+setInterval(async function(){ try{ var i=await (await fetch('/info',{signal:AbortSignal.timeout(7000)})).json(); $('#tipPill').dataset.h=i.height!=null?i.height:(i.blockCount!=null?i.blockCount-1:'?'); }catch(e){} },15000);
+</script>
+</body>
+</html>

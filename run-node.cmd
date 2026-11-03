@@ -10,6 +10,8 @@ set "AGT_IDENTITY_ROLE=issuer"
 rem SITE-ACTIVATE (issue 6298050853): serve verified checkout site for ALL pages
 rem instead of stale owner-approved cache; release.json on disk is bytes-verified by build-site-release --check.
 set "AGT_SITE_SYNC=0"
+rem AGENT-ORIGINS (UNIFIED-SITE-01/02): публичный вход в агент-зону — только по белому списку
+if not defined AGT_AGENT_ORIGINS set "AGT_AGENT_ORIGINS=https://laptop-ih54qpif.tail8c28c2.ts.net,http://127.0.0.1:9335,http://localhost:9335"
 set "AGT_NODE_EXE="
 where node.exe >nul 2>&1
 if not errorlevel 1 set "AGT_NODE_EXE=node.exe"

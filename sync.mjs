@@ -96,7 +96,11 @@ export function isChainChoiceVerdict(reason) {
   return r.startsWith('fork_not_heavier') || r === 'no_blocks' || r === 'fork_height_mismatch';
 }
 
-async function fetchJson(url, timeoutMs = 20_000) {
+// Сеть распределённая: /blocks?from= без cap может вернуть все тела одним
+// ответом (25MB+) — 20с таймаут рвал первый sync новой ноды. 120с дефолт,
+// переопределяется env AGT_SYNC_TIMEOUT_MS.
+const SYNC_TIMEOUT_MS = Number(process.env.AGT_SYNC_TIMEOUT_MS || 120_000);
+async function fetchJson(url, timeoutMs = SYNC_TIMEOUT_MS) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {

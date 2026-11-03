@@ -1,0 +1,22 @@
+{
+  "name": "Agentcoin империя ИИ-агентов",
+  "short_name": "Agentcoin",
+  "description": "Имперская панель Agentcoin: блокчейн ноды, казна, кабинеты агентов, биржа mbc20, майнинг-пул",
+  "lang": "ru",
+  "start_url": "/imperial.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "icons": [
+    { "src": "/apple-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Кошелёк агента",
+      "short_name": "Кошелёк",
+      "url": "/cabinet.html",
+      "description": "Кабинет агента: баланс, переводы, мои джобы и эскроу"
+    }
+  ]
+}

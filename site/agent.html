@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ru">
+<!-- UNIFIED-SITE-01: личное пространство агента. Страница отдаётся из checkout ноды.
+     Вход — ровно как в кабинете: challenge → локальная подпись → /cabinet/login (cab-auth.js).
+     Никаких секретов: страница не запрашивает и не передаёт privKey/seed/пароль.
+     Роль и владелец памяти решаются ТОЛЬКО сервером. Тексты — из словаря STR (ru), 
+     остальные языки — последующие поставки (не заявляем readiness). -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — Мой агент</title>
+<script src="/panel.js" defer></script>
+<style>
+  /* Каркас в стиле существующего сайта (графит + бирюза), без внешних зависимостей. */
+  .agent-wrap{max-width:980px;margin:0 auto;padding:0 12px 48px}
+  .ag-card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:14px 0}
+  .ag-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ag-title{color:#f7931a;font-weight:700;font-size:1.15em;margin:0 0 8px}
+  .ag-muted{color:#8b949e;font-size:.86em}
+  .ag-status{color:#58a6ff;font-size:.9em}
+  .ag-ok{color:#3fb950}.ag-err{color:#f85149}
+  .ag-badge{display:inline-block;border:1px solid #30363d;border-radius:999px;padding:2px 10px;font-size:.8em;color:#8b949e;margin-left:8px}
+  .ag-badge.owner{color:#3fb950;border-color:#2ea043}
+  .ag-note{border:1px solid #30363d;border-radius:10px;padding:10px;background:#0e1117;margin:8px 0}
+  .ag-note textarea,.ag-note input{width:100%;box-sizing:border-box;background:#0e1117;color:#e6e6e6;border:1px solid #30363d;border-radius:8px;padding:8px;margin-top:6px}
+  .ag-note textarea{min-height:84px;resize:vertical}
+  .ag-note .ag-meta{font-size:.78em;color:#8b949e;margin-top:4px}
+  button.ag{background:#1f6feb;color:#fff;border:1px solid #1f6feb;border-radius:8px;padding:8px 14px;cursor:pointer}
+  button.ag.sec{background:transparent;color:#58a6ff;border-color:#30363d}
+  button.ag:disabled{opacity:.5;cursor:wait}
+  button.ag:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
+  .ag-msg{min-height:1.2em}
+  .ag-search{display:flex;gap:8px;margin:10px 0}
+  .ag-search input{flex:1}
+  .ag-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .hidden{display:none}
+  header.ag-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .ag-services{display:flex;gap:8px;flex-wrap:wrap;font-size:.8em;margin-top:10px}
+  .ag-svc{border:1px solid #30363d;border-radius:999px;padding:2px 10px}
+  .ag-svc.off{color:#d29922}
+  .ag-svc.on{color:#3fb950}
+  @media (max-width:360px){.agent-wrap{padding:0 8px}.ag-card{padding:12px}.ag-actions button{width:100%}}
+</style>
+</head>
+<body>
+<div class="agent-wrap">
+  <header class="ag-head">
+    <h1 class="ag-title" id="agTitle">Мой агент</h1>
+    <span id="agRole" class="ag-badge hidden"></span>
+  </header>
+
+  <!-- Гость: только публичное объяснение и вход (чужие данные не запрашиваются) -->
+  <section id="agGuest" class="ag-card">
+    <p id="agGuestIntro" class="ag-muted">Личное пространство агента: ваши заметки и память живут на ноде, доступ — только по подписи вашего паспорта (как в кабинете).</p>
+    <div class="ag-note">
+      <label for="agAddr">AGT-адрес</label>
+      <input id="agAddr" placeholder="AGT…" autocomplete="username">
+      <div class="ag-actions">
+        <button id="agChallenge" class="ag">Получить запрос на вход</button>
+      </div>
+      <p class="ag-muted" style="margin-top:8px">Подпишите запрос локально существующим Skill'ом: <code>agent-profile.mjs sign-challenge</code>. Пароль и ключ остаются у вас.</p>
+      <label for="agSig">Ответ Skill (подпись или JSON)</label>
+      <textarea id="agSig" placeholder="hex-подпись или JSON-Skill ответ"></textarea>
+      <div class="ag-actions">
+        <button id="agLogin" class="ag">Войти</button>
+      </div>
+      <p id="agMsg" class="ag-msg" role="status"></p>
+    </div>
+    <p class="ag-muted">Гость доступен без входа: сайт, кошелёк и сеть работают как раньше. Сесия — только во вкладке (sessionStorage).</p>
+  </section>
+
+  <!-- Владелец записи (после входа): память -->
+  <section id="agSpace" class="hidden">
+    <div class="ag-card">
+      <div class="ag-row">
+        <span id="agSubject" class="ag-status"></span>
+        <button id="agLogout" class="ag sec">Выйти</button>
+      </div>
+      <div class="ag-services" id="agServices"></div>
+      <p id="agSpaceMsg" class="ag-msg" role="status"></p>
+    </div>
+    <div class="ag-card">
+      <div class="ag-search">
+        <label class="hidden" for="agQuery">Поиск</label>
+        <input id="agQuery" placeholder="Поиск по записи…">
+        <button id="agSearch" class="ag sec">Найти</button>
+      </div>
+      <div class="ag-note">
+        <label for="agNewText">Новая запись</label>
+        <textarea id="agNewText" placeholder="Что запомнить…"></textarea>
+        <div class="ag-actions"><button id="agCreate" class="ag">Запомнить</button></div>
+      </div>
+      <div id="agList"></div>
+      <div class="ag-actions">
+        <button id="agExport" class="ag sec">Экспорт JSON</button>
+      </div>
+    </div>
+    <div class="ag-card ag-muted" id="agModelCard">
+      <b>Модель и голос</b>
+      <p id="agModelNote">Генерации ответов в этой поставке нет. Включаем отдельно, своим — не подменяя внешним API.</p>
+    </div>
+    <div class="ag-card" id="agRagCard">
+      <b>RAG — выборка из вашей памяти</b>
+      <p class="ag-muted" id="agRagNote">Выдаёт наиболее близкие ЗАПИСИ вашей памяти как контекст. Ответы моделью не генерируются (модель не подключена).</p>
+      <div class="ag-search">
+        <label class="hidden" for="agRagQuery">Запрос контекста</label>
+        <input id="agRagQuery" placeholder="Что запросить из памяти…">
+        <button id="agRagSearch" class="ag sec">Извлечь</button>
+      </div>
+      <p class="ag-msg" role="status" id="agRagMsg"></p>
+      <div id="agRagList"></div>
+    </div>
+  </section>
+
+  <p class="ag-muted" style="margin-top:16px"><a href="/index">Главная</a> · <a href="/wallet">Кошелёк</a> · <a href="/agent">Мой агент</a> · <a href="/dashboard">Сеть</a></p>
+</div>
+<script type="module">
+const STR = {
+  ru: {
+    appTitle: 'Мой агент',
+    guestIntro: 'Личное пространство агента: ваши заметки и память живут на ноде, доступ — только по подписи вашего паспорта (как в кабинете).',
+    address: 'AGT-адрес', challengeBtn: 'Получить запрос на вход',
+    skillHint: 'Подпишите запрос локально существующим Skill\'ом: agent-profile.mjs sign-challenge. Пароль и ключ остаются у вас.',
+    sigLabel: 'Ответ Skill (подпись или JSON)', loginBtn: 'Войти',
+    loggedOut: 'Сессия завершена.', needAddr: 'Нужен AGT-адрес.',
+    challengeIssued: 'Запрос выдан (живёт 5 минут). Подпишите его локальным Skill.',
+    signedOK: 'Вход подтверждён.', loginFail: 'Вход не прошёл',
+    saved: 'Сохранено', saving: 'Сохраняется', saveFail: 'Не сохранено — повторите',
+    deleted: 'Удалено', empty: 'Пока нет записей.',
+    exportBtn: 'Экспорт JSON', removeBtn: 'Удалить', cancelBtn: 'Отмена', saveBtn: 'Сохранить', editBtn: 'Править',
+    searchEmpty: 'Ничего не найдено.', invalidText: 'Нужен непустой текст до 4000 символов.',
+    unavailable: 'Память агента недоступна на ноде (сайт и кошелёк работают).',
+    sessionExpired: 'Сессия завершена или истекла. Войдите заново.',
+    sessionChanged: 'Рабочее место сменилось — ответ отброшен.',
+    wrongId: 'Неверный формат записи.', duplicate: 'Такой id уже есть.',
+    services: { memory: 'Память', model: 'Модель', voice: 'Голос', rag: 'RAG (выборка)' },
+    roleOwner: 'владелец сайта', roleAgent: 'агент', guest: 'Гость',
+    modelNote: 'Генерации ответов нет (модель не подключена, внешние API не подменяются). RAG работает — только выборка записей из вашей памяти, без утверждений от имени агента.',
+    ragResults: 'ближайшие записи', ragEmpty: 'Ближайших записей нет.', ragFail: 'Извлечение не прошло.', ragNeedQuery: 'Нужен непустой запрос.', ragContext: 'контекст — не ответ модели',
+    draftNote: 'Черновик держится, пока вкладка открыта.',
+  },
+};
+const T = STR.ru; // язык по умолчанию — русский; словарь готов к другим пакетам
+const $id = (i) => document.getElementById(i);
+// Сессионный барьер: каждый приватный запрос привязан к эпохе сессии.
+// logout/401/истечение → showGuest(): эпоха растёт, все летящие запросы превращаются в отказе,
+// ответы запоздалых запросов никогда не доходят до DOM.
+let session = null;
+let sessionEpoch = 0;
+const inflight = new Set();
+let expiryWatch = null;
+const api = async (route, body) => {
+  const epoch = sessionEpoch;
+  const ctrl = new AbortController(); inflight.add(ctrl);
+  const timer = setTimeout(() => { try { ctrl.abort('timeout'); } catch {} }, 10000);
+  try {
+    const r = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), cache: 'no-store', signal: ctrl.signal });
+    let j = null; try { j = await r.json(); } catch {}
+    if (!r.ok) {
+      if (r.status === 401 && epoch === sessionEpoch) showGuest(T.sessionExpired); // сервер подтвердил: сессии нет/не наша
+      const e = new Error((j && j.error) || 'HTTP ' + r.status); e.code = (j && j.error) || ''; e.status = r.status; e.body = j; throw e;
+    }
+    if (epoch !== sessionEpoch) { const e = new Error(T.sessionChanged); e.code = 'session_changed'; throw e; } // запоздалый ответ — не отдаём
+    return j;
+  } finally { clearTimeout(timer); inflight.delete(ctrl); }
+};
+const DRAFT_KEY = 'agtx:agent-draft';
+try { $id('agNewText').value = sessionStorage.getItem(DRAFT_KEY) || ''; } catch {}
+$id('agNewText').addEventListener('input', () => { try { sessionStorage.setItem(DRAFT_KEY, $id('agNewText').value); } catch {} });
+
+function say(text, ok = true) { const el = $id('agSpaceMsg'); el.textContent = text; el.className = 'ag-msg ' + (ok ? 'ag-ok' : 'ag-err'); }
+function sayGuest(text, ok = true) { const el = $id('agMsg'); el.textContent = text; el.className = 'ag-msg ' + (ok ? 'ag-ok' : 'ag-err'); }
+
+function showGuest(msg = '') {
+  session = null;
+  for (const c of inflight) { try { c.abort('session_purged'); } catch {} } // летящие приватные запросы — в отказ
+  inflight.clear();
+  clearInterval(expiryWatch); expiryWatch = null;
+  sessionEpoch++; // запоздалые ответы больше не попадут в DOM (эпоха сменилась)
+  // Полная очистка приватного интерфейса: содержимое заметок/subjects/services и черновик.
+  $id('agSpace').classList.add('hidden'); $id('agGuest').classList.remove('hidden');
+  $id('agRole').classList.add('hidden');
+  $id('agSubject').textContent = '';
+  $id('agServices').replaceChildren();
+  $id('agList').replaceChildren();
+  $id('agRagList').replaceChildren();
+  $id('agRagMsg').textContent = '';
+  $id('agSpaceMsg').textContent = '';
+  $id('agQuery').value = ''; $id('agRagQuery').value = '';
+  $id('agNewText').value = '';
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch {} // черновик предыдущего владельца не остаётся следующему
+  if (msg) sayGuest(msg);
+}
+function showSpace(state, entry) {
+  $id('agGuest').classList.add('hidden'); $id('agSpace').classList.remove('hidden');
+  $id('agSubject').textContent = entry.address;
+  const roleText = state.role === 'owner' ? T.roleOwner : T.roleAgent;
+  const badge = $id('agRole'); badge.textContent = roleText; badge.className = 'ag-badge' + (state.role === 'owner' ? ' owner' : ''); badge.classList.remove('hidden');
+  const svcs = $id('agServices'); svcs.replaceChildren();
+  for (const [k, name] of Object.entries(T.services)) {
+    const on = state.service[k] === 'available';
+    const b = document.createElement('span'); b.className = 'ag-svc ' + (on ? 'on' : 'off');
+    b.textContent = name + ': ' + (on ? 'доступна' : 'недоступна'); svcs.append(b);
+  }
+  $id('agModelNote').textContent = state.service.modelNote || T.modelNote;
+  refreshList('');
+  clearInterval(expiryWatch);
+  expiryWatch = setInterval(() => { // истечение сессии при открытых заметках: 401 на фоне → showGuest()
+    if (!session) return;
+    api('/agent/api/state', session).catch(() => { /* api на 401 сам вызовет showGuest */ });
+  }, 60000);
+}
+async function refreshList(query = '') {
+  try {
+    const rows = await api('/agent/api/memory/search', { ...session, query });
+    const list = $id('agList'); list.replaceChildren();
+    if (!Array.isArray(rows) || rows.length === 0) { const p = document.createElement('p'); p.className = 'ag-muted'; p.textContent = rows && rows.error ? T.unavailable : T.empty; list.append(p); return; }
+    for (const r of rows) {
+      const note = document.createElement('div'); note.className = 'ag-note';
+      const pre = document.createElement('p'); pre.textContent = r.text; note.append(pre);
+      const meta = document.createElement('p'); meta.className = 'ag-meta'; meta.textContent = '#' + r.id + ' · обновлено ' + new Date(r.updated).toLocaleString('ru-RU'); note.append(meta);
+      const actions = document.createElement('div'); actions.className = 'ag-actions';
+      const edit = document.createElement('button'); edit.className = 'ag sec'; edit.textContent = T.editBtn;
+      edit.onclick = () => {
+        const ta = document.createElement('textarea'); ta.value = r.text;
+        const save = document.createElement('button'); save.className = 'ag'; save.textContent = T.saveBtn;
+        const cancel = document.createElement('button'); cancel.className = 'ag sec'; cancel.textContent = T.cancelBtn;
+        save.onclick = async () => { try { await api('/agent/api/memory/write', { ...session, id: r.id, text: ta.value }); say(T.saved); refreshList($id('agQuery').value); } catch { say(T.saveFail, false); } };
+        cancel.onclick = () => refreshList($id('agQuery').value);
+        pre.replaceWith(ta); actions.replaceChildren(save, cancel);
+      };
+      const del = document.createElement('button'); del.className = 'ag sec'; del.textContent = T.removeBtn;
+      del.onclick = async () => { try { await api('/agent/api/memory/remove', { ...session, id: r.id }); say(T.deleted); refreshList($id('agQuery').value); } catch { say(T.saveFail, false); } };
+      actions.append(edit, del); note.append(actions); list.append(note);
+    }
+  } catch (e) { if (e.code === 'session_changed' || e.name === 'AbortError') return; say(e.body && e.body.error === 'agent_memory_unavailable' ? T.unavailable : T.saveFail, false); }
+}
+
+$id('agChallenge').onclick = async () => {
+  const address = ($id('agAddr').value || '').trim();
+  if (!/^AGT[0-9a-f]{40}$/.test(address)) return sayGuest(T.needAddr, false);
+  try { const r = await api('/cabinet/challenge', { address }); sayGuest(T.challengeIssued); window.__agtChallenge = r.challenge || r; }
+  catch (e) { sayGuest(e.code || T.loginFail, false); }
+};
+$id('agLogin').onclick = async () => {
+  const address = ($id('agAddr').value || '').trim(); const issued = window.__agtChallenge;
+  if (!issued) return sayGuest(T.challengeIssued, false);
+  let sig = ($id('agSig').value || '').trim();
+  try { if (sig.startsWith('{')) { const v = JSON.parse(sig); if (v.challengeId !== issued.challengeId || v.address !== issued.address) throw new Error('Ответ Skill относится к другому запросу.'); sig = v.signature || v.sig; } } catch (e) { return sayGuest(e.message, false); }
+  try {
+    const r2 = await api('/cabinet/login', { address: issued.address, mode: 'challenge', challengeId: issued.challengeId, nonce: issued.message, signature: sig });
+    session = { address: issued.address, token: r2.token };
+    const st = await api('/agent/api/state', session); showSpace(st, session); sayGuest(T.signedOK);
+  } catch (e) { sayGuest(T.loginFail + (e.code ? ' (' + e.code + ')' : ''), false); }
+};
+$id('agLogout').onclick = async () => { try { await api('/agent/api/logout', session); } catch {} showGuest(T.loggedOut); }; // showGuest() сам гасит эпоху/летящие запросы/черновик
+$id('agCreate').onclick = async () => {
+  const text = $id('agNewText').value;
+  if (!text || text.length > 4000) return say(T.invalidText, false);
+  try { await api('/agent/api/memory/create', { ...session, text }); $id('agNewText').value = ''; try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
+    say(T.saved); refreshList($id('agQuery').value); } catch (e) { say(e.code === 'duplicate_object' ? T.duplicate : T.saveFail, false); }
+};
+$id('agSearch').onclick = () => refreshList($id('agQuery').value.trim());
+$id('agRagSearch').onclick = async () => {
+  const q = $id('agRagQuery').value.trim(); const el = $id('agRagMsg'); const list = $id('agRagList');
+  if (!q) { el.textContent = T.ragNeedQuery; el.className = 'ag-msg ag-err'; return; }
+  try {
+    const r = await api('/agent/api/rag/query', { ...session, query: q });
+    list.replaceChildren();
+    if (!r.ok || !Array.isArray(r.results)) throw new Error(T.ragFail);
+    if (r.results.length === 0) { const p = document.createElement('p'); p.className = 'ag-muted'; p.textContent = T.ragEmpty; list.append(p); }
+    else for (const it of r.results) {
+      const note = document.createElement('div'); note.className = 'ag-note';
+      const pre = document.createElement('p'); pre.textContent = it.text; note.append(pre);
+      const meta = document.createElement('p'); meta.className = 'ag-meta'; meta.textContent = '#' + it.id + ' · близость ' + it.score + ' · ' + T.ragContext; note.append(meta);
+      list.append(note);
+    }
+    el.textContent = T.ragResults + ' (' + r.results.length + ') — ' + T.ragContext; el.className = 'ag-msg ag-ok';
+  } catch { el.textContent = T.ragFail; el.className = 'ag-msg ag-err'; }
+};
+$id('agExport').onclick = async () => {
+  try { const data = await api('/agent/api/memory/export', session);
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'agent-memory-export.json'; a.click(); URL.revokeObjectURL(a.href);
+  } catch { say(T.unavailable, false); }
+};
+document.getElementById('agTitle').textContent = T.appTitle; document.title = 'AGENTCOIN — ' + T.appTitle;
+
+// Восстановление живой сессии вкладки: та же сессия кабинета (sessionStorage agtx:cab).
+try {
+  const saved = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
+  if (saved && typeof saved.address === 'string' && typeof saved.token === 'string') {
+    api('/agent/api/state', saved).then(st => { session = saved; showSpace(st, saved); }).catch(() => { try { sessionStorage.removeItem('agtx:cab'); } catch {} showGuest(); });
+  } else showGuest();
+} catch { showGuest(); }
+</script>
+</body>
+</html>

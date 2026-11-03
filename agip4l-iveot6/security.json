@@ -1,0 +1,34 @@
+{
+  "chainId": "AGENTCOIN",
+  "updatedAt": 1792441995020,
+  "bans": {
+    "AGTed4ea32c46f96d4ab07b5a4e1b3411514b2ae5f8": {
+      "reason": "double_spend",
+      "evidence": "balance 0, pending 0, tried 1",
+      "bannedAt": "2026-10-19T20:33:15.008Z",
+      "lifetime": true,
+      "ttlMs": null
+    }
+  },
+  "attacks": [
+    {
+      "id": "99e13128b8601f41",
+      "kind": "double_spend",
+      "address": "AGTed4ea32c46f96d4ab07b5a4e1b3411514b2ae5f8",
+      "evidence": "balance 0, pending 0, tried 1",
+      "at": "2026-10-19T20:33:15.004Z",
+      "rule": "ban"
+    },
+    {
+      "id": "7d5c7db96c40cc9f",
+      "kind": "flood",
+      "address": "AGTed4ea32c46f96d4ab07b5a4e1b3411514b2ae5f8",
+      "evidence": "banned address keeps submitting txs",
+      "at": "2026-10-19T20:33:15.020Z",
+      "rule": "ban_after_5"
+    }
+  ],
+  "strikes": {
+    "AGTed4ea32c46f96d4ab07b5a4e1b3411514b2ae5f8": 1
+  }
+}

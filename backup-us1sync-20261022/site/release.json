@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "release": "site-v2-4f1650926d9cb43c",
+  "apiVersion": 2,
+  "files": {
+    "index.html": "f0510fc3ad467e8c0765413ebc013b1d7643ab6dc3b2346eda6478e58a18666e",
+    "imperial.html": "6c45af1a2f63f03f46ee02839e1cf13fe4f20776ff9f8dbadec6aaaab607a773",
+    "terminal.html": "844c3220f6a14f6a468736310207bd62a441d7aed031bf168e273234a6e17a94",
+    "dashboard.html": "88a0d75db64aa4aa14f3be912cf2b3a5489efc4075ecffbb428001824443aaf3",
+    "chat.html": "854b62a38048846ada14bf8267de382e4926c941395240db6318c1f11c7a8972",
+    "jail.html": "c407971fb2394ce63035a0e0e33890847f7c014e202d7adb6cffa5298b7d09e5",
+    "mbc20.html": "96efa1d71caeac23a2f8afabf42bb167a50addea7fb2a150c16543049c453050",
+    "cabinet.html": "056344dbfe013993e1f5246f30f54f46876d839410f42de6cdbaf63d29ccc9eb",
+    "jobs.html": "4981cb4c80d04f895d4ca8fd536816dbcd20c4627b407a7d31da85c2bfccc1f8",
+    "user-wallet-page.html": "94e29e2a0ab2d1ed54c848085b9996c83eb75780bf161e0dae5d32fcade1bef1",
+    "user-wallet-format-lib.js": "f8529b936c2a6c52f19a6e4b293e3a1ac9456e9e11866d3c0ec0b7fbdf458123",
+    "panel.js": "f0c734012e3cb7f72501bf866834a028f258814e09902734d7a13d121fb083da"
+  }
+}

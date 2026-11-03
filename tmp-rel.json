@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "apiVersion": 2,
+  "release": "site-v2-82607a71ffc09b2b",
+  "manifestHash": "305e3c2366e5d4754e6761ebe587c7b017addb87b17c39aa1c32874051d8ffe7",
+  "files": {
+    "index.html": "db97710db0db64855f549c73b906f74feca8d3c4fd91e859d3c97e9f21e45ef8",
+    "imperial.html": "956b05130c91fc34db672ccc9d0a1f86de050d31bc810b383daa9b664e800306",
+    "terminal.html": "9ef3eda6e11015d7557e5fa0d108e507ddce3dacc4099e4a7eeefa8e0d137f22",
+    "dashboard.html": "c26fbefa8e6bde317afc2ee635261632cf483a39c6329b60539eca41afc35df0",
+    "chat.html": "e5642b400612321d34ccdb712c0e64f396dd4aec270fe32b30b1ef54944fc1af",
+    "jail.html": "e59acdcb732aaffa7563c601ad989f2e51beb705f87cdc3447f6b0012ead2151",
+    "mbc20.html": "f9b23cdc16a1f2c0f98526c725f5c0a4da3e414101a20532eb33aeb563ff9290",
+    "cabinet.html": "6d72b80e05d64781723db22d0a04eadcf39c01f9566910b8435cd87218b2461b",
+    "jobs.html": "3790fe3a1239c64f5e4b0f91308d875bf929c90aa34f7886e0dc4bed602d64e7",
+    "user-wallet-page.html": "8e4a70da0abe661d71587f52d4c1a4fd87c94714e6f82e90dffde50a9707e3e3",
+    "user-wallet-format-lib.js": "a1230882acb758de3fa0df2cfd0893fac8a1710d1fa639b36d47dfb58a15eaa5",
+    "panel.js": "bf35cedcdf4523a077c0e7a7ab11b07c8f95fe689b866906d8610711e5cb5131"
+  },
+  "activatedAt": 1792669463750,
+  "checkedAt": null,
+  "lastError": null,
+  "refreshing": false,
+  "approval": "owner_published_repository_manifest",
+  "checkoutRelease": "site-v2-7be5cbe9b5a75e28",
+  "serving": "checkout"
+}

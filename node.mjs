@@ -83,6 +83,9 @@ const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
 // bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
 setSelfUrl(SELF_URL);
 process.env.AGT_NODE_PORT ||= String(Number(process.argv[2]) || 9333);
+// AGIP-8: нода на не-loopback bind (tailnet 9336) слушает не 127.0.0.1, а свой
+// bind-адрес — без этой строки она дозванивалась сама в себя (socket hang up).
+setSelfUrl(`http://${process.env.AGT_BIND || '127.0.0.1'}:${PORT}`);
 
 const bc = new Blockchain(DATA_DIR);
 // AGIP-4: активная политика казны (ончейн-мемо) — детерминирована цепью, кэшируется по высоте

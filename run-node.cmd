@@ -7,6 +7,9 @@ if not defined AGT_ADMIN_MODE set "AGT_ADMIN_MODE=local"
 set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"
 set "AGT_MONITOR_TARGETS_FILE=%~dp0data-agtx\monitor-targets.json"
 set "AGT_IDENTITY_ROLE=issuer"
+rem AGIP-8: собственные внешние адреса ноды — их нельзя держать в peers.json,
+rem иначе self-dial и вечный backoff (tailnet-адрес этой машины = сама нода)
+set "AGT_SELF_URL=http://127.0.0.1:9335,https://laptop-ih54qpif.tail8c28c2.ts.net"
 rem SITE-ACTIVATE (issue 6298050853): serve verified checkout site for ALL pages
 rem instead of stale owner-approved cache; release.json on disk is bytes-verified by build-site-release --check.
 set "AGT_SITE_SYNC=0"

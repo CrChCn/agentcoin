@@ -35,16 +35,88 @@ const PEER_META_FILE = () => path.join(peersDataDir(), 'peer-meta.json');
 const STRIKE_LIMIT = 3;
 const STRIKE_COOLDOWN_MS = 24 * 3600 * 1000;
 
+// AGIP-8 (рецидив 2026-11-04): гигиена пиров — ОДНА точка правды на чтении и записи.
+// Заполнители вида http://p1, http://p2 (инцидент AGIP-8) и самоссылки (нода
+// дозванивается сама в себя) возвращались в peers.json после каждого рестарта через
+// bootstrap-мердж и gossip: вечный backoff, 502 на self-dial, пустая сеть за спиной.
+// Теперь такие адреса не читаются и не пишутся ни одним путём.
+const selfPeerUrls = new Set();
+export function setSelfUrl(u) { const n = normalizePeerUrl(u); if (n) selfPeerUrls.add(n); }
+// host[:port] без пути/креденшелов — иначе это не адрес ноды
+const PEER_SHAPE_RE = /^(https?):\/\/([^\/?#@\s]+)\/?$/i;
+const V4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+const V6_RE = /^\[[0-9a-f:]+\]$/;
+const FQDN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+export function normalizePeerUrl(raw) {
+  if (typeof raw !== 'string') return null;
+  const m = PEER_SHAPE_RE.exec(raw.trim());
+  if (!m) return null;
+  const scheme = m[1].toLowerCase();
+  const hp = /^(\[[^\]]+\]|[^:]+)(?::(\d{1,5}))?$/.exec(m[2].toLowerCase());
+  if (!hp) return null;
+  const host = hp[1], port = hp[2] || '';
+  if (port && !(Number(port) >= 1 && Number(port) <= 65535)) return null;
+  // чисто цифровой-с-точками хост обязан быть валидным IPv4 (1.2.3.999 — не домен)
+  const numericHost = /^[0-9.]+$/.test(host);
+  const okHost = host === 'localhost' || V6_RE.test(host)
+    || (numericHost
+      ? (V4_RE.test(host) && host.split('.').every(o => Number(o) <= 255))
+      : FQDN_RE.test(host));
+  // односоставный хост (p1, p2, foo) — не резолвится в интернете, это заполнитель
+  if (!okHost) return null;
+  return `${scheme}://${host}${port ? ':' + port : ''}`;
+}
+function peerSelfSet() {
+  const out = new Set(selfPeerUrls);
+  for (const u of String(process.env.AGT_SELF_URL || '').split(',')) {
+    const n = normalizePeerUrl(u); if (n) out.add(n);
+  }
+  const port = Number(process.env.AGT_NODE_PORT);
+  if (port) { out.add(`http://127.0.0.1:${port}`); out.add(`http://localhost:${port}`); }
+  return out;
+}
+function peerKey(u) {
+  const n = normalizePeerUrl(u); if (!n) return null;
+  const m = /^https?:\/\/(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(n);
+  const host = m[1] === 'localhost' ? '127.0.0.1' : m[1];
+  return `${host}:${m[2] || '80'}`;
+}
+export function isSelfPeerUrl(u) {
+  const key = peerKey(u); if (!key) return false;
+  for (const s of peerSelfSet()) if (peerKey(s) === key) return true;
+  return false;
+}
+export function sanitizePeers(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [], seen = new Set();
+  for (const raw of list) {
+    const n = normalizePeerUrl(raw);
+    if (!n || isSelfPeerUrl(n) || seen.has(n)) continue;
+    seen.add(n); out.push(n);
+  }
+  return out;
+}
 export function loadPeers() {
-  try { return JSON.parse(fs.readFileSync(PEERS_FILE(), 'utf8')); } catch { return []; }
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(PEERS_FILE(), 'utf8')); } catch { return []; }
+  const clean = sanitizePeers(list);
+  // самоочистка файла: мусор больше не живёт на диске и не переживает рестарт
+  if (Array.isArray(list) && clean.length !== list.length) {
+    try { fs.writeFileSync(PEERS_FILE(), JSON.stringify(clean, null, 2)); } catch {}
+  }
+  return clean;
 }
 export function savePeers(list) {
+  const clean = sanitizePeers(list);
   fs.mkdirSync(peersDataDir(), { recursive: true });
-  fs.writeFileSync(PEERS_FILE(), JSON.stringify(list, null, 2));
+  fs.writeFileSync(PEERS_FILE(), JSON.stringify(clean, null, 2));
+  return clean;
 }
 export function addPeer(url) {
   const peers = loadPeers();
-  if (!peers.includes(url)) peers.push(url);
+  const n = normalizePeerUrl(url);
+  if (!n || isSelfPeerUrl(n) || peers.includes(n)) return peers;
+  peers.push(n);
   savePeers(peers);
   return peers;
 }

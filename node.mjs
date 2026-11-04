@@ -40,7 +40,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
-import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike } from './sync.mjs';
+import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
@@ -79,6 +79,10 @@ if (!process.env.AGT_ADMIN_TOKEN) {
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
+// AGIP-8: sync.mjs должен знать собственный адрес ноды, иначе самоссылка из
+// bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
+setSelfUrl(SELF_URL);
+process.env.AGT_NODE_PORT ||= String(Number(process.argv[2]) || 9333);
 
 const bc = new Blockchain(DATA_DIR);
 // AGIP-4: активная политика казны (ончейн-мемо) — детерминирована цепью, кэшируется по высоте

@@ -29,10 +29,12 @@ if (isChainChoiceVerdict('no_blocks') && isChainChoiceVerdict('fork_height_misma
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agip7-'));
 const oldData = process.env.AGT_DATA_DIR;
 process.env.AGT_DATA_DIR = tmp;
-savePeers(['http://p1', 'http://p2']);
+// заполнители http://p1/p2 теперь отсекаются гигиеной пиров (AGIP-8) — берём
+// валидные, но мёртвые loopback-адреса: смысл теста (все пиры забанены) тот же
+savePeers(['http://127.0.0.1:9', 'http://127.0.0.1:10']);
 const staleMeta = {
-  'http://p1': { strikes: 3, accepted: 0, blockedUntil: Date.now() + 3600_000 },
-  'http://p2': { strikes: 3, accepted: 0, blockedUntil: Date.now() + 3600_000 },
+  'http://127.0.0.1:9': { strikes: 3, accepted: 0, blockedUntil: Date.now() + 3600_000 },
+  'http://127.0.0.1:10': { strikes: 3, accepted: 0, blockedUntil: Date.now() + 3600_000 },
 };
 savePeerMeta(staleMeta);
 // BC со stale tip: цепь из одного блока с timestamp 10 минут назад
@@ -45,7 +47,7 @@ const logs = await syncAll(bc);
 if (logs.some(l => String(l).includes('SAFETY VALVE'))) ok('клапан самопомощи сработал при все-заблоках + stale tip');
 else bad('клапан не сработал: ' + logs.join('; ').slice(0, 140));
 const after = loadPeerMeta();
-if (!after['http://p1']?.blockedUntil && !after['http://p2']?.blockedUntil) ok('blockedUntil снят, страйки сохранены (p1 strikes=' + after['http://p1']?.strikes + ')');
+if (!after['http://127.0.0.1:9']?.blockedUntil && !after['http://127.0.0.1:10']?.blockedUntil) ok('blockedUntil снят, страйки сохранены (strikes=' + after['http://127.0.0.1:9']?.strikes + ')');
 else bad('клапан не снял блокировку');
 
 // 2b. Клапан НЕ должен срабатывать при свежем tip (секьюрность против обхода банов)

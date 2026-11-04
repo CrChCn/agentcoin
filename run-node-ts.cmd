@@ -22,6 +22,8 @@ if errorlevel 1 (
   echo [FAIL] AGT_TS_BIND must be a specific valid IP address, never a wildcard.
   exit /b 2
 )
+rem AGIP-8: tailnet-адрес этой машины = не пир, а собственный вход (self-dial = 502)
+set "AGT_SELF_URL=https://laptop-ih54qpif.tail8c28c2.ts.net"
 set "AGT_BIND=%AGT_TS_BIND%"
 set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"
 set "AGT_MONITOR_TARGETS_FILE=%~dp0data-agtx\monitor-targets.json"

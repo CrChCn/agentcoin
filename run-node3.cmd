@@ -2,6 +2,8 @@
 setlocal
 cd /d "%~dp0"
 set "AGT_DATA_DIR=%~dp0data-node3"
+rem AGIP-8: tailnet-адрес этой машины = не пир, а собственный вход (self-dial = 502)
+set "AGT_SELF_URL=https://laptop-ih54qpif.tail8c28c2.ts.net"
 set "AGT_BIND=127.0.0.1"
 if not defined AGT_ADMIN_MODE set "AGT_ADMIN_MODE=local"
 set "AGT_BOOTSTRAP_FILE=%~dp0data-agtx\bootstrap-local.json"

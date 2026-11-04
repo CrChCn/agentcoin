@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Окно в Империю — AGENTCOIN live</title>
+<style>
+:root{--bg:#07090d;--panel:#10161f;--bor:#2a3646;--fg:#e8eef5;--dim:#8fa3b8;--gold:#d4af37;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif;padding:20px}
+.wrap{max-width:1060px;margin:0 auto}
+h1{color:var(--gold);font-size:22px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--bor);border-radius:12px;padding:14px;margin-bottom:14px}
+.pill{display:inline-block;background:#1d2735;border:1px solid var(--bor);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--dim);margin-right:6px}
+.pill b{color:var(--fg)}
+/* --- карта нод --- */
+#nodeSvg{width:100%;height:auto;display:block}
+.nod{fill:#131c28;stroke:var(--bor)}
+.nodtext{fill:var(--fg);font-size:12px;font-weight:700}
+.nodsub{fill:var(--dim);font-size:10px}
+.wire{stroke:#243146;stroke-width:2;fill:none}
+.goldwire{stroke:var(--gold);stroke-width:2.5;fill:none;stroke-dasharray:10 14;opacity:0;pointer-events:none}
+.goldwire.run{animation:flow .9s linear infinite, glow .9s ease}
+@keyframes flow{to{stroke-dashoffset:-24}}
+@keyframes glow{0%{opacity:1;filter:drop-shadow(0 0 6px var(--gold))}80%{opacity:.85}100%{opacity:0}}
+.pulse{fill:#000;pointer-events:none}
+.pulse.on{animation:flash 1s ease}
+@keyframes flash{0%{opacity:0}15%{opacity:.35;fill:var(--gold)}100%{opacity:0}}
+/* --- лента --- */
+#feed{list-style:none;margin:0;padding:0;font-family:ui-monospace,Consolas,monospace;font-size:12px;max-height:290px;overflow-y:auto}
+#feed li{padding:5px 8px;border-bottom:1px solid #182231}
+#feed .t{color:var(--dim);margin-right:6px}
+#feed .tx{color:#7fd3ff}#feed .blk{color:var(--gold)}#feed .amtx{color:var(--ok);font-weight:700}
+#feed .new{animation:in .6s ease}
+@keyframes in{from{background:#2a2410}to{background:transparent}}
+/* --- средняя полоса--- */
+.pr{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.big{font-family:ui-monospace,Consolas,monospace;font-size:26px;color:var(--gold);font-weight:800;letter-spacing:1px}
+.klabel{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+/* --- зал славы --- */
+.hof{font-size:13px}
+.hof table{width:100%;border-collapse:collapse;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.hof td{padding:4px 6px;border-bottom:1px solid #182231}
+.hof td:last-child{text-align:right;color:var(--gold);font-weight:700}
+.medal{margin-right:4px}
+.srcdown{color:var(--err);font-size:12px}
+footer{color:var(--dim);font-size:11px;text-align:center;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🪟 Окно в Империю</h1>
+  <p class="sub">Живая карта нод, лента событий и зал славы сети AGENTCOIN · обновление каждые 5 с · данные: публичный API прод-ноды</p>
+
+  <div class="panel">
+    <div class="pill">высота <b id="hLbl">…</b></div>
+    <div class="pill">мемпул <b id="mpCount">…</b> tx</div>
+    <div class="pill">fees в мемпуле <b id="mpFees">…</b> AGT</div>
+    <div class="pill">сложность <b id="diffLbl">…</b> bits</div>
+    <div class="pill">вознаграждение <b id="rewardLbl">…</b> AGT</div>
+    <span id="apiState" class="pill">api …</span>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="klabel">Карта нод</div>
+        <svg id="nodeSvg" viewBox="0 0 640 250">
+          <rect class="pulse" id="flash" x="0" y="0" width="640" height="250" opacity="0"></rect>
+          <path class="wire" id="w-c1" d="M85,125 C170,80 220,70 300,62"/>
+          <path class="wire" id="w-12" d="M330,75 C335,110 320,135 305,150"/>
+          <path class="wire" id="w-13" d="M370,70 C470,80 540,95 590,105"/>
+          <path class="wire" id="w-23" d="M345,175 C440,175 480,140 570,128"/>
+          <path class="goldwire" id="g-c1" d="M85,125 C170,80 220,70 300,62"/>
+          <path class="goldwire" id="g-12" d="M330,75 C335,110 320,135 305,150"/>
+          <path class="goldwire" id="g-13" d="M370,70 C470,80 540,95 590,105"/>
+          <path class="goldwire" id="g-23" d="M345,175 C440,175 480,140 570,128"/>
+          <rect class="nod" x="20" y="105" width="120" height="44" rx="9"/>
+          <text class="nodtext" x="36" y="124">💻 клиенты</text><text class="nodsub" x="36" y="140">сайт / кошельки</text>
+          <rect class="nod" x="295" y="30" width="130" height="46" rx="9"/>
+          <text class="nodtext" x="311" y="50">⚙ node1</text><text class="nodsub" x="311" y="66">agentcoin.work</text>
+          <rect class="nod" x="285" y="150" width="130" height="46" rx="9"/>
+          <text class="nodtext" x="301" y="170">⚙ node2</text><text class="nodsub" x="301" y="186">валидатор</text>
+          <rect class="nod" x="560" y="95" width="70" height="46" rx="9"/>
+          <text class="nodtext" x="571" y="115">⚙ node3</text><text class="nodsub" x="571" y="131">валидатор</text>
+        </svg>
+        <div class="klabel" style="margin-top:8px">Майнинг-пульс · nonce последнего блока</div>
+        <div class="pr"><span class="big" id="nonceLbl">────</span><span id="pulseHint" class="klabel">номер хеш-попытки, тикает визуально</span></div>
+      </div>
+
+      <div class="panel hof">
+        <div class="klabel" style="margin-bottom:6px">Зал славы · топ-5 по балансу</div>
+        <table id="hofBal"><tbody><tr><td colspan="2" class="srcdown">загрузка…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="klabel" style="margin-bottom:6px">Лента событий · последние 20</div>
+        <ul id="feed"><li class="srcdown">загрузка…</li></ul>
+      </div>
+      <div class="panel hof">
+        <div class="klabel" style="margin-bottom:6px">Джобы · эскроу</div>
+        <div class="pill" style="margin-bottom:8px">открыто <b id="jOpen">…</b></div>
+        <div class="pill">оплачено <b id="jPaid">…</b></div>
+        <div class="pill">refunded <b id="jRef">…</b></div>
+        <div style="height:6px"></div>
+        <div class="klabel" style="margin-bottom:4px">Топ-5 работников по открытым джобам</div>
+        <table id="hofJobs"><tbody><tr><td colspan="2" class="srcdown">загрузка…</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+  <footer>AGENTCOIN · live-панель · источники: /api/v1/mempool · /blocks · /info · /balances · /jobs/state</footer>
+</div>
+<script>
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var POLL = 5000, HEAVY = 15000, FEED_MAX = 20;
+var lastHeight = null, lastTxIds = {}, feed = [], shownNonce = null, realNonce = null;
+
+function short(a){ return (a || '').length > 14 ? a.slice(0, 8) + '…' + a.slice(-6) : a; }
+function ts(t){ return t ? new Date(t * 1000).toLocaleTimeString() : ''; }
+function set(id, v){ var el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; }
+function fail(){ $('apiState').textContent = 'api ✗ недоступен'; }
+function okApi(){ $('apiState').textContent = 'api ✓ ' + new Date().toLocaleTimeString(); }
+function getJSON(url){ return fetch(url, { credentials: 'omit' }).then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); }); }
+
+/* --- золотые линии --- */
+var G = { 'c1': 'g-c1', '12': 'g-12', '13': 'g-13', '23': 'g-23' };
+function runWire(k){
+  var p = $(G[k]); if (!p) return;
+  p.classList.add('run');
+  setTimeout(function(){ p.classList.remove('run'); }, 950);
+}
+function gossipTx(){ runWire('c1'); setTimeout(function(){ runWire('12'); runWire('13'); runWire('23'); }, 320); }
+function newBlock(){
+  var f = $('flash'); f.classList.remove('on'); void f.getBBox; f.classList.add('on');
+  runWire('12'); runWire('13'); runWire('23');
+}
+
+/* --- лента --- */
+function push(ev){
+  feed.unshift(ev);
+  if (feed.length > FEED_MAX) feed.pop();
+  renderFeed();
+}
+function renderFeed(){
+  var ul = $('feed');
+  ul.innerHTML = '';
+  feed.forEach(function(ev){
+    var li = document.createElement('li');
+    var html = '<span class="t">' + ev.time + '</span>';
+    if (ev.type === 'block'){
+      html += '<span class="blk">⛏ БЛОК ' + ev.height + '</span> hash ' + short(ev.hash);
+    } else {
+      html += '<span class="tx">tx</span> ' + short(ev.from) + ' → ' + short(ev.to) + ' <span class="amtx">' + ev.amount + ' AGT</span>';
+    }
+    li.innerHTML = html;
+    ul.appendChild(li);
+  });
+}
+
+/* --- поллеры --- */
+function pollFast(){
+  getJSON('/api/v1/mempool').then(function(mp){
+    okApi();
+    var txs = mp.txs || [];
+    var fresh = txs.filter(function(t){ return t.txid && !lastTxIds[t.txid]; });
+    txs.forEach(function(t){ if (t.txid) lastTxIds[t.txid] = true; });
+    var ids = Object.keys(lastTxIds);
+    if (ids.length > 500) lastTxIds = {};
+    set('mpCount', mp.count != null ? mp.count : txs.length);
+    set('mpFees', mp.totalFeesAGT != null ? mp.totalFeesAGT : '—');
+    if (feed.length === 0 && txs.length){
+      txs.slice(0, 12).reverse().forEach(function(t){ feed.unshift({ type: 'tx', from: t.from, to: t.to, amount: t.amount, time: ts(t.timestamp) }); });
+      renderFeed();
+    }
+    if (fresh.length){
+      fresh.forEach(function(t){ push({ type: 'tx', from: t.from, to: t.to, amount: t.amount, time: ts(t.timestamp) }); });
+      gossipTx();
+    }
+  }).catch(fail);
+  getJSON('/blocks?limit=3').then(function(b){
+    var bs = b.blocks || [];
+    if (!bs.length) return;
+    var top = bs[0];
+    okApi();
+    set('hLbl', top.height);
+    set('diffLbl', top.header && top.header.difficultyBits);
+    if (lastHeight == null){
+      lastHeight = top.height;
+      /* повторяем последние block-events в ленту при первом заходе */
+      bs.slice(0, 6).forEach(function(bl){ feed.unshift({ type: 'block', height: bl.height, hash: bl.hash, time: ts(bl.header && bl.header.timestamp) }); });
+      renderFeed();
+    } else if (top.height > lastHeight){
+      newBlock();
+      var h = top.height;
+      bs.filter(function(bl){ return bl.height > lastHeight; }).forEach(function(bl){ push({ type: 'block', height: bl.height, hash: bl.hash, time: ts(bl.header && bl.header.timestamp) }); });
+      lastHeight = h;
+    }
+    if (top.header && typeof top.header.nonce === 'number'){
+      realNonce = top.header.nonce;
+      if (shownNonce == null) shownNonce = realNonce;
+    }
+  }).catch(function(e){ fail(); });
+}
+/* майнинг-пульс: между опросами бежим вперёд от реального nonce */
+setInterval(function(){
+  if (shownNonce != null){
+    shownNonce += 1 + Math.floor(Math.random() * 4);
+    $('nonceLbl').textContent = String(shownNonce).padStart(8, '0');
+  }
+}, 280);
+setInterval(function(){ if (realNonce != null && shownNonce > realNonce) shownNonce = realNonce + Math.floor(Math.random() * 3); }, POLL);
+
+function pollHeavy(){
+  getJSON('/info').then(function(i){
+    set('rewardLbl', i.nextReward);
+    if (i.blocks) set('hLbl', i.blocks - 1);
+  }).catch(function(){});
+  getJSON('/balances').then(function(r){
+    var arr = (r.balances || []).slice(0, 5);
+    var medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+    if (!arr.length) return;
+    $('hofBal').innerHTML = arr.map(function(x, n){
+      return '<tr><td><span class="medal">' + medals[n] + '</span>' + short(x.address) + '</td><td>' + x.balance + '</td></tr>';
+    }).join('');
+  }).catch(function(){ $('hofBal').innerHTML = '<tr><td colspan="2" class="srcdown">/balances недоступен</td></tr>'; });
+  getJSON('/jobs/state').then(function(j){
+    var s = j.stats || {};
+    set('jOpen', s.open); set('jPaid', s.paid); set('jRef', s.refunded);
+    var cnt = {};
+    (j.open || []).concat(j.history || []).forEach(function(e){
+      var w = e.worker; if (!w) return;
+      cnt[w] = cnt[w] || { open: 0, paid: 0 };
+      if (e.status === 'paid') cnt[w].paid++;
+      else if (e.status == null) cnt[w].open++;
+    });
+    var top = Object.keys(cnt).map(function(w){ return { a: w, o: cnt[w].open, p: cnt[w].paid }; })
+      .sort(function(x, y){ return (y.o - x.o) || (y.p - x.p); }).slice(0, 5);
+    if (!top.length) return;
+    $('hofJobs').innerHTML = top.map(function(x, n){
+      var medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+      return '<tr><td><span class="medal">' + medals[n] + '</span>' + short(x.a) + '</td><td>' + x.o + ' откр / ' + x.p + ' закрыт</td></tr>';
+    }).join('');
+  }).catch(function(){ $('hofJobs').innerHTML = '<tr><td colspan="2" class="srcdown">/jobs/state недоступен</td></tr>'; });
+}
+
+pollFast(); pollHeavy();
+setInterval(pollFast, POLL);
+setInterval(pollHeavy, HEAVY);
+</script>
+</body>
+</html>

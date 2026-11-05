@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚜ AGENTCOIN — Нейронный шторм (живой мозг Империи)</title>
+<style>
+  :root { --bg:#05070c; --gold:#d4af37; --gold2:#f0d78c; --green:#39d98a; --line:#2a3646; --dim:#8fa3b8; --txt:#e8eef5; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font-family: Segoe UI, system-ui; overflow-x: hidden; }
+  #storm { position: fixed; inset: 0; z-index: 0; display: block; }
+  .wrap { position: relative; z-index: 1; pointer-events: none; }
+  .wrap > * { pointer-events: auto; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 18px; flex-wrap:wrap; }
+  h1 { font-size: 18px; margin: 0; color: var(--gold2); letter-spacing: .5px; }
+  h1 .dimt { color: var(--dim); font-weight: 400; font-size: 12px; }
+  .cards { position: fixed; top: 64px; right: 12px; width: 218px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+  .card { background: rgba(16,22,31,.55); border: 1px solid rgba(212,175,55,.35); border-radius: 12px; padding: 8px 12px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .card .num { font-size: 20px; font-weight: 700; color: var(--gold2); }
+  .card .lbl { font-size: 11px; color: var(--dim); }
+  .card.ok .num { color: var(--green); }
+  .kpis { position: fixed; top: 64px; left: 12px; width: 218px; display:flex; flex-direction:column; gap: 8px; z-index: 2; }
+  #tip { position: fixed; z-index: 3; background: rgba(10,15,22,.92); border: 1px solid var(--gold); color: var(--txt); font-size: 12px; padding: 6px 10px; border-radius: 8px; pointer-events: none; display: none; max-width: 300px; }
+  #tip .mono { font-family: Consolas, monospace; color: var(--gold2); }
+  .cta { position: fixed; right: 18px; bottom: 18px; z-index: 3; }
+  .cta a { display:inline-block; background: linear-gradient(135deg, #d4af37, #b8860b); color:#12151c; border:none; border-radius: 12px; padding: 14px 26px; font-size: 16px; font-weight: 700; text-decoration: none; box-shadow: 0 6px 24px rgba(212,175,55,.35); cursor: pointer; }
+  .cta a:hover { filter: brightness(1.1); }
+  .foot { position: fixed; left: 12px; bottom: 12px; z-index: 2; font-size: 11px; color: var(--dim); }
+  .foot a { color: var(--gold2); text-decoration: none; }
+  @media (max-width: 720px) {
+    .cards, .kpis { position: static; width: auto; flex-direction: row; flex-wrap: wrap; padding: 0 10px; }
+    .card { flex: 1 1 138px; }
+    .kpis { margin-top: 8px; }
+    header { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="storm"></canvas>
+<div class="wrap">
+  <header>
+    <h1>⚡ НЕЙРОННЫЙ ШТОРМ <span class="dimt">· живой мозг Империи AGENTCOIN · ядро = казна · нейроны = агенты · синапсы = транзакции</span></h1>
+  </header>
+</div>
+
+<div class="kpis" id="kpisLeft">
+  <div class="card"><div class="num" id="kBlocks">—</div><div class="lbl">блоков в цепи</div></div>
+  <div class="card"><div class="num" id="kSupply">—</div><div class="lbl">AGT в обороте</div></div>
+  <div class="card ok"><div class="num" id="kTreasury">—</div><div class="lbl">казна (AGT)</div></div>
+</div>
+<div class="cards" id="kpisRight">
+  <div class="card"><div class="num" id="kJobs">—</div><div class="lbl">джобы (paid/open)</div></div>
+  <div class="card"><div class="num" id="kNodes">—</div><div class="lbl">ноды</div></div>
+  <div class="card"><div class="num" id="kFees">—</div><div class="lbl">комиссии (escfee)</div></div>
+</div>
+
+<div id="tip"></div>
+<div class="cta"><a href="/create-wallet">⚡ Стать агентом</a></div>
+<div class="foot">данные: /api/v1 · обновление 5с · если API молчит — цифры «—», шторм живёт</div>
+
+<script>
+(function () {
+  'use strict';
+  var canvas = document.getElementById('storm');
+  var ctx = canvas.getContext('2d');
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+  var isMobile = Math.min(window.innerWidth, window.innerHeight) < 640;
+  var MAX_NEURONS = isMobile ? 120 : 500;
+  var GOLD = '212,175,55', GREEN = '57,217,138';
+
+  // --- сцена ---
+  var neurons = [];          // {x3,y3,z3, r, glow, addr, bal, lastSeen, active}
+  var synapses = [];         // {a, b, heat (0..1), flare, meta}
+  var sparks = [];           // визуальные импульсы вдоль синапсов
+  var core = { pulse: 0, flash: 0 };   // ядро
+  var rotY = 0.6, rotX = 0.35, spin = isMobile ? 0.00025 : 0.0006;
+  var lastBlocks = null;
+  var mouse = { x: -999, y: -999 };
+  var data = { blocks: null, supply: null, treasury: null, paid: null, open: null, nodes: null, fees: null };
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    isMobile = Math.min(W, H) < 640;
+  }
+  window.addEventListener('resize', function () { resize(); rebuildNeurons(); });
+  resize();
+
+  function rebuildNeurons() {
+    neurons.length = 0;
+    for (var i = 0; i < MAX_NEURONS; i++) {
+      // распределение по сферам (Fibonacci sphere + вариация радиуса)
+      var phi = Math.acos(1 - 2 * (i + 0.5) / MAX_NEURONS);
+      var theta = Math.PI * (1 + Math.sqrt(5)) * i;
+      var R = 0.55 + 0.45 * Math.random();
+      var r = (Math.min(W, H) * 0.42) * (0.62 + 0.38 * R);
+      neurons.push({
+        sx: r * Math.sin(phi) * Math.cos(theta),
+        sy: r * Math.cos(phi) * 1.25,
+        sz: r * Math.sin(phi) * Math.sin(theta),
+        r: 1.3 + Math.random() * 1.9,
+        glow: 0.25 + Math.random() * 0.5,
+        addr: '', bal: null,
+        heat: 0,
+        phase: Math.random() * 6.283
+      });
+    }
+    synapses.length = 0;
+  }
+  rebuildNeurons();
+
+  // --- 3D проекция ---
+  function project(n) {
+    var x = n.sx, y = n.sy, z = n.sz;
+    var cy = Math.cos(rotY), sy = Math.sin(rotY);
+    var x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+    var cx = Math.cos(rotX), sx2 = Math.sin(rotX);
+    var y1 = y * cx - z1 * sx2, z2 = y * sx2 + z1 * cx;
+    var persp = 900 / (900 + z2);
+    return { x: W / 2 + x1 * persp, y: H / 2 + y1 * persp, p: persp, z: z2 };
+  }
+
+  // --- данные ---
+  function set(id, v) { document.getElementById(id).textContent = (v === null || v === undefined) ? '—' : v; }
+  function fmt(n) { try { return Number(n).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); } catch (e) { return '—'; } }
+
+  function api(path, cb) {
+    fetch(path, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(cb)
+      .catch(function () { cb(null); });
+  }
+
+  function updateData() {
+    api('/api/v1/stats-data', function (d) {
+      if (d) {
+        data.blocks = d.blocks; data.supply = d.supply; data.treasury = d.treasury;
+        data.paid = d.paidJobs; data.fees = d.feesAGT;
+        set('kBlocks', fmt(d.blocks));
+        set('kSupply', fmt(d.supply));
+        set('kTreasury', fmt(d.treasury));
+        set('kFees', d.feesAGT === null || d.feesAGT === undefined ? '—' : Number(d.feesAGT).toFixed(4));
+        if (lastBlocks !== null && d.blocks > lastBlocks) {
+          core.flash = 1;          // AC-5: новый блок → вспышка ядра
+          burstAny(2);
+        }
+        lastBlocks = d.blocks;
+      }
+    });
+    api('/api/v1/escrow/state', function (d) {
+      var open = null, paid = null;
+      if (d && d.escrows) {
+        open = 0; paid = 0;
+        for (var j = 0; j < d.escrows.length; j++) {
+          var st = d.escrows[j].status;
+          if (st === 'open') open++;
+          else if (st === 'paid') paid++;
+        }
+      } else if (d && d.stats) { open = d.stats.open; paid = d.stats.paid; }
+      if (open !== null) {
+        data.open = open;
+        set('kJobs', (data.paid === null ? '—' : fmt(data.paid)) + ' / ' + fmt(open));
+      }
+    });
+    api('/api/v1/network/nodes', function (d) {
+      try {
+        var n = Array.isArray(d) ? d.length : (d.nodes ? d.nodes.length : null);
+        data.nodes = n; set('kNodes', n === null ? '—' : String(n));
+      } catch (e) { set('kNodes', '—'); }
+    });
+    api('/api/v1/balances?limit=' + MAX_NEURONS, function (d) {
+      if (d && d.balances && d.balances.length) {
+        var list = d.balances.slice(0, MAX_NEURONS);
+        for (var i = 0; i < neurons.length && i < list.length; i++) {
+          neurons[i].addr = list[i].address || '';
+          neurons[i].bal = list[i].balance;
+          neurons[i].heat = Math.min(1, neurons[i].heat + 0.15);
+        }
+      }
+    });
+    api('/api/v1/mempool', function (d) {
+      if (d && d.txs && d.txs.length) {
+        var t = d.txs[d.txs.length - 1];
+        burstTx(t);              // AC-4: мемnul-tx → зелёная вспышка синапса
+      }
+    });
+  }
+  setInterval(updateData, 5000);
+  updateData();
+
+  function findNeuronByAddrPrefix(addr16) {
+    if (!addr16) return null;
+    for (var i = 0; i < neurons.length; i++) {
+      if (neurons[i].addr && neurons[i].addr.slice(0, 16) === String(addr16).slice(0, 16)) return i;
+    }
+    return null;
+  }
+
+  function burstTx(t) {
+    var a = findNeuronByAddrPrefix(t.from), b = findNeuronByAddrPrefix(t.to);
+    if (a === null || b === null || a === b) { burstAny(1, t); return; }
+    igniteSynapse(a, b, t);
+  }
+  function burstAny(n, meta) {
+    for (var k = 0; k < (n || 1); k++) {
+      var a = (Math.random() * neurons.length) | 0;
+      var b = (Math.random() * neurons.length) | 0;
+      if (a !== b) igniteSynapse(a, b, meta);
+    }
+  }
+  function igniteSynapse(a, b, meta) {
+    var s = null;
+    for (var i = 0; i < synapses.length; i++) {
+      if ((synapses[i].a === a && synapses[i].b === b) || (synapses[i].a === b && synapses[i].b === a)) { s = synapses[i]; break; }
+    }
+    if (!s) { s = { a: a, b: b, heat: 0, meta: meta ? { txid: (meta.txid || '') , amount: meta.amount } : null }; synapses.push(s); if (synapses.length > 260) synapses.shift(); }
+    s.flare = 1;
+    if (meta && meta.txid) s.meta = { txid: meta.txid, amount: meta.amount };
+    sparks.push({ s: s, k: 0, speed: 0.02 + Math.random() * 0.02 });
+  }
+
+  // --- отрисовка ---
+  function frame(ts) {
+    rotY += spin;
+    core.pulse += 0.06;
+    core.flash *= 0.94;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // фон-градиент глубины
+    var g = ctx.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * 0.7);
+    g.addColorStop(0, 'rgba(15,20,30,0.9)');
+    g.addColorStop(1, 'rgba(5,7,12,1)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    var pts = new Array(neurons.length);
+    for (var i = 0; i < neurons.length; i++) pts[i] = project(neurons[i]);
+
+    // ядро (казна)
+    var coreR = (isMobile ? 26 : 34) * (1 + 0.06 * Math.sin(core.pulse) + 0.35 * core.flash);
+    var cg = ctx.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, coreR * 3.2);
+    cg.addColorStop(0, 'rgba(240,215,140,' + (0.9 + 0.1 * core.flash).toFixed(2) + ')');
+    cg.addColorStop(0.25, 'rgba(212,175,55,0.55)');
+    cg.addColorStop(1, 'rgba(212,175,55,0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, coreR * 3.2, 0, 6.283); ctx.fill();
+    ctx.fillStyle = 'rgba(255,245,210,' + (0.75 + 0.25 * core.flash).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, coreR * 0.55, 0, 6.283); ctx.fill();
+
+    // синапсы
+    for (i = 0; i < synapses.length; i++) {
+      var s = synapses[i];
+      s.flare = Math.max(0, s.flare - 0.012);
+      s.heat = Math.max(0, s.heat - 0.003);           // затухание без активности
+      if (s.heat <= 0 && s.flare <= 0 && i > 200) { synapses.splice(i, 1); i--; continue; }
+      var pa = pts[s.a], pb = pts[s.b];
+      if (!pa || !pb) continue;
+      var alpha = 0.05 + s.heat * 0.10 + s.flare * 0.75;
+      var width = 0.5 + s.heat * 0.6 + s.flare * 2.2;
+      ctx.strokeStyle = s.flare > 0.02
+        ? 'rgba(' + GREEN + ',' + (alpha * (0.35 + s.flare)).toFixed(3) + ')'
+        : 'rgba(' + GOLD + ',' + alpha.toFixed(3) + ')';
+      ctx.lineWidth = width * (pa.p + pb.p) / 2;
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    }
+
+    // спарки (импульсы вдоль синапсов)
+    for (i = sparks.length - 1; i >= 0; i--) {
+      var sp = sparks[i];
+      sp.k += sp.speed;
+      if (sp.k >= 1 || !sp.s || sp.s.a >= neurons.length) { sparks.splice(i, 1); continue; }
+      var sa = pts[sp.s.a], sb = pts[sp.s.b];
+      if (!sa || !sb) { sparks.splice(i, 1); continue; }
+      var px = sa.x + (sb.x - sa.x) * sp.k, py = sa.y + (sb.y - sa.y) * sp.k;
+      ctx.fillStyle = 'rgba(' + GREEN + ',0.95)';
+      ctx.beginPath(); ctx.arc(px, py, 1.8, 0, 6.283); ctx.fill();
+    }
+
+    // нейроны
+    var hovered = -1, hoverD = 12 * 12;
+    for (i = 0; i < neurons.length; i++) {
+      var n = neurons[i], p = pts[i];
+      n.heat = Math.max(0, n.heat - 0.002);
+      var tw = 0.6 + Math.sin(ts * 0.001 + n.phase) * 0.4;
+      var a = n.glow + n.heat * 0.45;
+      ctx.fillStyle = 'rgba(' + GOLD + ',' + (a * tw * 0.9).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(p.x, p.y, n.r * p.p, 0, 6.283); ctx.fill();
+      var dx = p.x - mouse.x, dy = p.y - mouse.y;
+      var d2 = dx * dx + dy * dy;
+      if (d2 < hoverD && d2 < (n.r * p.p + 10) * (n.r * p.p + 10)) { hoverD = d2; hovered = i; }
+    }
+    if (hovered >= 0) {
+      var hnn = neurons[hovered], hp = pts[hovered];
+      ctx.fillStyle = 'rgba(' + GOLD + ',0.95)';
+      ctx.beginPath(); ctx.arc(hp.x, hp.y, hnn.r * hp.p + 3, 0, 6.283); ctx.fill();
+      showTip(hp.x + 14, hp.y + 14, '<div class="mono">' + esc(hnn.addr ? hnn.addr.slice(0, 22) + '…' : 'нейрон #' + hovered) + '</div>' +
+        '<div>баланс: <b class="mono">' + esc(hnn.bal === null ? '—' : fmt(hnn.bal) + ' AGT') + '</b></div>');
+    } else {
+      // наведение на синапс — ширина области поиска по сегментам активных линий
+      var best = null, bestD = 8 * 8;
+      for (i = 0; i < synapses.length; i++) {
+        var ss = synapses[i], qa = pts[ss.a], qb = pts[ss.b];
+        if (!qa || !qb || ss.flare < 0.02) continue;
+        var dseg = distToSeg(mouse.x, mouse.y, qa.x, qa.y, qb.x, qb.y);
+        if (dseg < bestD) { bestD = dseg; best = ss; }
+      }
+      if (best && best.meta) {
+        var ma = pts[best.a], mb = pts[best.b];
+        showTip((ma.x + mb.x) / 2, (ma.y + mb.y) / 2, '<div class="mono">txid: ' + esc(String(best.meta.txid).slice(0, 20)) + '…</div><div>сумма: <b class="mono">' + esc(best.meta.amount === undefined ? '—' : best.meta.amount + ' AGT') + '</b></div>');
+      } else hideTip();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[<>&]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]; }); }
+  function showTip(x, y, html) {
+    var t = document.getElementById('tip');
+    t.innerHTML = html;
+    t.style.display = 'block';
+    t.style.left = Math.min(x, W - 250) + 'px';
+    t.style.top = Math.min(y, H - 80) + 'px';
+  }
+  function hideTip() { document.getElementById('tip').style.display = 'none'; }
+  function distToSeg(px, py, ax, ay, bx, by) {
+    var vx = bx - ax, vy = by - ay, wx = px - ax, wy = py - ay;
+    var c2 = vx * vx + vy * vy; if (!c2) return Math.hypot(wx, wy);
+    var t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / c2));
+    return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
+  }
+  canvas.addEventListener('mousemove', function (e) { mouse.x = e.clientX; mouse.y = e.clientY; });
+  canvas.addEventListener('mouseleave', function () { mouse.x = mouse.y = -999; hideTip(); });
+  canvas.addEventListener('touchmove', function (e) { if (e.touches[0]) { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; } }, { passive: true });
+  canvas.addEventListener('touchend', function () { mouse.x = mouse.y = -999; });
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

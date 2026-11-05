@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Казино — ставки на блок · AGENTCOIN</title>
+<style>
+:root{--bg:#07090d;--panel:#10161f;--bor:#2a3646;--fg:#e8eef5;--dim:#8fa3b8;--gold:#d4af37;--ok:#57d977;--err:#ff6b6b;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif;padding:22px}
+.wrap{max-width:860px;margin:0 auto}
+h1{color:var(--gold);font-size:24px;margin:0 0 4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+.pill{display:inline-block;background:#1d2735;border:1px solid var(--bor);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--dim);margin-right:6px;margin-bottom:4px}
+.pill b{color:var(--fg)}
+.panel{background:var(--panel);border:1px solid var(--bor);border-radius:12px;padding:16px;margin-bottom:14px}
+button{background:var(--gold);color:#191711;border:none;padding:12px 22px;font-size:15px;font-weight:700;border-radius:8px;cursor:pointer}
+button.odd{background:#7f8ea3;color:#0b0f16}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.ghost{background:#1d2735;color:var(--fg);border:1px solid var(--bor);font-weight:600;padding:8px 14px;font-size:13px}
+.rou{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+table{width:100%;border-collapse:collapse}
+td,th{padding:5px 8px;border-bottom:1px solid #182231;text-align:left;font-size:12px}
+th{color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.won td{background:rgba(87,217,119,.07)}
+.lost td{background:rgba(255,107,107,.06)}
+.st-paid{color:var(--ok)}.st-lost{color:var(--err)}.st-pending_payout,.st-open{color:var(--gold)}.st-paid_mismatch{color:var(--err)}
+#msg{margin-top:10px;font-size:13px;color:var(--dim);min-height:18px}
+.note{border:1px solid var(--bor);background:#0b111a;border-radius:10px;padding:12px 14px;font-size:12px;color:var(--dim);margin-top:10px}
+footer{color:var(--dim);font-size:11px;text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎰 Казино: ставка на следующий блок</h1>
+  <p class="sub">1 AGT на «чётный» или «нечётный» nonce блока, следующего за блоком ставки. Угадал → 2 AGT (свой + 1 из казны), не угадал → 1 AGT уходит в казну. Всё ончейн: ставка и выплата — обычные tx, результат детерминирован для любой ноды.</p>
+
+  <div class="panel">
+    <span class="pill">высота <b id="hLbl">…</b></span>
+    <span class="pill">ставок всего <b id="betsLbl">…</b></span>
+    <span class="pill">выплачено <b id="paidLbl">…</b> AGT</span>
+    <span class="pill">открытых <b id="openLbl">…</b></span>
+    <span class="pill" id="apiState">api …</span>
+  </div>
+
+  <div class="panel">
+    <b style="color:var(--gold)">Ставка 1 AGT</b> — nonce следующего блока будет…
+    <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+      <button id="evenBtn" type="button">⬤ чётный (even)</button>
+      <button id="oddBtn" class="odd" type="button">⬥ нечётный (odd)</button>
+      <button id="refreshBtn" class="ghost" type="button">обновить</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead><tr><th>ref</th><th>сторона</th><th>блок ставки</th><th>цель</th><th>nonce</th><th>чётность</th><th>итог</th><th>статус</th></tr></thead>
+      <tbody id="rounds"><tr><td colspan="8">загрузка…</td></tr></tbody>
+    </table>
+    <div class="note">Протокол: ставка = tx 1 AGT → казна с memo <code>casino|B|&lt;even|odd&gt;|&lt;ref8&gt;</code>; выплата = tx 2 AGT от казны с memo <code>casino|W|&lt;ref8&gt;</code>. Ставку можно делать и своим кошельком: <code>POST /tx</code> с таким memo — путь для SDK и Rust-агентов; кнопки ставки подписываются локальным кошельком ноды (демо).</div>
+  </div>
+  <footer>AGENTCOIN · казино v1 · источники: /casino/state (GET) · /casino/bet (POST) · выплачивает казначей по /casino/state.readyPayouts</footer>
+</div>
+<script>
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var POLL = 5000;
+
+function getJSON(url){ return fetch(url, { credentials: 'omit' }).then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); }); }
+function short(a){ return (a || '').length > 14 ? a.slice(0, 8) + '…' + a.slice(-6) : a; }
+
+function bet(side){
+  $('msg').textContent = 'Отправляем ставку…';
+  fetch('/casino/bet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ side: side }) })
+    .then(function(r){ return r.json().then(function(j){ return { status: r.status, j: j }; }); })
+    .then(function(x){
+      if (x.status === 201) $('msg').innerHTML = 'Ставка принята: <b>' + x.j.bettor + '</b>, ref <b>' + x.j.ref + '</b> (+' + x.j.payoutIfWin + ' при выигрыше) — в мемпуле (' + x.j.mempool + '), target после упаковки';
+      else $('msg').innerHTML = '<span style="color:var(--err)">' + (x.j.error || 'ошибка') + '</span>' + (x.j.hint ? ' — ' + x.j.hint : '');
+      load();
+    })
+    .catch(function(e){ $('msg').textContent = 'ошибка сети: ' + e; });
+}
+$('evenBtn').addEventListener('click', function(){ bet('even'); });
+$('oddBtn').addEventListener('click', function(){ bet('odd'); });
+$('refreshBtn').addEventListener('click', load);
+
+function load(){
+  getJSON('/casino/state').then(function(s){
+    location.href.startsWith('') && s;
+    $('hLbl') && ($('hLbl').textContent = s.height);
+    $('apiState').textContent = 'api ✓ ' + new Date().toLocaleTimeString();
+    $('betsLbl') && ($('betsLbl').textContent = s.stats.rounds + s.stats.openBets);
+    $('paidLbl') && ($('paidLbl').textContent = s.stats.paidAGT);
+    $('openLbl') && ($('openLbl').textContent = s.stats.openBets + (s.readyPayouts.length ? ' (+к выплате: ' + s.readyPayouts.length + ')' : ''));
+    var tb = $('rounds');
+    if (!s.rounds.length){ tb.innerHTML = '<tr><td colspan="8">ставок ещё нет — будь первой</td></tr>'; return; }
+    tb.innerHTML = s.rounds.map(function(r){
+      return '<tr class="' + (r.win ? 'won' : (r.status === 'lost' ? 'lost' : '')) + '">' +
+        '<td>' + r.ref + '</td>' +
+        '<td>' + (r.side === 'even' ? '⬤ чёт' : '⬥ нечёт') + '</td>' +
+        '<td>' + r.betHeight + '</td>' +
+        '<td>' + r.target + '</td>' +
+        '<td>' + (r.nonce == null ? '—' : r.nonce) + '</td>' +
+        '<td>' + (r.parity || '—') + '</td>' +
+        '<td>' + (r.win === true ? '<b>выиграл +' + (r.betAmount2 ? '' : '') + '(payout 2)</b>' : (r.win === false ? 'проиграл' : 'ждёт')) + '</td>' +
+        '<td><span class="st-' + r.status + '">' + r.status + '</span></td>' +
+      '</tr>';
+    }).join('');
+  }).catch(function(e){
+    $('apiState').textContent = 'api ✗';
+    $('rounds').innerHTML = '<tr><td colspan="8">источник недоступен: ' + e + '</td></tr>';
+  });
+}
+load();
+setInterval(load, POLL);
+</script>
+</body>
+</html>

@@ -50,6 +50,7 @@ import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
 import { lotteryState } from './lottery.mjs';
+import { casinoState } from './casino.mjs';
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
@@ -373,7 +374,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/casino/bet', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -1435,7 +1436,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   // ================= GOV (предложения + голосование из цепи) =================
   if (p === '/gov/state') return json(res, 200, govState(bc));
-  if (p === '/gov/proposal' && req.method === 'POST') {
+  if ((p === '/gov/proposal' || p === '/gov/propose') && req.method === 'POST') { // /gov/propose — алиас из ТЗ этапа 2
     const { author, title, blocks = 100 } = await body(req);
     // AGIP-21: author больше не нужен в UI — агент прислал только title, адрес подставляет нода
     const author0 = author || pickDefaultWallet(true); // gov — ончейн-fee нужен
@@ -1690,6 +1691,22 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // Состояние = чистая функция цепи (lottery.mjs): билет = tx 1 AGT → казна с memo lot|B|<ref8>,
   // тираж каждые 100 блоков по хешу последнего блока окна, победителю 90%, казне 10%.
   if (p === '/lot/state') return json(res, 200, lotteryState(bc, FAUCET_FUND_ADDR));
+
+  // === КАЗИНО (ТЗ этап 2, AC-4): ставки 1 AGT на чётность nonce следующего блока ===
+  // Состояние = чистая функция цепи (casino.mjs); ставка и выплата — обычные tx.
+  if ((p === '/casino/state' || p === '/casino/result') && req.method !== 'POST')
+    return json(res, 200, casinoState(bc, FAUCET_FUND_ADDR));
+  if (p === '/casino/bet' && req.method === 'POST') {
+    const { side, address, ref } = await body(req);
+    if (!['even', 'odd'].includes(String(side))) return json(res, 400, { error: 'side_must_be_even_or_odd', note: 'ставка 1 AGT на чётность (nonce%2) блока, следующего за блоком ставки' });
+    const bettor0 = String(address || '') || pickDefaultWallet(true);
+    if (!bettor0) return json(res, 402, { error: 'no_funded_local_wallet', hint: 'ставка подписывается локальным кошельком ноды; для ставки от своего кошелька отправь tx memo casino|B|<even|odd>|<ref8> на POST /tx' });
+    const memoRef = /^[A-Za-z0-9]{8}$/.test(String(ref || '')) ? String(ref) : crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, '').padEnd(8, '0').slice(0, 8);
+    const memo = `casino|B|${side}|${memoRef}`;
+    const r = await postSignedTx(res, { fromAddress: bettor0, to: FAUCET_FUND_ADDR, amount: 1, memo });
+    if (!r) return;
+    return json(res, 201, { ...r, side, bettor: bettor0, ref: memoRef, price: 1, payoutIfWin: 2, hint: 'target = высота блока с этой ставкой + 1; /casino/result покажет раунд' });
+  }
 
   // Авто-выплата тиражей: нода с AGT_LOTTERY_PAYER=1 (казначей) платит победителю автоматически
   // по достижении высоты тиража — без ручного подтверждения. Синглтон как escrow-sweeper.

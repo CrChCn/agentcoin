@@ -936,13 +936,13 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
       if ($('infMemory')) {
         const cids = (st.filecoin && st.filecoin.pieces) || [];
         $('infMemory').innerHTML = cids.length
-          ? cids.map(p => '📦 ' + esc((p.pieceCid || '').slice(0, 36)) + '\\u2026 · dataset ' + esc(String(p.dataSetId || p.dataSet || '')) + ' · ' + esc(String(p.size || '')) + ' B').join('<br>')
+          ? cids.filter(p => p.pieceCid).map(p => '📦 ' + esc((p.pieceCid || '').slice(0, 34)) + '… · ds ' + esc(String(p.dataSetId || p.dataSet || '')) + (Number(p.size) > 0 ? ' · ' + esc(String(p.size)) + ' B' : '')).join('<br>')
           : '<span data-i18n="block.memory.empty">CID ещё не опубликован</span>';
       }
       if ($('infCelestia')) {
         const c = st.celestia || {};
         $('infCelestia').innerHTML = c.blobId
-          ? '🗂 blob ' + esc(String(c.blobId).slice(0, 22)) + '… · h=' + esc(String(c.height || '')) + ' · ' + esc(String(c.chunks || '')) + ' чанков'
+          ? '🗂 blob ' + esc(String(c.blobId).slice(0, 20)) + '… · h=' + esc(String(c.height || '')) + ' · ' + esc(String(c.blobs || c.chunks || '')) + ' блобов'
           : 'архив ещё не публиковался';
       }
     }).catch(() => {

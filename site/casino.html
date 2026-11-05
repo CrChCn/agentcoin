@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Казино — ставки на блок · AGENTCOIN</title>
@@ -28,9 +29,14 @@ th{color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.06e
 #msg{margin-top:10px;font-size:13px;color:var(--dim);min-height:18px}
 .note{border:1px solid var(--bor);background:#0b111a;border-radius:10px;padding:12px 14px;font-size:12px;color:var(--dim);margin-top:10px}
 footer{color:var(--dim);font-size:11px;text-align:center;margin-top:16px}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div class="wrap">
   <h1>🎰 Казино: ставка на следующий блок</h1>
   <p class="sub">1 AGT на «чётный» или «нечётный» nonce блока, следующего за блоком ставки. Угадал → 2 AGT (свой + 1 из казны), не угадал → 1 AGT уходит в казну. Всё ончейн: ставка и выплата — обычные tx, результат детерминирован для любой ноды.</p>

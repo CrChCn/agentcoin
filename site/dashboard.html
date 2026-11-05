@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <script src="/panel.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -31,9 +32,14 @@
   .upd { color: var(--dim); font-size: 11px; margin-top: 8px; }
   .actions { display:flex; gap:8px; flex-wrap: wrap; margin-top: 10px; }
   .pill { display:inline-block; padding:1px 8px; border-radius: 10px; font-size: 11px; background:#0f1620; border:1px solid var(--line); }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <h1><span class="dot" id="h1dot"></span> AGENTCOIN · пульт сети <span class="pill" id="hostPill"></span> <span class="pill" id="viewNote" style="display:none">вид с удалённой ноды: блоки/эскроу/чат — из цепи; фонд·каталог·gate·баны — локальные счётчики именно этой ноды</span></h1>
 <div class="row" style="margin-bottom:12px">
   Нода: <select id="host">

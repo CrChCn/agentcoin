@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentcoin Wallet</title>
@@ -12,8 +13,10 @@
 @media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px}}
 a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14px;border-radius:8px;font-weight:600}
 </style>
+<style>body>*{position:relative;z-index:1}#network-canvas{position:fixed!important;inset:0;z-index:0;pointer-events:none;opacity:.42}</style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true"></canvas>
 <main>
 <header class="spread">
 <div>

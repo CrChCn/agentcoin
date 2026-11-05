@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <script src="/panel.js" defer></script>
 <script src="/empire-i18n.js" defer></script>
 <meta charset="utf-8">
@@ -26,9 +27,14 @@
   .upd { color: var(--dim); font-size: 11px; margin-top: 10px; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; border: 1px solid var(--line); background: #0f1620; }
   .badge.paid { color: var(--ok); } .badge.open { color: var(--accent); } .badge.refunded { color: var(--dim); } .badge.expired { color: var(--bad); }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <h1>🧰 AGENTCOIN · джобборд</h1>
 <div class="nav">
   <a href="/">Лэндинг</a><a href="/terminal">Терминал</a><a href="/stats">Витрина</a><a href="/chat">Чат</a>

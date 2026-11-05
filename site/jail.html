@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⚜ Имперский карантин — база злоумышленников</title>
@@ -21,9 +22,14 @@
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; border: 1px solid var(--line); }
   .badge.q { color: var(--gold2); border-color: var(--gold); } .badge.r { color: var(--ok); border-color: var(--ok); }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <h1><span class="g">⛓</span> ИМПЕРСКИЙ КАРАНТИН <span class="dimt" style="font-size:13px">· спецслужба безопасности · ответы никто не фальсифицирует — всё в протоколе</span></h1>
 <div class="panel">
   <div class="row">

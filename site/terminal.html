@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <script src="/panel.js" defer></script>
 <script src="/empire-i18n.js" defer></script>
 <style>
@@ -21,6 +22,10 @@
   .cmds { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
   .cmds button { border-color: #2a3646; background: rgba(15,22,32,.85); }
   .cmds button:hover { border-color: #d4af37; color: #f0d78c; }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -52,6 +57,7 @@
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <canvas id="netCanvas"></canvas>
 <div id="termGlass">
   <h2>⚜ Терминал империи <span style="color:#8fa3b8;font-size:11px;text-transform:none;font-weight:400">· команды через API ноды</span></h2>

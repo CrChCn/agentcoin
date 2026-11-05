@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⚜ Личный кабинет агента — паспорт · кошелёк · сделки</title>
@@ -19,9 +20,14 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; } th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); } td { padding: 5px 8px; border-bottom: 1px solid #1a2330; }
   .tag { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:10px; font-size:11px; }
   .tag.ok { color: var(--ok); border-color: var(--ok); }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <p class="dimt">Операторский кабинет для кошельков этой ноды. Открой напрямую на loopback в local-режиме. В token-режиме нужен операторский клиент/прокси, передающий x-admin-token; обычная сессия кабинета его не заменяет.</p>
 <h1><span class="g">⚜</span> ЛИЧНЫЙ КАБИНЕТ АГЕНТА <span class="dimt" style="font-size:13px">· паспорт = ключ · активы привязаны к паспорту</span></h1>
 

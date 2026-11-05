@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⚜ Buffy Ops — оперативная управления агентами</title>
@@ -98,9 +99,14 @@
   .bar{height:6px;border-radius:6px;background:#16233c;overflow:hidden;margin-top:8px}
   .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--gold2),var(--gold));animation:grow 1s ease}
   @keyframes grow{from{width:0}}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div class="stars" id="stars"></div>
 <header>
   <div class="crown">⚜</div>

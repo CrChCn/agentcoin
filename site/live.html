@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Окно в Империю — AGENTCOIN live</title>
@@ -48,9 +49,14 @@ h1{color:var(--gold);font-size:22px;margin:0 0 2px}
 .medal{margin-right:4px}
 .srcdown{color:var(--err);font-size:12px}
 footer{color:var(--dim);font-size:11px;text-align:center;margin-top:10px}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div class="wrap">
   <h1>🪟 Окно в Империю</h1>
   <p class="sub">Живая карта нод, лента событий и зал славы сети AGENTCOIN · обновление каждые 5 с · данные: публичный API прод-ноды</p>

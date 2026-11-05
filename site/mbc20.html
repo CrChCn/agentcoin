@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
@@ -32,9 +33,14 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:ta
 .marketrow{cursor:pointer}.marketrow:hover td{background:#1a2330aa}.marketrow.sel td{background:#1e2430}
 .bar{height:5px;background:#1a2330;border-radius:3px;overflow:hidden;min-width:60px}.bar i{display:block;height:100%;background:var(--gold)}
 footer{text-align:center;color:var(--dim);font-size:11px;margin-top:22px}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div id="errBox" class="err" role="alert" aria-live="assertive"></div>
 <header class="row" style="justify-content:space-between;align-items:flex-start">
 <div><h1><span class="laurel">💱</span><span

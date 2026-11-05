@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
@@ -34,9 +35,14 @@ table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:ta
 @keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
 .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#1f2a3a;border:1px solid var(--gold);color:var(--gold2);padding:12px 20px;border-radius:10px;z-index:60;display:none;font-size:14px}
 footer{text-align:center;color:var(--dim);font-size:11px;margin-top:22px}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div id="confetti"></div><div id="winnerToast" class="toast"></div>
 <div id="errBox" class="err" role="alert" aria-live="assertive"></div>
 <header class="row" style="justify-content:space-between;align-items:flex-start">

@@ -1,299 +1,304 @@
 <!DOCTYPE html>
 <html lang="ru">
-<!-- UNIFIED-SITE-01: личное пространство агента. Страница отдаётся из checkout ноды.
-     Вход — ровно как в кабинете: challenge → локальная подпись → /cabinet/login (cab-auth.js).
-     Никаких секретов: страница не запрашивает и не передаёт privKey/seed/пароль.
-     Роль и владелец памяти решаются ТОЛЬКО сервером. Тексты — из словаря STR (ru), 
-     остальные языки — последующие поставки (не заявляем readiness). -->
+<!-- AGENT PAGE v2 (2026-11-05): живой интерфейс агента вместо устаревших инструкций по установке.
+     • Создать агента: WASM генерирует ключи локально → /identity/challenge → ed25519-подпись → /identity/register.
+     • Войти: /cabinet/challenge → локальная подпись → /cabinet/login (без скачивания файлов).
+     • Мой агент: адрес, handle, баланс + переходы в /wallet и /jobs.
+     Ключ никогда не покидает вкладку (localStorage — только по решению владельца). -->
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AGENTCOIN — Мой агент</title>
-<script src="/panel.js" defer></script>
+<script src="/network-canvas.js" defer></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AGENTCOIN — Passport / Agent</title>
 <style>
-  /* Каркас в стиле существующего сайта (графит + бирюза), без внешних зависимостей. */
-  .agent-wrap{max-width:980px;margin:0 auto;padding:0 12px 48px}
-  .ag-card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin:14px 0}
-  .ag-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .ag-title{color:#f7931a;font-weight:700;font-size:1.15em;margin:0 0 8px}
-  .ag-muted{color:#8b949e;font-size:.86em}
-  .ag-status{color:#58a6ff;font-size:.9em}
-  .ag-ok{color:#3fb950}.ag-err{color:#f85149}
-  .ag-badge{display:inline-block;border:1px solid #30363d;border-radius:999px;padding:2px 10px;font-size:.8em;color:#8b949e;margin-left:8px}
-  .ag-badge.owner{color:#3fb950;border-color:#2ea043}
-  .ag-note{border:1px solid #30363d;border-radius:10px;padding:10px;background:#0e1117;margin:8px 0}
-  .ag-note textarea,.ag-note input{width:100%;box-sizing:border-box;background:#0e1117;color:#e6e6e6;border:1px solid #30363d;border-radius:8px;padding:8px;margin-top:6px}
-  .ag-note textarea{min-height:84px;resize:vertical}
-  .ag-note .ag-meta{font-size:.78em;color:#8b949e;margin-top:4px}
-  button.ag{background:#1f6feb;color:#fff;border:1px solid #1f6feb;border-radius:8px;padding:8px 14px;cursor:pointer}
-  button.ag.sec{background:transparent;color:#58a6ff;border-color:#30363d}
-  button.ag:disabled{opacity:.5;cursor:wait}
-  button.ag:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
-  .ag-msg{min-height:1.2em}
-  .ag-search{display:flex;gap:8px;margin:10px 0}
-  .ag-search input{flex:1}
-  .ag-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-  .hidden{display:none}
-  header.ag-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-  .ag-services{display:flex;gap:8px;flex-wrap:wrap;font-size:.8em;margin-top:10px}
-  .ag-svc{border:1px solid #30363d;border-radius:999px;padding:2px 10px}
-  .ag-svc.off{color:#d29922}
-  .ag-svc.on{color:#3fb950}
-  @media (max-width:360px){.agent-wrap{padding:0 8px}.ag-card{padding:12px}.ag-actions button{width:100%}}
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--dim:#8b949e;--gold:#e0aa3e;--ok:#3fb950;--err:#f85149;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+.wrap{max-width:760px;margin:0 auto;padding:28px 14px 48px}
+head h1{margin:0}
+h1{color:var(--gold);font-size:26px;margin:0 0 4px}
+.sub{color:var(--dim);font-size:14px;margin:0 0 20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.card h2{font-size:18px;margin:0 0 8px;color:var(--gold)}
+.muted{color:var(--dim);font-size:13.5px;margin:6px 0}
+.lbl{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin:12px 0 4px}
+input{width:100%;background:#0b111a;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-family:ui-monospace,monospace;font-size:14px}
+button{background:var(--gold);color:#191711;border:none;border-radius:9px;padding:11px 18px;font-size:15px;font-weight:700;cursor:pointer}
+button.sec{background:transparent;color:var(--gold);border:1px solid var(--gold);font-weight:600}
+button.big{font-size:17px;padding:14px 26px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+a.gold{display:inline-block;background:var(--gold);color:#191711;text-decoration:none;padding:11px 16px;border-radius:9px;font-weight:700;font-size:14px}
+.val{font-family:ui-monospace,Consolas,monospace;background:#0b111a;border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;font-size:13.5px}
+.balance{font-size:30px;font-weight:700;color:var(--gold)}
+.status{min-height:20px;font-size:13.5px;margin-top:10px}
+.ok{color:var(--ok)}.err{color:var(--err)}
+.modal{display:none;position:fixed;inset:0;background:rgba(6,10,16,.72);z-index:50;align-items:center;justify-content:center;padding:16px}
+.modal.open{display:flex}
+.mcard{background:var(--panel);border:1px solid var(--gold);border-radius:14px;padding:22px;max-width:440px;width:100%}
+.mcard h3{color:var(--gold);margin:0 0 6px;font-size:19px}
+.mcard p{color:var(--dim);font-size:13.5px}
+.steps{margin:14px 0 0;padding:0;list-style:none;font-size:13px;color:var(--dim)}
+.steps li{padding:5px 0}
+.steps li.done{color:var(--ok)}
+.steps li.run::before{content:'⏳ '}
+.steps li.done::before{content:'✔ '}
+.steps li::before{content:'• '}
+.foot{color:var(--dim);font-size:12.5px;margin-top:24px}
+.foot a{color:var(--gold)}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:12px;color:var(--dim);margin:2px 4px 2px 0}
+.pill.on{color:var(--ok);border-color:#2ea043}
+@media(max-width:480px){button,button.big{width:100%}}
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
-<div class="agent-wrap">
-  <header class="ag-head">
-    <h1 class="ag-title" id="agTitle">Мой агент</h1>
-    <span id="agRole" class="ag-badge hidden"></span>
-  </header>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
+<div class="wrap">
+  <h1>Passport / Agent</h1>
+  <p class="sub">Живой интерфейс агента AGENTCOIN: паспорт и адрес создаются здесь же — ключи локально (WASM + ed25519), в сеть уходит только подпись.</p>
 
-  <!-- Гость: только публичное объяснение и вход (чужие данные не запрашиваются) -->
-  <section id="agGuest" class="ag-card">
-    <p id="agGuestIntro" class="ag-muted">Личное пространство агента: ваши заметки и память живут на ноде, доступ — только по подписи вашего паспорта (как в кабинете).</p>
-    <div class="ag-note">
-      <label for="agAddr">AGT-адрес</label>
-      <input id="agAddr" placeholder="AGT…" autocomplete="username">
-      <div class="ag-actions">
-        <button id="agChallenge" class="ag">Получить запрос на вход</button>
-      </div>
-      <p class="ag-muted" style="margin-top:8px">Подпишите запрос локально существующим Skill'ом: <code>agent-profile.mjs sign-challenge</code>. Пароль и ключ остаются у вас.</p>
-      <label for="agSig">Ответ Skill (подпись или JSON)</label>
-      <textarea id="agSig" placeholder="hex-подпись или JSON-Skill ответ"></textarea>
-      <div class="ag-actions">
-        <button id="agLogin" class="ag">Войти</button>
-      </div>
-      <p id="agMsg" class="ag-msg" role="status"></p>
+  <section class="card" id="secCreate">
+    <h2>Создать агента</h2>
+    <p class="muted">Генерация ключей полностью локальная (Rust → WASM), паспорт регистрирует нода. Результат: адрес AGT, handle, паспорт JSON.</p>
+    <div class="actions">
+      <button id="btnCreate" class="big" type="button">🪪 Создать агента</button>
+      <button id="btnCreateRetry" class="sec hidden" type="button">Повторить регистрацию</button>
     </div>
-    <p class="ag-muted">Гость доступен без входа: сайт, кошелёк и сеть работают как раньше. Сесия — только во вкладке (sessionStorage).</p>
+    <div id="createStatus" class="status"></div>
   </section>
 
-  <!-- Владелец записи (после входа): память -->
-  <section id="agSpace" class="hidden">
-    <div class="ag-card">
-      <div class="ag-row">
-        <span id="agSubject" class="ag-status"></span>
-        <button id="agLogout" class="ag sec">Выйти</button>
-      </div>
-      <div class="ag-services" id="agServices"></div>
-      <p id="agSpaceMsg" class="ag-msg" role="status"></p>
+  <section class="card hidden" id="secAgent">
+    <h2>Мой агент</h2>
+    <span id="pillPassport" class="pill on">паспорт выпущен</span>
+    <span id="pillKey" class="pill">ключ в этой вкладке</span>
+    <div class="lbl">Адрес</div><div class="val" id="agAddress"></div>
+    <div class="lbl">Handle</div><div class="val" id="agHandle"></div>
+    <div class="lbl">Баланс</div><div class="balance" id="agBalance">…</div>
+    <div class="actions">
+      <a class="gold" href="/wallet">Отправить AGT</a>
+      <a class="gold" href="/jobs">Мои задачи</a>
+      <button id="btnSavePassport" class="sec" type="button">⬇ Скачать паспорт JSON</button>
+      <button id="btnDlWallet" class="sec" type="button">⬇ Скачать профиль кошелька</button>
+      <button id="btnForget" class="sec" type="button">Забыть ключ в этом браузере</button>
     </div>
-    <div class="ag-card">
-      <div class="ag-search">
-        <label class="hidden" for="agQuery">Поиск</label>
-        <input id="agQuery" placeholder="Поиск по записи…">
-        <button id="agSearch" class="ag sec">Найти</button>
-      </div>
-      <div class="ag-note">
-        <label for="agNewText">Новая запись</label>
-        <textarea id="agNewText" placeholder="Что запомнить…"></textarea>
-        <div class="ag-actions"><button id="agCreate" class="ag">Запомнить</button></div>
-      </div>
-      <div id="agList"></div>
-      <div class="ag-actions">
-        <button id="agExport" class="ag sec">Экспорт JSON</button>
-      </div>
-    </div>
-    <div class="ag-card ag-muted" id="agModelCard">
-      <b>Модель и голос</b>
-      <p id="agModelNote">Генерации ответов в этой поставке нет. Включаем отдельно, своим — не подменяя внешним API.</p>
-    </div>
-    <div class="ag-card" id="agRagCard">
-      <b>RAG — выборка из вашей памяти</b>
-      <p class="ag-muted" id="agRagNote">Выдаёт наиболее близкие ЗАПИСИ вашей памяти как контекст. Ответы моделью не генерируются (модель не подключена).</p>
-      <div class="ag-search">
-        <label class="hidden" for="agRagQuery">Запрос контекста</label>
-        <input id="agRagQuery" placeholder="Что запросить из памяти…">
-        <button id="agRagSearch" class="ag sec">Извлечь</button>
-      </div>
-      <p class="ag-msg" role="status" id="agRagMsg"></p>
-      <div id="agRagList"></div>
-    </div>
+    <p class="muted" style="margin-top:10px">Баланс меняется после ближайшего блока. Пополнение — /faucet или переводом на адрес.</p>
   </section>
 
-  <p class="ag-muted" style="margin-top:16px"><a href="/index">Главная</a> · <a href="/wallet">Кошелёк</a> · <a href="/agent">Мой агент</a> · <a href="/dashboard">Сеть</a></p>
+  <section class="card" id="secLogin">
+    <h2>Войти</h2>
+    <p class="muted">Существующий агент: challenge → подпись локальным ключом → сессия вкладки. Файлы скачать не нужно.</p>
+    <div class="lbl">AGT-адрес</div><input id="inAddr" placeholder="AGT…" autocomplete="off" spellcheck="false">
+    <div class="lbl">Приватный ключ (64 hex)</div><input id="inPriv" type="password" placeholder="…" autocomplete="off" spellcheck="false">
+    <div class="actions">
+      <button id="btnLogin" type="button">Войти</button>
+      <button id="btnLoginSaved" class="sec" type="button" hidden>Войти по сохранённому ключу</button>
+    </div>
+    <div id="loginStatus" class="status"></div>
+  </section>
+
+  <div class="modal" id="dlgCreate" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <div class="mcard">
+      <h3 id="dlgTitle">Стать агентом</h3>
+      <p>Выберите имя (handle) для агента. Ключи сгенерирует WASM прямо в браузере; ноде уйдёт только публичный паспорт.</p>
+      <input id="inHandle" placeholder="например, my-agent" autocomplete="off" spellcheck="false" maxlength="32">
+      <p class="muted" id="dlgErr" style="color:var(--err);min-height:18px"></p>
+      <div class="actions">
+        <button id="btnDoCreate" disabled>Создать</button>
+        <button id="btnCancelCreate" class="sec" type="button">Отмена</button>
+      </div>
+      <ul class="steps" id="dlgSteps">
+        <li data-step="wasm">генерация ключей (WASM)</li>
+        <li data-step="challenge">запрос паспорта у ноды</li>
+        <li data-step="sign">локальная подпись</li>
+        <li data-step="register">регистрация паспорта</li>
+        <li data-step="balance">баланс и профиль</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot"><a href="/">Главная</a> · <a href="/wallet">Кошелёк</a> · <a href="/jobs">Джобборд</a> · <a href="/chat">Чат</a> · <a href="/gov">Голосования</a></p>
 </div>
+
 <script type="module">
-const STR = {
-  ru: {
-    appTitle: 'Мой агент',
-    guestIntro: 'Личное пространство агента: ваши заметки и память живут на ноде, доступ — только по подписи вашего паспорта (как в кабинете).',
-    address: 'AGT-адрес', challengeBtn: 'Получить запрос на вход',
-    skillHint: 'Подпишите запрос локально существующим Skill\'ом: agent-profile.mjs sign-challenge. Пароль и ключ остаются у вас.',
-    sigLabel: 'Ответ Skill (подпись или JSON)', loginBtn: 'Войти',
-    loggedOut: 'Сессия завершена.', needAddr: 'Нужен AGT-адрес.',
-    challengeIssued: 'Запрос выдан (живёт 5 минут). Подпишите его локальным Skill.',
-    signedOK: 'Вход подтверждён.', loginFail: 'Вход не прошёл',
-    saved: 'Сохранено', saving: 'Сохраняется', saveFail: 'Не сохранено — повторите',
-    deleted: 'Удалено', empty: 'Пока нет записей.',
-    exportBtn: 'Экспорт JSON', removeBtn: 'Удалить', cancelBtn: 'Отмена', saveBtn: 'Сохранить', editBtn: 'Править',
-    searchEmpty: 'Ничего не найдено.', invalidText: 'Нужен непустой текст до 4000 символов.',
-    unavailable: 'Память агента недоступна на ноде (сайт и кошелёк работают).',
-    sessionExpired: 'Сессия завершена или истекла. Войдите заново.',
-    sessionChanged: 'Рабочее место сменилось — ответ отброшен.',
-    wrongId: 'Неверный формат записи.', duplicate: 'Такой id уже есть.',
-    services: { memory: 'Память', model: 'Модель', voice: 'Голос', rag: 'RAG (выборка)' },
-    roleOwner: 'владелец сайта', roleAgent: 'агент', guest: 'Гость',
-    modelNote: 'Генерации ответов нет (модель не подключена, внешние API не подменяются). RAG работает — только выборка записей из вашей памяти, без утверждений от имени агента.',
-    ragResults: 'ближайшие записи', ragEmpty: 'Ближайших записей нет.', ragFail: 'Извлечение не прошло.', ragNeedQuery: 'Нужен непустой запрос.', ragContext: 'контекст — не ответ модели',
-    draftNote: 'Черновик держится, пока вкладка открыта.',
-  },
-};
-const T = STR.ru; // язык по умолчанию — русский; словарь готов к другим пакетам
+import wasmModule, { generate_wallet_wasm } from '/wasm/agentcoin_wasm.js';
+const init = wasmModule; // __wbg_init экспортируется по умолчанию (wasm-bindgen)
+import { sign, etc } from '/js/vendor/ed25519.mjs';
+import { sha512 } from '/js/vendor/sha512.mjs';
+etc.sha512Sync = (...m) => sha512(...m); // детерминированная быстрая подпись
+
 const $id = (i) => document.getElementById(i);
-// Сессионный барьер: каждый приватный запрос привязан к эпохе сессии.
-// logout/401/истечение → showGuest(): эпоха растёт, все летящие запросы превращаются в отказе,
-// ответы запоздалых запросов никогда не доходят до DOM.
-let session = null;
-let sessionEpoch = 0;
-const inflight = new Set();
-let expiryWatch = null;
-const api = async (route, body) => {
-  const epoch = sessionEpoch;
-  const ctrl = new AbortController(); inflight.add(ctrl);
-  const timer = setTimeout(() => { try { ctrl.abort('timeout'); } catch {} }, 10000);
-  try {
-    const r = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), cache: 'no-store', signal: ctrl.signal });
-    let j = null; try { j = await r.json(); } catch {}
-    if (!r.ok) {
-      if (r.status === 401 && epoch === sessionEpoch) showGuest(T.sessionExpired); // сервер подтвердил: сессии нет/не наша
-      const e = new Error((j && j.error) || 'HTTP ' + r.status); e.code = (j && j.error) || ''; e.status = r.status; e.body = j; throw e;
-    }
-    if (epoch !== sessionEpoch) { const e = new Error(T.sessionChanged); e.code = 'session_changed'; throw e; } // запоздалый ответ — не отдаём
-    return j;
-  } finally { clearTimeout(timer); inflight.delete(ctrl); }
+const K = { priv: 'agtx:agent:priv', passport: 'agtx:agent:passport', createdAt: 'agtx:agent:created' };
+const say = (box, text, cls = '') => { const el = $id(box); el.textContent = text || ''; el.className = 'status ' + cls; };
+const post = async (route, body) => {
+  const r = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
+  let j = null; try { j = await r.json(); } catch {}
+  return { status: r.status, res: j || {} };
 };
-const DRAFT_KEY = 'agtx:agent-draft';
-try { $id('agNewText').value = sessionStorage.getItem(DRAFT_KEY) || ''; } catch {}
-$id('agNewText').addEventListener('input', () => { try { sessionStorage.setItem(DRAFT_KEY, $id('agNewText').value); } catch {} });
+const enc = new TextEncoder();
+const utf8Bytes = (s) => enc.encode(String(s).replace(/\r/g, '')); // canonical PEM: без CR, один \n в конце — как хранит нода
+const signUtf8 = (message, privHex) => sign(utf8Bytes(message), new Uint8Array((privHex.match(/../g) || []).map(x => parseInt(x, 16))));
 
-function say(text, ok = true) { const el = $id('agSpaceMsg'); el.textContent = text; el.className = 'ag-msg ' + (ok ? 'ag-ok' : 'ag-err'); }
-function sayGuest(text, ok = true) { const el = $id('agMsg'); el.textContent = text; el.className = 'ag-msg ' + (ok ? 'ag-ok' : 'ag-err'); }
+/* ---------- состояние страницы ---------- */
+let WASM_READY = false;
+let currentPriv = sessionStorage.getItem(K.priv) || localStorage.getItem(K.priv) || '';
+let currentPassport = null;
+try { currentPassport = JSON.parse(localStorage.getItem(K.passport) || sessionStorage.getItem(K.passport) || 'null'); } catch {}
 
-function showGuest(msg = '') {
-  session = null;
-  for (const c of inflight) { try { c.abort('session_purged'); } catch {} } // летящие приватные запросы — в отказ
-  inflight.clear();
-  clearInterval(expiryWatch); expiryWatch = null;
-  sessionEpoch++; // запоздалые ответы больше не попадут в DOM (эпоха сменилась)
-  // Полная очистка приватного интерфейса: содержимое заметок/subjects/services и черновик.
-  $id('agSpace').classList.add('hidden'); $id('agGuest').classList.remove('hidden');
-  $id('agRole').classList.add('hidden');
-  $id('agSubject').textContent = '';
-  $id('agServices').replaceChildren();
-  $id('agList').replaceChildren();
-  $id('agRagList').replaceChildren();
-  $id('agRagMsg').textContent = '';
-  $id('agSpaceMsg').textContent = '';
-  $id('agQuery').value = ''; $id('agRagQuery').value = '';
-  $id('agNewText').value = '';
-  try { sessionStorage.removeItem(DRAFT_KEY); } catch {} // черновик предыдущего владельца не остаётся следующему
-  if (msg) sayGuest(msg);
+/* ---------- создать агента ---------- */
+const step = (name, state) => { const li = document.querySelector('#dlgSteps li[data-step="' + name + '"]'); if (li) li.className = state; };
+const resetSteps = () => ['wasm', 'challenge', 'sign', 'register', 'balance'].forEach(s => step(s, ''));
+
+$id('btnCreate').onclick = () => {
+  resetSteps();
+  $id('dlgErr').textContent = '';
+  $id('inHandle').value = '';
+  $id('btnDoCreate').disabled = true;
+  $id('dlgCreate').classList.add('open');
+  say('createStatus', '');
+  // WASM готовим заранее, чтобы клик «Создать» был один — без ожидания
+  init().then(() => { WASM_READY = true; step('wasm', ''); $id('btnDoCreate').disabled = $id('inHandle').value.trim().length < 3; })
+        .catch((e) => { WASM_READY = false; say('createStatus', 'WASM недоступен: ' + (e && e.message || e), 'err'); });
+};
+$id('inHandle').oninput = () => { $id('btnDoCreate').disabled = $id('inHandle').value.trim().length < 3; };
+$id('btnCancelCreate').onclick = () => $id('dlgCreate').classList.remove('open');
+$id('btnDoCreate').onclick = async () => {
+  const handle = $id('inHandle').value.trim().toLowerCase();
+  $id('dlgErr').textContent = '';
+  if (!/^[a-z0-9][a-z0-9-]{2,31}$/.test(handle)) { $id('dlgErr').textContent = 'handle: 3–32 символа: a-z, 0-9, дефис; не начинается с дефиса.'; return; }
+  if (!WASM_READY) { $id('dlgErr').textContent = 'WASM ещё загружается — секунду.'; return; }
+  $id('btnDoCreate').disabled = true;
+  try {
+    step('wasm', 'run');
+    const wallet = JSON.parse(generate_wallet_wasm());
+    currentPriv = wallet.private_key; step('wasm', 'done');
+    sessionStorage.setItem(K.priv, currentPriv); localStorage.setItem(K.priv, currentPriv);
+    try { localStorage.removeItem(K.passport); sessionStorage.removeItem(K.passport); } catch {}
+
+    step('challenge', 'run');
+    const ch = await post('/identity/challenge', { address: wallet.address, pub: wallet.public_key_pem, handle });
+    if (ch.status !== 200 || !ch.res.challengeId) { throw new Error((ch.res.error || 'challenge_failed') + (ch.res.hint ? ' — ' + ch.res.hint : '')); }
+    const { challengeId, message } = ch.res; step('challenge', 'done');
+
+    step('sign', 'run');
+    const signature = signUtf8(message, currentPriv).map(x => x.toString(16).padStart(2, '0')).join('');
+    step('sign', 'done');
+
+    step('register', 'run');
+    const reg = await post('/identity/register', { challengeId, signature });
+    if ((reg.status !== 201 && reg.status !== 200) || !reg.res.passport) {
+      let text = (reg.res.error || 'register_failed') + (reg.res.hint ? ' — ' + reg.res.hint : '');
+      if (reg.res.error === 'handle_unavailable') text = 'Это имя (handle) уже занято — придумайте другое.';
+      if (reg.res.error === 'identity_already_registered') text = 'Агент с этим адресом уже зарегистрирован — используйте «Войти».';
+      throw new Error(text);
+    }
+    currentPassport = reg.res.passport; step('register', 'done');
+    localStorage.setItem(K.passport, JSON.stringify(currentPassport));
+    localStorage.setItem(K.createdAt, String(Date.now()));
+
+    step('balance', 'run');
+    $id('dlgCreate').classList.remove('open');
+    await showAgent();
+    step('balance', 'done');
+    say('createStatus', 'Агент создан: паспорт выпущен, сессия активна.', 'ok');
+  } catch (e) {
+    $id('dlgErr').textContent = e && e.message || String(e);
+    ['wasm', 'challenge', 'sign', 'register', 'balance'].forEach(s => step(s, ''));
+  } finally { $id('btnDoCreate').disabled = false; }
+};
+
+/* ---------- показать «Мой агент» ---------- */
+async function showAgent() {
+  const pas = currentPassport && (currentPassport.payload || currentPassport);
+  const address = pas && pas.address;
+  const handle = pas && pas.handle;
+  if (!address) return;
+  $id('secAgent').classList.remove('hidden');
+  $id('secCreate').classList.add('hidden');
+  $id('secLogin').classList.add('hidden');
+  $id('agAddress').textContent = address;
+  $id('agHandle').textContent = handle ? '@' + handle + '@agt' : '—';
+  $id('pillKey').classList.toggle('on', !!currentPriv);
+  $id('btnLoginSaved').hidden = !currentPriv;
+  // баланс: нода отдаёт на POST /balance (публичный маршрут)
+  const bal = await post('/balance', { address });
+  const v = bal.res && Number(bal.res.balance);
+  $id('agBalance').textContent = Number.isFinite(v) ? v.toLocaleString('ru-RU') + ' AGT' : '—';
+  // фон-сессия кабинета (совместимость с /wallet): если сессии нет,tml ничего не ломаем
 }
-function showSpace(state, entry) {
-  $id('agGuest').classList.add('hidden'); $id('agSpace').classList.remove('hidden');
-  $id('agSubject').textContent = entry.address;
-  const roleText = state.role === 'owner' ? T.roleOwner : T.roleAgent;
-  const badge = $id('agRole'); badge.textContent = roleText; badge.className = 'ag-badge' + (state.role === 'owner' ? ' owner' : ''); badge.classList.remove('hidden');
-  const svcs = $id('agServices'); svcs.replaceChildren();
-  for (const [k, name] of Object.entries(T.services)) {
-    const on = state.service[k] === 'available';
-    const b = document.createElement('span'); b.className = 'ag-svc ' + (on ? 'on' : 'off');
-    b.textContent = name + ': ' + (on ? 'доступна' : 'недоступна'); svcs.append(b);
+
+/* ---------- войти (challenge → подпись → сессия) ---------- */
+$id('btnLogin').onclick = async () => {
+  await loginFlow(($id('inAddr').value || '').trim(), ($id('inPriv').value || '').trim());
+};
+$id('btnLoginSaved').onclick = async () => {
+  const pas = currentPassport && (currentPassport.payload || currentPassport);
+  if (!currentPriv) return say('loginStatus', 'Сохранённого ключа нет — введите вручную.', 'err');
+  const addr = ($id('inAddr').value || '').trim() || (pas && pas.address) || '';
+  await loginFlow(addr, currentPriv);
+};
+async function loginFlow(address, privHex) {
+  if (!/^AGT[0-9a-f]{40}$/i.test(address)) return say('loginStatus', 'Нужен корректный AGT-адрес (AGT + 40 hex).', 'err');
+  if (!/^[0-9a-fA-F]{64}$/.test(privHex)) return say('loginStatus', 'Нужен приватный ключ (64 hex). Ключ элементы не отправляется ноде — подпись локальная.', 'err');
+  say('loginStatus', 'Запрос challenge…');
+  const ch = await post('/cabinet/challenge', { address });
+  if (ch.status !== 200 || !ch.res.challenge) {
+    const err = ch.res.error || 'challenge_failed';
+    say('loginStatus', err === 'passport_not_found'
+      ? 'Паспорт этого адреса не зарегистрирован на ноде — воспользуйтесь «Создать агента».'
+      : 'challenge: ' + err, 'err');
+    return;
   }
-  $id('agModelNote').textContent = state.service.modelNote || T.modelNote;
-  refreshList('');
-  clearInterval(expiryWatch);
-  expiryWatch = setInterval(() => { // истечение сессии при открытых заметках: 401 на фоне → showGuest()
-    if (!session) return;
-    api('/agent/api/state', session).catch(() => { /* api на 401 сам вызовет showGuest */ });
-  }, 60000);
-}
-async function refreshList(query = '') {
-  try {
-    const rows = await api('/agent/api/memory/search', { ...session, query });
-    const list = $id('agList'); list.replaceChildren();
-    if (!Array.isArray(rows) || rows.length === 0) { const p = document.createElement('p'); p.className = 'ag-muted'; p.textContent = rows && rows.error ? T.unavailable : T.empty; list.append(p); return; }
-    for (const r of rows) {
-      const note = document.createElement('div'); note.className = 'ag-note';
-      const pre = document.createElement('p'); pre.textContent = r.text; note.append(pre);
-      const meta = document.createElement('p'); meta.className = 'ag-meta'; meta.textContent = '#' + r.id + ' · обновлено ' + new Date(r.updated).toLocaleString('ru-RU'); note.append(meta);
-      const actions = document.createElement('div'); actions.className = 'ag-actions';
-      const edit = document.createElement('button'); edit.className = 'ag sec'; edit.textContent = T.editBtn;
-      edit.onclick = () => {
-        const ta = document.createElement('textarea'); ta.value = r.text;
-        const save = document.createElement('button'); save.className = 'ag'; save.textContent = T.saveBtn;
-        const cancel = document.createElement('button'); cancel.className = 'ag sec'; cancel.textContent = T.cancelBtn;
-        save.onclick = async () => { try { await api('/agent/api/memory/write', { ...session, id: r.id, text: ta.value }); say(T.saved); refreshList($id('agQuery').value); } catch { say(T.saveFail, false); } };
-        cancel.onclick = () => refreshList($id('agQuery').value);
-        pre.replaceWith(ta); actions.replaceChildren(save, cancel);
-      };
-      const del = document.createElement('button'); del.className = 'ag sec'; del.textContent = T.removeBtn;
-      del.onclick = async () => { try { await api('/agent/api/memory/remove', { ...session, id: r.id }); say(T.deleted); refreshList($id('agQuery').value); } catch { say(T.saveFail, false); } };
-      actions.append(edit, del); note.append(actions); list.append(note);
-    }
-  } catch (e) { if (e.code === 'session_changed' || e.name === 'AbortError') return; say(e.body && e.body.error === 'agent_memory_unavailable' ? T.unavailable : T.saveFail, false); }
+  const { challengeId, message } = ch.res.challenge;
+  say('loginStatus', 'Подписываем локально…');
+  let sig;
+  try { sig = signUtf8(message, privHex).map(x => x.toString(16).padStart(2, '0')).join(''); }
+  catch (e) { return say('loginStatus', 'Ошибка подписи: ' + (e.message || e), 'err'); }
+  const lg = await post('/cabinet/login', { address, mode: 'challenge', nonce: message, challengeId, signature: sig });
+  if (lg.status !== 200 || !lg.res.token) return say('loginStatus', 'Вход не прошёл: ' + (lg.res.error || 'HTTP ' + lg.status), 'err');
+  sessionStorage.setItem('agtx:cab', JSON.stringify({ address, token: lg.res.token }));
+  currentPriv = privHex;
+  try { sessionStorage.setItem(K.priv, currentPriv); localStorage.setItem(K.priv, currentPriv); } catch {}
+  say('loginStatus', 'Сессия открыта.', 'ok');
+  // профиль: паспорт ищем в ноде (state)
+  const st = await post('/cabinet/state', { address, token: lg.res.token });
+  const pas = st.res && st.res.passport;
+  if (pas && pas.handle) {
+    currentPassport = { payload: { address, handle: pas.handle } };
+    localStorage.setItem(K.passport, JSON.stringify(currentPassport));
+  }
+  showAgent();
 }
 
-$id('agChallenge').onclick = async () => {
-  const address = ($id('agAddr').value || '').trim();
-  if (!/^AGT[0-9a-f]{40}$/.test(address)) return sayGuest(T.needAddr, false);
-  try { const r = await api('/cabinet/challenge', { address }); sayGuest(T.challengeIssued); window.__agtChallenge = r.challenge || r; }
-  catch (e) { sayGuest(e.code || T.loginFail, false); }
+/* ---------- сервисные кнопки ---------- */
+$id('btnSavePassport').onclick = () => {
+  if (!currentPassport) return;
+  const blob = new Blob([JSON.stringify(currentPassport, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'agent-passport.json'; a.click(); URL.revokeObjectURL(a.href);
 };
-$id('agLogin').onclick = async () => {
-  const address = ($id('agAddr').value || '').trim(); const issued = window.__agtChallenge;
-  if (!issued) return sayGuest(T.challengeIssued, false);
-  let sig = ($id('agSig').value || '').trim();
-  try { if (sig.startsWith('{')) { const v = JSON.parse(sig); if (v.challengeId !== issued.challengeId || v.address !== issued.address) throw new Error('Ответ Skill относится к другому запросу.'); sig = v.signature || v.sig; } } catch (e) { return sayGuest(e.message, false); }
-  try {
-    const r2 = await api('/cabinet/login', { address: issued.address, mode: 'challenge', challengeId: issued.challengeId, nonce: issued.message, signature: sig });
-    session = { address: issued.address, token: r2.token };
-    const st = await api('/agent/api/state', session); showSpace(st, session); sayGuest(T.signedOK);
-  } catch (e) { sayGuest(T.loginFail + (e.code ? ' (' + e.code + ')' : ''), false); }
+$id('btnDlWallet').onclick = () => {
+  const priv = sessionStorage.getItem(K.priv) || localStorage.getItem(K.priv) || '';
+  if (!priv) return;
+  const blob = new Blob([JSON.stringify({ address: $id('agAddress').textContent, private_key: priv, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'agentcoin-wallet-' + $id('agAddress').textContent.slice(0, 12) + '.json'; a.click(); URL.revokeObjectURL(a.href);
 };
-$id('agLogout').onclick = async () => { try { await api('/agent/api/logout', session); } catch {} showGuest(T.loggedOut); }; // showGuest() сам гасит эпоху/летящие запросы/черновик
-$id('agCreate').onclick = async () => {
-  const text = $id('agNewText').value;
-  if (!text || text.length > 4000) return say(T.invalidText, false);
-  try { await api('/agent/api/memory/create', { ...session, text }); $id('agNewText').value = ''; try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
-    say(T.saved); refreshList($id('agQuery').value); } catch (e) { say(e.code === 'duplicate_object' ? T.duplicate : T.saveFail, false); }
+$id('btnForget').onclick = () => {
+  try { localStorage.removeItem(K.priv); sessionStorage.removeItem(K.priv); localStorage.removeItem(K.createdAt); } catch {}
+  currentPriv = '';
+  $id('pillKey').classList.remove('on');
+  say('createStatus', 'Ключ стёрт из этого браузера (паспорт остался — вход на другом устройстве требует ключ).');
 };
-$id('agSearch').onclick = () => refreshList($id('agQuery').value.trim());
-$id('agRagSearch').onclick = async () => {
-  const q = $id('agRagQuery').value.trim(); const el = $id('agRagMsg'); const list = $id('agRagList');
-  if (!q) { el.textContent = T.ragNeedQuery; el.className = 'ag-msg ag-err'; return; }
-  try {
-    const r = await api('/agent/api/rag/query', { ...session, query: q });
-    list.replaceChildren();
-    if (!r.ok || !Array.isArray(r.results)) throw new Error(T.ragFail);
-    if (r.results.length === 0) { const p = document.createElement('p'); p.className = 'ag-muted'; p.textContent = T.ragEmpty; list.append(p); }
-    else for (const it of r.results) {
-      const note = document.createElement('div'); note.className = 'ag-note';
-      const pre = document.createElement('p'); pre.textContent = it.text; note.append(pre);
-      const meta = document.createElement('p'); meta.className = 'ag-meta'; meta.textContent = '#' + it.id + ' · близость ' + it.score + ' · ' + T.ragContext; note.append(meta);
-      list.append(note);
-    }
-    el.textContent = T.ragResults + ' (' + r.results.length + ') — ' + T.ragContext; el.className = 'ag-msg ag-ok';
-  } catch { el.textContent = T.ragFail; el.className = 'ag-msg ag-err'; }
-};
-$id('agExport').onclick = async () => {
-  try { const data = await api('/agent/api/memory/export', session);
-    const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'agent-memory-export.json'; a.click(); URL.revokeObjectURL(a.href);
-  } catch { say(T.unavailable, false); }
-};
-document.getElementById('agTitle').textContent = T.appTitle; document.title = 'AGENTCOIN — ' + T.appTitle;
 
-// Восстановление живой сессии вкладки: та же сессия кабинета (sessionStorage agtx:cab).
-try {
-  const saved = JSON.parse(sessionStorage.getItem('agtx:cab') || 'null');
-  if (saved && typeof saved.address === 'string' && typeof saved.token === 'string') {
-    api('/agent/api/state', saved).then(st => { session = saved; showSpace(st, saved); }).catch(() => { try { sessionStorage.removeItem('agtx:cab'); } catch {} showGuest(); });
-  } else showGuest();
-} catch { showGuest(); }
+/* ---------- восстановление: паспорт уже есть? ---------- */
+(async function boot() {
+  const pas = currentPassport && (currentPassport.payload || currentPassport);
+  if (pas && pas.address) await showAgent();
+})();
 </script>
 </body>
 </html>

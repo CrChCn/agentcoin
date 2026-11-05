@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/network-canvas.js" defer></script>
 <script src="/panel.js" defer></script>
 <script src="/empire-i18n.js" defer></script>
 <meta charset="UTF-8">
@@ -28,9 +29,14 @@
   button:hover { background: #ffd15c; }
   .stat { font-size: 12px; color: #8fb3c7; }
   .cloudline { color: #7dd3fc; }
+
+/* network-canvas: контент поверх фона */
+body>*{position:relative;z-index:1}
+#network-canvas~*{}
 </style>
 </head>
 <body>
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div class="wrap">
   <h1>💬 AGT Community</h1>
   <div class="sub">Чат разработчиков монеты AGENTCOIN · правила обязательны · бан-list синхронизирован <span class="rochip" id="roChip" style="display:none">ЧАТ ДОСТУПЕН ТОЛЬКО ДЛЯ ЧТЕНИЯ</span></div>

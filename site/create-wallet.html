@@ -75,7 +75,7 @@ $('genBtn').addEventListener('click', () => {
   $('wAddr').textContent = wallet.address || '';
   $('wPriv').textContent = wallet.private_key || '';
   $('wPub').textContent = wallet.public_key_pem || '';
-  $('wCreated').textContent = new Date((wallet.created_at || 0) * 1000).toLocaleString();
+  $('wCreated').textContent = new Date((wallet.created_at || Math.floor(Date.now() / 1000)) * 1000).toLocaleString();
   $('result').style.display = 'block';
   $('dlBtn').disabled = false;
   $('privRow').classList.add('hidden');

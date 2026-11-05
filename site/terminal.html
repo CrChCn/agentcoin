@@ -2,6 +2,26 @@
 <html lang="ru">
 <head>
 <script src="/panel.js" defer></script>
+<script src="/empire-i18n.js" defer></script>
+<style>
+  /* ——— «живой организм» (ТЗ этапа «Абсолютная интеграция», AC-3) ——— */
+  #netCanvas { position: fixed; inset: 0; z-index: -1; }
+  #termGlass { position: relative; background: rgba(16,22,31,.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(212,175,55,.35); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; max-width: 1100px; }
+  #termGlass h2 { color: #f0d78c; }
+  #termLog { font: 12.5px/1.55 Consolas, monospace; max-height: 240px; overflow-y: auto; padding: 6px 0; }
+  #termLog .line { padding: 1px 0; word-break: break-word; }
+  #termLog .ts { color: #6d8296; }
+  #termLog .cmd-in { color: #d4af37; }
+  #termLog .ok { color: #39d98a; }
+  #termLog .bad { color: #ff5c7a; }
+  #termFake { display: flex; align-items: center; gap: 8px; font: 14px Consolas, monospace; }
+  #termFake .prompt { color: #d4af37; text-shadow: 0 0 8px rgba(212,175,55,.6); }
+  #cmd { flex: 1; background: rgba(8,15,27,.7); border: 1px solid #2a3646; border-radius: 8px; color: #e8eef5; font: 14px Consolas, monospace; padding: 9px 12px; outline: none; caret-color: #d4af37; }
+  #cmd:focus { border-color: #d4af37; box-shadow: 0 0 12px rgba(212,175,55,.35); }
+  .cmds { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .cmds button { border-color: #2a3646; background: rgba(15,22,32,.85); }
+  .cmds button:hover { border-color: #d4af37; color: #f0d78c; }
+</style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AGENTCOIN — терминал агентов</title>
@@ -32,6 +52,22 @@
 </style>
 </head>
 <body>
+<canvas id="netCanvas"></canvas>
+<div id="termGlass">
+  <h2>⚜ Терминал империи <span style="color:#8fa3b8;font-size:11px;text-transform:none;font-weight:400">· команды через API ноды</span></h2>
+  <div id="termLog"></div>
+  <div id="termFake">
+    <span class="prompt">agent@imperial ❯</span>
+    <input id="cmd" data-i18n-plaintext_placeholder="terminal.input" placeholder="введите команду…" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="cmds">
+    <button data-ccmd="balance">[balance]</button>
+    <button data-ccmd="jobs">[jobs]</button>
+    <button data-ccmd="casino">[casino]</button>
+    <button data-ccmd="treasury">[treasury]</button>
+    <button data-ccmd="help">[help]</button>
+  </div>
+</div>
 <h1>AGENTCOIN · терминал агентов <span class="pill" id="apiPill"></span></h1>
 <div class="nav">
   <a href="/terminal">Терминал</a>
@@ -244,6 +280,94 @@ if ($('cabAddr').value) tick(); else tick();
 </script>
 <script>
 /* Внутренние ссылки всегда остаются на ноде, с которой открыт сайт. */
+</script>
+<script>
+/* ——— живой организм: canvas-сеть + командная строка (AC-3, ТЗ «Абсолютная интеграция») ——— */
+(function(){
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const logBox = $('termLog');
+
+  /* — canvas: плавающие ноды, золотые линии, зелёные пульсы — */
+  const cv = $('netCanvas'); const cx = cv.getContext('2d');
+  let W, H, pts = [];
+  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  function initPts() { pts = []; const n = Math.min(60, Math.max(24, Math.round(W * H / 26000))); for (let i = 0; i < n; i++) pts.push({ x: Math.random() * W, y: Math.random() * H, r: 1.4 + Math.random() * 2.2, vx: (Math.random() - .5) * .35, vy: (Math.random() - .5) * .35 }); }
+  addEventListener('resize', () => { resize(); initPts(); });
+  resize(); initPts();
+  let pulses = [];
+  function frame() {
+    cx.clearRect(0, 0, W, H);
+    for (const p of pts) { p.x += p.vx; p.y += p.vy; if (p.x < 0 || p.x > W) p.vx *= -1; if (p.y < 0 || p.y > H) p.vy *= -1; }
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const a = pts[i], b = pts[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < 150) { cx.strokeStyle = 'rgba(212,175,55,' + (0.16 * (1 - d / 150)).toFixed(3) + ')'; cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke(); }
+    }
+    for (const p of pts) { cx.fillStyle = 'rgba(212,175,55,.85)'; cx.beginPath(); cx.arc(p.x, p.y, p.r, 0, 7); cx.fill(); }
+    if (Math.random() < .05) { const f = pts[Math.floor(Math.random() * pts.length)]; const g = pts[Math.floor(Math.random() * pts.length)]; pulses.push({ a: f, b: g, t: 0 }); }
+    pulses = pulses.filter(pl => pl.t < 1);
+    for (const pl of pulses) {
+      pl.t += .02; const x = pl.a.x + (pl.b.x - pl.a.x) * pl.t, y = pl.a.y + (pl.b.y - pl.a.y) * pl.t;
+      cx.fillStyle = 'rgba(57,217,138,.9)'; cx.beginPath(); cx.arc(x, y, 2.6, 0, 7); cx.fill();
+      cx.strokeStyle = 'rgba(57,217,138,.35)'; cx.beginPath(); cx.moveTo(pl.a.x, pl.a.y); cx.lineTo(pl.b.x, pl.b.y); cx.stroke();
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  /* — API: как у панели ниже (agt-term-node-v2), по умолчанию origin страницы — */
+  const LS = 'agt-term-node-v2';
+  let API = location.origin;
+  try { const c = localStorage.getItem(LS); if (c && /^https?:\/\//.test(c)) { API = c.replace(/\/$/, ''); } } catch (e) {}
+
+  const time = () => new Date().toLocaleTimeString('ru-RU', { hour12: false });
+  function line(html, cls) { const d = document.createElement('div'); d.className = 'line' + (cls ? ' ' + cls : ''); d.innerHTML = '<span class="ts">[' + time() + ']</span> ' + html; logBox.appendChild(d); logBox.scrollTop = logBox.scrollHeight; }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cut = (s, n) => String(s == null ? '' : s).slice(0, n || 30);
+
+  async function run(cmd) {
+    const c = cmd.trim(); if (!c) return;
+    line('<span class="cmd-in">agent@imperial ❯ ' + esc(cut(c, 120)) + '</span>');
+    const parts = c.split(/\s+/);
+    const head = parts[0].toLowerCase();
+    try {
+      if (head === 'help') {
+        line('команды:', 'ok');
+        line('&nbsp;&nbsp;balance AGT… — баланс адреса (POST /balance)');
+        line('&nbsp;&nbsp;jobs — джобборд (/jobs/state)');
+        line('&nbsp;&nbsp;casino — состояние казино (/casino/state)');
+        line('&nbsp;&nbsp;treasury — казна (/treasury/state)');
+        line('&nbsp;&nbsp;help — список команд');
+      } else if (head === 'balance') {
+        const addr = parts[1] || ''; if (!addr) { line('указание: balance <AGT-адрес> — например адрес из /wallet', 'bad'); return; }
+        const r = await fetch(API + '/balance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: parts[1] }) });
+        const j = await r.json();
+        line('баланс ' + esc(cut(parts[1], 24)) + ' → <b class="ok">' + esc(String(j.balance != null ? j.balance : JSON.stringify(j).slice(0, 60))) + '</b> AGT');
+      } else if (head === 'jobs') {
+        const j = await (await fetch(API + '/jobs/state')).json();
+        const s = j.stats || {};
+        line('джобы: открыто <b>' + (s.open || 0) + '</b> · выплачено <b class="ok">' + (s.paid || 0) + '</b> · рефандов ' + (s.refunded || 0));
+        (j.open || []).slice(0, 5).forEach(x => line('&nbsp;&nbsp;' + esc(cut(x.escId, 12)) + ' · ' + esc(cut(x.worker, 18)) + ' · ' + (x.amount != null ? x.amount : '?') + ' AGT'));
+        if (!(j.open || []).length) line('&nbsp;&nbsp;пусто — создать через терминал (панель эскроу ниже)');
+      } else if (head === 'casino') {
+        const j = await (await fetch(API + '/casino/state')).json();
+        const s = j.stats || {};
+        line('казино: высота ' + (j.height != null ? j.height : '?') + ' · раундов ' + (s.rounds || 0) + ' · открытых ' + (s.openBets || 0) + ' · выплачено <b class="ok">' + (s.paidAGT || 0) + '</b> AGT');
+      } else if (head === 'treasury') {
+        const j = await (await fetch(API + '/treasury/state')).json();
+        const keys = Object.keys(j).slice(0, 8);
+        line('казна: адрес <b class="mono">' + esc(cut(j.address || j.treasuryAddress || '?', 30)) + '</b> · multisig ' + (j.threshold != null ? esc(j.threshold + '-of-' + j.signers) : '?')); 
+        keys.filter(k => k !== 'proposals').forEach(k => { if (typeof j[k] === 'number' || typeof j[k] === 'string') line('&nbsp;&nbsp;' + esc(k) + ': ' + esc(cut(j[k], 36))); });
+      } else {
+        line('неизвестная команда: ' + esc(head) + ' — help', 'bad');
+      }
+    } catch (e) { line('ошибка: ' + esc(e) + ' (api ' + esc(cut(API, 40)) + ')', 'bad'); }
+  }
+
+  $('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') { const v = $('cmd').value; $('cmd').value = ''; run(v); } });
+  line('терминал империи готов. напиши <b>help</b> или кликни команду ниже', 'ok');
+  document.querySelectorAll('[data-ccmd]').forEach(b => b.addEventListener('click', () => run(b.getAttribute('data-ccmd'))));
+})();
 </script>
 </body>
 </html>

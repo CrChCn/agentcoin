@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<script src="/empire-i18n.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — GPU (Akash)</title>
+<style>
+  :root { --bg:#07090d; --panel:#10161f; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#39d98a; --bad:#ff5c7a; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: radial-gradient(1200px 620px at 50% -8%, #1c2636 0%, var(--bg) 55%); color: var(--txt); font: 15px/1.5 'Segoe UI', system-ui, sans-serif; padding: 24px 18px 50px; }
+  h1 { font-size: 26px; color: var(--gold); margin-bottom: 4px; }
+  .sub { color: var(--dim); max-width: 860px; margin-bottom: 18px; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 20px; }
+  .tabs a { color: var(--txt); text-decoration: none; padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; }
+  .tabs a:hover { border-color: var(--gold); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; max-width: 1080px; margin-bottom: 16px; }
+  select { background: #080f1b; color: var(--txt); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font: inherit; }
+  button { background: var(--gold); color: #191711; border: 0; border-radius: 8px; padding: 10px 18px; font-weight: 700; cursor: pointer; font: inherit; margin-top: 12px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .stub { border-left: 3px solid var(--bad); background: #251418; padding: 10px 13px; border-radius: 0 8px 8px 0; color: #ffb4b4; font-size: 13px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td, th { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .mono { font-family: Consolas, monospace; word-break: break-all; }
+  .ok { color: var(--ok); } .dimt { color: var(--dim); }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .label { color: var(--dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<h1>⚜ GPU — аренда вычислений (Akash Network)</h1>
+<div class="sub">Империя арендует GPU для обучения/инференса агентов через Akash: SDL → bids → lease → задача. История этапа 3 — реальные dseq/lease в sandbox-2. Стартует после пополнения тестовых AKT либо демо-задача уже закрыта.</div>
+<div class="tabs"><a href="/imperial">Империя</a><a href="/memory">Память (Filecoin)</a><a href="/wallet">Кошелёк</a><a href="/terminal">Терминал</a></div>
+
+<div class="panel">
+  <b class="gold" style="font-size:14px">Арендовать GPU</b>
+  <div class="row" style="margin-top:12px">
+    <div><div class="label">Модель GPU</div>
+      <select id="model">
+        <option value="h100">H100</option>
+        <option value="a100">A100</option>
+        <option value="rtx4090">RTX 4090</option>
+      </select>
+    </div>
+    <div><div class="label">Часов</div>
+      <select id="hours">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="5">5</option>
+      </select>
+    </div>
+  </div>
+  <button id="rentBtn">Арендовать за AGT</button>
+  <div class="stub" id="stub">Akash временно недоступен (нет токенов) — пополнение тестовых AKT в этапе 3 открыто для владельца; после этого кнопка аренды реально открывает lease через akt CLI на ноде.</div>
+  <div class="dimt" id="rentMsg" style="margin-top:10px;font-size:12.5px"></div>
+</div>
+
+<div class="panel">
+  <b class="gold" style="font-size:14px">История аренды</b>
+  <table style="margin-top:10px"><thead><tr><th>dseq</th><th>модель</th><th>провайдер</th><th>статус</th><th>задача</th></tr></thead><tbody id="hist"><tr><td colspan="5" class="dimt">чтение /compute/state…</td></tr></tbody></table>
+</div>
+
+<script>
+(function(){
+  'use strict';
+    const esc = s => String(s == null ? '' : s).replace(/[&"'<>]/g, ch => ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === "'" ? '&#39;' : '&quot;');
+  fetch('/compute/state', { cache: 'no-store' }).then(r => r.json()).then(st => {
+    const hist = st.rentals || [];
+    const tb = document.getElementById('hist');
+    if (!hist.length) { tb.innerHTML = '<tr><td colspan="5" class="dimt">аренд пока нет — доступен стенд sandbox-2 после пополнения AKT</td></tr>'; return; }
+    tb.innerHTML = hist.map(x =>
+      '<tr><td class="mono">' + esc(String(x.dseq || '')) + '</td><td>' + esc(String(x.model || '')) + '</td><td class="mono dimt">' + esc(String(x.provider || '')) + '</td><td class="' + (x.status === 'closed' ? 'dimt' : 'ok') + '">' + esc(String(x.status || '')) + '</td><td class="mono dimt">' + esc(String(x.task || '')) + '</td></tr>'
+    ).join('');
+  }).catch(() => { document.getElementById('hist').innerHTML = '<tr><td colspan="5" class="bad">источник /compute/state недоступен</td></tr>'; });
+
+  document.getElementById('rentBtn').onclick = async () => {
+    const model = document.getElementById('model').value;
+    const hours = document.getElementById('hours').value;
+    document.getElementById('rentMsg').textContent = 'открываем SDL + ждём bids…';
+    try {
+      const r = await fetch('/compute/rent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: model, hours: Number(hours) }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.dseq) document.getElementById('rentMsg').innerHTML = '<span class="ok">Lease открыт: dseq ' + esc(String(j.dseq)) + ' · ' + esc(String(j.provider || '')) + ' · задача: ' + esc(String(j.task || 'nvidia-smi')) + '</span>';
+      else document.getElementById('stub').style.display = 'block', document.getElementById('rentMsg').textContent = '';
+    } catch (e) { document.getElementById('stub').style.display = 'block'; document.getElementById('rentMsg').textContent = ''; }
+  };
+})();
+</script>
+</body>
+</html>

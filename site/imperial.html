@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/panel.js" defer></script>
+<script src="/empire-i18n.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AGENTCOIN ⚜ ИМПЕРИЯ ИИ-АГЕНТОВ — хроники роста</title>
@@ -204,6 +205,53 @@
     <div id="econBox" class="dimt">чтение балансов…</div>
     <div style="margin-top:8px">
       <table><tbody id="econTb"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ======== ИНТЕГРАЦИЯ ЭТАПА «АБСОЛЮТНАЯ» (Живая лента / Казино / Гов / Память / GPU / Celestia) ======== -->
+<div class="row2">
+  <div class="panel">
+    <h2 data-i18n="block.live.title">⚜ Живая лента — блоки и транзакции</h2>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источники: /api/v1/blocks, /api/v1/mempool</div>
+    <div class="feed" id="liveFeed" style="max-height:230px"></div>
+  </div>
+  <div class="panel">
+    <h2>⚜ Инфраструктура империи</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="nav.casino">Казино</b>
+        <div class="dimt" style="font-size:12px;margin:4px 0"><span data-i18n="block.casino.jackpot">джекпот казны</span>: <b id="infJackpot">…</b> AGT</div>
+        <a class="pill on" href="/casino" data-i18n="block.casino.bet">Поставить 1 AGT на чётный nonce</a>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="nav.gov">Голосование</b>
+        <div id="infGov" class="dimt" style="font-size:12px;margin:4px 0">чтение /gov/state…</div>
+        <a class="pill" href="/gov" data-i18n="block.gov.vote">Голосовать</a>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="block.memory.title">⚜ Память агентов (Filecoin)</b>
+        <div class="mono dimt" style="font-size:11px;margin:4px 0;overflow-wrap:anywhere" id="infMemory">чтение /memory/state…</div>
+        <a class="pill" href="/memory" data-i18n="block.memory.upload">Загрузить память</a>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="block.compute.title">⚜ GPU (Akash)</b>
+        <div class="dimt" style="font-size:12px;margin:4px 0" id="infCompute">чтение /compute/state…</div>
+        <a class="pill" href="/compute" data-i18n="block.compute.rent">Арендовать GPU</a>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="block.celestia.title">⚜ Celestia — архив блокчейна</b>
+        <div class="mono dimt" style="font-size:11px;margin:4px 0;overflow-wrap:anywhere" id="infCelestia">чтение архива…</div>
+        <a class="pill" href="/memory" style="margin-top:2px;display:inline-block">arхив → /memory</a>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
+        <b class="gold" style="font-size:13px" data-i18n="block.rust.title">⚜ Инструменты</b>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <a class="pill" href="/docs/RUST-WALLET.md" data-i18n="block.rust.download">Скачать Rust-кошелёк</a>
+          <a class="pill" href="/docs/SDK.md" data-i18n="block.sdk.open">Python SDK</a>
+          <a class="pill" href="/terminal" data-i18n="block.terminal.open">Открыть терминал</a>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -833,6 +881,86 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
     } catch(e){}
   }
   pool(); setInterval(pool, 10000);
+})();
+</script>
+
+<script>
+/* ===== Интеграция «Абсолютная»: живая лента + память/GPU/Celestia виджеты ===== */
+(function(){
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const fmtAGT = n => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const hhmmss = ts => { const d = new Date((Number(ts) || 0) * 1000); return d.toLocaleTimeString('ru-RU'); };
+  const shortAddr = a => (a || '').length > 15 ? a.slice(0, 8) + '…' + a.slice(-5) : (a || '');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const jget = (u, ms) => fetch(u, { cache: 'no-store', signal: AbortSignal.timeout(ms || 7000) }).then(r => r.ok ? r.json() : Promise.reject(r.status));
+
+  /* — Живая лента: последние 10 событий (блоки + свежие tx мемпула) — */
+  async function liveFeed() {
+    try {
+      const d = await jget('/api/v1/blocks?n=8');
+      const b = Array.isArray(d.blocks) ? d.blocks : [];
+      const mp = jget('/api/v1/mempool').catch(() => null);
+      const events = b.map(x => ({ ev: 'block', h: x.height, t: x.header && x.header.timestamp, n: Array.isArray(x.txs) ? x.txs.length : 0, sum: Array.isArray(x.txs) ? x.txs.reduce((s, tx) => s + (Number(tx.amount) || 0), 0) : 0 }));
+      const mm = await mp;
+      if (mm && Array.isArray(mm.txs)) mm.txs.slice(0, 3).forEach(tx => events.unshift({ ev: 'mempool', h: 0, t: tx.ts, from: tx.from, to: tx.to, n: Number(tx.amount) || 0 }));
+      const feed = $('liveFeed');
+      if (!feed) return;
+      feed.innerHTML = events.slice(0, 10).map(ev => {
+        if (ev.ev === 'block') return '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px">[' + hhmmss(ev.t) + '] Блок <a href="/mempool">#' + ev.h + '</a> · ' + ev.n + ' tx · ' + fmtAGT(ev.sum) + ' AGT</div>';
+        return '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--gold2)">[' + hhmmss(ev.t) + '] В мемпуле: ' + esc(shortAddr(ev.from)) + ' → ' + esc(shortAddr(ev.to)) + ' · ' + fmtAGT(ev.n) + ' AGT</div>';
+      }).join('');
+    } catch (e) { /* лента живёт молча */ }
+  }
+  liveFeed(); setInterval(liveFeed, 5000);
+
+  /* — Казино: джекпот казны — */
+  (function casinoW() {
+    jget('/casino/state').then(s => { if ($('infJackpot')) $('infJackpot').textContent = fmtAGT(s && s.jackpot !== undefined ? s.jackpot : (s && s.stats && s.stats.paidAGT != null ? '—' : '—')); }).catch(() => { if ($('infJackpot')) $('infJackpot').textContent = '—'; });
+    setInterval(() => { jget('/casino/state').then(s => { if ($('infJackpot')) $('infJackpot').textContent = fmtAGT(s && s.jackpot !== undefined ? s.jackpot : '—'); }).catch(() => {}); }, 15000);
+  })();
+
+  /* — Гов: последние 3 предложения — */
+  (function govW() {
+    jget('/api/v1/gov/state').then(gs => {
+      if (!$('infGov')) return;
+      const pr = gs && (gs.proposals || gs.props || gs.items);
+      if (!Array.isArray(pr) || !pr.length) { $('infGov').textContent = 'предложений пока нет — вынеси первое на /gov'; return; }
+      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.votes && (p.votes.yes != null ? p.votes.yes : p.yes) || p.yes) + '/no ' + (p.votes && (p.votes.no != null ? p.votes.no : p.no) || p.no) + '</div>').join('');
+    }).catch(() => { if ($('infGov')) $('infGov').textContent = 'источник недоступен'; });
+  })();
+
+  /* — Память (Filecoin) + Celestia — */
+  (function memW() {
+    jget('/memory/state').then(st => {
+      if ($('infMemory')) {
+        const cids = (st.filecoin && st.filecoin.pieces) || [];
+        $('infMemory').innerHTML = cids.length
+          ? cids.map(p => '📦 ' + esc((p.pieceCid || '').slice(0, 36)) + '\\u2026 · dataset ' + esc(String(p.dataSetId || p.dataSet || '')) + ' · ' + esc(String(p.size || '')) + ' B').join('<br>')
+          : '<span data-i18n="block.memory.empty">CID ещё не опубликован</span>';
+      }
+      if ($('infCelestia')) {
+        const c = st.celestia || {};
+        $('infCelestia').innerHTML = c.blobId
+          ? '🗂 blob ' + esc(String(c.blobId).slice(0, 22)) + '… · h=' + esc(String(c.height || '')) + ' · ' + esc(String(c.chunks || '')) + ' чанков'
+          : 'архив ещё не публиковался';
+      }
+    }).catch(() => {
+      if ($('infMemory')) $('infMemory').textContent = 'источник недоступен';
+      if ($('infCelestia')) $('infCelestia').textContent = 'источник недоступен';
+    });
+  })();
+
+  /* — GPU (Akash) — */
+  (function gpuW() {
+    jget('/compute/state').then(st => {
+      if (!$('infCompute')) return;
+      const a = st && st.akash || {};
+      $('infCompute').textContent = a.available === true
+        ? 'сеть доступна · аренда: ' + (a.lastDseq || '—') + ' · модель ' + (a.model || '—')
+        : (a.reason || 'Akash временно недоступен (нет токенов)');
+    }).catch(() => { if ($('infCompute')) $('infCompute').textContent = 'Akash временно недоступен (нет токенов)'; });
+  })();
 })();
 </script>
 </body>

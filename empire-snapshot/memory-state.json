@@ -1,0 +1,52 @@
+{
+  "filecoin": {
+    "network": "calibration (314159)",
+    "service": "fwss (Synapse SDK 2.0.2, PDP providers: calib2.ezpdpz.net, calib.ezpdpz.net)",
+    "status": "pinned",
+    "dataSetId": 50595,
+    "pieces": [
+      {
+        "pieceCid": "bafkzcibcjmcmz6kwti63e3tb6vpchvvvoapw7edjysmvslgeqmyeekjx7pi3oha",
+        "dataSetId": 50595,
+        "size": 203,
+        "uploadedAt": "2026-11-05",
+        "source": "py -3 test_filecoin.py (bytes-identical download verified)"
+      },
+      {
+        "pieceCid": "bafkzcibcoabyptfztfj36lxwrste26n2wvnh3xqi2mvwis7afqfjrjmx5txg4by",
+        "dataSetId": 50595,
+        "size": 0,
+        "uploadedAt": "2026-11-05",
+        "source": "agentcoin-wallet upload-memory (Rust CLI → Synapse)"
+      }
+    ],
+    "wallet": "0x6136733191578Dc5c4BD5b5bEd3367c90a297f3C"
+  },
+  "celestia": {
+    "network": "mocha-5",
+    "namespaceHex": "0x61676e61",
+    "status": "live",
+    "blobs": 60,
+    "blobId": "dc10cae2bd33256ff37412467dcff842c7eb5f6bf5e6ddfa1c0782ca6e7bed56",
+    "height": 2336485,
+    "mode": "memo-prune",
+    "fromHeader": 30745,
+    "toHeader": 31647,
+    "bytes": 34104,
+    "memoCount": 834,
+    "node": "celestia1l8sy4893xg5x0sav8n7sn7ykd8ujga4dzyk24v",
+    "chainJson": "24.65 MB -> 23.50 MB"
+  },
+  "agentMemory": {
+    "items": [
+      {
+        "label": "sdk-agent-memory",
+        "summary": "agent-memory/sdk-worker-01.json — memory agent (upload-memory/download-memory via Synapse CLI)"
+      },
+      {
+        "label": "celestia-archive-memos",
+        "summary": "834 pruned memos restored from Celestia blob h=2336485 (round-trip 834/834 match)"
+      }
+    ]
+  }
+}

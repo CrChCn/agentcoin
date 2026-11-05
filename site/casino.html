@@ -53,6 +53,20 @@ footer{color:var(--dim);font-size:11px;text-align:center;margin-top:16px}
     <div id="msg"></div>
   </div>
 
+  <div class="panel" style="display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+    <svg id="roulette" viewBox="0 0 200 200" style="width:220px;height:220px;flex:0 0 auto">
+      <g id="wSpin" style="transform-origin:100px 100px;transition:transform 2.6s cubic-bezier(.17,.67,.18,1)">
+      </g>
+      <circle cx="100" cy="100" r="12" fill="#10161f" stroke="#d4af37"></circle>
+      <polygon points="100,12 90,34 110,34" fill="#d4af37"></polygon>
+    </svg>
+    <div style="flex:1;min-width:220px">
+      <div id="lastRes" style="font-size:15px;color:var(--dim)">wheel:waiting for rounds…</div>
+      <div id="wheelLog" style="margin-top:8px;font-size:12px;color:var(--dim);max-height:130px;overflow:auto"></div>
+    </div>
+  </div>
+  <canvas id="confetti" style="position:fixed;inset:0;pointer-events:none;z-index:5000;width:100vw;height:100vh"></canvas>
+
   <div class="panel">
     <table>
       <thead><tr><th>ref</th><th>сторона</th><th>блок ставки</th><th>цель</th><th>nonce</th><th>чётность</th><th>итог</th><th>статус</th></tr></thead>
@@ -114,6 +128,70 @@ function load(){
 }
 load();
 setInterval(load, POLL);
+
+/* ——— рулетка (SVG) + конфетти — ТЗ «Абсолютная интеграция» AC-7 ——— */
+(function(){
+  'use strict';
+  const g = document.getElementById('wSpin');
+  const SLOTS = 20; // числовые ячейки
+  for (let i = 0; i < SLOTS; i++) {
+    const a0 = i * (360 / SLOTS), a1 = a0 + (360 / SLOTS);
+    const r = 88, cx = 100, cy = 100;
+    const p = a => (Math.PI / 180) * (a - 90);
+    const x0 = cx + r * Math.cos(p(a0)), y0 = cy + r * Math.sin(p(a0));
+    const x1 = cx + r * Math.cos(p(a1)), y1 = cy + r * Math.sin(p(a1));
+    const seg = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    seg.setAttribute('d', 'M' + cx + ',' + cy + ' L' + x0.toFixed(1) + ',' + y0.toFixed(1) + ' A' + r + ',' + r + ' 0 0 1 ' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' Z');
+    seg.setAttribute('fill', (i % 2) ? '#1d2735' : '#7f1d2f');
+    seg.setAttribute('stroke', '#2a3646');
+    g.appendChild(seg);
+    const lx = cx + (r - 13) * Math.cos(p(a0 + 360 / SLOTS / 2)), ly = cy + (r - 13) * Math.sin(p(a0 + 360 / SLOTS / 2));
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', lx.toFixed(1)); t.setAttribute('y', ly.toFixed(1)); t.setAttribute('fill', '#e8eef5');
+    t.setAttribute('font-size', '9'); t.setAttribute('text-anchor', 'middle');
+    t.textContent = i;
+    g.appendChild(t);
+  }
+  let spinTo = (n) => {
+    const per = 360 / SLOTS;
+    const target = (Number(n) || 0) * per;
+    const cur = parseFloat(g.dataset.deg || '0');
+    const next = cur + 1440 + (((target - cur) % 360) + 360) % 360;
+    g.dataset.deg = String(next);
+    g.style.transform = 'rotate(' + next + 'deg)';
+  };
+
+  const log = document.getElementById('wheelLog');
+  let lastSeenRef = null; let boot = true;
+  function conf() {
+    const cv = document.getElementById('confetti'); cv.width = innerWidth; cv.height = innerHeight;
+    const cx2 = cv.getContext('2d');
+    const ps = []; for (let i = 0; i < 130; i++) ps.push({ x: cv.width / 2, y: cv.height * .32, vx: (Math.random() - .5) * 9, vy: -6 - Math.random() * 7, s: 3 + Math.random() * 4, c: ['#d4af37', '#f0d78c', '#39d98a', '#5aa2ff', '#ff8fa3'][Math.floor(Math.random() * 5)] });
+    let n = 0;
+    (function tick() {
+      cx2.clearRect(0, 0, cv.width, cv.height); n++;
+      ps.forEach(p => { p.vy += .25; p.x += p.vx; p.y += p.vy; cx2.fillStyle = p.c; cx2.fillRect(p.x, p.y, p.s, p.s); });
+      if (n < 160) requestAnimationFrame(tick); else cx2.clearRect(0, 0, cv.width, cv.height);
+    })();
+  }
+  const oldLoad = load;
+  load = function () {
+    getJSON('/casino/state').then(function (s) {
+      const r0 = s.rounds && s.rounds[0];
+      if (r0) {
+        document.getElementById('lastRes').innerHTML = 'последний раунд: nonce <b style="color:var(--gold)">' + (r0.nonce == null ? '—' : r0.nonce) + '</b> · ' + (r0.parity || '—') + ' · ' + (r0.win === true ? '<b style="color:var(--ok)">победа</b>' : (r0.win === false ? 'проиграл' : 'ждёт блок')); 
+        if (!boot && r0.ref !== lastSeenRef) {
+          lastSeenRef = r0.ref;
+          if (r0.nonce != null) spinTo(Number(r0.nonce));
+          if (r0.win === true) { conf(); const li = document.createElement('div'); li.innerHTML = '<span style="color:var(--ok)">еджекпок существует! победитель в раунде ' + r0.ref + '</span>'; log.appendChild(li); }
+        }
+        if (boot && r0.nonce != null) { lastSeenRef = r0.ref; spinTo(Number(r0.nonce)); }
+        boot = false;
+      }
+    }).catch(function () {});
+    return oldLoad();
+  };
+})();
 </script>
 </body>
 </html>

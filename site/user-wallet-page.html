@@ -10,6 +10,7 @@
 :root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--bad:#ff7777}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:28px 18px}h1{font-size:clamp(28px,5vw,44px);margin:8px 0}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px}.dim,small{color:var(--dim)}a{color:var(--gold)}label{display:block;margin:12px 0 5px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}input,select,textarea{background:#080f1b;color:var(--txt);max-width:100%}input:not([type=checkbox]):not([type=radio]),textarea{width:100%}textarea{min-height:72px;font-family:ui-monospace,monospace;font-size:12px}button{background:var(--gold);color:#111a28;cursor:pointer;margin:6px 6px 0 0}button.secondary{background:transparent;color:var(--gold)}button:disabled{opacity:.45;cursor:not-allowed}main>header,.row,.unitsel,.tabs,.kv{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.hidden{display:none!important}.mono{font-family:ui-monospace,monospace;word-break:break-all}.address{word-break:break-all;font-family:ui-monospace,monospace}.status{min-height:24px;color:var(--gold);white-space:pre-wrap;margin-top:8px}.balance{font-size:clamp(30px,5vw,44px);margin:8px 0}.unitsel button{margin:0}.unitsel .active,.tabs .active{background:#fff3;color:var(--gold);border-color:var(--gold)}.tabs button{background:transparent;color:var(--dim)}.pill{border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--dim)}.pill.on{color:var(--ok)}.pill.off{color:var(--bad)}.hint,.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#252016;border-radius:0 8px 8px 0;margin:8px 0}.hint{font-size:13px}.cmd{background:#080f1b;border:1px solid var(--line);padding:12px;border-radius:8px;word-break:break-all}.error{color:var(--bad)}table{width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{text-align:left;vertical-align:top;padding:7px;border-bottom:1px solid var(--line)}canvas.qr{background:white;border-radius:8px;padding:8px}.lang button{margin:0;padding:5px 9px}.lang [aria-pressed=true]{background:var(--gold);color:#111}progress{width:100%}
 @media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px}}
+a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14px;border-radius:8px;font-weight:600}
 </style>
 </head>
 <body>
@@ -62,6 +63,10 @@
 <button id="login" data-i18n="login.submit">Войти</button>
 </div>
 <button id="autologinNow" class="secondary" data-i18n="login.autologin">Локальный вход на этой машине</button>
+<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+  <a href="/create-wallet" class="gold" data-i18n="wallet.page.create">Создать кошелёк</a>
+  <button id="importWallet" class="secondary" onclick="document.getElementById('certFile').click()" data-i18n="wallet.page.import">Импортировать кошелёк</button>
+</div>
 <button id="disableAutologin" class="secondary" data-i18n="login.disableAutologin">Отключить автологин</button>
 <div id="loginHint" class="status" role="status" aria-live="polite">
 </div>

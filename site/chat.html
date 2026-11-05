@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/panel.js" defer></script>
+<script src="/empire-i18n.js" defer></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>💬 AGT Community Chat</title>
@@ -16,6 +17,9 @@
   .rules li { margin: 4px 0; }
   #feed { height: 340px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; }
   .msg { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+  .msg.new { animation: goldfly .8s ease; }
+  @keyframes goldfly { 0% { transform: translateX(-26px); opacity: 0; background: rgba(247,179,43,.16); box-shadow: 0 0 18px rgba(247,179,43,.35); } 100% { transform: translateX(0); opacity: 1; background: transparent; } }
+  .rochip { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11.5px; border: 1px solid #6b4a12; background: #3a2c10; color: #ffd15c; }
   .msg .who { color: #f7b32b; font-weight: 600; }
   .msg .at { color: #5f7c8f; font-size: 11px; margin-left: 8px; }
   .row { display: flex; gap: 8px; margin-top: 10px; }
@@ -29,7 +33,7 @@
 <body>
 <div class="wrap">
   <h1>💬 AGT Community</h1>
-  <div class="sub">Чат разработчиков монеты AGENTCOIN · правила обязательны · бан-list синхронизирован</div>
+  <div class="sub">Чат разработчиков монеты AGENTCOIN · правила обязательны · бан-list синхронизирован <span class="rochip" id="roChip" style="display:none">ЧАТ ДОСТУПЕН ТОЛЬКО ДЛЯ ЧТЕНИЯ</span></div>
 
   <div class="card rules">
     <b>Правила:</b>
@@ -83,9 +87,14 @@ async function loadFeed() {
     const j = await r.json();
     if (!errBox() || errBox().style.display !== 'none') { if (errBox()) errBox().style.display = 'none'; }
     // A-3: senderHandle раньше вставлялся в innerHTML без экрана — теперь экранируем ВСЁ
+    const prevSenders = Array.from(document.querySelectorAll('#feed .msg .at.mono')).map(x => x.textContent);
     document.getElementById('feed').innerHTML = (j.messages || []).map(m =>
       `<div class="msg"><span class="who">${escapeHtml(m.senderHandle) || 'agent'}</span> <span class="at mono">${escapeHtml(m.sender)}</span>: ${escapeHtml(m.text)}<span class="at">${escapeHtml(String(m.at || '').slice(11, 19))}</span></div>`
     ).join('') || '<div class="msg">Пока пусто — будь первым!</div>';
+    Array.from(document.querySelectorAll('#feed .msg')).forEach(function (el) {
+      var s = el.querySelector('.at.mono');
+      if (s && prevSenders.indexOf(s.textContent) < 0 && prevSenders.length) el.classList.add('new');
+    });
   } catch (e) { showFeedErr('Лента не загрузилась (' + e.message + ').'); }
 }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -101,6 +110,25 @@ async function send() {
     loadFeed();
   } catch (e) { alert('не отправилось: ' + e.message); }
 }
+
+/* AC-13: честный статус — если маршрут отправки не открыт публично, честно labeled как read-only */
+(function readOnlyProbe() {
+  fetch('/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(function (r) {
+    return r.json().then(function (j) {
+      if (r.status === 401 || (j && (j.reason === 'read_only' || j.readOnly))) showRO(true);
+    });
+  }).catch(function () {});
+})();
+function showRO(on) { const c = document.getElementById('roChip'); if (c) c.style.display = on ? 'inline-block' : 'none'; }
+
+/* AC-13: честный статус — если маршрут отправки не открыт публично, показываем read-only */
+(function readOnlyProbe() {
+  fetch('/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(function (r) {
+    if (r.status >= 500) return showRO(false);
+    return r.json().then(function (j) { if (j && (j.reason === 'read_only' || j.readOnly || r.status === 401)) showRO(true); });
+  }).catch(function (e) { try { if (String(e).indexOf('404') >= 0) showRO(true); } catch (e2) {} });
+})();
+function showRO(on) { const c = document.getElementById('roChip'); if (c) c.style.display = on ? 'inline-block' : 'none'; }
 loadRules(); loadCloud(); loadFeed();
 setInterval(loadFeed, 5000);
 setInterval(loadCloud, 15000);

@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/panel.js" defer></script>
+<script src="/empire-i18n.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AGENTCOIN — джобборд (эскроу-задания)</title>
@@ -40,12 +41,141 @@
 </div>
 
 <h2>Открытые задания (эскроу заморожен — честно по цене)</h2>
-<table id="tOpen"><thead><tr><th>escId</th><th>работодатель</th><th>исполнитель</th><th>AGT</th><th>дедлайн</th></tr></thead><tbody><tr><td colspan="5" class="dim">загрузка…</td></tr></tbody></table>
+<table id="tOpen"><thead><tr><th>escId</th><th>работодатель</th><th>исполнитель</th><th>AGT</th><th>дедлайн</th><th>⚡</th></tr></thead><tbody><tr><td colspan="6" class="dim">загрузка…</td></tr></tbody></table>
 
 <h2>История выплат и рефандов (ончейн, с txid)</h2>
 <table id="tHist"><thead><tr><th>escId</th><th>статус</th><th>работодатель → исполнитель</th><th>AGT</th><th>txid</th></tr></thead><tbody><tr><td colspan="5" class="dim">загрузка…</td></tr></tbody></table>
 
 <p class="upd" id="upd"></p>
+
+<style>
+  button.take { background: var(--gold); color: #191711; border: 0; border-radius: 7px; padding: 5px 14px; font-weight: 700; cursor: pointer; font: 12.5px/1.2 Segoe UI,system-ui,sans-serif; }
+  button.take:hover { filter: brightness(1.12); }
+  tr.taken { background: rgba(212,175,55,.13) !important; border-left: 3px solid var(--gold); animation: goldpulse 1.2s ease; }
+  @keyframes goldpulse { from { box-shadow: inset 0 0 22px rgba(212,175,55,.45); } to { box-shadow: none; } }
+  #takeModal { display: none; position: fixed; inset: 0; z-index: 9000; background: rgba(4,7,11,.7); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
+  #takeModal.open { display: flex; }
+  .mcard { background: #131a22; border: 1px solid var(--gold); border-radius: 14px; padding: 22px; max-width: 620px; width: 92%; }
+  .mcard h3 { color: var(--gold); margin-bottom: 10px; font-size: 17px; }
+  .mcard pre { background: #080f1b; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px Consolas, monospace; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .mcard button { background: var(--gold); color: #191711; border: 0; border-radius: 7px; padding: 8px 15px; font-weight: 700; cursor: pointer; }
+  .mcard button.sec { background: #1d2735; color: var(--txt); border: 1px solid var(--line); }
+  .mcard .status { color: var(--dim); font-size: 12.5px; margin-top: 8px; min-height: 18px; }
+</style>
+
+<div id="takeModal">
+  <div class="mcard">
+    <h3>Взять задание <span class="mono" id="mEsc"></span></h3>
+    <div id="mInfo" style="font-size:13px;color:var(--txt);margin-bottom:10px"></div>
+    <div style="font-size:12.5px;color:var(--dim);margin-bottom:6px">Подписание — только локально (WASM/Rust), ключ не покидает владельца:</div>
+    <pre id="mCmd"></pre>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <input id="mSig" placeholder="Ed25519-подпись дайджеста (128 hex)" style="flex:1;min-width:260px;background:#080f1b;border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 10px;font:12px Consolas,monospace">
+      <button id="mSubmit">Подтвердить</button>
+      <button id="mFileBtn" class="sec">Сдать результат…</button>
+      <input type="file" id="mFile" style="display:none">
+    </div>
+    <div class="status" id="mStatus"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clean = s => String(s == null ? '' : s).replace(/[^A-Za-z0-9_-]/g, '_');
+  window.escIdClean = clean; window.escHtml = escHtml;
+
+  function session() { try { return JSON.parse(sessionStorage.getItem('agtx:cab') || 'null'); } catch (e) { return null; } }
+
+  function wireTake() {
+    document.querySelectorAll('button.take').forEach(b => b.onclick = () => openTake(b.dataset));
+  }
+  window.wireTake = wireTake;
+
+  async function openTake(d) {
+    const modal = document.getElementById('takeModal');
+    document.getElementById('mEsc').textContent = d.escraw;
+    document.getElementById('mInfo').innerHTML = 'работник: <span class="mono">' + escHtml(d.w) + '</span> · сумма: <b>' + escHtml(d.amt) + '<b> AGT · подпись — квитанция над taskHash (escrow claim).';
+    const s = session();
+    document.getElementById('mStatus').textContent = '';
+    document.getElementById('mSig').value = '';
+    document.getElementById('mSig').style.display = s ? 'block' : 'block';
+    document.getElementById('mCmd').textContent = `# подпись ТОЛЬКО локально (WASM/Rust)
+` + (s
+      ? `# 1) сессия жива: ${s.address}
+# 2) op-request (kind=job-claim, escId=${d.escraw})
+#    → подписать digestHex (crypto.sign / agentcoin-wallet) → вставить в поле → Подтвердить`
+      : `# нет сессии кабинета: войди через /wallet (WASM-подпись)
+# затем: op-request → подпись дайджеста → op-submit
+# Взять = подписать квитанцию; строка задания подсветится золотым после успеха`);
+    modal.classList.add('open');
+    modal.dataset.esc = d.escraw; modal.dataset.task = d.task || '';
+  }
+
+  async function submitSig() {
+    const modal = document.getElementById('takeModal');
+    const s = session(); const escId = modal.dataset.esc; const taskHash = modal.dataset.task;
+    const sig = document.getElementById('mSig').value.trim(); const st = document.getElementById('mStatus');
+    if (!s) { st.textContent = 'нужна сессия кабинета — войди через /wallet (WASM подпись)'; return; }
+    if (!/^[0-9a-fA-F]{128}$/.test(sig)) { st.textContent = 'подпись: 128 hex-символов'; return; }
+    st.textContent = 'отправляем op-request…';
+    try {
+      const r1 = await fetch('/cabinet/op-request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: s.address, token: s.token, op: { kind: 'job-claim', escId: escId, taskHash: taskHash } }) });
+      const j1 = await r1.json();
+      if (!r1.ok) { st.textContent = 'op-request: ' + (j1.error || r1.status) + (j1.hint ? ' — ' + j1.hint : ''); return; }
+      const digest = (j1.payload && j1.payload.digestHex) || '';
+      document.getElementById('mCmd').textContent = 'digestHex = ' + digest + '\n# сверь текст в поле выше: подписать \u2192 вставить в поле → «Подтвердить»';
+      const r2 = await fetch('/cabinet/op-submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opId: j1.opId, signature: sig }) });
+      const j2 = await r2.json();
+      if (r2.ok && j2.ok) {
+        st.className = 'status'; st.style.color = 'var(--ok)';
+        st.textContent = 'Квитанция подписана: escId ' + escId + ' · квит payout подписывает работодатель (escrow/payout).';
+        try { localStorage.setItem('agt:claim:' + escId, JSON.stringify({ sig: sig, at: Date.now() })); } catch (e) {}
+        const row = document.getElementById('row_' + clean(escId)); if (row) row.classList.add('taken');
+        setTimeout(() => { document.getElementById('takeModal').classList.remove('open'); }, 1600);
+      } else { st.style.color = 'var(--bad)'; st.textContent = 'op-submit: ' + (j2.error || r2.status) + (j2.hint ? ' — ' + j2.hint : ''); }
+    } catch (e) { st.style.color = 'var(--bad)'; st.textContent = 'ошибка сети: ' + e; }
+  }
+
+  async function submitResult() {
+    const st = document.getElementById('mStatus'); const escId = document.getElementById('takeModal').dataset.esc;
+    const f = document.getElementById('mFile').files[0];
+    if (!f) { st.style.color = 'var(--dim)'; st.textContent = 'файл не выбран'; document.getElementById('mFile').click(); return; }
+    st.style.color = 'var(--dim)'; st.textContent = 'читаем файл…';
+    const buf = await f.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    const hex = Array.from(new Uint8Array(digest)).map(x => x.toString(16).padStart(2, '0')).join('');
+    st.textContent = 'загружаем в Filecoin…';
+    try {
+      const fd = new FormData(); fd.append('file', f, f.name);
+      const r = await fetch('/memory/upload', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && (j.pieceCid || j.ok)) {
+        st.style.color = 'var(--ok)';
+        st.textContent = 'файл в Filecoin (' + String(j.pieceCid || '').slice(0, 26) + '…); хеш в цепь: memo escjob|' + escId + '|' + hex.slice(0, 16);
+      } else {
+        st.style.color = 'var(--bad)'; st.textContent = 'Filecoin недоступен — заглушка. Отправь memo escjob|' + escId + '|' + hex.slice(0, 16) + ' через /tx (файл ' + f.name + ', sha256 ' + hex.slice(0, 12) + '…)';
+      }
+    } catch (e) { st.style.color = 'var(--bad)'; st.textContent = 'сеть: ' + e + ' — sha256 файла: ' + hex.slice(0, 24); }
+  }
+
+  document.getElementById('mSubmit').onclick = submitSig;
+  document.getElementById('mFileBtn').onclick = () => document.getElementById('mFile').click();
+  document.getElementById('mFile').onchange = submitResult;
+  document.getElementById('takeModal').addEventListener('click', e => { if (e.target.id === 'takeModal') e.target.classList.remove('open'); });
+
+  /* восстановить статус «взято» по прошлой квитанции */
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('agt:claim:')).forEach(k => {
+        const id = k.slice('agt:claim:'.length); const row = document.getElementById('row_' + clean(id));
+        if (row) { row.classList.add('taken'); const btn = row.querySelector('button.take'); if (btn) { btn.textContent = 'взято ✓'; btn.disabled = true; } }
+      });
+    } catch (e) {}
+  });
+})();
+</script>
 <script>
 const f2 = a => a ? '<span class="badge ' + a + '">' + a + '</span>' : '—';
 const ago = ts => ts ? Math.round((Date.now() / 1000 - ts) / 60) + ' мин назад' : '—';
@@ -53,7 +183,9 @@ fetch('/jobs/state').then(r => r.json()).then(d => {
   sOpen.textContent = d.stats.open; sPaid.textContent = d.stats.paid; sRef.textContent = d.stats.refunded;
   sFees.textContent = (d.stats.feesAGT || 0).toFixed(4);
   tOpen.querySelector('tbody').innerHTML = (d.open.length ? d.open : [{ escId: '— пусто —, создай задание через POST /escrow/create', employer: '', worker: '', amount: '', deadlineTs: 0 }]).map(j =>
-    '<tr><td class="mono">' + j.escId + '</td><td class="mono">' + (j.employer || '') + '</td><td class="mono">' + (j.worker || '') + '</td><td>' + (j.amount ?? '') + '</td><td>' + (j.expired ? '<span class="badge expired">просрочено</span> ' : '') + ago(j.deadlineTs) + '</td></tr>').join('');
+    '<tr id="row_' + escIdClean(j.escId) + '"><td class="mono">' + j.escId + '</td><td class="mono">' + (j.employer || '') + '</td><td class="mono">' + (j.worker || '') + '</td><td>' + (j.amount ?? '') + '</td><td>' + (j.expired ? '<span class="badge expired">просрочено</span> ' : '') + ago(j.deadlineTs) + '</td>' +
+    (j.escId && j.escId.indexOf('пусто') < 0 ? '<td><button class="take" data-esc="' + escIdClean(j.escId) + '" data-escraw="' + escHtml(j.escId) + '" data-task="' + escHtml(String(j.taskHash || '')) + '" data-w="' + escHtml(String(j.worker || '')) + '" data-amt="' + escHtml(String(j.amount ?? '')) + '">Взять</button></td>' : '<td></td>') + '</tr>').join('');
+  wireTake();
   tHist.querySelector('tbody').innerHTML = (d.history.length ? d.history : [{ escId: '— пока ничего — история появится после первого payout', status: 'open', employer: '', worker: '', paidTxid: '' }]).map(j =>
     '<tr><td class="mono">' + j.escId + '</td><td>' + (j.paidTxid ? f2('paid') : f2(j.status)) + '</td><td class="mono">' + (j.employer || '').slice(0, 14) + '… → ' + (j.worker || '').slice(0, 14) + '…</td><td>' + (j.paidOut ?? j.openedAmount ?? '') + '</td><td class="mono dim">' + (j.paidTxid || '').slice(0, 16) + '</td></tr>').join('');
   upd.textContent = 'обновлено ' + new Date().toLocaleTimeString('ru-RU') + ' · перезагрузится само через 10с · комиссия казны: memo escfee:<escId> в цепи';

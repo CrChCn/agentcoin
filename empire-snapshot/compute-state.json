@@ -1,0 +1,29 @@
+{
+  "akash": {
+    "network": "sandbox-2 (chain-id sandbox-2, grpc.sandbox-2.aksh.pw:9090)",
+    "status": "provisioning",
+    "available": false,
+    "reason": "Akash временно недоступен (нет токенов): сеть требует эскроу-депозит в uact (мин. 10 ACT по BME), а faucet sandbox-2 выдаёт только uakt. Попытка конвертации akt tx bme mint-act 5 AKT → Canceled (minimum mint); 25 AKT faucet-баланса недостаточно для min_mint 10 ACT. Кнопка аренды — честная заглушка; SDL/провайдеры уже выбраны, разблокировка — дские ACT на адрес кошелька.",
+    "address": "akash18eylwfhjrlpcd4eep0warz0qg77ss6g3ny9440",
+    "cli": "akt v1.0.4 (context dev)",
+    "providersSeen": [
+      {
+        "name": "digital frontier",
+        "uri": "https://provider.h4i-dedicated.eu-sw-2.digitalfrontier.so:8443",
+        "owner": "akash1hgulk6aekakqzc0v6wukrd3dy9n90f5gkl4ezk",
+        "audited": true,
+        "region": "eu-southwest"
+      }
+    ],
+    "sdl": {
+      "image": "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime",
+      "gpu": "1 x nvidia t4",
+      "cpu": "2",
+      "memory": "4Gi",
+      "storage": "50Gi",
+      "pricingDenom": "uact"
+    },
+    "rentFlow": "akt sdl init gpu → akt deploy --bid-select cheapest → lease → nvidia-smi (openleh shell) → close",
+    "lastLease": null
+  }
+}

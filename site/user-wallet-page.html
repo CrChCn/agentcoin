@@ -117,7 +117,30 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 </section>
 <section id="paneSend" class="hidden">
 <h2 data-i18n="send.title">Отправить AGT</h2>
+<button id="topSendBtn" style="float:right;padding:11px 20px;font-weight:700">QR · Отправить AGT</button>
 <p class="notice" data-i18n="send.notice">Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.</p>
+<section class="panel" id="quickSend">
+<h3>Быстрый перевод (как в Bitcoin Core)</h3>
+<p class="dim" style="font-size:13px">Заполни адрес, сумму и memo — кнопка подписывает локально и отправляет в сеть одним кликом.</p>
+<label for="qsTo" data-i18n="send.to">Получатель</label>
+<input id="qsTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
+<label for="qsAmount" data-i18n="send.amount">Сумма (AGT)</label>
+<input id="qsAmount" inputmode="decimal" placeholder="0">
+<label for="qsMemo" data-i18n="send.memo">Назначение (memo, до 120 символов)</label>
+<input id="qsMemo" maxlength="120" autocomplete="off" placeholder="что оплачиваем (необязательно)">
+<p class="dim" style="font-size:12.5px">Комиссия сети: <b>0 AGT</b> (протокол без сборов). Отправка — после отметки подтверждения.</p>
+<label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+<input id="qsConfirm" type="checkbox">
+<span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
+</label>
+<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+<button id="qsSend" style="padding:12px 22px;font-weight:700">🚀 ОТПРАВИТЬ AGT</button>
+<button id="qsForget" class="secondary">Стереть локальные ключи</button>
+<a href="/create-wallet" class="gold">Создать локальный кошелёк (WASM)</a>
+</div>
+<div id="qsStatus" class="status" role="status" aria-live="polite"></div>
+<div id="passportWarn" class="hint hidden">Паспорт в кабинете не найден (passport_pub_missing). Это не ошибка кода: для маршрута через кабинет нужен публичный паспорт (Skill enroll). Быстрый перевод работает без паспорта — только с локальным ключом из /create-wallet (кнопка выше).</div>
+</section>
 <label for="sendTo" data-i18n="send.to">Получатель</label>
 <input id="sendTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
 <datalist id="contactList">
@@ -917,6 +940,49 @@ function exportContacts(){saveFile('agentcoin-contacts.json',{schema:'agentcoin.
 async function importContacts(){const f=$('importContacts').files[0];if(!f)return;const j=JSON.parse(await fileText(f));noSecrets(j);if(!j||j.schema!=='agentcoin.wallet.contacts.v1'||!Array.isArray(j.contacts))throw Error('Invalid contacts JSON.');const incoming=j.contacts.filter(c=>c&&typeof c.label==='string'&&typeof c.address==='string'&&(!c.address||ADDR_RE.test(c.address)));contacts.push(...incoming.filter(c=>!contacts.some(x=>x.label===c.label&&x.address===c.address)));persistContacts();renderContacts();setMessage('Imported '+incoming.length+' contacts.')}
 function aliceRequest(){showTab('Receive');$('invMemo').value='Payment request for Alice';setMessage('Set the amount, then create and share the invoice.')}
 function bobSend(){const b=contacts.find(c=>c.label==='Боб'&&ADDR_RE.test(c.address));showTab('Send');if(b)$('sendTo').value=b.address;else setMessage('Add Bob’s real address in Contacts first.')}
+// ===== Быстрый перевод (Bitcoin Core UX): локальная подпись ключом из браузера =====
+// Каноника v1 — сверена с node.mjs/core.mjs (txDigest): txid = sha256d(json). Подпись — ed25519.
+(async function quickSendInit(){
+const $=(id)=>document.getElementById(id);
+const qsStatus=(text,bad=false)=>{const box=$('qsStatus');if(!box)return;box.textContent=text||'';box.style.color=bad?'var(--bad)':'var(--ok)';};
+let qsModule=null;try{qsModule=await import('./js/agt-tx.mjs')}catch(e){return}
+const { pubFromPriv, addressFromPubHex, sendRawTx, loadKey, forgetKey, KEY_PREFIX } = qsModule;
+function qsKeyFor(){
+  const savedKeys=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));
+  if(savedKeys.length===1){const addr=savedKeys[0].slice(KEY_PREFIX.length);return {k:loadKey(addr),addr}}
+  if(address&&loadKey(address))return {k:loadKey(address),addr:address};
+  if(savedKeys.length>1)throw new Error('локальных ключей несколько — сохрани только нужный (кнопка «Стереть локальные ключи» + заново Через /create-wallet)');
+  return null;
+}
+async function quickSendSubmit(){
+  const to=$('qsTo').value.trim(), rawAmount=$('qsAmount').value.trim(), memo=$('qsMemo').value.trim();
+  if(!/^AGT[0-9a-f]{40}$/.test(to)){qsStatus('Адрес получателя: AGT + 40 hex-символов.',true);return}
+  const amount=Number(rawAmount);
+  if(!Number.isFinite(amount)||amount<=0){qsStatus('Сумма: положительное число (до 9 знаков после точки).',true);return}
+  if(!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(rawAmount)){qsStatus('Сумма: до 9 знаков после точки (без экспоненты).',true);return}
+  if(memo.length>120){qsStatus('Memo длиннее 120 символов.',true);return}
+  if(!$('qsConfirm').checked){qsStatus('Отметь подтверждение: «Я сверил получателя, сумму и комиссию».',true);return}
+  let rec;try{rec=qsKeyFor()}catch(e){qsStatus(e.message,true);return}
+  if(!rec){
+    qsStatus('Локальный ключ не найден. Быстрый перевод подписывается ключом из /create-wallet (кнопка WASM выше). Если кабинет открыт и паспорт зарегистрирован — используй форму «Подготовить запрос» ниже.',true);
+    return;
+  }
+  qsStatus('Подписываем локально (ключ не покидает вкладку)…');
+  let out;
+  try{out=await sendRawTx({privKeyHex:rec.k, to, amount, memo})}catch(e){qsStatus('Ошибка подписи: '+e.message,true);return}
+  const {tx, status, res} = out;
+  if(status>=200&&status<300&&res&&res.accepted){
+    qsStatus('✅ Принято: txid '+tx.txid.slice(0,16)+'… · в мемпуле (tx: '+(res.mempool??'?')+') · баланс меняется после ближайшего блока.');
+    try{setTimeout(()=>loadWallet().catch(()=>{}),3000)}catch{}
+    return;
+  }
+  qsStatus(res && res.error ? 'Отклонено нодой: '+res.error+(res.hint?' — '+res.hint:'') : 'Не принято (HTTP '+status+')', true);
+}
+const sb=$('qsSend');if(sb)sb.onclick=()=>quickSendSubmit().catch(e=>qsStatus('Неожиданная ошибка: '+e.message,true));
+const fb=$('qsForget');if(fb)fb.onclick=()=>{const saved=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));saved.forEach(k=>localStorage.removeItem(k));qsStatus('Локальные ключи стёрты из браузера ('+saved.length+' шт.).')};
+const pw=$('passportWarn');if(pw)pw.classList.remove('hidden');
+const qb=document.getElementById('topSendBtn');if(qb)qb.onclick=()=>{try{showTab('Send')}catch(e){document.getElementById('paneSend').classList.remove('hidden');document.getElementById('paneOverview').classList.add('hidden')}};
+})();
 function invoiceUri(){return 'agentcoin:'+address+'?amount='+encodeURIComponent(invoiceData.amountAGT)+'&memo='+encodeURIComponent(invoiceData.memo)}
 function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=parseAmount($('invAmount').value,invoiceUnit),memo=$('invMemo').value;if(memo.length>120)throw Error('Memo too long.');invoiceData={schema:'agentcoin.payment-request.v1',network:nodeInfo?.network||'AGENTCOIN',genesisHash:nodeInfo?.genesisHash||null,address,amountAGT:amount,memo,createdAt:new Date().toISOString()};$('invSummary').textContent=JSON.stringify(invoiceData);$('downloadInvoice').disabled=false;$('showInvoiceQR').disabled=false;drawQR($('qrInvoice'),invoiceUri())}
 async function loadTreasury(){try{const r=await getJSON('/treasury/state'),box=$('treasuryBox');box.replaceChildren();const table=document.createElement('table');const p=r.policy;if(!p){box.textContent='Treasury policy is not active.';return}for(const [k,v] of Object.entries(p)){const tr=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=Array.isArray(v)?v.join(', '):String(v);tr.append(a,b);table.append(tr)}box.append(table)}catch(e){$('treasuryBox').textContent=tr('err.api')+e.message}}

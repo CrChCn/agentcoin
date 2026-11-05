@@ -54,10 +54,31 @@ footer a{color:var(--gold)}
 
   <div class="warn">⚠️ Приватный ключ показывается один раз — сохраните JSON или запишите ключ. Если закрыть страницу без сохранения, восстановить кошелёк невозможно. Ключ хранится только на этой странице: любые "<b>записать на сервер</b>"-сценарии отсутствуют в коде.</div>
 
+  <div class="panel" id="sendPanel" style="display:none;position:relative">
+    <h2 style="color:var(--gold);margin:0 0 6px">🚀 Отправить AGT</h2>
+    <p class="sub" style="margin-bottom:12px">Подпись транзакции идёт локально (ed25519 в браузере, SHA-256), в сеть уходит уже подписанная tx. Каноника как в Bitcoin Core: адрес, сумма, подпись, send.</p>
+    <div class="lbl">Получатель (AGT-адрес)</div>
+    <input id="sTo" placeholder="AGT…" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;background:#0b111a;border:1px solid var(--bor);color:var(--fg);border-radius:8px;padding:9px 12px;font-family:ui-monospace,monospace">
+    <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px"><div class="lbl">Сумма AGT</div>
+      <input id="sAmount" inputmode="decimal" placeholder="0" style="width:100%;box-sizing:border-box;background:#0b111a;border:1px solid var(--bor);color:var(--fg);border-radius:8px;padding:9px 12px"></div>
+      <div style="flex:2;min-width:220px"><div class="lbl">Memo (необязательно, до 120)</div>
+      <input id="sMemo" maxlength="120" autocomplete="off" style="width:100%;box-sizing:border-box;background:#0b111a;border:1px solid var(--bor);color:var(--fg);border-radius:8px;padding:9px 12px"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px"><input id="sConfirm" type="checkbox"> Я сверил получателя, сумму и memo</label>
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <button id="sBtn" disabled>Отправить транзакцию</button>
+      <button id="sForget" class="secondary" type="button">Заменить локальный ключ</button>
+      <a href="/wallet" style="align-self:center;color:var(--gold);font-size:14px">→ кошелёк /wallet</a>
+    </div>
+    <div class="lbl" style="margin-top:12px">Адрес отправителя (из ключа)</div><div class="val addr mono" id="sAddr">—</div><div id="sStatus" style="margin-top:10px;font-size:13.5px;min-height:20px;color:var(--dim);word-break:break-all"></div>
+  </div>
+
   <footer>AGENTCOIN · <a href="/">agentcoin.work</a> · кошелёк = ed25519 + PEM, адрес = хеш публичного ключа</footer>
 </div>
 <script type="module">
 import init, { generate_wallet_wasm } from './wasm/agentcoin_wasm.js';
+import { pubFromPriv, addressFromPubHex, sendRawTx, saveKey, loadKey, forgetKey, KEY_PREFIX } from './js/agt-tx.mjs';
 
 const $ = id => document.getElementById(id);
 let wallet = null;
@@ -105,6 +126,45 @@ document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click'
   const t = $(b.dataset.copy).textContent;
   if (navigator.clipboard) navigator.clipboard.writeText(t);
 }));
+
+/* ==== Быстрый Send после генерации (WASM/ed25519, локальная подпись) ==== */
+const sStatus = (t, bad = false) => { const e = $('sStatus'); e.textContent = t || ''; e.style.color = bad ? 'var(--err)' : 'var(--ok)'; };
+let sPriv = null;
+function unlockSendPanel(privHex) {
+  sPriv = privHex;
+  try { const p = pubFromPriv(privHex); $('sAddr').textContent = addressFromPubHex(p); } catch (e) {}
+  $('sendPanel').style.display = 'block';
+  $('sBtn').disabled = false;
+  sStatus('Ключ установлен локально: подпись доступна. Баланс кошелька «AGT» вас пополнит /faucet при нуле.');
+}
+$('genBtn').addEventListener('click', () => {
+  if (!wallet) return;
+  saveKey(wallet.private_key);
+  unlockSendPanel(wallet.private_key);
+});
+$('sBtn').addEventListener('click', async () => {
+  if (!sPriv) { sStatus('Ключ не установлен.', true); return; }
+  const to = $('sTo').value.trim(), amount = Number($('sAmount').value.trim()), memo = $('sMemo').value.trim();
+  if (!/^AGT[0-9a-fA-F]{40}$/.test(to)) { sStatus('Адрес получателя: AGT + 40 hex-символов.', true); return; }
+  if (!Number.isFinite(amount) || amount <= 0) { sStatus('Сумма — положительное число (до 9 знаков).', true); return; }
+  if (!$('sConfirm').checked) { sStatus('Отметьте подтверждение сверки перед отправкой.', true); return; }
+  sStatus('Подписываем локально…');
+  try {
+    const { tx, status, res } = await sendRawTx({ privKeyHex: sPriv, to, amount, memo });
+    if (status >= 200 && status < 300 && res && res.accepted) {
+      sStatus('✅ В мемпуле · txid ' + tx.txid.slice(0, 16) + '… · блок через ~1 мин');
+    } else if (status === 402) {
+      sStatus('Недостаточно баланса (HTTP 402). Пополняется faucet (/faucet) или переводом.', true);
+    } else {
+      sStatus('Отклонено: ' + ((res && res.error) || ('HTTP ' + status)), true);
+    }
+  } catch (e) { sStatus('Ошибка сети/подписи: ' + (e && e.message ? e.message : e), true); }
+});
+$('sForget').addEventListener('click', () => {
+  const saved = Object.keys(localStorage).filter(k => k.startsWith(KEY_PREFIX));
+  saved.forEach(k => localStorage.removeItem(k)); sessionStorage.clear();
+  sPriv = null; $('sBtn').disabled = true; sStatus('Локальный ключ стёрт (' + saved.length + ' шт.). Сгенерируйте новый.');
+});
 </script>
 </body>
 </html>

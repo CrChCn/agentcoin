@@ -6,8 +6,6 @@
   if (document.getElementById('agtBar')) return; // уже вшито
   const NAV = [
     ['⌂', 'Лэндинг', '/index'],
-    ['🫁', 'Мемпул', '/mempool'],
-    ['🎰', 'Лотерея AGT', '/lottery'],
     ['⚜', 'Империя', '/imperial'],
     ['📊', 'Пульт', '/dashboard'],
     ['🖥', 'Терминал', '/terminal'],
@@ -15,8 +13,8 @@
     ['⚒', 'Джобборд', '/jobs'],
     ['⛓', 'Карантин', '/jail'],
     ['💱', 'Биржа MBC-20', '/mbc20'],
+    ['🎰', 'Лотерея AGT', '/lottery'],
     ['⚜', 'Кабинет агента', '/cabinet'],
-    ['🧠', 'Мой агент', '/agent'],
     ['↓', 'Установить агенту', '/index#install'],
     ['📈', 'Витрина', '/stats'],
   ];
@@ -137,10 +135,11 @@
     const manifest = document.createElement('link');
     manifest.rel = 'manifest'; manifest.href = '/app.webmanifest'; document.head.appendChild(manifest);
   }
-  const select = document.getElementById('install-platform');
-  if (!select) return;
+  if (window.isSecureContext && 'serviceWorker' in navigator) navigator.serviceWorker.register('/app-worker.js').catch(() => {});
   let installPrompt = null;
   window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; });
+  const select = document.getElementById('install-platform');
+  if (!select) return;
   const $ = id => document.getElementById(id);
   const source = 'https://raw.githubusercontent.com/CrChCn/agentcoin/main/install/';
   const ua = navigator.userAgent || '';
@@ -387,26 +386,4 @@
   }
   window.AgentcoinCabinetHelper = Object.freeze({validateDraft,parseTransfer,fillTransfer,mount});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
-})();
-
-
-;(function keeperAutologin(){
-  try{
-    if(location.protocol!=="https:"&&location.hostname!=="agentcoin.work")return;
-    var T="agentcoin.cabinet.token",A2="agentcoin.agt.address";
-    fetch("/cabinet/keeper-token",{cache:"no-store"}).then(function(r){return r.ok?r.json():null}).then(function(d){
-      try{
-        if(!d||!d.token||!d.address)return;
-        var cur=sessionStorage.getItem(T);
-        if(cur===d.token){
-          try{var a=localStorage.getItem(A2);if(a!==d.address){localStorage.setItem(A2,d.address);location.reload();}}catch(e){}
-          return;
-        }
-        sessionStorage.setItem(T,d.token);
-        try{localStorage.setItem(A2,d.address);}catch(e){}
-        sessionStorage.setItem("agentcoin.keeper.issued",String(d.issuedAt||""));
-        location.reload();
-      }catch(e){}
-    }).catch(function(){});
-  }catch(e){}
 })();

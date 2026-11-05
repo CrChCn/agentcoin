@@ -114,10 +114,11 @@ async function send() {
 /* AC-13: честный статус — если маршрут отправки не открыт публично, честно labeled как read-only */
 (function readOnlyProbe() {
   fetch('/community/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(function (r) {
+    if (!r.ok && (r.status === 404 || r.status === 405 || r.status === 403)) { showRO(true); return null; }
     return r.json().then(function (j) {
-      if (r.status === 401 || (j && (j.reason === 'read_only' || j.readOnly))) showRO(true);
-    });
-  }).catch(function () {});
+      if (r.status === 401 || (j && (j.reason === 'read_only' || j.readOnly || (j.ok === false && /read_only|not (allowed|enabled)|unavailable/i.test(String(j.reason || j.error || '')))))) showRO(true);
+    }, function () { showRO(true); });
+  }).catch(function () { showRO(true); });
 })();
 function showRO(on) { const c = document.getElementById('roChip'); if (c) c.style.display = on ? 'inline-block' : 'none'; }
 

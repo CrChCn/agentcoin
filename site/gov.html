@@ -93,16 +93,22 @@
       '<div class="res" id="r_' + esc(p.ref) + '"></div>';
   }
   const cards = document.getElementById('cards');
+  const resMemory = {};
   async function load() {
     try {
       const r = await fetch('/gov/state', { cache: 'no-store' });
       const st = await r.json();
       const pr = st && (st.proposals || []);
       if (!pr.length) { cards.innerHTML = '<div class="prop">Предложений пока нет — bumped первым через форму ниже.</div>'; return; }
+      document.querySelectorAll('[id^="r_"]').forEach(el => { if (el.textContent) resMemory[el.id] = el.textContent; });
+      const sig = pr.map(p => p.ref + '|' + (p.yes || 0) + '/' + (p.no || 0) + '/' + (p.closed ? 1 : 0)).join(';');
+      if (sig === window.__govSig) return;
+      window.__govSig = sig;
       const prev = document.getElementById('cards').innerHTML;
       const html = pr.slice(-8).reverse().map(card).join('');
       const lensChanged = html.length !== prev.length;
       cards.innerHTML = html;
+      Object.keys(resMemory).forEach(id => { const el = document.getElementById(id); if (el && resMemory[id]) el.textContent = resMemory[id]; });
       if (lensChanged && prev.length > 40) {
         const first = cards.querySelector('.prop'); if (first) first.classList.add('flash');
       }

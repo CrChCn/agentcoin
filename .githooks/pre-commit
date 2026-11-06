@@ -22,6 +22,7 @@ const SUBSTR = [
 // 'agent-identit' substring ловил agent-identity.mjs (код доверия) и блокировал
 // security-фиксы; данные (identity JSON, wallets) остаются блокированы.
 const CODE_SAFE = (f) => /^tools\//.test(f) && !/\.json$|\.log$|\.db$|\.sqlite$/i.test(f)
+  || /^site\/wallet\.html$/i.test(f) // AGIP-W2R: исходник фронтенда /wallet (данных нет; бэкапы старой страницы — .old, данные не в репо)
   || /^test\/.+\.(mjs|js)$/i.test(f) // тестовые исходники: данные в тестах — не хранятся в репо (фикстуры только в tmp)
   || /^(agent-identity|gov-passports|passport-audit)\.mjs$/i.test(f)
   || /^test\/agent-identity\.mjs$/i.test(f)

@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<script src="/network-canvas.js" defer></script>
+<script src="/wallet-orb.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentcoin Wallet</title>
+<script src="/panel.js" defer></script>
+<script src="/wallet-format.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--bad:#ff7777}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:28px 18px}h1{font-size:clamp(28px,5vw,44px);margin:8px 0}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px}.dim,small{color:var(--dim)}a{color:var(--gold)}label{display:block;margin:12px 0 5px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}input,select,textarea{background:#080f1b;color:var(--txt);max-width:100%}input:not([type=checkbox]):not([type=radio]),textarea{width:100%}textarea{min-height:72px;font-family:ui-monospace,monospace;font-size:12px}button{background:var(--gold);color:#111a28;cursor:pointer;margin:6px 6px 0 0}button.secondary{background:transparent;color:var(--gold)}button:disabled{opacity:.45;cursor:not-allowed}main>header,.row,.unitsel,.tabs,.kv{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.hidden{display:none!important}.mono{font-family:ui-monospace,monospace;word-break:break-all}.address{word-break:break-all;font-family:ui-monospace,monospace}.status{min-height:24px;color:var(--gold);white-space:pre-wrap;margin-top:8px}.balance{font-size:clamp(30px,5vw,44px);margin:8px 0}.unitsel button{margin:0}.unitsel .active,.tabs .active{background:#fff3;color:var(--gold);border-color:var(--gold)}.tabs button{background:transparent;color:var(--dim)}.pill{border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--dim)}.pill.on{color:var(--ok)}.pill.off{color:var(--bad)}.hint,.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#252016;border-radius:0 8px 8px 0;margin:8px 0}.hint{font-size:13px}.cmd{background:#080f1b;border:1px solid var(--line);padding:12px;border-radius:8px;word-break:break-all}.error{color:var(--bad)}table{width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{text-align:left;vertical-align:top;padding:7px;border-bottom:1px solid var(--line)}canvas.qr{background:white;border-radius:8px;padding:8px}.lang button{margin:0;padding:5px 9px}.lang [aria-pressed=true]{background:var(--gold);color:#111}progress{width:100%}
+@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px}}
+a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14px;border-radius:8px;font-weight:600}
+
+/* === AGIP-W2 «Нейронный кошелёк» — v0-слой поверх базовой темы === */
+:root{--bg2:#05070c;--glass:rgba(16,22,32,.62);--goldsoft:rgba(229,200,120,.35)}
+body{background:radial-gradient(1100px 760px at 72% -8%,#1a2337 0%,var(--bg2) 58%)!important}
+.orb-hero{display:grid;grid-template-columns:1.25fr .9fr;gap:18px;align-items:center;background:var(--glass);border:1px solid var(--goldsoft);border-radius:20px;padding:20px 24px;margin:10px 0 18px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 14px 48px rgba(0,0,0,.45)}
+.orb-hero .orb-copy h1{font-size:clamp(26px,4.2vw,40px);margin:4px 0 6px;background:linear-gradient(120deg,#f6e7b4,#e5c878 55%,#b98a2f);-webkit-background-clip:text;background-clip:text;color:transparent}
+.orb-hero .orb-copy .dim{letter-spacing:.14em;font-size:11px}
+.orb-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.orb-cta .gold,button.gold{background:linear-gradient(135deg,#f0d78c,#d4af37);border:1px solid #b98a2f!important;color:#141414!important;font-weight:700;border-radius:10px}
+.orb-cta .gold:hover{filter:brightness(1.08)}
+@media(max-width:820px){.orb-hero{grid-template-columns:1fr}.orb-hero #orbCanvas{height:180px!important}}
+main>header.panel-heading{display:none}
+main>header>div:first-child{display:none}
+.panel{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);background:rgba(19,26,38,.58)!important;border:1px solid rgba(139,160,190,.22)!important;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.tabs .active{background:rgba(229,200,120,.18)!important;border-color:var(--gold)!important;box-shadow:0 0 14px rgba(229,200,120,.25) inset}
+button.primary,button:not(.secondary):not([class*=gold]){box-shadow:0 4px 18px rgba(229,200,120,.22)}
+#authModal{position:fixed;inset:0;z-index:80;background:rgba(4,6,10,.72);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#authModal[hidden]{display:none!important}
+#authModal .authCard{background:rgba(19,25,36,.94);border:1px solid var(--goldsoft);border-radius:20px;padding:22px 26px;max-width:420px;width:min(420px,92vw);box-shadow:0 22px 80px rgba(0,0,0,.6)}
+#authModal .authMethods{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+#authModal .authMethods button{background:linear-gradient(135deg,#f0d78c,#d4af37);border:1px solid #b98a2f;color:#141414;font-weight:600;border-radius:12px;padding:12px 8px;min-height:46px}
+#authModal .authMethods button.secondary{background:transparent;color:var(--gold)}
+#authMsg{min-height:22px}
+.authHint{font-size:12.5px;color:var(--dim);margin:6px 0 0}
+</style>
+<style>body>*{position:relative;z-index:1}#network-canvas{position:fixed!important;inset:0;z-index:0;pointer-events:none;opacity:.42}</style>
+</head>
+<body>
+<canvas id="network-canvas" aria-hidden="true"></canvas>
+<main>
+<section class="orb-hero" id="orbHero">
+  <canvas id="orbCanvas" aria-hidden="true"></canvas>
+  <div class="orb-copy">
+    <div class="dim">AGENTCOIN / WALLET</div>
+    <h1>Кошелёк AGENTCOIN</h1>
+    <p class="dim">Самостоятельное управление AGT: ключи остаются в локальном профиле.</p>
+    <div class="orb-cta">
+      <button id="openAuth" class="gold">🔓 Войти в кошелёк</button>
+      <a href="/create-wallet" class="gold" style="display:inline-flex;align-items:center">✨ Создать кошелёк</a>
+    </div>
+  </div>
+</section>
+
+<header class="spread">
+<div>
+<div class="dim">AGENTCOIN / WALLET</div>
+<h1 data-i18n="title">Кошелёк AGENTCOIN</h1>
+<p class="dim" data-i18n="subtitle">Самостоятельное управление AGT: ключи остаются в локальном профиле.</p>
+</div>
+<div class="row">
+<span id="sessionPill" class="pill off" data-i18n="session.off">Не вошёл</span>
+<a href="/mbc20" data-i18n="nav.trade">Торговать → Биржа</a>
+<div class="lang" role="group" aria-label="Language">
+<button data-lang="ru" aria-pressed="true">RU</button>
+<button data-lang="en" aria-pressed="false">EN</button>
+<button data-lang="fr" aria-pressed="false">FR</button>
+<button data-lang="es" aria-pressed="false">ES</button>
+<button data-lang="de" aria-pressed="false">DE</button>
+</div>
+</div>
+</header>
+<section class="panel" id="addrPanel">
+<h2 data-i18n="addr.label">Мой AGT-адрес</h2>
+<label for="adr" data-i18n="login.addr">Мой AGT-адрес</label>
+<input id="adr" autocomplete="off" spellcheck="false" placeholder="AGT + 40 hex">
+<div class="row">
+<button id="addrSave" class="secondary" data-i18n="addr.save">Сохранить адрес</button>
+<button id="addrClear" class="secondary" data-i18n="addr.clear">Очистить</button>
+</div>
+<p class="hint" data-i18n="hint.privateKeyStaysLocal">Ключ остаётся в вашем локальном профиле.</p>
+</section>
+<section class="panel" id="loginBox">
+<h2 data-i18n="login.title">Вход по подписи паспорта</h2>
+<label for="certFile" data-i18n="login.cert">Публичный паспорт JSON</label>
+<input id="certFile" type="file" accept="application/json,.json">
+<button id="importCert" class="secondary" data-i18n="login.import">Импортировать публичный паспорт</button>
+<button id="challenge" data-i18n="login.challenge">Получить challenge</button>
+<div id="signBox" class="hidden">
+<label for="challengeJson" data-i18n="login.sign">Challenge для локальной подписи</label>
+<textarea id="challengeJson" readonly>
+</textarea>
+<button id="downloadChallenge" class="secondary" data-i18n="login.download">Скачать challenge JSON</button>
+<div id="challengeCommand" class="cmd mono">
+</div>
+<p class="hint" data-i18n="hint.copyCmd">Скопируй команду и выполни в терминале.</p>
+<label for="signature" data-i18n="login.signature">Signature (128 hex)</label>
+<textarea id="signature" autocomplete="off" placeholder="signature">
+</textarea>
+<button id="login" data-i18n="login.submit">Войти</button>
+</div>
+<button id="autologinNow" class="secondary" data-i18n="login.autologin">Локальный вход на этой машине</button>
+<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+  <a href="/create-wallet" class="gold">Создать кошелёк</a>
+  <button id="importWallet" class="secondary" onclick="document.getElementById('certFile').click()">Импортировать кошелёк</button>
+</div>
+<button id="disableAutologin" class="secondary" data-i18n="login.disableAutologin">Отключить автологин</button>
+<div id="loginHint" class="status" role="status" aria-live="polite">
+</div>
+</section>
+<section class="panel hidden" id="cab">
+<nav class="tabs">
+<button id="tabOverview" class="active" data-i18n="tab.overview">Обзор</button>
+<button id="tabSend" data-i18n="tab.send">Отправить</button>
+<button id="tabReceive" data-i18n="tab.receive">Получить</button>
+<button id="tabHistory" data-i18n="tab.history">История</button>
+<button id="tabContacts" data-i18n="tab.contacts">Контакты</button>
+<button id="tabFees" data-i18n="tab.fees">Комиссии</button>
+</nav>
+<section id="paneOverview">
+<div class="kv">
+<h2 data-i18n="balance.title">Баланс</h2>
+<button id="refreshWallet" class="secondary" data-i18n="balance.refresh">Обновить</button>
+</div>
+<p id="balancePrimary" class="balance">—</p>
+<div id="unitButtons" class="unitsel">
+</div>
+<p id="balanceAll" class="dim">
+</p>
+<div id="identity" class="address">
+</div>
+<p id="balanceNote" class="dim">
+</p>
+<div class="grid">
+<article class="panel">
+<h3 data-i18n="overview.aliceTitle">Запросить оплату у Алисы</h3>
+<p class="dim" data-i18n="overview.aliceText">Создай счёт и передай его файлом или QR.</p>
+<button id="aliceRequest" data-i18n="overview.aliceButton">Создать счёт для Алисы</button>
+</article>
+<article class="panel">
+<h3 data-i18n="overview.bobTitle">Отправить Бобу</h3>
+<p class="dim" data-i18n="overview.bobText">Открой перевод на сохранённый контакт.</p>
+<button id="bobSend" data-i18n="overview.bobButton">Перевести Бобу</button>
+</article>
+</div>
+<h2 data-i18n="orders.title">Мои ордера на бирже</h2>
+<button id="ordersRefresh" class="secondary" data-i18n="refresh">Обновить</button>
+<div id="ordersBox">
+</div>
+<div id="ordersFillNote" class="dim">
+</div>
+<div id="cancelCommandBox">
+</div>
+</section>
+<section id="paneSend" class="hidden">
+<h2 data-i18n="send.title">Отправить AGT</h2>
+<button id="topSendBtn" style="float:right;padding:11px 20px;font-weight:700">QR · Отправить AGT</button>
+<p class="notice" data-i18n="send.notice">Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.</p>
+<section class="panel" id="quickSend">
+<h3>Быстрый перевод (как в Bitcoin Core)</h3>
+<p class="dim" style="font-size:13px">Заполни адрес, сумму и memo — кнопка подписывает локально и отправляет в сеть одним кликом.</p>
+<label for="qsTo" data-i18n="send.to">Получатель</label>
+<input id="qsTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
+<label for="qsAmount" data-i18n="send.amount">Сумма (AGT)</label>
+<input id="qsAmount" inputmode="decimal" placeholder="0">
+<label for="qsMemo" data-i18n="send.memo">Назначение (memo, до 120 символов)</label>
+<input id="qsMemo" maxlength="120" autocomplete="off" placeholder="что оплачиваем (необязательно)">
+<p class="dim" style="font-size:12.5px">Комиссия сети: <b>0 AGT</b> (протокол без сборов). Отправка — после отметки подтверждения.</p>
+<label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+<input id="qsConfirm" type="checkbox">
+<span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
+</label>
+<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+<button id="qsSend" style="padding:12px 22px;font-weight:700">🚀 ОТПРАВИТЬ AGT</button>
+<button id="qsForget" class="secondary">Стереть локальные ключи</button>
+<a href="/create-wallet" class="gold">Создать локальный кошелёк (WASM)</a>
+</div>
+<div id="qsStatus" class="status" role="status" aria-live="polite"></div>
+<div id="passportWarn" class="hint hidden">Паспорт в кабинете не найден (passport_pub_missing). Это не ошибка кода: для маршрута через кабинет нужен публичный паспорт (Skill enroll). Быстрый перевод работает без паспорта — только с локальным ключом из /create-wallet (кнопка выше).</div>
+</section>
+<label for="sendTo" data-i18n="send.to">Получатель</label>
+<input id="sendTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
+<datalist id="contactList">
+</datalist>
+<label for="sendAmount" data-i18n="send.amount">Сумма</label>
+<div id="sendUnitButtons" class="unitsel">
+</div>
+<input id="sendAmount" inputmode="decimal" placeholder="0">
+<p id="unitHint" class="dim">
+</p>
+<label for="sendMemo" data-i18n="send.memo">Публичное назначение (до 120 символов)</label>
+<input id="sendMemo" maxlength="120" autocomplete="off">
+<label data-i18n="send.route">Маршрут</label>
+<label>
+<input type="radio" name="sendRoute" value="direct" checked> <span data-i18n="send.direct">Напрямую</span>
+</label>
+<label>
+<input type="radio" name="sendRoute" value="gateway"> <span data-i18n="send.gateway">Через шлюз (пока только смета)</span>
+</label>
+<button id="estimateBtn" class="secondary" data-i18n="send.estimate">Рассчитать комиссию</button>
+<div id="feeBox" class="hidden">
+<table id="feeTable">
+</table>
+<p id="feeNote" class="dim">
+</p>
+</div>
+<label>
+<input id="confirmSend" type="checkbox"> <span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
+</label>
+<button id="prepareOp" data-i18n="send.prepare">Подготовить запрос</button>
+<div id="opBox" class="hidden">
+<label for="opJson" data-i18n="send.sign">Запрос для подписи</label>
+<textarea id="opJson" readonly>
+</textarea>
+<button id="downloadOp" class="secondary" data-i18n="send.download">Скачать запрос JSON</button>
+<div id="opCommand" class="cmd mono">
+</div>
+<p class="hint" data-i18n="hint.pasteSig">Выполни команду локально и вставь signature ниже. Приватный ключ не покидает твою машину.</p>
+<label for="opSignature" data-i18n="send.signature">Signature (128 hex)</label>
+<textarea id="opSignature" placeholder="128 hex">
+</textarea>
+<button id="opSubmit" data-i18n="send.submit">Отправить подписанную операцию</button>
+<div id="opStatus" role="status">
+</div>
+</div>
+</section>
+<section id="paneReceive" class="hidden">
+<h2 data-i18n="receive.title">Получить средства</h2>
+<div class="grid">
+<div>
+<canvas class="qr" id="qrReceive" width="240" height="240">
+</canvas>
+<p id="receiveUri" class="mono">
+</p>
+</div>
+<div>
+<div id="receiveAddress" class="address">
+</div>
+<button id="copyReceive" data-i18n="receive.copy">Копировать адрес</button>
+<button id="downloadReceive" class="secondary" data-i18n="receive.download">Скачать реквизиты JSON</button>
+<h3 data-i18n="receive.invoice">Счёт на оплату</h3>
+<label for="invAmount" data-i18n="receive.sum">Сумма</label>
+<input id="invAmount" inputmode="decimal" placeholder="0">
+<div id="invUnitButtons" class="unitsel">
+</div>
+<label for="invMemo" data-i18n="receive.memo">Назначение</label>
+<input id="invMemo" maxlength="120">
+<button id="makeInvoice" class="secondary" data-i18n="receive.make">Сформировать счёт</button>
+<button id="downloadInvoice" class="secondary" disabled data-i18n="receive.downloadInvoice">Скачать счёт JSON</button>
+<button id="showInvoiceQR" class="secondary" disabled data-i18n="receive.showQR">Показать QR</button>
+<div id="invQRBox" class="hidden">
+<canvas class="qr" id="qrInvoice" width="240" height="240">
+</canvas>
+<p id="invSummary">
+</p>
+</div>
+</div>
+</div>
+</section>
+<section id="paneHistory" class="hidden">
+<div class="kv">
+<h2 data-i18n="history.title">История операций</h2>
+<button id="historyMore" class="secondary hidden" data-i18n="history.more">Ещё</button>
+</div>
+<p class="dim" data-i18n="history.note">Системные категории отмечены отдельно; данные загружаются с сервера.</p>
+<div id="historyTableBox">
+<table id="historyTable">
+</table>
+</div>
+<p id="historyTreasuryNote" class="dim">
+</p>
+</section>
+<section id="paneContacts" class="hidden">
+<h2 data-i18n="contacts.title">Контакты</h2>
+<div id="contactsList">
+</div>
+<button id="addContact" data-i18n="contacts.add">Добавить</button>
+<button id="seedDemo" class="secondary" data-i18n="contacts.seedDemo">Добавить Алису и Боба</button>
+<button id="exportContacts" class="secondary" data-i18n="contacts.export">Экспорт JSON</button>
+<label for="importContacts" data-i18n="contacts.import">Импорт JSON</label>
+<input id="importContacts" type="file" accept="application/json,.json">
+</section>
+<section id="paneFees" class="hidden">
+<h2 data-i18n="fees.title">Комиссии и казна</h2>
+<p class="dim" data-i18n="fees.note">Комиссии показываются по фактической смете ноды.</p>
+<div id="treasuryBox">
+</div>
+</section>
+<button id="logout" class="secondary" data-i18n="login.logout">Выйти</button>
+<div id="message" class="status" role="status" aria-live="polite">
+</div>
+</section>
+<footer class="dim" data-i18n="footer.left">AGENTCOIN · самостоятельный кошелёк</footer>
+</main>
+
+<div id="authModal" hidden>
+  <div class="authCard">
+    <h2 style="margin:0 0 4px">Вход в кошелёк</h2>
+    <p class="authHint">Выберите способ. Файл-сертификат — основной (реальный); PIN и биометрия разблокируют локальную сессию.</p>
+    <div class="authMethods">
+      <button id="authFile">📁 Файл-сертификат</button>
+      <button id="authPin">🔢 PIN-код</button>
+      <button id="authFace">🫥 Face ID</button>
+      <button id="authSms">📱 SMS</button>
+    </div>
+    <div id="authSmsBox" hidden class="hint" style="margin:8px 0"></div>
+    <div id="authPinBox" hidden style="margin:8px 0"></div>
+    <div id="authMsg" class="status" aria-live="polite"></div>
+    <div class="row"><button id="authClose" class="secondary">Закрыть</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const I18N={
+  "ru": {
+    "title": "Кошелёк AGENTCOIN",
+    "subtitle": "Самостоятельное управление AGT: ключи остаются в локальном профиле.",
+    "nav.trade": "Торговать → Биржа",
+    "session.on": "Вошёл",
+    "session.off": "Не вошёл",
+    "addr.label": "Мой AGT-адрес",
+    "addr.save": "Сохранить адрес",
+    "addr.clear": "Очистить",
+    "login.title": "Вход по подписи паспорта",
+    "login.cert": "Публичный паспорт JSON",
+    "login.import": "Импортировать публичный паспорт",
+    "login.addr": "Мой AGT-адрес",
+    "login.challenge": "Получить challenge",
+    "login.sign": "Challenge для локальной подписи",
+    "login.download": "Скачать challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Войти",
+    "login.logout": "Выйти",
+    "login.autologin": "Локальный вход на этой машине",
+    "login.disableAutologin": "Отключить автологин",
+    "login.hint": "Вход подтверждается паспортной подписью.",
+    "login.noAddr": "Сначала укажи адрес.",
+    "login.needPassport": "Публичный паспорт не найден.",
+    "login.challengeOk": "Challenge готов: скачай JSON и подпиши локально.",
+    "login.loggedIn": "Вход выполнен.",
+    "login.loggedOut": "Выход выполнен.",
+    "balance.title": "Баланс",
+    "balance.refresh": "Обновить",
+    "balance.unit": "Единица",
+    "balance.all": "Все единицы",
+    "balance.note": "Сумма получена с ноды; единицы показаны точно.",
+    "send.title": "Отправить AGT",
+    "send.needLogin": "Сначала войди в кабинет.",
+    "send.to": "Получатель",
+    "send.amount": "Сумма",
+    "send.memo": "Публичное назначение (до 120 символов)",
+    "send.estimate": "Рассчитать комиссию",
+    "send.confirm": "Я сверил получателя, сумму и комиссию",
+    "send.prepare": "Подготовить запрос",
+    "send.sign": "Запрос для подписи",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Отправить подписанную операцию",
+    "send.submitOk": "Принято в mempool",
+    "send.submitRejected": "Нода отклонила операцию",
+    "send.statusChecking": "Проверяю статус исходной операции…",
+    "send.mempool": "Операция найдена в mempool",
+    "send.confirmed": "Операция подтверждена блоком",
+    "send.status_unknown": "Результат пока неизвестен. Не отправляй повторно.",
+    "send.notice": "Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.",
+    "send.route": "Маршрут",
+    "send.direct": "Напрямую",
+    "send.gateway": "Через шлюз (пока только смета)",
+    "send.download": "Скачать запрос JSON",
+    "receive.title": "Получить средства",
+    "receive.address": "Адрес получения",
+    "receive.copy": "Копировать адрес",
+    "receive.download": "Скачать реквизиты JSON",
+    "receive.invoice": "Счёт на оплату",
+    "receive.sum": "Сумма",
+    "receive.memo": "Назначение",
+    "receive.make": "Сформировать счёт",
+    "receive.downloadInvoice": "Скачать счёт JSON",
+    "receive.showQR": "Показать QR",
+    "history.title": "История операций",
+    "history.more": "Ещё",
+    "history.empty": "Записей пока нет.",
+    "history.height": "Высота",
+    "history.from": "Отправитель",
+    "history.to": "Получатель",
+    "history.amount": "Сумма",
+    "history.memo": "Назначение",
+    "history.status": "Статус",
+    "history.note": "Системные категории отмечены отдельно; данные загружаются с сервера.",
+    "contacts.title": "Контакты",
+    "contacts.add": "Добавить",
+    "contacts.seedDemo": "Добавить Алису и Боба",
+    "contacts.export": "Экспорт JSON",
+    "contacts.import": "Импорт JSON",
+    "contacts.empty": "Контактов пока нет.",
+    "contacts.label": "Имя",
+    "contacts.address": "Адрес",
+    "fees.title": "Комиссии и казна",
+    "fees.treasury": "Состояние казны",
+    "fees.note": "Комиссии показываются по фактической смете ноды.",
+    "orders.title": "Мои ордера на бирже",
+    "orders.ref": "Ref",
+    "orders.item": "Тикер",
+    "orders.side": "Сторона",
+    "orders.qty": "Количество",
+    "orders.price": "Цена",
+    "orders.remaining": "Остаток",
+    "orders.status": "Статус",
+    "orders.action": "Действие",
+    "orders.cancel": "Отменить",
+    "orders.empty": "Открытых ордеров нет.",
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "cancel": "Отмена",
+    "refresh": "Обновить",
+    "loading": "Загрузка…",
+    "err.api": "Ошибка API: ",
+    "err.noAddr": "Укажи AGT-адрес.",
+    "err.badSig": "Подпись должна содержать 128 hex-символов.",
+    "hint.copyCmd": "Скопируй команду и выполни в терминале.",
+    "hint.pasteSig": "Выполни команду локально и вставь signature ниже. Приватный ключ не покидает твою машину.",
+    "hint.privateKeyStaysLocal": "Приватный ключ не покидает твою машину.",
+    "tab.overview": "Обзор",
+    "tab.send": "Отправить",
+    "tab.receive": "Получить",
+    "tab.history": "История",
+    "tab.contacts": "Контакты",
+    "tab.fees": "Комиссии",
+    "overview.aliceTitle": "Запросить оплату у Алисы",
+    "overview.aliceText": "Создай счёт и передай его файлом или QR.",
+    "overview.aliceButton": "Создать счёт для Алисы",
+    "overview.bobTitle": "Отправить Бобу",
+    "overview.bobText": "Открой перевод на сохранённый контакт.",
+    "overview.bobButton": "Перевести Бобу",
+    "footer.left": "AGENTCOIN · самостоятельный кошелёк",
+    "footer.updated": "Обновлено",
+    "orders.fillsCount": "Недавние сделки: {count}"
+  },
+  "en": {
+    "title": "AGENTCOIN Wallet",
+    "subtitle": "Manage AGT independently; keys stay in your local profile.",
+    "nav.trade": "Trade → Exchange",
+    "session.on": "Signed in",
+    "session.off": "Signed out",
+    "addr.label": "My AGT address",
+    "addr.save": "Save address",
+    "addr.clear": "Clear",
+    "login.title": "Sign in with passport",
+    "login.cert": "Public passport JSON",
+    "login.import": "Import public passport",
+    "login.addr": "My AGT address",
+    "login.challenge": "Get challenge",
+    "login.sign": "Challenge for local signing",
+    "login.download": "Download challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Sign in",
+    "login.logout": "Sign out",
+    "login.autologin": "Local sign-in on this machine",
+    "login.disableAutologin": "Disable autologin",
+    "login.hint": "Passport signature confirms this session.",
+    "login.noAddr": "Enter an address first.",
+    "login.needPassport": "Public passport not found.",
+    "login.challengeOk": "Challenge ready: download JSON and sign locally.",
+    "login.loggedIn": "Signed in.",
+    "login.loggedOut": "Signed out.",
+    "balance.title": "Balance",
+    "balance.refresh": "Refresh",
+    "balance.unit": "Unit",
+    "balance.all": "All units",
+    "balance.note": "Fetched from node and displayed exactly.",
+    "send.title": "Send AGT",
+    "send.needLogin": "Sign in first.",
+    "send.to": "Recipient",
+    "send.amount": "Amount",
+    "send.memo": "Public memo (up to 120 characters)",
+    "send.estimate": "Estimate fees",
+    "send.confirm": "I checked recipient, amount, and fee",
+    "send.prepare": "Prepare request",
+    "send.sign": "Request to sign",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Submit signed operation",
+    "send.submitOk": "Accepted into mempool",
+    "send.submitRejected": "Node rejected the operation",
+    "send.statusChecking": "Checking the original operation…",
+    "send.mempool": "Operation found in mempool",
+    "send.confirmed": "Operation confirmed in a block",
+    "send.status_unknown": "Result is unknown. Do not submit again.",
+    "send.notice": "Check the details. The page prepares the operation; signing stays local.",
+    "send.route": "Route",
+    "send.direct": "Direct",
+    "send.gateway": "Via gateway (estimate only)",
+    "send.download": "Download request JSON",
+    "receive.title": "Receive funds",
+    "receive.address": "Receive address",
+    "receive.copy": "Copy address",
+    "receive.download": "Download payment details JSON",
+    "receive.invoice": "Payment request",
+    "receive.sum": "Amount",
+    "receive.memo": "Memo",
+    "receive.make": "Create invoice",
+    "receive.downloadInvoice": "Download invoice JSON",
+    "receive.showQR": "Show QR",
+    "history.title": "Transaction history",
+    "history.more": "More",
+    "history.empty": "No entries yet.",
+    "history.height": "Height",
+    "history.from": "From",
+    "history.to": "To",
+    "history.amount": "Amount",
+    "history.memo": "Memo",
+    "history.status": "Status",
+    "history.note": "System categories are labeled; entries come from the node.",
+    "contacts.title": "Contacts",
+    "contacts.add": "Add",
+    "contacts.seedDemo": "Add Alice and Bob",
+    "contacts.export": "Export JSON",
+    "contacts.import": "Import JSON",
+    "contacts.empty": "No contacts yet.",
+    "contacts.label": "Name",
+    "contacts.address": "Address",
+    "fees.title": "Fees and treasury",
+    "fees.treasury": "Treasury state",
+    "fees.note": "Fees come from the node estimate.",
+    "orders.title": "My exchange orders",
+    "orders.ref": "Ref",
+    "orders.item": "Item",
+    "orders.side": "Side",
+    "orders.qty": "Quantity",
+    "orders.price": "Price",
+    "orders.remaining": "Remaining",
+    "orders.status": "Status",
+    "orders.action": "Action",
+    "orders.cancel": "Cancel",
+    "orders.empty": "No open orders.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "cancel": "Cancel",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "err.api": "API error: ",
+    "err.noAddr": "Enter an AGT address.",
+    "err.badSig": "Signature must contain 128 hex characters.",
+    "hint.copyCmd": "Copy the command and run it in your terminal.",
+    "hint.pasteSig": "Run the command locally and paste the signature below. Your private key stays on your machine.",
+    "hint.privateKeyStaysLocal": "Your private key stays on your machine.",
+    "tab.overview": "Overview",
+    "tab.send": "Send",
+    "tab.receive": "Receive",
+    "tab.history": "History",
+    "tab.contacts": "Contacts",
+    "tab.fees": "Fees",
+    "overview.aliceTitle": "Request payment from Alice",
+    "overview.aliceText": "Create an invoice and share it as a file or QR.",
+    "overview.aliceButton": "Create Alice invoice",
+    "overview.bobTitle": "Send to Bob",
+    "overview.bobText": "Open a transfer to a saved contact.",
+    "overview.bobButton": "Transfer to Bob",
+    "footer.left": "AGENTCOIN · self-custody wallet",
+    "footer.updated": "Updated",
+    "orders.fillsCount": "Recent fills: {count}"
+  },
+  "fr": {
+    "title": "Portefeuille AGENTCOIN",
+    "subtitle": "Gérez AGT librement ; les clés restent dans votre profil local.",
+    "nav.trade": "Trader → Bourse",
+    "session.on": "Connecté",
+    "session.off": "Déconnecté",
+    "addr.label": "Mon adresse AGT",
+    "addr.save": "Enregistrer l’adresse",
+    "addr.clear": "Effacer",
+    "login.title": "Connexion par passeport",
+    "login.cert": "Passeport public JSON",
+    "login.import": "Importer le passeport public",
+    "login.addr": "Mon adresse AGT",
+    "login.challenge": "Obtenir le challenge",
+    "login.sign": "Challenge à signer localement",
+    "login.download": "Télécharger le challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Connexion",
+    "login.logout": "Déconnexion",
+    "login.autologin": "Connexion locale sur cette machine",
+    "login.disableAutologin": "Désactiver la connexion auto",
+    "login.hint": "La signature du passeport confirme cette session.",
+    "login.noAddr": "Saisissez d’abord une adresse.",
+    "login.needPassport": "Passeport public introuvable.",
+    "login.challengeOk": "Challenge prêt : téléchargez le JSON et signez localement.",
+    "login.loggedIn": "Connecté.",
+    "login.loggedOut": "Déconnecté.",
+    "balance.title": "Solde",
+    "balance.refresh": "Actualiser",
+    "balance.unit": "Unité",
+    "balance.all": "Toutes les unités",
+    "balance.note": "Récupéré auprès du nœud et affiché exactement.",
+    "send.title": "Envoyer AGT",
+    "send.needLogin": "Connectez-vous d’abord.",
+    "send.to": "Destinataire",
+    "send.amount": "Montant",
+    "send.memo": "Mémo public (120 caractères max.)",
+    "send.estimate": "Estimer les frais",
+    "send.confirm": "J’ai vérifié le destinataire, le montant et les frais",
+    "send.prepare": "Préparer la demande",
+    "send.sign": "Demande à signer",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Envoyer l’opération signée",
+    "send.submitOk": "Acceptée dans le mempool",
+    "send.submitRejected": "Opération refusée par le nœud",
+    "send.statusChecking": "Vérification de l’opération initiale…",
+    "send.mempool": "Opération trouvée dans le mempool",
+    "send.confirmed": "Opération confirmée dans un bloc",
+    "send.status_unknown": "Résultat inconnu. Ne renvoyez pas.",
+    "send.notice": "Vérifiez les détails. La page prépare l’opération ; la signature reste locale.",
+    "send.route": "Route",
+    "send.direct": "Directe",
+    "send.gateway": "Via passerelle (estimation seulement)",
+    "send.download": "Télécharger la demande JSON",
+    "receive.title": "Recevoir des fonds",
+    "receive.address": "Adresse de réception",
+    "receive.copy": "Copier l’adresse",
+    "receive.download": "Télécharger les coordonnées JSON",
+    "receive.invoice": "Demande de paiement",
+    "receive.sum": "Montant",
+    "receive.memo": "Mémo",
+    "receive.make": "Créer la facture",
+    "receive.downloadInvoice": "Télécharger la facture JSON",
+    "receive.showQR": "Afficher le QR",
+    "history.title": "Historique",
+    "history.more": "Plus",
+    "history.empty": "Aucune entrée.",
+    "history.height": "Hauteur",
+    "history.from": "De",
+    "history.to": "À",
+    "history.amount": "Montant",
+    "history.memo": "Mémo",
+    "history.status": "État",
+    "history.note": "Les catégories système sont indiquées ; les données viennent du nœud.",
+    "contacts.title": "Contacts",
+    "contacts.add": "Ajouter",
+    "contacts.seedDemo": "Ajouter Alice et Bob",
+    "contacts.export": "Exporter JSON",
+    "contacts.import": "Importer JSON",
+    "contacts.empty": "Aucun contact.",
+    "contacts.label": "Nom",
+    "contacts.address": "Adresse",
+    "fees.title": "Frais et trésorerie",
+    "fees.treasury": "État de la trésorerie",
+    "fees.note": "Les frais proviennent de l’estimation du nœud.",
+    "orders.title": "Mes ordres de bourse",
+    "orders.ref": "Réf.",
+    "orders.item": "Article",
+    "orders.side": "Sens",
+    "orders.qty": "Quantité",
+    "orders.price": "Prix",
+    "orders.remaining": "Restant",
+    "orders.status": "État",
+    "orders.action": "Action",
+    "orders.cancel": "Annuler",
+    "orders.empty": "Aucun ordre ouvert.",
+    "copy": "Copier",
+    "copied": "Copié",
+    "cancel": "Annuler",
+    "refresh": "Actualiser",
+    "loading": "Chargement…",
+    "err.api": "Erreur API : ",
+    "err.noAddr": "Saisissez une adresse AGT.",
+    "err.badSig": "La signature doit contenir 128 caractères hexadécimaux.",
+    "hint.copyCmd": "Copiez la commande et exécutez-la dans le terminal.",
+    "hint.pasteSig": "Exécutez localement et collez la signature ci-dessous. La clé privée reste sur votre machine.",
+    "hint.privateKeyStaysLocal": "Votre clé privée reste sur votre machine.",
+    "tab.overview": "Aperçu",
+    "tab.send": "Envoyer",
+    "tab.receive": "Recevoir",
+    "tab.history": "Historique",
+    "tab.contacts": "Contacts",
+    "tab.fees": "Frais",
+    "overview.aliceTitle": "Demander un paiement à Alice",
+    "overview.aliceText": "Créez une facture et partagez-la en fichier ou QR.",
+    "overview.aliceButton": "Créer une facture pour Alice",
+    "overview.bobTitle": "Envoyer à Bob",
+    "overview.bobText": "Ouvrez un transfert vers un contact enregistré.",
+    "overview.bobButton": "Transférer à Bob",
+    "footer.left": "AGENTCOIN · portefeuille autonome",
+    "footer.updated": "Mis à jour",
+    "orders.fillsCount": "Transactions récentes : {count}"
+  },
+  "es": {
+    "title": "Cartera AGENTCOIN",
+    "subtitle": "Gestiona AGT; las claves permanecen en tu perfil local.",
+    "nav.trade": "Operar → Bolsa",
+    "session.on": "Con sesión",
+    "session.off": "Sin sesión",
+    "addr.label": "Mi dirección AGT",
+    "addr.save": "Guardar dirección",
+    "addr.clear": "Borrar",
+    "login.title": "Acceso con pasaporte",
+    "login.cert": "Pasaporte público JSON",
+    "login.import": "Importar pasaporte público",
+    "login.addr": "Mi dirección AGT",
+    "login.challenge": "Obtener challenge",
+    "login.sign": "Challenge para firma local",
+    "login.download": "Descargar challenge JSON",
+    "login.signature": "Signature (128 hex)",
+    "login.submit": "Entrar",
+    "login.logout": "Salir",
+    "login.autologin": "Acceso local en este equipo",
+    "login.disableAutologin": "Desactivar acceso automático",
+    "login.hint": "La firma del pasaporte confirma la sesión.",
+    "login.noAddr": "Indica primero una dirección.",
+    "login.needPassport": "No se encontró el pasaporte público.",
+    "login.challengeOk": "Challenge listo: descarga el JSON y firma localmente.",
+    "login.loggedIn": "Sesión iniciada.",
+    "login.loggedOut": "Sesión cerrada.",
+    "balance.title": "Saldo",
+    "balance.refresh": "Actualizar",
+    "balance.unit": "Unidad",
+    "balance.all": "Todas las unidades",
+    "balance.note": "Obtenido del nodo y mostrado con precisión.",
+    "send.title": "Enviar AGT",
+    "send.needLogin": "Inicia sesión primero.",
+    "send.to": "Destinatario",
+    "send.amount": "Importe",
+    "send.memo": "Memo público (máximo 120 caracteres)",
+    "send.estimate": "Calcular comisión",
+    "send.confirm": "He comprobado destinatario, importe y comisión",
+    "send.prepare": "Preparar solicitud",
+    "send.sign": "Solicitud para firmar",
+    "send.signature": "Signature (128 hex)",
+    "send.submit": "Enviar operación firmada",
+    "send.submitOk": "Aceptada en mempool",
+    "send.submitRejected": "El nodo rechazó la operación",
+    "send.statusChecking": "Comprobando la operación original…",
+    "send.mempool": "Operación encontrada en mempool",
+    "send.confirmed": "Operación confirmada en un bloque",
+    "send.status_unknown": "Resultado desconocido. No la envíes otra vez.",
+    "send.notice": "Comprueba los datos. La página prepara; la firma se hace localmente.",
+    "send.route": "Ruta",
+    "send.direct": "Directa",
+    "send.gateway": "Por gateway (solo cálculo)",
+    "send.download": "Descargar solicitud JSON",
+    "receive.title": "Recibir fondos",
+    "receive.address": "Dirección de recepción",
+    "receive.copy": "Copiar dirección",
+    "receive.download": "Descargar datos JSON",
+    "receive.invoice": "Solicitud de pago",
+    "receive.sum": "Importe",
+    "receive.memo": "Memo",
+    "receive.make": "Crear factura",
+    "receive.downloadInvoice": "Descargar factura JSON",
+    "receive.showQR": "Mostrar QR",
+    "history.title": "Historial",
+    "history.more": "Más",
+    "history.empty": "Aún no hay registros.",
+    "history.height": "Altura",
+    "history.from": "De",
+    "history.to": "A",
+    "history.amount": "Importe",
+    "history.memo": "Memo",
+    "history.status": "Estado",
+    "history.note": "Las categorías del sistema están marcadas; los datos vienen del nodo.",
+    "contacts.title": "Contactos",
+    "contacts.add": "Añadir",
+    "contacts.seedDemo": "Añadir Alicia y Bob",
+    "contacts.export": "Exportar JSON",
+    "contacts.import": "Importar JSON",
+    "contacts.empty": "No hay contactos.",
+    "contacts.label": "Nombre",
+    "contacts.address": "Dirección",
+    "fees.title": "Comisiones y tesorería",
+    "fees.treasury": "Estado de tesorería",
+    "fees.note": "Las comisiones proceden del cálculo del nodo.",
+    "orders.title": "Mis órdenes de bolsa",
+    "orders.ref": "Ref.",
+    "orders.item": "Artículo",
+    "orders.side": "Lado",
+    "orders.qty": "Cantidad",
+    "orders.price": "Precio",
+    "orders.remaining": "Restante",
+    "orders.status": "Estado",
+    "orders.action": "Acción",
+    "orders.cancel": "Cancelar",
+    "orders.empty": "No hay órdenes abiertas.",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "cancel": "Cancelar",
+    "refresh": "Actualizar",
+    "loading": "Cargando…",
+    "err.api": "Error de API: ",
+    "err.noAddr": "Indica una dirección AGT.",
+    "err.badSig": "La firma debe tener 128 caracteres hexadecimales.",
+    "hint.copyCmd": "Copia el comando y ejecútalo en el terminal.",
+    "hint.pasteSig": "Ejecútalo localmente y pega la firma abajo. La clave privada permanece en tu equipo.",
+    "hint.privateKeyStaysLocal": "Tu clave privada permanece en tu equipo.",
+    "tab.overview": "Resumen",
+    "tab.send": "Enviar",
+    "tab.receive": "Recibir",
+    "tab.history": "Historial",
+    "tab.contacts": "Contactos",
+    "tab.fees": "Comisiones",
+    "overview.aliceTitle": "Solicitar pago a Alicia",
+    "overview.aliceText": "Crea una factura y compártela como archivo o QR.",
+    "overview.aliceButton": "Crear factura para Alicia",
+    "overview.bobTitle": "Enviar a Bob",
+    "overview.bobText": "Abre un envío a un contacto guardado.",
+    "overview.bobButton": "Transferir a Bob",
+    "footer.left": "AGENTCOIN · cartera autónoma",
+    "footer.updated": "Actualizado",
+    "orders.fillsCount": "Operaciones recientes: {count}"
+  },
+  "de": {
+    "title": "AGENTCOIN Wallet",
+    "subtitle": "Verwalte AGT selbst; Schlüssel bleiben in deinem lokalen Profil.",
+    "nav.trade": "Handeln → Börse",
+    "session.on": "Angemeldet",
+    "session.off": "Abgemeldet",
+    "addr.label": "Meine AGT-Adresse",
+    "addr.save": "Adresse speichern",
+    "addr.clear": "Löschen",
+    "login.title": "Anmeldung mit Pass",
+    "login.cert": "Öffentlicher Pass als JSON",
+    "login.import": "Öffentlichen Pass importieren",
+    "login.addr": "Meine AGT-Adresse",
+    "login.challenge": "Challenge abrufen",
+    "login.sign": "Challenge lokal signieren",
+    "login.download": "Challenge-JSON laden",
+    "login.signature": "Signatur (128 Hex)",
+    "login.submit": "Anmelden",
+    "login.logout": "Abmelden",
+    "login.autologin": "Lokale Anmeldung auf diesem Gerät",
+    "login.disableAutologin": "Autologin deaktivieren",
+    "login.hint": "Die Pass-Signatur bestätigt diese Sitzung.",
+    "login.noAddr": "Gib zuerst eine Adresse ein.",
+    "login.needPassport": "Öffentlicher Pass nicht gefunden.",
+    "login.challengeOk": "Challenge bereit: JSON laden und lokal signieren.",
+    "login.loggedIn": "Angemeldet.",
+    "login.loggedOut": "Abgemeldet.",
+    "balance.title": "Kontostand",
+    "balance.refresh": "Aktualisieren",
+    "balance.unit": "Einheit",
+    "balance.all": "Alle Einheiten",
+    "balance.note": "Vom Node geladen und exakt angezeigt.",
+    "send.title": "AGT senden",
+    "send.needLogin": "Bitte zuerst anmelden.",
+    "send.to": "Empfänger",
+    "send.amount": "Betrag",
+    "send.memo": "Öffentliche Memo (max. 120 Zeichen)",
+    "send.estimate": "Gebühr berechnen",
+    "send.confirm": "Empfänger, Betrag und Gebühr geprüft",
+    "send.prepare": "Anfrage vorbereiten",
+    "send.sign": "Anfrage zum Signieren",
+    "send.signature": "Signatur (128 Hex)",
+    "send.submit": "Signierte Operation senden",
+    "send.submitOk": "Im Mempool angenommen",
+    "send.submitRejected": "Node hat die Operation abgelehnt",
+    "send.statusChecking": "Prüfe die ursprüngliche Operation…",
+    "send.mempool": "Operation im Mempool gefunden",
+    "send.confirmed": "Operation in einem Block bestätigt",
+    "send.status_unknown": "Ergebnis unbekannt. Nicht erneut senden.",
+    "send.notice": "Prüfe die Angaben. Die Seite bereitet vor; signiert wird lokal.",
+    "send.route": "Route",
+    "send.direct": "Direkt",
+    "send.gateway": "Über Gateway (nur Schätzung)",
+    "send.download": "Anfrage-JSON laden",
+    "receive.title": "Geld empfangen",
+    "receive.address": "Empfangsadresse",
+    "receive.copy": "Adresse kopieren",
+    "receive.download": "Zahlungsdaten als JSON laden",
+    "receive.invoice": "Zahlungsanforderung",
+    "receive.sum": "Betrag",
+    "receive.memo": "Memo",
+    "receive.make": "Rechnung erstellen",
+    "receive.downloadInvoice": "Rechnung-JSON laden",
+    "receive.showQR": "QR anzeigen",
+    "history.title": "Verlauf",
+    "history.more": "Mehr",
+    "history.empty": "Noch keine Einträge.",
+    "history.height": "Höhe",
+    "history.from": "Von",
+    "history.to": "An",
+    "history.amount": "Betrag",
+    "history.memo": "Memo",
+    "history.status": "Status",
+    "history.note": "Systemkategorien sind markiert; Einträge stammen vom Node.",
+    "contacts.title": "Kontakte",
+    "contacts.add": "Hinzufügen",
+    "contacts.seedDemo": "Alice und Bob hinzufügen",
+    "contacts.export": "JSON exportieren",
+    "contacts.import": "JSON importieren",
+    "contacts.empty": "Keine Kontakte.",
+    "contacts.label": "Name",
+    "contacts.address": "Adresse",
+    "fees.title": "Gebühren und Treasury",
+    "fees.treasury": "Treasury-Status",
+    "fees.note": "Gebühren stammen aus der Node-Schätzung.",
+    "orders.title": "Meine Börsenorders",
+    "orders.ref": "Ref.",
+    "orders.item": "Artikel",
+    "orders.side": "Seite",
+    "orders.qty": "Menge",
+    "orders.price": "Preis",
+    "orders.remaining": "Verbleibend",
+    "orders.status": "Status",
+    "orders.action": "Aktion",
+    "orders.cancel": "Abbrechen",
+    "orders.empty": "Keine offenen Orders.",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "cancel": "Abbrechen",
+    "refresh": "Aktualisieren",
+    "loading": "Lädt…",
+    "err.api": "API-Fehler: ",
+    "err.noAddr": "Gib eine AGT-Adresse ein.",
+    "err.badSig": "Die Signatur muss 128 Hex-Zeichen enthalten.",
+    "hint.copyCmd": "Kopiere den Befehl und führe ihn im Terminal aus.",
+    "hint.pasteSig": "Führe den Befehl lokal aus und füge die Signatur unten ein. Dein privater Schlüssel bleibt auf deinem Gerät.",
+    "hint.privateKeyStaysLocal": "Dein privater Schlüssel bleibt auf deinem Gerät.",
+    "tab.overview": "Übersicht",
+    "tab.send": "Senden",
+    "tab.receive": "Empfangen",
+    "tab.history": "Verlauf",
+    "tab.contacts": "Kontakte",
+    "tab.fees": "Gebühren",
+    "overview.aliceTitle": "Zahlung von Alice anfordern",
+    "overview.aliceText": "Erstelle eine Rechnung und teile sie als Datei oder QR.",
+    "overview.aliceButton": "Rechnung für Alice erstellen",
+    "overview.bobTitle": "An Bob senden",
+    "overview.bobText": "Öffne eine Überweisung an einen gespeicherten Kontakt.",
+    "overview.bobButton": "An Bob überweisen",
+    "footer.left": "AGENTCOIN · selbstverwaltete Wallet",
+    "footer.updated": "Aktualisiert",
+    "orders.fillsCount": "Letzte Ausführungen: {count}"
+  }
+};
+const LANGS=['ru','en','fr','es','de'], LANG_KEY='agentcoin.lang', ADDR_KEY='agentcoin.agt.address', TOKEN_KEY='agentcoin.cabinet.token', CONTACT_KEY='agtx:wallet:contacts';
+const $=id=>document.getElementById(id), ADDR_RE=/^AGT[0-9a-fA-F]{40}$/, HEX128=/^[0-9a-fA-F]{128}$/;
+let lang='ru', address='', token='', nodeInfo=null, state=null, passport=null, challengeReply=null, pendingOp=null, estimate=null, historyCursor=null, contacts=loadContacts(), balanceMGNT=null, balanceUnit='AGT', sendUnit='AGT', invoiceUnit='AGT', invoiceData=null, submitBusy=false, prepareBusy=false, sendGeneration=0;
+const SECRET='Этот файл содержит секретные поля. Нужен только публичный паспорт.';
+function tr(k){return (I18N[lang]&&I18N[lang][k])||I18N.ru[k]||k}
+function applyLang(){document.documentElement.lang=lang;
+document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
+document.querySelectorAll('.lang button').forEach(b=>b.setAttribute('aria-pressed',String(b.getAttribute('data-'+'lang')===lang)));
+renderUnits();
+renderSendUnits();
+renderInvoiceUnits();
+updateAddressUI()}
+function detectLang(){try{const v=localStorage.getItem(LANG_KEY);
+if(LANGS.includes(v))return v}catch{}const n=(navigator.language||'').slice(0,2).toLowerCase();
+return LANGS.includes(n)?n:'ru'}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function setMessage(text, error=false){$('message').textContent=text||'';$('message').classList.toggle('error',error);$('loginHint').textContent=text||''}
+function saveFile(name,obj){const u=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+async function api(path,body,options={}){const res=await fetch(path,{method:body===undefined?'GET':'POST',credentials:'omit',cache:'no-store',redirect:'error',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...(options.headers||{})},body:body===undefined?undefined:JSON.stringify(body),signal:options.signal||AbortSignal.timeout(options.timeout||10000)});const json=await res.json().catch(()=>({}));if(!res.ok||json.ok===false){const e=new Error(json.error||('HTTP '+res.status));e.status=res.status;e.body=json;throw e}return{status:res.status,json}}
+async function getJSON(path){return (await api(path)).json}
+function noSecrets(v){if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error(SECRET);noSecrets(x)}}}
+function loadContacts(){try{const v=JSON.parse(localStorage.getItem(CONTACT_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.label==='string'&&typeof x.address==='string'):[]}catch{return[]}}
+function persistContacts(){localStorage.setItem(CONTACT_KEY,JSON.stringify(contacts.slice(0,200)))}
+function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
+function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off')}
+async function checkNetwork(){const info=await getJSON('/info');const network=info.chainId||info.network;if(network!=='AGENTCOIN'||!/^[a-f0-9]{64}$/i.test(info.genesisHash||''))throw Error('Cannot verify network and genesis.');if(nodeInfo&&nodeInfo.genesisHash!==info.genesisHash)throw Error('Genesis changed; sign out and reconnect.');nodeInfo={network,genesisHash:info.genesisHash};return nodeInfo}
+function fileText(file,max=65536){if(!file||file.size>max)throw Error('File is missing or too large.');return file.text()}
+function drawQR(canvas,text){const qr=window.AgentcoinQR;if(!qr||typeof qr.encode!=='function')throw Error('QR encoder unavailable.');const encoded=qr.encode(text),matrix=encoded.modules;const ctx=canvas.getContext('2d'),n=encoded.size||matrix.length,pad=4,scale=Math.floor(canvas.width/(n+pad*2));ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';matrix.forEach((row,y)=>row.forEach((on,x)=>{if(on)ctx.fillRect((x+pad)*scale,(y+pad)*scale,scale,scale)}))}
+function parseAmount(input,unit){const units=window.AgentcoinWalletUnits;if(!units||typeof units.toAGT!=='function')throw Error('Wallet unit converter unavailable.');const agt=units.toAGT(input,unit);if(typeof agt!=='string'||!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(agt)||Number(agt)<=0)throw Error('Amount must be positive and exactly representable.');if(decimalBalanceToMgnt(Number(agt))!==units.magentsOf(agt).toString())throw Error('Amount cannot be represented exactly by the network number format.');return agt}
+function decimalBalanceToMgnt(v){if(typeof v!=='number'||!Number.isFinite(v)||v<0)throw Error('Invalid API balance.');let s=String(v);if(/[eE]/.test(s)){const [mant,expRaw]=s.toLowerCase().split('e'),exp=Number(expRaw),parts=mant.split('.'),digits=parts.join(''),point=parts[0].length+exp;if(point<0)s='0.'+'0'.repeat(-point)+digits;else if(point>=digits.length)s=digits+'0'.repeat(point-digits.length);else s=digits.slice(0,point)+'.'+digits.slice(point)}if(!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(s))throw Error('Invalid API balance representation.');let [whole,frac='']=s.split('.');if(frac.length>9&&/[1-9]/.test(frac.slice(9)))throw Error('API balance cannot be represented in mGNT.');if(/[1-9]/.test(frac)&&Number.EPSILON*Math.abs(v)*1000000000>1)throw Error('API balance precision is insufficient for mGNT.');frac=(frac+'000000000').slice(0,9);const units=BigInt(whole)*1000000000n+BigInt(frac);if(units>BigInt(Number.MAX_SAFE_INTEGER))throw Error('API balance exceeds safe mGNT range.');return units.toString()}
+function fmtUnits(mg,u){const x=BigInt(mg);if(u==='mGNT')return x.toString();const div=u==='mAGT'?1000000n:1000000000n,dp=u==='mAGT'?6:9;const a=x/div,b=(x%div).toString().padStart(dp,'0').replace(/0+$/,'');return a+(b?'.'+b:'')}
+function renderBalance(){if(balanceMGNT===null)return;$('balancePrimary').textContent=fmtUnits(balanceMGNT,balanceUnit)+' '+balanceUnit;$('balanceAll').textContent='AGT: '+fmtUnits(balanceMGNT,'AGT')+' · mAGT: '+fmtUnits(balanceMGNT,'mAGT')+' · mGNT: '+balanceMGNT;$('balanceNote').textContent=tr('balance.note')}
+function buttons(container,current,callback){container.replaceChildren();for(const u of ['AGT','mAGT','mGNT']){const b=document.createElement('button');b.type='button';b.textContent=u;b.className=current===u?'active':'';b.onclick=()=>callback(u);container.append(b)}}
+function renderUnits(){if($('unitButtons'))buttons($('unitButtons'),balanceUnit,u=>{balanceUnit=u;renderUnits();renderBalance()})}
+function renderSendUnits(){if($('sendUnitButtons'))buttons($('sendUnitButtons'),sendUnit,u=>{sendUnit=u;renderSendUnits();invalidateSend();$('unitHint').textContent='1 '+u+' = '+(u==='AGT'?'1 AGT':u==='mAGT'?'0.000001 AGT':'0.000000001 AGT')})}
+function renderInvoiceUnits(){if($('invUnitButtons'))buttons($('invUnitButtons'),invoiceUnit,u=>{invoiceUnit=u;renderInvoiceUnits();invoiceData=null;$('downloadInvoice').disabled=true;$('showInvoiceQR').disabled=true})}
+const PANES=['Overview','Send','Receive','History','Contacts','Fees'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders()}
+for(const p of PANES)$('tab'+p).onclick=()=>showTab(p);
+async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();$('identity').textContent=(state.passport&&state.passport.handle?state.passport.handle+' · ':'')+address;$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{})}
+async function refreshSession(){if(!address||!token)return;await loadWallet()}
+async function challengeFlow(){if(!address)throw Error(tr('err.noAddr'));const askedAddress=address;await checkNetwork();const r=(await api('/cabinet/challenge',{address})).json;if(address!==askedAddress)throw Error('Address changed; challenge discarded.');if(!r.ok||!r.challenge)throw Error(r.error||'invalid_challenge');challengeReply=r;$('challengeJson').value=JSON.stringify(r,null,2);$('signBox').classList.remove('hidden');const command='node src/cli.mjs sign-challenge /path/profile.json /path/challenge-'+(r.challengeId||'request')+'.json';$('challengeCommand').textContent=command;addCopyButton($('challengeCommand'),command);saveFile('agentcoin-challenge-'+(r.challengeId||'request')+'.json',r);$('loginHint').textContent=tr('login.challengeOk')}
+async function loginFlow(){if(!challengeReply)throw Error('Get a challenge first.');const loginAddress=address,signedChallenge=challengeReply,sig=$('signature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const r=(await api('/cabinet/login',{address:loginAddress,mode:'challenge',nonce:signedChallenge.nonce,challengeId:signedChallenge.challengeId,signature:sig})).json;if(address!==loginAddress||challengeReply!==signedChallenge)throw Error('Address changed; login response discarded.');if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);challengeReply=null;$('signature').value='';await loadWallet();setMessage(tr('login.loggedIn'))}
+async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;challengeReply=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
+async function autologin(){const askedAddress=address;if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname))throw Error('Autologin is available only on loopback.');if(localStorage.getItem('agtx:autologin')==='disabled')throw Error('Autologin is disabled.');const r=(await api('/cabinet/autologin',{address:address||undefined},{headers:{'x-cabinet-autologin':'local'}})).json;if(address!==askedAddress)throw Error('Address changed; autologin response discarded.');if(!r.token||!r.address)throw Error(r.error||'autologin_response_invalid');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);address=r.address;localStorage.setItem(ADDR_KEY,address);updateAddressUI();await loadWallet();setMessage(tr('login.loggedIn'))}
+function disableAutologin(){localStorage.setItem('agtx:autologin','disabled');setMessage('Autologin disabled on this browser.')}
+function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
+for(const id of ['sendTo','sendAmount','sendMemo'])$(id).addEventListener('input',invalidateSend);document.querySelectorAll('[name=sendRoute]').forEach(x=>x.addEventListener('change',invalidateSend));
+async function estimateFees(){if(!token||!address)throw Error('Sign in first.');const generation=sendGeneration,route=document.querySelector('[name=sendRoute]:checked').value;if(route!=='direct')throw Error('Gateway route estimates are not submit-enabled.');const amount=parseAmount($('sendAmount').value,sendUnit);const to=$('sendTo').value.trim();if(!ADDR_RE.test(to))throw Error('Invalid recipient address.');const r=(await api('/cabinet/wallet/estimate',{address,token,to,route,amount})).json;if(generation!==sendGeneration)return;estimate={r,to,amount,route,memo:$('sendMemo').value};renderEstimate(r);$('feeBox').classList.remove('hidden')}
+function renderEstimate(r){const t=$('feeTable');t.replaceChildren();const rows=[['route',r.route],['amount',r.amountAGT],['arrival',r.arrival],['fees',JSON.stringify(r.fees)],['balanceAGT',r.balanceAGT],['sufficient',r.sufficient]];for(const [k,v] of rows){const rowEl=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=String(v);rowEl.append(a,b);t.append(rowEl)}$('feeNote').textContent=r.explain||''}
+async function prepareSend(){if(prepareBusy)throw Error('Preparation is already running.');if(!token||!address)throw Error(tr('send.needLogin')); if(!$('confirmSend').checked)throw Error('Confirm recipient, amount, and fee first.');if(!estimate)throw Error('Calculate the fee again.');const now={to:$('sendTo').value.trim(),amount:parseAmount($('sendAmount').value,sendUnit),memo:$('sendMemo').value,route:document.querySelector('[name=sendRoute]:checked').value};if(now.to!==estimate.to||now.amount!==estimate.amount||now.memo!==estimate.memo||now.route!==estimate.route)throw Error('Details changed; recalculate the fee.');if(now.memo.length>120)throw Error('Memo exceeds 120 characters.');const generation=sendGeneration;prepareBusy=true;$('prepareOp').disabled=true;let r;try{r=(await api('/cabinet/op-request',{address,token,op:{kind:'send',to:now.to,amount:Number(now.amount),memo:now.memo}})).json}finally{prepareBusy=false;$('prepareOp').disabled=false}if(generation!==sendGeneration)throw Error('Details changed while preparing; request discarded.');if(!r.opId||!r.payload||!r.payload.txidHex)throw Error('Invalid op-request response.');pendingOp={opId:r.opId,txidHex:r.payload.txidHex,request:r,details:now};$('opJson').value=JSON.stringify(r,null,2);const command='node src/cli.mjs sign-op /path/profile.json --op-id '+r.opId+' --txid '+r.payload.txidHex;$('opCommand').textContent=command;addCopyButton($('opCommand'),command);$('opBox').classList.remove('hidden');$('opSubmit').disabled=false;saveFile('agentcoin-op-'+r.opId+'.json',r)}
+async function lookupSubmittedTx(txid){try{const p=await getJSON('/txproof/'+encodeURIComponent(txid));if(p&&typeof p.txid==='string'&&p.txid.toLowerCase()===txid.toLowerCase())return'confirmed'}catch(e){if(e.status!==404)return'unknown'}try{const m=await getJSON('/mempool?full=1');if(m.complete&&Array.isArray(m.txs)&&m.txs.some(tx=>String(tx.txid||'').toLowerCase()===txid.toLowerCase()))return'mempool';return'unknown'}catch{return'unknown'}}
+async function submitSend(){if(submitBusy||!pendingOp)throw Error('No pending operation.');if(!$('confirmSend').checked)throw Error('Confirm the transfer details before submitting.');const sig=$('opSignature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));submitBusy=true;$('opSubmit').disabled=true;const op=pendingOp,generation=sendGeneration;$('opStatus').textContent='Submitting…';try{const out=await api('/cabinet/op-submit',{opId:op.opId,signature:sig},{timeout:10000});if(generation!==sendGeneration)return;if(out.status>=200&&out.status<300&&out.json.accepted){$('opStatus').textContent=tr('send.submitOk')+' · txid '+op.txidHex;pendingOp=null;$('opSignature').value='';return}throw Error('accepted_flag_missing')}catch(e){if(generation!==sendGeneration)return;if(e.status>=400&&e.status<500){$('opStatus').textContent=tr('send.submitRejected')+': '+e.message;pendingOp=null;$('opSignature').value='';return}$('opStatus').textContent=tr('send.statusChecking');const status=await lookupSubmittedTx(op.txidHex);$('opStatus').textContent=status==='confirmed'?tr('send.confirmed')+' · '+op.txidHex:status==='mempool'?tr('send.mempool')+' · '+op.txidHex:tr('send.status_unknown')+' · '+op.txidHex;pendingOp=null;$('opSignature').value=''}finally{submitBusy=false;$('opSubmit').disabled=!pendingOp}}
+async function loadHistory(append){if(!token||!address)return;const r=(await api('/cabinet/wallet/history',{address,token,limit:50,beforeHeight:append?historyCursor:undefined})).json;const rows=[...(append?($('historyTable').dataset.rows?JSON.parse($('historyTable').dataset.rows):[]):[]),...(r.rows||[])];$('historyTable').dataset.rows=JSON.stringify(rows);const table=$('historyTable');table.replaceChildren();const head=document.createElement('tr');for(const k of ['history.height','history.from','history.to','history.amount','history.memo','history.status']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const row of rows){const tr=document.createElement('tr');for(const val of [row.height??'—',row.from||'',row.to||'',row.amountAGT??'',row.memo||row.kind||'',row.status||'']){const td=document.createElement('td');td.textContent=String(val);tr.append(td)}table.append(tr)}if(!rows.length){const emptyRow=document.createElement('tr'),emptyCell=document.createElement('td');emptyCell.colSpan=6;emptyCell.textContent=tr('history.empty');emptyRow.append(emptyCell);table.append(emptyRow)}historyCursor=r.nextBeforeHeight??null;$('historyMore').classList.toggle('hidden',historyCursor==null);$('historyTreasuryNote').textContent=r.treasury?('Treasury: '+JSON.stringify(r.treasury)):'Treasury metadata unavailable.'}
+async function loadOrders(){if(!address)return;try{const [r,f]=await Promise.all([getJSON('/dxe/orders'),getJSON('/dxe/fills')]),all=Array.isArray(r)?r:(r.orders||[]),mine=all.filter(o=>o&&o.from===address),fills=Array.isArray(f)?f:(f.fills||[]);renderOrders(mine);$('ordersFillNote').textContent=tr('orders.fillsCount').replace('{count}',String(fills.length))}catch(e){$('ordersBox').textContent=tr('err.api')+e.message}}
+function renderOrders(rows){const box=$('ordersBox');box.replaceChildren();if(!rows.length){box.textContent=tr('orders.empty');return}const table=document.createElement('table'),head=document.createElement('tr');for(const k of ['orders.ref','orders.item','orders.side','orders.qty','orders.price','orders.remaining','orders.status','orders.action']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const o of rows){const rowEl=document.createElement('tr'),rem=Number(o.qty)-Number(o.filled||0);for(const v of [o.ref,o.item,o.side,o.qty,o.price,Number.isFinite(rem)?rem:'—',o.status]){const td=document.createElement('td');td.textContent=String(v??'');rowEl.append(td)}const td=document.createElement('td');if(o.status==='open'){const b=document.createElement('button');b.textContent=tr('orders.cancel');b.onclick=()=>showCancel(o.ref);td.append(b)}rowEl.append(td);table.append(rowEl)}box.append(table)}
+function addCopyButton(container,text){const b=document.createElement('button');b.className='secondary';b.textContent=tr('copy');b.onclick=()=>navigator.clipboard.writeText(text).then(()=>{b.textContent=tr('copied')});container.after(b)}
+function showCancel(ref){if(!/^[0-9a-f]{8}$/i.test(String(ref)))throw Error('Invalid order reference.');const command='node src/cli.mjs cancel-order /path/profile.json --ref '+String(ref)+' --node http://127.0.0.1:9335',box=$('cancelCommandBox');box.replaceChildren();const pre=document.createElement('div');pre.className='cmd mono';pre.textContent=command;const b=document.createElement('button');b.textContent=tr('copy');b.onclick=()=>navigator.clipboard.writeText(command).then(()=>b.textContent=tr('copied'));const hint=document.createElement('p');hint.className='hint';hint.textContent=tr('hint.privateKeyStaysLocal');box.append(pre,b,hint)}
+function validateQR(text){drawQR($('qrReceive'),text)}
+function contactsRender(){renderContacts()}
+function renderContacts(){const box=$('contactsList'),list=$('contactList');box.replaceChildren();list.replaceChildren();if(!contacts.length){box.textContent=tr('contacts.empty');return}for(const c of contacts){const row=document.createElement('p'),label=document.createElement('strong'),addr=document.createElement('span');label.textContent=c.label+' ';addr.className='mono';addr.textContent=c.address;row.append(label,addr);box.append(row);if(ADDR_RE.test(c.address)){const o=document.createElement('option');o.value=c.address;o.label=c.label;list.append(o)}}}
+function addContact(){const label=prompt(tr('contacts.label'));if(!label)return;const addr=prompt(tr('contacts.address'))||'';if(!ADDR_RE.test(addr))throw Error('Invalid AGT address.');contacts.push({label:label.trim(),address:addr});persistContacts();renderContacts()}
+function seedDemo(){for(const c of [{label:'Алиса',address:''},{label:'Боб',address:''}])if(!contacts.some(x=>x.label===c.label))contacts.push(c);persistContacts();renderContacts();setMessage('Demo contacts are templates. Add real addresses before use.')}
+function exportContacts(){saveFile('agentcoin-contacts.json',{schema:'agentcoin.wallet.contacts.v1',contacts});setMessage('Contacts exported; no private fields included.')}
+async function importContacts(){const f=$('importContacts').files[0];if(!f)return;const j=JSON.parse(await fileText(f));noSecrets(j);if(!j||j.schema!=='agentcoin.wallet.contacts.v1'||!Array.isArray(j.contacts))throw Error('Invalid contacts JSON.');const incoming=j.contacts.filter(c=>c&&typeof c.label==='string'&&typeof c.address==='string'&&(!c.address||ADDR_RE.test(c.address)));contacts.push(...incoming.filter(c=>!contacts.some(x=>x.label===c.label&&x.address===c.address)));persistContacts();renderContacts();setMessage('Imported '+incoming.length+' contacts.')}
+function aliceRequest(){showTab('Receive');$('invMemo').value='Payment request for Alice';setMessage('Set the amount, then create and share the invoice.')}
+function bobSend(){const b=contacts.find(c=>c.label==='Боб'&&ADDR_RE.test(c.address));showTab('Send');if(b)$('sendTo').value=b.address;else setMessage('Add Bob’s real address in Contacts first.')}
+// ===== Быстрый перевод (Bitcoin Core UX): локальная подпись ключом из браузера =====
+// Каноника v1 — сверена с node.mjs/core.mjs (txDigest): txid = sha256d(json). Подпись — ed25519.
+(async function quickSendInit(){
+const $=(id)=>document.getElementById(id);
+const qsStatus=(text,bad=false)=>{const box=$('qsStatus');if(!box)return;box.textContent=text||'';box.style.color=bad?'var(--bad)':'var(--ok)';};
+let qsModule=null;try{qsModule=await import('./js/agt-tx.mjs')}catch(e){return}
+const { pubFromPriv, addressFromPubHex, sendRawTx, loadKey, forgetKey, KEY_PREFIX } = qsModule;
+function qsKeyFor(){
+  const savedKeys=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));
+  if(savedKeys.length===1){const addr=savedKeys[0].slice(KEY_PREFIX.length);return {k:loadKey(addr),addr}}
+  if(address&&loadKey(address))return {k:loadKey(address),addr:address};
+  if(savedKeys.length>1)throw new Error('локальных ключей несколько — сохрани только нужный (кнопка «Стереть локальные ключи» + заново Через /create-wallet)');
+  return null;
+}
+async function quickSendSubmit(){
+  const to=$('qsTo').value.trim(), rawAmount=$('qsAmount').value.trim(), memo=$('qsMemo').value.trim();
+  if(!/^AGT[0-9a-f]{40}$/.test(to)){qsStatus('Адрес получателя: AGT + 40 hex-символов.',true);return}
+  const amount=Number(rawAmount);
+  if(!Number.isFinite(amount)||amount<=0){qsStatus('Сумма: положительное число (до 9 знаков после точки).',true);return}
+  if(!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(rawAmount)){qsStatus('Сумма: до 9 знаков после точки (без экспоненты).',true);return}
+  if(memo.length>120){qsStatus('Memo длиннее 120 символов.',true);return}
+  if(!$('qsConfirm').checked){qsStatus('Отметь подтверждение: «Я сверил получателя, сумму и комиссию».',true);return}
+  let rec;try{rec=qsKeyFor()}catch(e){qsStatus(e.message,true);return}
+  if(!rec){
+    qsStatus('Локальный ключ не найден. Быстрый перевод подписывается ключом из /create-wallet (кнопка WASM выше). Если кабинет открыт и паспорт зарегистрирован — используй форму «Подготовить запрос» ниже.',true);
+    return;
+  }
+  qsStatus('Подписываем локально (ключ не покидает вкладку)…');
+  let out;
+  try{out=await sendRawTx({privKeyHex:rec.k, to, amount, memo})}catch(e){qsStatus('Ошибка подписи: '+e.message,true);return}
+  const {tx, status, res} = out;
+  if(status>=200&&status<300&&res&&res.accepted){
+    qsStatus('✅ Принято: txid '+tx.txid.slice(0,16)+'… · в мемпуле (tx: '+(res.mempool??'?')+') · баланс меняется после ближайшего блока.');
+    try{setTimeout(()=>loadWallet().catch(()=>{}),3000)}catch{}
+    return;
+  }
+  qsStatus(res && res.error ? 'Отклонено нодой: '+res.error+(res.hint?' — '+res.hint:'') : 'Не принято (HTTP '+status+')', true);
+}
+const sb=$('qsSend');if(sb)sb.onclick=()=>quickSendSubmit().catch(e=>qsStatus('Неожиданная ошибка: '+e.message,true));
+const fb=$('qsForget');if(fb)fb.onclick=()=>{const saved=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));saved.forEach(k=>localStorage.removeItem(k));qsStatus('Локальные ключи стёрты из браузера ('+saved.length+' шт.).')};
+const pw=$('passportWarn');if(pw)pw.classList.remove('hidden');
+const qb=document.getElementById('topSendBtn');if(qb)qb.onclick=()=>{try{showTab('Send')}catch(e){document.getElementById('paneSend').classList.remove('hidden');document.getElementById('paneOverview').classList.add('hidden')}};
+})();
+function invoiceUri(){return 'agentcoin:'+address+'?amount='+encodeURIComponent(invoiceData.amountAGT)+'&memo='+encodeURIComponent(invoiceData.memo)}
+function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=parseAmount($('invAmount').value,invoiceUnit),memo=$('invMemo').value;if(memo.length>120)throw Error('Memo too long.');invoiceData={schema:'agentcoin.payment-request.v1',network:nodeInfo?.network||'AGENTCOIN',genesisHash:nodeInfo?.genesisHash||null,address,amountAGT:amount,memo,createdAt:new Date().toISOString()};$('invSummary').textContent=JSON.stringify(invoiceData);$('downloadInvoice').disabled=false;$('showInvoiceQR').disabled=false;drawQR($('qrInvoice'),invoiceUri())}
+async function loadTreasury(){try{const r=await getJSON('/treasury/state'),box=$('treasuryBox');box.replaceChildren();const table=document.createElement('table');const p=r.policy;if(!p){box.textContent='Treasury policy is not active.';return}for(const [k,v] of Object.entries(p)){const tr=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=Array.isArray(v)?v.join(', '):String(v);tr.append(a,b);table.append(tr)}box.append(table)}catch(e){$('treasuryBox').textContent=tr('err.api')+e.message}}
+async function importPassport(){const f=$('certFile').files[0];if(!f)throw Error('Select a public passport JSON.');const j=JSON.parse(await fileText(f,4096));noSecrets(j);const passport=j.passport||j;await api('/identity/import',{passport});if(passport.address)setAddress(passport.address);setMessage('Public passport imported.')}
+function restoreSession(){address=localStorage.getItem(ADDR_KEY)||'';token=sessionStorage.getItem(TOKEN_KEY)||'';if(token&&address)loadWallet().catch(()=>logoutFlow())}
+function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){setMessage(e.message,true)}};$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+</script>
+</body>
+</html>

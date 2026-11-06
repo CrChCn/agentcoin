@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — Ядро Агента · Кошелёк</title>
+<meta name="color-scheme" content="dark">
+<style>
+:root{
+  --bg:#07090d; --panel:#10161f; --panel2:#0d1218; --line:#1d2733;
+  --gold:#d4af37; --gold2:#f0d97c; --txt:#e8e3d3; --mut:#8a93a5;
+  --ok:#54d18c; --bad:#e05252; --shadow:0 10px 40px rgba(0,0,0,.55);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%, #101623 0%, var(--bg) 60%);
+  color:var(--txt);
+  font:15px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  min-height:100vh; overflow-x:hidden;
+}
+.mono{font-family:"Cascadia Code",Consolas,"SF Mono",monospace}
+.hidden{display:none!important}
+/* ---------- верхняя панель ---------- */
+.topbar{
+  position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;
+  padding:10px 18px;background:rgba(16,22,31,.72);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.logo{font-weight:800;letter-spacing:.06em;color:var(--gold2);white-space:nowrap}
+.logo .co{color:var(--gold)}
+.netstat{color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.netstat b{color:var(--txt);font-weight:600}
+.spacer{flex:1}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{background:transparent;border:0;color:var(--mut);padding:6px 12px;cursor:pointer;font:inherit;font-size:13px}
+.seg button.on{background:rgba(212,175,55,.14);color:var(--gold2)}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
+  background:linear-gradient(180deg,#151d29,#10161f);color:var(--txt);
+  padding:8px 16px;border-radius:12px;cursor:pointer;font:inherit;transition:.18s;
+}
+.btn:hover{border-color:rgba(212,175,55,.5);box-shadow:0 0 0 3px rgba(212,175,55,.08)}
+.btn.gold{border-color:rgba(212,175,55,.55);background:linear-gradient(180deg,rgba(212,175,55,.2),rgba(212,175,55,.08));color:var(--gold2);font-weight:600}
+.btn.red{border-color:rgba(224,82,82,.55);color:#ff9b9b;background:linear-gradient(180deg,rgba(224,82,82,.14),rgba(224,82,82,.05))}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+/* ---------- сцена ---------- */
+.stage{position:relative;max-width:980px;margin:26px auto 0;padding:0 18px;text-align:center}
+.hero{
+  border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,rgba(16,22,31,.85),rgba(13,18,24,.6));
+  backdrop-filter:blur(10px);box-shadow:var(--shadow);padding:22px 18px 30px;position:relative;overflow:hidden;
+}
+.hero h1{margin:0;font-size:26px;letter-spacing:.02em}
+.hero h1 span{color:var(--gold2)}
+.hero .sub{color:var(--mut);margin:6px 0 0;font-size:14px}
+.orb-wrap{position:relative;height:430px;margin:6px auto 0;cursor:grab}
+.orb-wrap:active{cursor:grabbing}
+#orb{width:100%;height:100%;display:block}
+.orb-chip{
+  position:absolute;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:8px;
+  padding:8px 14px;border-radius:999px;border:1px solid rgba(212,175,55,.35);
+  background:rgba(13,18,24,.55);backdrop-filter:blur(8px);color:var(--gold2);cursor:pointer;
+  font-size:14px;font-weight:600;transition:.18s;user-select:none;
+}
+.orb-chip:hover{background:rgba(212,175,55,.16);border-color:var(--gold);box-shadow:0 0 18px rgba(212,175,55,.25);transform:translate(-50%,-50%) scale(1.06)}
+.orb-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.tip{
+  position:absolute;transform:translate(-50%,12px);left:50%;top:100%;white-space:nowrap;font-size:12px;font-weight:400;
+  color:var(--mut);background:rgba(7,9,13,.9);border:1px solid var(--line);border-radius:8px;padding:4px 10px;
+  opacity:0;pointer-events:none;transition:.18s;
+}
+.orb-chip:hover .tip{opacity:1;transform:translate(-50%,6px)}
+.badge{position:absolute;left:14px;bottom:12px;color:var(--mut);font-size:12px}
+/* ---------- нижняя панель (после входа) ---------- */
+.cab{
+  max-width:980px;margin:22px auto 0;padding:0 18px 60px;display:grid;gap:18px;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+}
+.panel{
+  border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(16,22,31,.9),rgba(13,18,24,.55));
+  backdrop-filter:blur(10px);box-shadow:var(--shadow);padding:18px;
+}
+.panel h2{margin:0 0 10px;font-size:16px;color:var(--gold2);letter-spacing:.02em}
+.balance-big{font-size:44px;font-weight:800;color:var(--gold2);line-height:1.1;letter-spacing:.01em}
+.balance-unit{font-size:16px;color:var(--mut);font-weight:500}
+.addr-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.addr{flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.field{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.field label{font-size:13px;color:var(--mut)}
+.field input,.field textarea{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--txt);
+  padding:9px 11px;font:inherit;outline:none;
+}
+.field input:focus,.field textarea:focus{border-color:rgba(212,175,55,.5)}
+.hint{color:var(--mut);font-size:12.5px}
+.warn{color:var(--gold2)}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+table.list{width:100%;border-collapse:collapse;font-size:13px}
+table.list td,table.list th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+table.list th{color:var(--mut);font-weight:600}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.switch:last-child{border-bottom:0}
+.switch .lbl{font-size:14px}
+.switch .st{font-size:12px;color:var(--mut)}
+.toggle{position:relative;width:44px;height:24px;border-radius:999px;background:#1a2230;border:1px solid var(--line);cursor:pointer;transition:.2s;flex:none}
+.toggle.on{background:rgba(212,175,55,.3);border-color:var(--gold)}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#6a7484;transition:.2s}
+.toggle.on::after{left:22px;background:var(--gold2)}
+/* ---------- модальное окно ---------- */
+.overlay{position:fixed;inset:0;z-index:80;background:rgba(4,6,10,.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);padding:14px}
+.modal{
+  width:460px;max-width:96vw;max-height:92vh;overflow:auto;
+  border:1px solid rgba(212,175,55,.35);border-radius:20px;
+  background:linear-gradient(180deg,#121a26,#0d1218);box-shadow:0 20px 60px rgba(0,0,0,.7);padding:20px;
+}
+.modal h3{margin:0 0 4px;color:var(--gold2);font-size:19px}
+.modal .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.tabs button{
+  border:1px solid var(--line);background:transparent;color:var(--mut);padding:8px 4px;border-radius:10px;cursor:pointer;font:inherit;font-size:12.5px;
+}
+.tabs button.on{border-color:var(--gold);color:var(--gold2);background:rgba(212,175,55,.1)}
+.tabpane{border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(7,9,13,.45);min-height:120px}
+.drop{
+  border:2px dashed rgba(212,175,55,.4);border-radius:12px;padding:18px;text-align:center;color:var(--mut);
+  transition:.2s;cursor:pointer;font-size:13px;
+}
+.drop.hot{background:rgba(212,175,55,.1);border-color:var(--gold);color:var(--gold2)}
+.pin-input{
+  font-size:26px;letter-spacing:.5em;text-align:center;background:var(--panel2);border:1px solid var(--line);
+  border-radius:10px;color:var(--gold2);padding:10px;width:100%;font-family:Consolas,monospace;
+}
+.jwt{word-break:break-all;font-size:11px;color:var(--mut)}
+.close-x{position:absolute;top:12px;right:14px;border:0;background:transparent;color:var(--mut);font-size:18px;cursor:pointer}
+.modal-wrap{position:relative}
+/* ---------- модал отправки ---------- */
+footer.f{max-width:980px;margin:0 auto 30px;padding:0 18px;color:var(--mut);font-size:12px;text-align:center}
+@media (max-width:640px){
+  .topbar{flex-wrap:wrap}
+  .netstat{order:3;width:100%}
+  .balance-big{font-size:34px}
+}
+kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">⚜ <span class="co">AGENTCOIN</span> WALLET</div>
+  <div class="netstat" id="netstat">Сеть: …</div>
+  <div class="spacer"></div>
+  <div class="seg" role="group" aria-label="Language">
+    <button data-lang="ru" class="on">RU</button>
+    <button data-lang="en">EN</button>
+  </div>
+  <button class="btn red hidden" id="btnLogout">⏻ <span data-i="logout">Выйти</span></button>
+</header>
+
+<section class="stage">
+  <div class="hero">
+    <h1>Ядро <span>Агента</span></h1>
+    <p class="sub" data-i="heroSub">Самостоятельное управление AGT · ключи не покидают профиль</p>
+    <div class="orb-wrap" id="orbWrap">
+      <canvas id="orb"></canvas>
+      <button class="orb-chip" id="chipSend" style="left:82%;top:22%"><span class="dot"></span><span data-i="send">Отправить</span><span class="tip" data-i="tipSend">Подписать и отправить AGT</span></button>
+      <button class="orb-chip" id="chipRecv" style="left:16%;top:34%"><span class="dot"></span><span data-i="receive">Получить</span><span class="tip" data-i="tipRecv">Адрес и сумма для входящего платежа</span></button>
+      <button class="orb-chip" id="chipHist" style="left:64%;top:74%"><span class="dot"></span><span data-i="history">История</span><span class="tip" data-i="tipHist">Последние операции адреса</span></button>
+    </div>
+    <div class="badge"><span id="scaleNote" class="hidden" data-i="scaleNote">Размер ядра = баланс</span></div>
+  </div>
+</section>
+
+<main class="cab hidden" id="cab">
+  <section class="panel">
+    <h2 data-i="balanceTitle">Баланс</h2>
+    <div class="balance-big"><span id="balNum">0</span> <span class="balance-unit">AGT</span></div>
+    <div class="hint" id="balNote"></div>
+    <div class="addr-row">
+      <div class="addr mono" id="addrShow">—</div>
+      <button class="btn" id="btnCopy">⧉ <span data-i="copy">Скопировать</span></button>
+    </div>
+  </section>
+
+  <section class="panel" id="panelSecurity">
+    <h2 data-i="secTitle">Безопасность · <span data-i="secFor">для агента</span></h2>
+    <div class="switch">
+      <div><div class="lbl" data-i="biometry">Face ID / Touch ID</div><div class="st" data-i="biometrySt">Регистрация платформенного WebAuthn-ключа</div></div>
+      <div class="toggle" id="tgFace" role="switch" aria-checked="false" tabindex="0"></div>
+    </div>
+    <div class="switch">
+      <div><div class="lbl" data-i="pin">PIN-код (4–6 цифр)</div><div class="st" data-i="pinSt">Хешируется на сервере (scrypt), IP-сессия</div></div>
+      <div class="toggle" id="tgPin" role="switch" aria-checked="false" tabindex="0"></div>
+    </div>
+    <div class="switch">
+      <div><div class="lbl" data-i="phone">Привязать телефон</div><div class="st" id="phoneSt" data-i="phoneSt">Для SMS-входа</div></div>
+      <div class="toggle" id="tgPhone" role="switch" aria-checked="false" tabindex="0"></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn red" id="btnLogoutAll">⚠ <span data-i="logoutAll">Выйти везде</span></button>
+      <span class="hint" id="secMsg"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 data-i="statusTitle">Сессия</h2>
+    <div class="hint" id="sessLine"></div>
+    <div class="jwt mono" id="jwtShow"></div>
+  </section>
+</main>
+
+<!-- молитвенная тишина для история -->
+<section class="panel hidden" id="panelHistory" style="max-width:980px;margin:0 auto 50px;">
+  <h2 data-i="historyTitle">История операций</h2>
+  <div style="overflow:auto"><table class="list" id="histTable"><thead><tr><th data-i="hWhen">Когда</th><th data-i="hKind">Тип</th><th data-i="hSum">Сумма</th><th>txid</th></tr></thead><tbody><tr><td colspan="4" class="hint">—</td></tr></tbody></table></div>
+</section>
+
+<footer class="f" id="foot">AGENTCOIN · Ядро Агента · v1 (AGIP-W2R)</footer>
+
+<!-- ============ МОДАЛ ВХОДА ============ -->
+<div class="overlay hidden" id="authOverlay" role="dialog" aria-modal="true">
+  <div class="modal modal-wrap">
+    <button class="close-x" id="authClose" title="Close">✕</button>
+    <h3 data-i="authTitle">Вход в кошелёк</h3>
+    <div class="sub" data-i="authSub">Каждый метод опционален; настройте в разделе «Безопасность».</div>
+    <div class="tabs">
+      <button data-tab="face" id="tabFace" data-i="tabFace">🫥 Face ID</button>
+      <button data-tab="pin"  id="tabPin"  data-i="tabPin">🔢 PIN</button>
+      <button data-tab="file" id="tabFile" data-i="tabFile">📁 Файл</button>
+      <button data-tab="sms"  id="tabSms"  data-i="tabSms">📱 SMS</button>
+    </div>
+
+    <div class="tabpane" id="paneFace">
+      <div class="field">
+        <label data-i="faceDesc">Биометрия устройства (Windows Hello / Touch ID)</label>
+        <button class="btn gold" id="faceLogin" data-i="faceLogin">Войти по биометрии</button>
+      </div>
+      <div class="hint" id="faceMsg"></div>
+      <div class="hint" id="faceSupport"></div>
+    </div>
+
+    <div class="tabpane hidden" id="panePin">
+      <div class="field">
+        <label data-i="pinEnter">Введите PIN (4–6 цифр)</label>
+        <input class="pin-input" id="pinInput" inputmode="numeric" maxlength="6" autocomplete="off">
+      </div>
+      <button class="btn gold" id="pinLogin" data-i="pinLogin">Войти по PIN</button>
+      <div class="hint" id="pinMsg"></div>
+    </div>
+
+    <div class="tabpane hidden" id="paneFile">
+      <div class="drop" id="dropZone" data-i="dropZone">Перетащите паспорт JSON сюда, или нажмите, чтобы выбрать файл</div>
+      <input type="file" id="passportFile" accept=".json,application/json" class="hidden">
+      <div class="field" style="margin-top:10px">
+        <label data-i="fileAddr">Адрес паспорта (из JSON)</label>
+        <input id="fileAddr" class="mono" placeholder="AGT…" readonly>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="fileChallenge" data-i="fileChallenge">1. Получить challenge</button>
+        <button class="btn gold" id="fileLogin" data-i="fileLogin">2. Войти (подпись)</button>
+      </div>
+      <div class="field"><label data-i="fileCmd">Команда для локальной подписи</label>
+        <textarea id="fileCmd" rows="2" class="mono" readonly></textarea></div>
+      <div class="field"><label data-i="fileSig">Подпись challenge (64 байта hex)</label>
+        <input id="fileSig" class="mono" maxlength="128" placeholder="hex128"></div>
+      <div class="hint" id="fileMsg"></div>
+    </div>
+
+    <div class="tabpane hidden" id="paneSms">
+      <div class="field">
+        <label data-i="smsPhone">Номер телефона (E.164)</label>
+        <input id="smsPhone" placeholder="+7…">
+        <button class="btn" id="smsSend" data-i="smsSend">Отправить код</button>
+      </div>
+      <div class="field">
+        <label data-i="smsCode">Код из SMS</label>
+        <input id="smsCode" class="mono" maxlength="6" placeholder="••••••">
+        <button class="btn" id="smsVerify" data-i="smsVerify">Проверить код</button>
+      </div>
+      <div class="hint" id="smsMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ МОДАЛ ОТПРАВКИ ============ -->
+<div class="overlay hidden" id="sendOverlay" role="dialog" aria-modal="true">
+  <div class="modal modal-wrap">
+    <button class="close-x" id="sendClose">✕</button>
+    <h3 data-i="sendTitle">Отправить AGT</h3>
+    <div class="field"><label data-i="to">Получатель (адрес AGT…)</label><input id="sendTo" class="mono" placeholder="AGT…"></div>
+    <div class="field"><label data-i="amount">Сумма (AGT)</label><input id="sendAmt" inputmode="decimal" placeholder="1.000000000"></div>
+    <div class="field"><label data-i="memo">Мемо (до 120 символов)</label><input id="sendMemo" maxlength="120"></div>
+    <button class="btn" id="sendPrepare" data-i="sendPrepare">1. Подготовить</button>
+    <div class="field"><label data-i="sendCmd">Команда подписи (CLI)</label><textarea id="sendCmd" rows="2" class="mono" readonly></textarea></div>
+    <div class="field"><label data-i="sendSig">Подпись (hex128)</label><input id="sendSig" class="mono" maxlength="128"></div>
+    <button class="btn gold" id="sendSubmit" data-i="sendSubmit">2. Отправить в мемпул</button>
+    <div class="hint" id="sendMsg"></div>
+  </div>
+</div>
+
+<!-- ============ МОДАЛ ПОЛУЧЕНИЯ ============ -->
+<div class="overlay hidden" id="recvOverlay" role="dialog" aria-modal="true">
+  <div class="modal modal-wrap">
+    <button class="close-x" id="recvClose">✕</button>
+    <h3 data-i="recvTitle">Получить AGT</h3>
+    <div class="field"><label data-i="recvAddr">Ваш адрес</label><div class="addr mono" id="recvAddr">—</div></div>
+    <div class="field"><label data-i="recvUri">URI</label><div class="addr mono" id="recvUri">—</div></div>
+    <div class="field"><label data-i="recvAmt">Запрашиваемая сумма (необязательно)</label><input id="recvAmtAsk" inputmode="decimal" placeholder="12.5"></div>
+    <div class="addr-row">
+      <div class="addr mono" id="recvUriFull">—</div>
+      <button class="btn" id="recvCopy">⧉ <span data-i="copy">Скопировать</span></button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   AGENTCOIN · Ядро Агента — /wallet (AGIP-W2R). Самодостаточно.
+   ============================================================ */
+const $=(id)=>document.getElementById(id);
+const API={
+  async post(path,body,jwt){const r=await fetch(path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},jwt?{Authorization:'Bearer '+jwt}:{}),body:JSON.stringify(body||{})});return{status:r.status,json:await r.json().catch(()=>({}))}},
+  async get(path){const r=await fetch(path);return{status:r.status,json:await r.json().catch(()=>({}))}}
+};
+/* ---------------- i18n ---------------- */
+const I18N={
+ru:{logo:'AGENTCOIN WALLET',logout:'Выйти',heroSub:'Самостоятельное управление AGT · ключи не покидают профиль',
+ send:'Отправить',receive:'Получить',history:'История',tipSend:'Подписать и отправить AGT',tipRecv:'Адрес и сумма для входящего платежа',tipHist:'Последние операции адреса',scaleNote:'Размер ядра = баланс',
+ balanceTitle:'Баланс',copy:'Скопировать',secTitle:'Безопасность · для агента',biometry:'Face ID / Touch ID',biometrySt:'Регистрация платформенного WebAuthn-ключа',
+ pin:'PIN-код (4–6 цифр)',pinSt:'Хешируется на сервере (scrypt), IP-сессия',phone:'Привязать телефон',phoneSt:'Для SMS-входа',logoutAll:'Выйти везде',statusTitle:'Сессия',
+ authTitle:'Вход в кошелёк',authSub:'Каждый метод опционален; настройте в разделе «Безопасность».',tabFace:'🫥 Face ID',tabPin:'🔢 PIN',tabFile:'📁 Файл',tabSms:'📱 SMS',
+ faceDesc:'Биометрия устройства (Windows Hello / Touch ID)',faceLogin:'Войти по биометрии',pinEnter:'Введите PIN (4–6 цифр)',pinLogin:'Войти по PIN',
+ dropZone:'Перетащите паспорт JSON сюда, или нажмите, чтобы выбрать файл',fileAddr:'Адрес паспорта (из JSON)',fileChallenge:'1. Получить challenge',fileLogin:'2. Войти (подпись)',
+ fileCmd:'Команда для локальной подписи',fileSig:'Подпись challenge (64 байта hex)',
+ smsPhone:'Номер телефона (E.164)',smsSend:'Отправить код',smsCode:'Код из SMS',smsVerify:'Проверить код',
+ sendTitle:'Отправить AGT',to:'Получатель (адрес AGT…)',amount:'Сумма (AGT)',memo:'Мемо (до 120 символов)',sendPrepare:'1. Подготовить',sendCmd:'Команда подписи (CLI)',sendSig:'Подпись (hex128)',sendSubmit:'2. Отправить в мемпул',
+ recvTitle:'Получить AGT',recvAddr:'Ваш адрес',recvUri:'URI',recvAmt:'Запрашиваемая сумма (необязательно)',
+ historyTitle:'История операций',hWhen:'Когда',hKind:'Тип',hSum:'Сумма',
+ errNoFile:'Сначала выберите паспорт JSON.',errNoChallenge:'Сначала получите challenge.',errNoSig:'Введите подпись (hex128).',errNoAddr:'Введите получателя.',errNoAmt:'Введите сумму.',
+ filePassportOk:'Паспорт распознан. Выполните команду подписи в CLI и вставьте подпись.',fileLogged:'Вход выполнен.',pinLogged:'Вход по PIN выполнен.',faceLogged:'Вход по биометрии выполнен.',
+ faceNa:'Биометрия не поддерживается в этом браузере.',faceNeedReg:'Ваш Face ID ещё не зарегистрирован. Нажмите переключатель в «Безопасность».',faceRegOk:'Face ID зарегистрирован для этого агента.',
+ smsHint:'SMS-шлюз не подключён (нет ключей). Используйте Face ID, PIN или файл.',phoneBindOff:'SMS-привязка отключена: шлюз не настроен.',pinErr:'PIN должен быть 4–6 цифр.',pinSetOk:'PIN сохранён (scrypt-хеш на сервере).',pinDisableOk:'PIN отключён.',errLoginFirst:'Сначала войдите PIN/файлом, затем регистрируйте биометрию.',errNoPhone:'Номер в формате E.164 (+…).',smsSent:'Код отправлен (если шлюз настроен).', fileChallengeOk:'Challenge выпущен (TTL 5 мин).',
+ net:'Сеть',block:'Блок',sessionOn:'Активна',sessionOff:'Нет сессии',sessLine:'JWT привязан к IP; смена IP инвалидирует сессию.',jwtNone:'— JWT не выдан —',
+ copied:'Скопировано в буфер.',sendOk:'Транзакция принята в мемпул · txid ',sendMempool:'Транзакция в мемпуле',sendConfirmed:'Транзакция подтверждена',sent:'отправка',recv:'получение'},
+en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet · keys never leave the profile',
+ send:'Send',receive:'Receive',history:'History',tipSend:'Sign & broadcast AGT',tipRecv:'Address & amount for incoming payment',tipHist:'Recent address operations',scaleNote:'Core size = balance',
+ balanceTitle:'Balance',copy:'Copy',secTitle:'Security · per agent',biometry:'Face ID / Touch ID',biometrySt:'Register platform WebAuthn credential',
+ pin:'PIN (4–6 digits)',pinSt:'Hashed server-side (scrypt), IP-bound session',phone:'Link phone',phoneSt:'For SMS login',logoutAll:'Log out everywhere',statusTitle:'Session',
+ authTitle:'Wallet sign-in',authSub:'Every method is optional; enable them in “Security”.',tabFace:'🫥 Face ID',tabPin:'🔢 PIN',tabFile:'📁 File',tabSms:'📱 SMS',
+ faceDesc:'Device biometrics (Windows Hello / Touch ID)',faceLogin:'Sign in with biometrics',pinEnter:'Enter PIN (4–6 digits)',pinLogin:'Sign in with PIN',
+ dropZone:'Drag & drop passport JSON here, or click to choose a file',fileAddr:'Passport address (from JSON)',fileChallenge:'1. Get challenge',fileLogin:'2. Sign in (signature)',
+ fileCmd:'Local signing command',fileSig:'Challenge signature (64-byte hex)',
+ smsPhone:'Phone number (E.164)',smsSend:'Send code',smsCode:'SMS code',smsVerify:'Verify code',
+ sendTitle:'Send AGT',to:'Recipient (AGT… address)',amount:'Amount (AGT)',memo:'Memo (max 120)',sendPrepare:'1. Prepare',sendCmd:'Signing command (CLI)',sendSig:'Signature (hex128)',sendSubmit:'2. Broadcast to mempool',
+ recvTitle:'Receive AGT',recvAddr:'Your address',recvUri:'URI',recvAmt:'Requested amount (optional)',
+ historyTitle:'Operation history',hWhen:'When',hKind:'Kind',hSum:'Amount',
+ errNoFile:'Choose a passport JSON first.',errNoChallenge:'Get the challenge first.',errNoSig:'Enter the signature (hex128).',errNoAddr:'Enter the recipient.',errNoAmt:'Enter the amount.',
+ filePassportOk:'Passport recognised. Run the signing command in CLI and paste the signature.',fileLogged:'Signed in.',pinLogged:'Signed in with PIN.',faceLogged:'Signed in with biometrics.',
+ faceNa:'Biometry is not supported in this browser.',faceNeedReg:'Your Face ID is not registered yet. Toggle it in “Security”.',faceRegOk:'Face ID registered for this agent.',
+ smsHint:'SMS gateway is not configured (no keys). Use Face ID, PIN or file.',phoneBindOff:'SMS link disabled: gateway not configured.',pinErr:'PIN must be 4–6 digits.',pinSetOk:'PIN saved (scrypt hash on the server).',pinDisableOk:'PIN disabled.',errLoginFirst:'Sign in with PIN/file first, then register biometry.',errNoPhone:'Phone in E.164 format (+…).',smsSent:'Code sent (if gateway set).',fileChallengeOk:'Challenge issued (TTL 5 min).',
+ net:'Network',block:'Block',sessionOn:'Active',sessionOff:'No session',sessLine:'JWT is bound to IP; an IP change invalidates it.',jwtNone:'— no JWT —',
+ copied:'Copied.',sendOk:'Transaction accepted to mempool · txid ',sendMempool:'Transaction in mempool',sendConfirmed:'Transaction confirmed',sent:'send',recv:'receive'}
+};
+let LANG=localStorage.getItem('agtLang')||'ru';
+function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.ru[k]||k}
+function applyLang(){
+  document.documentElement.lang=LANG;
+  for(const el of document.querySelectorAll('[data-i]'))el.textContent=t(el.getAttribute('data-i'));
+  for(const b of document.querySelectorAll('.seg [data-lang]'))b.classList.toggle('on',b.dataset.lang===LANG);
+  renderNet(); renderBal(); updateSess(); if(!jwt)showAuth();
+}
+for(const b of document.querySelectorAll('.seg [data-lang]'))b.onclick=()=>{LANG=b.dataset.lang;localStorage.setItem('agtLang',LANG);applyLang()};
+
+/* ---------------- сцена: Ядро Агента (canvas, без CDN) ---------------- */
+let balMgnt=null; // mGNT строкой
+const orb=$('orb'); const octx=orb.getContext('2d');
+let rotA=0.9, rotB=0.4, drag=null, curScale=1, tgt=1;
+const PTS=[]; // фибо-спираль точек сферы
+(function(){const N=520;const ga=Math.PI*(3-Math.sqrt(5));
+ for(let i=0;i<N;i++){const y=1-(i/(N-1))*2;const r=Math.sqrt(1-y*y);const th=ga*i;
+   PTS.push({x:Math.cos(th)*r,y,z:Math.sin(th)*r,w:0.5+0.5*Math.random()});}})();
+function fitOrb(){const w=orb.clientWidth||800,h=orb.clientHeight||430,d=Math.min(devicePixelRatio||1,2);
+ orb.width=w*d;orb.height=h*d;octx.setTransform(d,0,0,d,0,0)}
+new ResizeObserver(fitOrb).observe(orb);
+function proj(p,t){ // вращение Y(X)
+ let x=p.x*Math.cos(t)+p.z*Math.sin(t), z=-p.x*Math.sin(t)+p.z*Math.cos(t);
+ let y=p.y*Math.cos(rotB)-z*Math.sin(rotB); z=p.y*Math.sin(rotB)+z*Math.cos(rotB);
+ return {x,y,z}}
+function drawOrb(ts){
+ const w=orb.clientWidth,h=orb.clientHeight,cx=w/2,cy=h/2;
+ const R=Math.min(w,h)*0.24*curScale + Math.sin(ts*0.0021)*4*curScale;
+ octx.clearRect(0,0,w,h);
+ // свечение
+ const g=octx.createRadialGradient(cx,cy,R*0.1,cx,cy,R*2.1);
+ g.addColorStop(0,'rgba(212,175,55,.30)');g.addColorStop(.45,'rgba(212,175,55,.10)');g.addColorStop(1,'rgba(212,175,55,0)');
+ octx.fillStyle=g;octx.fillRect(0,0,w,h);
+ // точки
+ for(const p of PTS){const q=proj(p,rotA);const depth=0.5+0.5*(q.z+1)/2;const rr=R;
+  const X=cx+q.x*rr, Y=cy-q.y*rr;
+  octx.beginPath();octx.arc(X,Y,1.15+p.w*1.5*depth,0,7);
+  octx.fillStyle=`rgba(232,205,105,${(0.25+0.75*depth)*0.85})`;
+  octx.shadowColor='rgba(240,217,124,.55)';octx.shadowBlur=6*depth;octx.fill();}
+ octx.shadowBlur=0;
+ // ядро
+ const core=octx.createRadialGradient(cx,cy,0,cx,cy,R*0.55);
+ core.addColorStop(0,'rgba(255,240,190,.98)');core.addColorStop(.35,'rgba(212,175,55,.85)');
+ core.addColorStop(.75,'rgba(150,115,25,.28)');core.addColorStop(1,'rgba(120,90,20,0)');
+ octx.beginPath();octx.arc(cx,cy,R*0.55,0,7);octx.fillStyle=core;octx.fill();
+ // кольца-орбиты
+ for(const o of [[rotB*0.7,1.55,0.35],[rotB,1.85,0.55],[rotB*1.3,2.15,0.75]]){
+   octx.beginPath();
+   for(let a=0;a<=64;a++){const ang=a/64*Math.PI*2;
+    let x=Math.cos(ang)*o[1],z=Math.sin(ang)*o[1],y=0;
+    let y2=y*Math.cos(o[0])-z*Math.sin(o[0]),z2=y*Math.sin(o[0])+z*Math.cos(o[0]);
+    let X=cx+x*R*0.62, Y=cy+y2*R*0.62;
+    if(a)octx.lineTo(X,Y);else octx.moveTo(X,Y);}
+   octx.strokeStyle=`rgba(212,175,55,${o[2]*0.5})`;octx.lineWidth=1;octx.stroke();}
+ rotA+=0.0026; const T=(typeof tgt==='number')?tgt:1; curScale+=(T-curScale)*0.04;
+ requestAnimationFrame(drawOrb);
+}
+orb.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,a:rotA,b:rotB};};
+orb.onpointermove=e=>{if(!drag)return;rotA=drag.a+(e.clientX-drag.x)*0.005;rotB=Math.max(-1.3,Math.min(1.3,drag.b+(e.clientY-drag.y)*0.005));};
+orb.onpointerup=orb.onpointerleave=()=>drag=null;
+// пульс от баланса
+function setOrbScale(){$('scaleNote').classList.toggle('hidden',balMgnt===null);}
+/* ---------------- состояние ---------------- */
+let jwt=null,addr=null,passportData=null,pendOp=null,pendChallenge=null;
+const HEX128=/^[0-9a-fA-F]{128}$/;
+function showAuth(){$('authOverlay').classList.remove('hidden')}
+function hideAuth(){$('authOverlay').classList.add('hidden')}
+function afterLogin(){
+  hideAuth();
+  $('cab').classList.remove('hidden');
+  $('btnLogout').classList.remove('hidden');
+  $('addrShow').textContent=addr;$('recvAddr').textContent=addr;
+  $('secMsg').textContent='';refreshAuthState();updateSess();
+}
+function updateSess(){
+  $('sessLine').textContent = (jwt?'JWT · ':t('sessLine'));
+  $('sessLine').innerHTML = '<span class="'+(jwt?'ok':'')+'">'+t(jwt?'sessionOn':'sessionOff')+'</span> · '+t('sessLine');
+  $('jwtShow').textContent = jwt?jwt:t('jwtNone');
+  $('jwtShow').innerHTML = jwt?('<span class="mono">'+jwt+'</span>'):'<span class="mono">'+t('jwtNone')+'</span>';
+}
+/* ---------------- верхняя панель ---------------- */
+let nodeInfo=null;
+async function renderNet(){
+  try{ if(!nodeInfo){const r=await API.get('/info'); if(r.ok!==false){nodeInfo=r.json;} }
+   $('netstat').innerHTML = t('net')+': <b>'+(nodeInfo.chainId||nodeInfo.network||'AGENTCOIN')+'</b> · '+t('block')+': <b>#'+(nodeInfo.blocks!=null?nodeInfo.blocks:'…')+'</b>';
+  }catch(e){$('netstat').innerHTML=t('net')+': <b class="bad">offline</b>';}
+}
+renderNet();setInterval(renderNet,20000);
+/* ---------------- баланс ---------------- */
+let balanceMGNT=null;
+function fmtMgnt(x){const v=BigInt(x);const a=(v/1000000000n).toString();let f=(v%1000000000n).toString().padStart(9,'0').replace(/0+$/,'');return a+(f?'.'+f:'')}
+function renderBal(){
+  if(balanceMGNT===null)return;
+  $('balNum').textContent=fmtMgnt(balanceMGNT);
+  const n=Number(fmtMgnt(balanceMGNT))||0;
+  tgt=Math.max(0.55,Math.min(1.9,0.6+Math.log10(n+1)*0.28));
+  setOrbScale();
+}
+async function loadBal(){if(!addr)return;try{const r=await API.post('/balance',{address:addr});if(r.json&&r.json.balanceMGNT!=null){balanceMGNT=String(r.json.balanceMGNT);renderBal();}}catch(e){}}
+/* ---------------- Войти: вкладки ---------------- */ let curTab='face';
+ function pick(name){curTab=name;for(const p of ['face','pin','file','sms']){$('pane'+p[0].toUpperCase()+p.slice(1)).classList.toggle('hidden',p!==name);document.querySelector('.tabs [data-tab="'+p+'"]').classList.toggle('on',p===name)}}
+ window._walletPick=pick;
+for(const b of document.querySelectorAll('.tabs button'))b.onclick=()=>window._walletPick(b.dataset.tab);
+$('authClose').onclick=hideAuth;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideAuth();$('sendOverlay').classList.add('hidden');$('recvOverlay').classList.add('hidden')}});
+
+/* ---- Face ID (WebAuthn) ---- */
+const webauthnOK=!!(window.PublicKeyCredential&&navigator.credentials);
+$('faceSupport').textContent=webauthnOK?'':'⚠ '+t('faceNa');
+async function webauthnFlow(mode){ // mode: 'login' | 'register'
+ if(!webauthnOK){$('faceMsg').textContent=t('faceNa');return}
+ $('faceMsg').textContent='…';
+ // 1. challenge от сервера
+ const ch=await API.post('/auth/webauthn/challenge',{address:addr||null,mode});
+ if(!ch.json.challenge){$('faceMsg').textContent=(ch.json.error||'challenge_failed');return}
+ const challengeStr=ch.json.challenge;
+ const b64=(s)=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+ try{
+  if(mode==='register'){
+    if(!addr||!jwt){$('faceMsg').textContent=t('errLoginFirst');return}
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge:b64(challengeStr), rp:{name:'AGENTCOIN',id:location.hostname},
+      user:{id:b64(btoa(addr)),name:addr,displayName:'AGENTCOIN agent'},
+      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
+      timeout:60000}});
+    const r=await API.post('/auth/webauthn/register',{sub:addr,id:cred.id,credential:{
+      rawId:btoanew(cred.rawId),clientDataJSON:b64en(cred.response.clientDataJSON),
+      attestationObject:b64en(cred.response.attestationObject)}},jwt);
+    if(r.status<300&&r.json.ok){$('faceMsg').textContent=t('faceRegOk');$('secMsg').textContent=t('faceRegOk');refreshAuthState()}
+    else $('faceMsg').textContent=(r.json.error||'register_failed');
+  }else{
+    const cred=await navigator.credentials.get({publicKey:{
+      challenge:b64(challengeStr), rpId:location.hostname, userVerification:'required', timeout:60000,
+      allowCredentials: ch.json.allowCredentials||[]}});
+    const r=await API.post('/auth/webauthn/login',{id:cred.id,
+      clientDataJSON:b64en(cred.response.clientDataJSON),
+      authenticatorData:b64en(cred.response.authenticatorData),
+      signature:b64en(cred.response.signature)});
+    if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('faceMsg').textContent=t('faceLogged')}
+    else $('faceMsg').textContent=(r.json.error||'login_failed');
+  }
+ }catch(e){$('faceMsg').textContent='⚠ '+(e.name==='NotAllowedError'?'отменено пользователем':(e.message||'error'))}
+}
+function b64en(buf){const b=new Uint8Array(buf);let s='';b.forEach(c=>s+=String.fromCharCode(c));return btoa(s)}
+function btoanew(buf){const b=new Uint8Array(buf);let s='';b.forEach(c=>s+=String.fromCharCode(c));return btoa(s)}
+$('faceLogin').onclick=()=>webauthnFlow('login');
+/* ---- PIN ---- */
+$('pinLogin').onclick=async()=>{
+ const pin=$('pinInput').value.trim();
+ if(!/^\d{4,6}$/.test(pin)){$('pinMsg').textContent=t('pinErr');return}
+ $('pinMsg').textContent='…';
+ const r=await API.post('/auth/pin/login',{pin});
+ if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('pinMsg').textContent=t('pinLogged')}
+ else $('pinMsg').textContent='⚠ '+(r.json.error||r.json.message||'PIN не совпадает');
+};
+/* ---- Файл (паспорт JSON) ---- */
+$('dropZone').onclick=()=>$('passportFile').click();
+$('dropZone').ondragover=e=>{e.preventDefault();$('dropZone').classList.add('hot')};
+$('dropZone').ondragleave=()=>$('dropZone').classList.remove('hot');
+$('dropZone').ondrop=e=>{e.preventDefault();$('dropZone').classList.remove('hot');if(e.dataTransfer.files[0])readPass(e.dataTransfer.files[0])};
+$('passportFile').onchange=e=>{if(e.target.files[0])readPass(e.target.files[0])};
+async function readPass(f){
+ if(!f||f.size>65536){$('fileMsg').textContent=t('errNoFile');return}
+ try{
+  const j=JSON.parse(await f.text());const pp=j.passport||j;
+  // публичный паспорт не должен содержать секретов
+  for(const k of ['privKey','privateKey','secret','seed','mnemonic'])if(k in (j.passport||j))throw Error('secret_field_'+k);
+  if(!pp.address)throw Error('address_missing');
+  passportData=pp;$('fileAddr').value=pp.address;$('fileMsg').textContent=t('filePassportOk');pendChallenge=null;
+ }catch(e){$('fileMsg').textContent='⚠ '+e.message}
+}
+$('fileChallenge').onclick=async()=>{
+ if(!passportData){$('fileMsg').textContent=t('errNoFile');return}
+ $('fileMsg').textContent='…';
+ const r=await API.post('/auth/file/challenge',{address:passportData.address});
+ if(r.status<300&&r.json.ok&&r.json.nonce){pendChallenge=r.json;
+  const cid=r.json.challengeId;
+  $('fileCmd').value='node src/cli.mjs sign-challenge profile.json --challenge '+JSON.stringify(r.json.nonce);
+  $('fileMsg').textContent=t('fileChallengeOk')+' · '+r.json.nonce.slice(0,24)+'…';
+ }else $('fileMsg').textContent='⚠ '+(r.json.error||'challenge_failed');
+};
+$('fileLogin').onclick=async()=>{
+ if(!passportData){$('fileMsg').textContent=t('errNoFile');return}
+ if(!pendChallenge){$('fileMsg').textContent=t('errNoChallenge');return}
+ const sig=$('fileSig').value.trim();
+ if(!HEX128.test(sig)){$('fileMsg').textContent=t('errNoSig');return}
+ $('fileMsg').textContent='…';
+ const r=await API.post('/auth/file/login',{address:passportData.address,nonce:pendChallenge.nonce,challengeId:pendChallenge.challengeId,signature:sig});
+ if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin();$('fileMsg').textContent=t('fileLogged')}
+ else $('fileMsg').textContent='⚠ '+(r.json.error||'login_failed');
+};
+/* ---- SMS ---- */
+$('smsSend').onclick=async()=>{
+ const ph=$('smsPhone').value.trim();
+ if(!/^\+\d{6,18}$/.test(ph)){$('smsMsg').textContent=t('errNoPhone');return}
+ $('smsMsg').textContent='…';
+ const r=await API.post('/auth/sms/send',{phone:ph,address:addr||null});
+ if(r.json.ok===false&&r.json.gateway==='not_configured'){$('smsMsg').innerHTML='⚠ '+t('smsHint');return}
+ if(r.json.ok)$('smsMsg').textContent=t('smsSent');
+ else $('smsMsg').textContent='⚠ '+(r.json.error||'send_failed');
+};
+$('smsVerify').onclick=async()=>$('smsMsg').textContent='⚠ '+t('smsHint');
+
+/* ---------------- Кнопки орбит ---------------- */
+$('chipSend').onclick=()=>{if(!addr||!jwt){showAuth();return}$('sendOverlay').classList.remove('hidden')};
+$('chipRecv').onclick=()=>{ if(!addr||!jwt){showAuth();return} $('recvAddr').textContent=addr;$('recvUri').textContent='agentcoin:'+addr;onRecvAmt();$('recvOverlay').classList.remove('hidden')};
+$('recvAmtAsk').oninput=onRecvAmt;
+function onRecvAmt(){const a=$('recvAmtAsk').value.trim();$('recvUriFull').textContent='agentcoin:'+addr+(a?'?amount='+encodeURIComponent(a):'')}
+$('recvCopy').onclick=()=>navigator.clipboard.writeText($('recvUriFull').textContent);
+$('chipHist').onclick=async()=>{ if(!addr||!jwt){showAuth();return}
+ $('panelHistory').classList.remove('hidden');$('panelHistory').scrollIntoView({behavior:'smooth'});
+ const r=await API.post('/cabinet/wallet/history',{address:addr,token:cabToken()});
+ const rows=(r.json&&r.json.items)||[]; const tb=$('histTable').querySelector('tbody');tb.innerHTML='';
+ if(!rows.length)tb.innerHTML='<tr><td colspan="4" class="hint">—</td></tr>';
+ for(const h of rows.slice(0,20)){
+   const tr=document.createElement('tr');
+   tr.innerHTML='<td>'+new Date(h.time||Date.now()).toLocaleString(LANG==='ru'?'ru':'en')+'</td><td>'+(h.kind==='in'?t('recv'):t('sent'))+'</td><td class="mono">'+(h.amount||h.value||'')+'</td><td class="mono">'+(h.txid||'').slice(0,16)+'…</td>';
+   tb.append(tr);}
+};
+function cabToken(){return sessionStorage.getItem('agtCabToken')||null}
+/* ---------------- Отправить ---------------- */
+$('sendClose').onclick=()=>$('sendOverlay').classList.add('hidden');
+$('sendPrepare').onclick=async()=>{
+ pendOp=null;if(!$('sendTo').value.trim()){$('sendMsg').textContent=t('errNoAddr');return}
+ if(!/^(\d+)(\.\d{1,9})?$/.test($('sendAmt').value.trim())||Number($('sendAmt').value)<=0){$('sendMsg').textContent=t('errNoAmt');return}
+ $('sendMsg').textContent='…';
+ const r=await API.post('/cabinet/op-request',{address:addr,token:cabToken(),op:{kind:'send',to:$('sendTo').value.trim(),amount:Number($('sendAmt').value),memo:$('sendMemo').value}});
+ if(r.json&&r.json.opId&&r.json.payload&&r.json.payload.txidHex){
+   pendOp={opId:r.json.opId,txidHex:r.json.payload.txidHex};
+   $('sendCmd').value='node src/cli.mjs sign-op profile.json --op-id '+r.json.opId+' --txid '+r.json.payload.txidHex;
+   $('sendMsg').textContent=t('fileCmd')+' ok';
+ } else $('sendMsg').textContent='⚠ '+(r.json.error||'op_request_failed');
+};
+$('sendSubmit').onclick=async()=>{
+ const sig=$('sendSig').value.trim();if(!HEX128.test(sig)){$('sendMsg').textContent=t('errNoSig');return}
+ if(!pendOp){$('sendMsg').textContent=t('errNoChallenge');return}
+ $('sendMsg').textContent='…';
+ const r=await API.post('/cabinet/op-submit',{opId:pendOp.opId,signature:sig});
+ if(r.status<300&&r.json&&r.json.accepted){$('sendMsg').innerHTML='<span class="ok">'+t('sendOk')+pendOp.txidHex+'</span>';loadBal()}
+ else $('sendMsg').textContent='⚠ '+(r.json.error||'rejected');
+};
+/* ---------------- Выйти ---------------- */
+async function logout(){ 
+ // 1) сервер: revoke JWT
+ if(jwt){try{await API.post('/auth/logout',{},jwt)}catch(e){}}
+ // 2) локально
+ localStorage.removeItem('agtWalletJwt');sessionStorage.removeItem('agtCabToken');
+ jwt=null;addr=null;balanceMGNT=null;passportData=null;pendOp=null;pendChallenge=null;
+ $('cab').classList.add('hidden');$('panelHistory').classList.add('hidden');
+ $('btnLogout').classList.add('hidden');updateSess();showAuth();
+}
+$('btnLogout').onclick=logout;
+$('btnLogoutAll').onclick=async()=>{if(jwt){await API.post('/auth/logout-all',{},jwt)}logout()};
+$('btnCopy').onclick=()=>{navigator.clipboard.writeText(addr).then(()=>$('secMsg').textContent=t('copied'))};
+
+/* ---------------- Безопасность: переключатели ---------------- */
+async function refreshAuthState(){
+ if(!addr||!jwt){setTg('tgFace',false);setTg('tgPin',false);setTg('tgPhone',false);return}
+ const r=await API.post('/auth/session',{},jwt);  if(r.json&&r.json.ok===true){
+   setTg('tgPin',!!r.json.pinSet);setTg('tgFace',!!r.json.faceOn);setTg('tgPhone',!!r.json.phoneSet);
+ } else if(r.status>=401||r.json.ok===false){ // IP-инвалидация или протух
+   logout();return;
+ } else { setTg('tgPin',false);setTg('tgFace',false);setTg('tgPhone',false); }
+}
+function setTg(id,v){const el=$(id);el.classList.toggle('on',!!v);el.setAttribute('aria-checked',!!v);el.dataset.on=!!v}
+/* PIN вкл/выкл */
+$('tgPin').addEventListener('click',async()=>{
+ if(!addr||!jwt)return;
+ if($('tgPin').dataset.on==='true'){const r=await API.post('/auth/pin/disable',{},jwt);refreshAuthState();$('secMsg').textContent=(r.json&&r.json.ok)?t('pinDisableOk'):'⚠';return}
+ const pin=prompt(t('pinEnter'));if(!pin)return;
+ if(!/^\d{4,6}$/.test(pin)){$('secMsg').textContent=t('pinErr');return}
+ const r=await API.post('/auth/pin/set',{pin},jwt);
+ if(r.status<300&&r.json.ok){$('secMsg').textContent=t('pinSetOk');refreshAuthState()}
+ else $('secMsg').textContent='⚠ '+(r.json.error||'pin_set_failed');
+});
+/* Face ID вкл/выкл */
+$('tgFace').onclick=()=>{
+ if(!addr||!jwt){showAuth();return}
+ if($('tgFace').dataset.on==='true'){API.post('/auth/webauthn/disable',{},jwt).then(refreshAuthState);$('secMsg').textContent=t('pinDisableOk');return}
+ window._walletPick('face');webauthnFlow('register');
+};
+$('tgPhone').onclick=async()=>$('secMsg').textContent=t('phoneBindOff');
+
+/* ---------------- init ---------------- */
+function boot(){
+ fitOrb();requestAnimationFrame(drawOrb);
+ applyLang();
+ // автологин: JWT из localStorage → проверить на сервере
+ const sj=localStorage.getItem('agtWalletJwt');
+ if(sj)API.post('/auth/session',{},sj).then(r=>{
+   if(r.status<300&&r.json.ok){jwt=sj;addr=r.json.sub;if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin()}
+   else localStorage.removeItem('agtWalletJwt');
+   if(!addr)showAuth();
+ }).catch(()=>showAuth());
+ else showAuth();
+ setInterval(()=>{if(addr)loadBal()},15000);
+}
+boot();
+</script>
+</body>
+</html>

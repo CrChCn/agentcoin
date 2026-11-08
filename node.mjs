@@ -1849,7 +1849,28 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
   if (p === '/jobs/zkclaim/state' && req.method === 'GET') {
     const f = loadPouw();
-    return json(res, 200, { circuit: 'pouw-multiplier-v1', curve: 'bn128', reward: 0.25, unit: TICKER, ceremony: 'test-single-contributor', claims: Object.keys(f.claims).length, verifyEndpoint: 'POST /jobs/zkclaim {proof, publicSignals, address}' });
+    // сверка выплат: казна платит обычным POST /tx с memo pouw:<ticket> — сканируем хвост цепи
+    const addr = String(url.searchParams.get('address') || '');
+    const ch = bc.chain;
+    let dirty = false;
+    for (const k of Object.keys(f.claims)) {
+      const cl = f.claims[k];
+      if (!cl || cl.status === 'paid') continue;
+      if (addr && cl.to !== addr) continue;
+      for (let i = ch.length - 1; i >= 0 && i >= ch.length - 2000; i--) {
+        const txs = (ch[i] && ch[i].txs) || [];
+        for (const t of txs) {
+          if (t && t.to === cl.to && Number(t.amount) >= Number(cl.amount) && String(t.memo || '') === 'pouw:' + cl.ticket) {
+            cl.status = 'paid'; cl.paidTx = t.txid || null; dirty = true; break;
+          }
+        }
+        if (cl.status === 'paid') break;
+      }
+    }
+    if (dirty) savePouw(f);
+    const all = Object.entries(f.claims).map(([k, cl]) => ({ key: k, ...cl }))
+      .filter(c => !addr || c.to === addr).slice(-50);
+    return json(res, 200, { circuit: 'pouw-multiplier-v1', curve: 'bn128', reward: 0.25, unit: TICKER, ceremony: 'test-single-contributor', claims: all });
   }
   if (p === '/jobs/zkclaim' && req.method === 'POST') {
     const { proof, publicSignals, address } = await body(req);
@@ -1861,8 +1882,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const key = address + '|' + c;
     const f = loadPouw();
     const now = Date.now();
-    if (f.claims[key] && now - f.claims[key] < 24 * 3600_000)
-      return json(res, 429, { error: 'already_claimed_24h', hint: 'один claim на (адрес, задание) в сутки' });
+    const prev = f.claims[key];
+    if (prev && now - Number(prev.ts || 0) < 24 * 3600_000)
+      return json(res, 429, { error: 'already_claimed_24h', hint: 'один claim на (адрес, задание) в сутки', ticket: prev.ticket });
     let zk;
     try { zk = await loadZk(); } catch { return json(res, 503, { error: 'zk_unavailable', hint: 'верификатор ещё строится (церемония), повтори позже' }); }
     const t0 = Date.now();
@@ -1870,17 +1892,13 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     try { ok = await zk.snark.groth16.verify(zk.vk, publicSignals, proof); } catch (e) { return json(res, 422, { error: 'verify_crashed', detail: String(e && e.message || e).slice(0, 160) }); }
     const ms = Date.now() - t0;
     if (!ok) return json(res, 422, { verified: false, ms });
-    const FUND = { address: FAUCET_FUND_ADDR };
-    const fundW = loadWallets()[FUND.address];
-    if (!fundW) return json(res, 503, { error: 'fund_wallet_missing' });
-    const claimTx = { from: FUND.address, fromPub: fundW.pub, to: address, amount: 0.25, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: 'pouw:' + c.slice(0, 24) };
-    claimTx.signature = signTransaction(claimTx, fundW.privKey);
-    const r = bc.addTransaction(claimTx);
-    if (!r.ok) return json(res, 503, { error: 'fund_tx_rejected', detail: r.reason });
-    f.claims[key] = now;
+    // Выплата — кастодиальная граница: у ноды нет ключей казны (как и у VCG-эскроу).
+    // Выпускаем тикет; казначей платит обычным POST /tx {to, amount:0.25, memo:'pouw:<ticket>'},
+    // /state подтверждает факт on-chain сканированием хвоста цепи.
+    const ticket = 't' + now.toString(36) + Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');
+    f.claims[key] = { to: address, challenge: c, amount: 0.25, ticket, status: 'verified-unpaid', ts: now };
     savePouw(f);
-    setImmediate(() => { gossipTx(claimTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: claimTx }); });
-    return json(res, 200, { verified: true, ms, paid: 0.25, unit: TICKER, to: address, challenge: c, note: 'pouw claim принят и оплачен из фонда' });
+    return json(res, 200, { verified: true, ms, ticket, amount: 0.25, unit: TICKER, to: address, challenge: c, status: 'verified-unpaid', fundHint: "treasury: POST /tx {to:'" + address + "', amount:0.25, memo:'pouw:" + ticket + "'}" });
   }
   if ((p === '/jobs/auction' && req.method === 'POST') || (p === '/jobs/auction/state' && req.method === 'GET') || (p === '/jobs/auction/list' && req.method === 'GET')) {
     if (p === '/jobs/auction/list') return json(res, 200, { auctions: vcgAuctions.list() });

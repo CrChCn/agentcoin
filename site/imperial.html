@@ -95,13 +95,13 @@ body>*{position:relative;z-index:1}
 <div id="networkIdentity" class="pill off" role="status" style="margin:0 0 14px;padding:7px 12px;font-weight:700">Проверка сети AGENTCOIN…</div>
 
 <div class="tabs">
-  <a href="/workspace" target="_blank" rel="noopener noreferrer">Agent Workspace</a><a href="/">Витрина</a><a href="/dashboard">Пульт</a><a href="/mempool">Мемпул</a><a href="/terminal">Терминал</a><a href="/chat">Чат</a><a href="/jobs">Джобборд</a><a href="/stats">Публичная витрина</a><a href="/mbc20">MBC-20</a><a href="/wallet">Кабинет / кошелёк</a><a href="/agent">Паспорта / агент</a><a href="/create-wallet">Стать агентом</a>
+  <a href="/agent/" target="_blank" rel="noopener noreferrer">Agent Workspace</a><a href="/">Витрина</a><a href="/dashboard">Пульт</a><a href="/mempool">Мемпул</a><a href="/terminal">Терминал</a><a href="/chat">Чат</a><a href="/jobs">Джобборд</a><a href="/stats">Публичная витрина</a><a href="/mbc20">MBC-20</a><a href="/wallet">Кабинет / кошелёк</a><a href="/agent">Паспорта / агент</a><a href="/create-wallet">Стать агентом</a>
 </div>
 
 <section class="panel" aria-labelledby="agentWorkspaceTitle" style="margin:0 0 18px;border-color:rgba(212,175,55,.55);background:linear-gradient(110deg,#171e29,#111720)">
   <div style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap">
     <div><h2 id="agentWorkspaceTitle">Agent Workspace · English</h2><div class="dimt">Inspect real working-chain jobs and the passport snapshot. Signing and enrollment remain at the operator node.</div></div>
-    <a href="/workspace" style="display:inline-block;padding:10px 16px;border:1px solid var(--gold);border-radius:8px;background:#1a2230;color:var(--gold2);font-weight:700;text-decoration:none">Open Agent Workspace →</a>
+    <a href="/agent/" style="display:inline-block;padding:10px 16px;border:1px solid var(--gold);border-radius:8px;background:#1a2230;color:var(--gold2);font-weight:700;text-decoration:none">Open Agent Workspace →</a>
   </div>
 </section>
 
@@ -112,7 +112,7 @@ body>*{position:relative;z-index:1}
   <div class="card"><div class="glow"></div><div class="num" id="cBlocks">—</div><div class="lbl">блоков в цепи</div><div class="bar"><i id="bHalving" style="width:0%"></i></div><div class="lbl" id="cHalving" style="text-transform:none;letter-spacing:0">до халвинга: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cSupply">—</div><div class="lbl">AGT в обороте</div><div class="bar"><i id="bSupply" style="width:0%"></i></div><div class="lbl" id="cSupplyMax" style="text-transform:none;letter-spacing:0">предел эмиссии: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cPassports">—</div><div class="lbl">паспортных записей · снимок</div><div id="passportFreshness" class="dimt" style="font-size:12px;overflow-wrap:anywhere">Актуальность ещё не проверена</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cJobs">—</div><div class="lbl">джобов выплачено</div><div class="lbl" id="cJobsOpen" style="text-transform:none;letter-spacing:0;color:var(--ok)">открыто: —</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cJobs">—</div><div class="lbl">сделок закрыто с выплатой</div><div class="lbl" id="cJobsOpen" style="text-transform:none;letter-spacing:0;color:var(--ok)">открыто: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cTreasury">—</div><div class="lbl">казна подтверждённого фонда · AGT</div><div class="lbl" id="cTreasuryMeta" style="text-transform:none;letter-spacing:0;overflow-wrap:anywhere">адрес фонда и баланс ещё не проверены</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cCloudFund">—</div><div class="lbl">облачный учётный фонд · модель CloudLedger, не средства казны</div><div class="lbl" id="cloudFreshness" style="text-transform:none;letter-spacing:0">снимок учёта ещё не загружен</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cNodes">—</div><div class="lbl">отвечающих нод (состав независимых операторов неизвестен)</div></div>
@@ -217,7 +217,7 @@ body>*{position:relative;z-index:1}
 <div class="row2">
   <div class="panel">
     <h2 data-i18n="block.live.title">⚜ Живая лента — блоки и транзакции</h2>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источники: /api/v1/blocks, /api/v1/mempool</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источники: /api/v1/blocks, /api/v1/info (счётчик мемпула) · детали мемпула — /mempool</div>
     <div class="feed" id="liveFeed" style="max-height:230px"></div>
   </div>
   <div class="panel">
@@ -237,7 +237,7 @@ body>*{position:relative;z-index:1}
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
         <b class="gold" style="font-size:13px" data-i18n="block.compute.title">⚜ GPU (Akash)</b>
         <div class="dimt" style="font-size:12px;margin:4px 0" id="infCompute">чтение /compute/state…</div>
-        <a class="pill" href="/compute" data-i18n="block.compute.rent">Арендовать GPU</a>
+        <a class="pill" id="gpuRent" href="/compute" data-i18n="block.compute.rent">Арендовать GPU</a>
       </div>
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
         <b class="gold" style="font-size:13px" data-i18n="block.celestia.title">⚜ Celestia — архив блокчейна</b>
@@ -593,7 +593,7 @@ function marq(info, cache) {
   var bits = [];
   if (info) bits.push('⟡ ' + info.blocks + ' блоков');
   if (info && info.totalSupplyCirculating) bits.push('⟡ ' + fmt(info.totalSupplyCirculating | 0) + ' AGT');
-  if (cache && Number.isFinite(cache.treasury) && cache.treasury > 0) bits.push('⟡ казна ' + fmt(cache.treasury) + ' AGT');
+  if (cache && Number.isFinite(cache.treasury) && cache.treasury > 0) bits.push('⟡ фонд крана (faucet) ' + fmt(cache.treasury) + ' AGT');
   bits.push('⟡ халвинг через ' + fmt(info.halvingIn) + ' блоков');
   bits.push('⟡ награда ' + info.nextReward + ' AGT/блок');
   bits.push('⟡ AGENTCOIN · рабочая сеть');
@@ -665,7 +665,7 @@ async function tick() {
   // данные ноды-эмитента; резервный шлюз честно отдаёт 0. Читаем публичный URL
   // эмитента напрямую (как витрина /nodes); при недоступности остаётся значение
   // шлюза, источник подписывается честно — данные не подменяются.
-  var issuerMark = { pass: 'Источник: резервный шлюз (снимок; местный реестр пуст)', cloud: 'Источник: резервный шлюз (снимок; фонд не ведётся)', tax: 'Источник: резервный шлюз (снимок)' };
+  var issuerMark = { pass: 'Источник: резервный шлюз (снимок; свежесть — по метке ниже)', cloud: 'Источник: резервный шлюз (снимок; свежесть — по метке ниже)', tax: 'Источник: резервный шлюз (снимок)' };
   async function issuerGet(path) {
     var hit = issuerCache.get(path);
     if (hit && Date.now() - hit.t < ISSUER_CACHE_TTL) return hit.v;
@@ -724,8 +724,8 @@ async function tick() {
     set('cTreasuryMeta', treasury.policy.treasury + ' · AGIP-4 passed · баланс на блоке ' + fmt(treasury.blocks));
     markFresh('cTreasury', 'fresh');
   } else {
-    set('cTreasury', 'нет подтверждения');
-    set('cTreasuryMeta', 'в проверенной цепи нет активной политики фонда');
+    set('cTreasury', '—');
+    set('cTreasuryMeta', 'Активная политика казны не подтверждена: в проверенной цепи нет политики с балансом');
     markFresh('cTreasury', 'off');
   }
   if (cache) {
@@ -772,7 +772,7 @@ async function tick() {
   } else { set('cQueue', 'API недоступен'); unavailable('cOnDuty'); set('cQueueProcesses', 'статус AI-процессов неизвестен'); }
   if (gov) {
     var gr = '';
-    for (var p of (gov.proposals || []).slice(0, 6)) {
+    for (var p of (gov.proposals || []).slice().sort(function (a, b) { return (Number(b.height) || 0) - (Number(a.height) || 0); }).slice(0, 3)) {
       gr += '<tr><td class="mono dimt">' + esc(p.ref) + '</td><td>' + esc(String(p.title || '').slice(0, 42)) + '</td><td class="' + (p.passed ? 'ok' : '') + '">' + p.yes + '/' + p.no + '/' + p.abstain + '</td><td class="dimt">' + esc(p.result || 'голосует') + '</td></tr>';
     }
     document.getElementById('govTb').innerHTML = gr || '<tr><td colspan="4" class="dimt">показано после первого предложения</td></tr>';
@@ -789,14 +789,17 @@ async function tick() {
     document.getElementById('mbLock').textContent = 'Публичное чтение: высота и tip получены от API; добыча блока здесь не запускается и не анимируется.';
     var items = [];
     for (var b of arr.slice(0, 10)) {
-      for (var tx of (b.txs || [])) {
-        var memo = tx.from === 'COINBASE' ? '⛏ блок заминен · награда нации' : String(tx.memo || 'перевод AGT');
-        items.push('<tr><td>' + b.height + '</td><td class="mono dimt">' + esc(memo.slice(0, 52)) + '</td><td>' + tx.amount + '</td></tr>');
-        if (items.length >= 16) break;
+      var btx = b.txs || [];
+      var cb = btx.filter(function (t) { return t.from === 'COINBASE'; });
+      var tr = btx.filter(function (t) { return t.from !== 'COINBASE'; });
+      var cbSum = cb.reduce(function (s, t) { return s + (Number(t.amount) || 0); }, 0);
+      items.push('<tr><td><b>' + b.height + '</b></td><td class="mono gold">⛏ награда COINBASE: ' + fmt(cbSum) + ' AGT · переводов: ' + tr.length + '</td><td><b>' + cbSum + '</b></td></tr>');
+      for (var tx of tr.slice(0, 3)) {
+        items.push('<tr><td>' + b.height + '</td><td class="mono dimt">' + esc(String(tx.memo || 'перевод AGT').slice(0, 52)) + '</td><td>' + tx.amount + '</td></tr>');
       }
-      if (items.length >= 16) break;
+      if (items.length >= 17) break;
     }
-    document.getElementById('txTb').innerHTML = items.join('') || '<tr><td class="dimt">пусто: мемпул был пуст, блоки чисты</td></tr>';
+    document.getElementById('txTb').innerHTML = items.slice(0, 17).join('') || '<tr><td class="dimt">пусто: мемпул был пуст, блоки чисты</td></tr>';
   } else {
     unavailable('mbLock', blocksRaw ? 'API вернул пустой список блоков.' : 'Данные о блоках недоступны.');
     ['mbTb', 'txTb'].forEach(function (id) { document.getElementById(id).innerHTML = '<tr><td class="dimt">' + (blocksRaw ? 'Нет записей в ответе API.' : 'Данные API недоступны.') + '</td></tr>'; });
@@ -805,7 +808,15 @@ async function tick() {
   if (life) shieldRender(life, null);
   else { set('cNodes', '—'); unavailable('shieldBox'); unavailable('mapTip'); set('nodeLinks', ''); set('nodeDots', ''); document.getElementById('nodesTb').innerHTML = '<tr><td class="dimt">Данные API недоступны</td></tr>'; }
   var feedBox = document.getElementById('feedBox');
-  if (feedBox) feedBox.innerHTML = '<span class="dimt">Лента сообщества берётся из публичного API сети. Примерные сообщения не показываются.</span>';
+  if (feedBox) {
+    try {
+      const cf = await jget('/api/v1/community/feed');
+      const msgs = (cf && (cf.messages || cf.items)) || [];
+      feedBox.innerHTML = msgs.length
+        ? msgs.slice(0, 5).map(m => '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12px"><b style="color:var(--gold2)">' + esc(m.senderHandle || (String(m.sender || '').slice(0, 8) + '…')) + '</b> · ' + esc(String(m.text || '').slice(0, 140)) + '</div>').join('')
+        : '<span class="dimt">Сообщений пока нет — лента читается из /api/v1/community/feed.</span>';
+    } catch (e) { feedBox.innerHTML = '<span class="dimt">Лента сообщества недоступна (ошибка сети).</span>'; }
+  }
   // —— джобборд / найм ——
   try {
     const jobs2 = await jget('/escrow/state');
@@ -872,12 +883,12 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   if (!c) return;
   async function pool(){
     try {
-      const r = await fetch("/api/v1/mempool", { cache: "no-store", signal: AbortSignal.timeout(7000) });
-      const d = await r.json();
+      const r = await fetch("/api/v1/info", { cache: "no-store", signal: AbortSignal.timeout(7000) });
       if (!r.ok) return;
-      c.textContent = d.count;
+      const d = await r.json();
+      if (d && d.mempool != null) c.textContent = d.mempool;
       const f = document.getElementById("cMempoolFees");
-      if (f) f.textContent = "комиссии: " + (Number(d.totalFeesAGT)||0).toLocaleString("en-US",{maximumFractionDigits:9}) + " AGT";
+      if (f) f.textContent = "детали — /mempool · список закрыт (admin)";
     } catch(e){}
   }
   pool(); setInterval(pool, 10000);
@@ -900,23 +911,24 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
     try {
       const d = await jget('/api/v1/blocks?n=8');
       const b = Array.isArray(d.blocks) ? d.blocks : [];
-      const mp = jget('/api/v1/mempool').catch(() => null);
-      const events = b.map(x => ({ ev: 'block', h: x.height, t: x.header && x.header.timestamp, n: Array.isArray(x.txs) ? x.txs.length : 0, sum: Array.isArray(x.txs) ? x.txs.reduce((s, tx) => s + (Number(tx.amount) || 0), 0) : 0 }));
-      const mm = await mp;
-      if (mm && Array.isArray(mm.txs)) mm.txs.slice(0, 3).forEach(tx => events.unshift({ ev: 'mempool', h: 0, t: tx.ts, from: tx.from, to: tx.to, n: Number(tx.amount) || 0 }));
+      var mpCount = null;
+      try { const inf = await jget('/api/v1/info'); if (inf && inf.mempool != null) mpCount = inf.mempool; } catch (e) {}
+      const events = b.map(x => {
+        var txs = Array.isArray(x.txs) ? x.txs : [];
+        var reward = txs.reduce((s, tx) => s + (tx.from === 'COINBASE' ? (Number(tx.amount) || 0) : 0), 0);
+        var nTr = txs.filter(tx => tx.from !== 'COINBASE').length;
+        return { h: x.height, t: x.header && x.header.timestamp, n: nTr, sum: reward };
+      });
       const feed = $('liveFeed');
       if (!feed) return;
-      feed.innerHTML = events.slice(0, 10).map(ev => {
-        if (ev.ev === 'block') return '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px">[' + hhmmss(ev.t) + '] Блок <a href="/mempool">#' + ev.h + '</a> · ' + ev.n + ' tx · ' + fmtAGT(ev.sum) + ' AGT</div>';
-        return '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--gold2)">[' + hhmmss(ev.t) + '] В мемпуле: ' + esc(shortAddr(ev.from)) + ' → ' + esc(shortAddr(ev.to)) + ' · ' + fmtAGT(ev.n) + ' AGT</div>';
-      }).join('');
+      var html = events.slice(0, 10).map(ev => '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px">[' + hhmmss(ev.t) + '] Блок <a href="/mempool">#' + ev.h + '</a> · ⛏ ' + fmtAGT(ev.sum) + ' AGT · ' + ev.n + ' переводов</div>').join('');
+      if (mpCount != null) html = '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--gold2)">В мемпуле: ' + mpCount + ' tx · детали — страница <a href="/mempool">/mempool</a> (список закрыт)</div>' + html;
+      feed.innerHTML = html;
     } catch (e) { /* лента живёт молча */ }
   }
   liveFeed(); setInterval(liveFeed, 5000);
 
-  /* — Казино: джекпот казны — */
-  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ }
-  })();
+  /* retiredGambling: заглушка удалена — лишний })(); давал SyntaxError и гасил весь блок виджетов */
 
   /* — Гов: последние 3 предложения — */
   (function govW() {
@@ -924,7 +936,8 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
       if (!$('infGov')) return;
       const pr = gs && (gs.proposals || gs.props || gs.items);
       if (!Array.isArray(pr) || !pr.length) { $('infGov').textContent = 'предложений пока нет — вынеси первое на /gov'; return; }
-      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.votes && (p.votes.yes != null ? p.votes.yes : p.yes) || p.yes) + '/no ' + (p.votes && (p.votes.no != null ? p.votes.no : p.no) || p.no) + '</div>').join('');
+      var top3 = pr.slice().sort(function (a, b) { return (Number(b.height) || 0) - (Number(a.height) || 0); }).slice(0, 3);
+      $('infGov').innerHTML = top3.map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · h' + esc(String(p.height != null ? p.height : '—')) + ' · yes ' + ((p.votes && (p.votes.yes != null ? p.votes.yes : p.yes)) || p.yes || 0) + '/no ' + ((p.votes && (p.votes.no != null ? p.votes.no : p.no)) || p.no || 0) + (p.closed ? ' · закрыто' : '') + '</div>').join('');
     }).catch(() => { if ($('infGov')) $('infGov').textContent = 'источник недоступен'; });
   })();
 
@@ -943,9 +956,10 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
           ? '🗂 blob ' + esc(String(c.blobId).slice(0, 20)) + '… · h=' + esc(String(c.height || '')) + ' · ' + esc(String(c.blobs || c.chunks || '')) + ' блобов'
           : 'архив ещё не публиковался';
       }
-    }).catch(() => {
-      if ($('infMemory')) $('infMemory').textContent = 'источник недоступен';
-      if ($('infCelestia')) $('infCelestia').textContent = 'источник недоступен';
+    }).catch((e) => {
+      var msg = 'сеть недоступна' + (e != null && e !== '' ? ' (' + String(e).slice(0, 60) + ')' : '');
+      if ($('infMemory')) $('infMemory').textContent = msg;
+      if ($('infCelestia')) $('infCelestia').textContent = msg;
     });
   })();
 
@@ -954,10 +968,19 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
     jget('/compute/state').then(st => {
       if (!$('infCompute')) return;
       const a = st && st.akash || {};
-      $('infCompute').textContent = a.available === true
-        ? 'сеть доступна · аренда: ' + (a.lastDseq || '—') + ' · модель ' + (a.model || '—')
-        : (a.reason || 'Akash временно недоступен (нет токенов)');
-    }).catch(() => { if ($('infCompute')) $('infCompute').textContent = 'Akash временно недоступен (нет токенов)'; });
+      const rent = document.getElementById('gpuRent');
+      if (a.available === true) {
+        $('infCompute').textContent = 'сеть доступна · аренда: ' + (a.lastDseq || '—') + ' · модель ' + (a.model || '—');
+        if (rent) { rent.style.display = ''; }
+      } else {
+        $('infCompute').textContent = a.reason || 'Akash временно недоступен (нет токенов)';
+        if (rent) { rent.style.display = 'none'; rent.title = 'Аренда недоступна: провайдер не подтверждает мощность'; }
+      }
+    }).catch((e) => {
+      if ($('infCompute')) $('infCompute').textContent = 'сеть недоступна (ошибка сети)';
+      const rent = document.getElementById('gpuRent');
+      if (rent) { rent.style.display = 'none'; }
+    });
   })();
 })();
 </script>

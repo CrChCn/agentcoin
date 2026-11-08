@@ -402,7 +402,7 @@ const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 })
 let checkoutSiteManifest = null;
 try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
 const SITE_PAGE_CONTENT_TYPE = (page) =>
-  page.endsWith('.wasm') ? 'application/wasm' : page.endsWith('.js') ? 'text/javascript; charset=utf-8'
+  page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
   : page.endsWith('.png') ? 'image/png'
   : 'text/html; charset=utf-8';

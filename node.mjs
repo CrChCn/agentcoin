@@ -402,7 +402,7 @@ const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 })
 let checkoutSiteManifest = null;
 try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
 const SITE_PAGE_CONTENT_TYPE = (page) =>
-  page.endsWith('.js') ? 'text/javascript; charset=utf-8'
+  page.endsWith('.wasm') ? 'application/wasm' : page.endsWith('.js') ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
   : page.endsWith('.png') ? 'image/png'
   : 'text/html; charset=utf-8';
@@ -460,10 +460,11 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
+  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js)$/;
+const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
-  if (!(adminByToken || adminLocal) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)))) {
+  if (!(adminByToken || adminLocal) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)) || (req.method === 'GET' && PUB_STATIC_RE.test(p)))) {
     console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}${proxied ? ' (proxy-headers!)' : ''}`);
     return json(res, 403, {
       error: 'admin_loopback_only',
@@ -2419,6 +2420,8 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
   if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
+  if (p === '/agent' || p === '/agent.html') return serveSitePage(res, 'agent.html');
+  if (req.method === 'GET' && !p.includes('..') && PUB_STATIC_RE.test(p)) return serveSitePage(res, p.slice(1));
   // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
   // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные
   // релизы: _generation валидирует ВСЕ файлы списка).

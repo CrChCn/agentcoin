@@ -1870,7 +1870,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     if (dirty) savePouw(f);
     const all = Object.entries(f.claims).map(([k, cl]) => ({ key: k, ...cl }))
       .filter(c => !addr || c.to === addr).slice(-50);
-    return json(res, 200, { circuit: 'pouw-multiplier-v1', curve: 'bn128', reward: 0.25, unit: TICKER, ceremony: 'test-single-contributor', claims: all });
+    return json(res, 200, { circuit: 'pouw-multiplier-v1', curve: 'bn128', reward: 1, unit: TICKER, ceremony: 'test-single-contributor', claims: all });
   }
   if (p === '/jobs/zkclaim' && req.method === 'POST') {
     const { proof, publicSignals, address } = await body(req);
@@ -1893,12 +1893,12 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const ms = Date.now() - t0;
     if (!ok) return json(res, 422, { verified: false, ms });
     // Выплата — кастодиальная граница: у ноды нет ключей казны (как и у VCG-эскроу).
-    // Выпускаем тикет; казначей платит обычным POST /tx {to, amount:0.25, memo:'pouw:<ticket>'},
+    // Выпускаем тикет; казначей платит обычным POST /tx {to, amount:1, memo:'pouw:<ticket>'},
     // /state подтверждает факт on-chain сканированием хвоста цепи.
     const ticket = 't' + now.toString(36) + Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');
-    f.claims[key] = { to: address, challenge: c, amount: 0.25, ticket, status: 'verified-unpaid', ts: now };
+    f.claims[key] = { to: address, challenge: c, amount: 1, ticket, status: 'verified-unpaid', ts: now };
     savePouw(f);
-    return json(res, 200, { verified: true, ms, ticket, amount: 0.25, unit: TICKER, to: address, challenge: c, status: 'verified-unpaid', fundHint: "treasury: POST /tx {to:'" + address + "', amount:0.25, memo:'pouw:" + ticket + "'}" });
+    return json(res, 200, { verified: true, ms, ticket, amount: 1, unit: TICKER, to: address, challenge: c, status: 'verified-unpaid', fundHint: "treasury: POST /tx {to:'" + address + "', amount:1, memo:'pouw:" + ticket + "'}" });
   }
   if ((p === '/jobs/auction' && req.method === 'POST') || (p === '/jobs/auction/state' && req.method === 'GET') || (p === '/jobs/auction/list' && req.method === 'GET')) {
     if (p === '/jobs/auction/list') return json(res, 200, { auctions: vcgAuctions.list() });

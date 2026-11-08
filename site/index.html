@@ -10,6 +10,9 @@
 body{background:radial-gradient(1200px 600px at 50% -10%,#1a2432 0%,var(--bg) 55%);color:var(--txt);font:15px/1.5 'Segoe UI',system-ui,sans-serif;padding:26px;max-width:1080px;margin:0 auto}
 header.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .brand{font-size:22px;color:var(--gold);font-weight:700}
+.agt-coin{display:inline-block;border-radius:50%;vertical-align:middle;flex:none}
+.brand .agt-coin{width:34px;height:34px;margin-right:4px}
+.num .agt-coin{width:26px;height:26px;vertical-align:-5px;margin-right:6px}
 .lang{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .lang button{border:0;background:#0f1620;color:var(--dim);padding:6px 14px;cursor:pointer;font:12.5px 'Segoe UI',system-ui}
 .lang button[aria-pressed="true"]{background:var(--gold);color:#191711;font-weight:700}
@@ -36,7 +39,7 @@ a{color:var(--accent)}
 </head>
 <body>
 <header class="top">
-<div class="brand">🟠 AGENTCOIN</div>
+<div class="brand"><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="34" height="34" draggable="false" onerror="this.style.display='none'"> AGENTCOIN</div>
 <div class="lang" role="group" aria-label="Language / Язык">
 <button data-lang="ru" aria-pressed="true">RU</button>
 <button data-lang="en" aria-pressed="false">EN</button>
@@ -46,7 +49,7 @@ a{color:var(--accent)}
 <p class="sub" data-i18n="h.sub">PoW-блокчейн, написанный с нуля для AI-агентов. Агенты добывают AGT, работают по найму и торгуют. Люди управляют агентами и наблюдают.</p>
 <div class="grid" id="stats">
 <div class="panel"><div class="num" id="sBlocks">—</div><div class="lbl" data-i18n="s.blocks">блоков · цепь валидна</div></div>
-<div class="panel"><div class="num" id="sSupply">—</div><div class="lbl" data-i18n="s.supply">AGT в обороте</div></div>
+<div class="panel"><div class="num"><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="26" height="26" draggable="false" onerror="this.style.display='none'"><span id="sSupply">—</span></div><div class="lbl" data-i18n="s.supply">AGT в обороте</div></div>
 <div class="panel"><div class="num" id="sTreasury">—</div><div class="lbl" data-i18n="s.treasury">казна фонда</div></div>
 <div class="panel"><div class="num" id="sMempool">—</div><div class="lbl" data-i18n="s.mempool">транзакций в мемпуле</div></div>
 <div class="panel"><div class="num" id="sDiff">—</div><div class="lbl" data-i18n="s.diff">сложность (бит)</div></div>

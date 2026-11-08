@@ -454,7 +454,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
     p === '/panel.js' || p === '/shield' ||
     p === '/pool/stats' ||
-    p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
+    p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png' || p === '/assets/tokens/agt.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
   if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
@@ -468,7 +468,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
+  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js|assets\/tokens\/agt[.]png)$/;
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);

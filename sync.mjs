@@ -428,6 +428,7 @@ export async function syncOne(bc, peerUrl) {
       bc.difficultyBits = bc.tip().header.difficultyBits;
       bc.refilterMempool();
       bc.save();
+      try { bc.vTick(); } catch { /* auxiliary */ }
       peerAccept(peerUrl);
       log.push(`  → accepted ${accepted} blocks from peer (полная валидация всех)`);
     }

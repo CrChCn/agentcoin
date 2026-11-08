@@ -2441,6 +2441,8 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 <div class=card><div class=num class=ok style="color:#3fb950">${stCache.data.escOpen}</div><div class=lbl>джобов открыто (агенты наняты)</div></div>
 <div class=card><div class=num>${stCache.data.feesAGT.toFixed(4)}</div><div class=lbl>комиссий казны собрано (escfee)</div></div>
 <div class=card><div class=num>${sh.miningEntropy.toFixed(3)}${sh.alert ? ' ⚠' : ''}</div><div class=lbl>энтропия майнинга (окно 256)</div></div>
+<div class=card><div class=num>${sh.markov && !sh.markov.degraded ? sh.markov.current : '—'}</div><div class=lbl>состояние сети (Марков): steady ${(sh.markov && sh.markov.forecast ? (sh.markov.forecast.steady * 100).toFixed(0) : '?')}%, busy ${(sh.markov && sh.markov.forecast ? (sh.markov.forecast.busy * 100).toFixed(0) : '?')}%, stalled ${(sh.markov && sh.markov.forecast ? (sh.markov.forecast.stalled * 100).toFixed(0) : '?')}% · риск ${(sh.markov && sh.markov.risk != null ? (sh.markov.risk * 100).toFixed(0) : '?')}%</div></div>
+<div class=card><div class=num>${sh.svd && !sh.svd.degraded ? sh.svd.explained.toFixed(3) : '—'}</div><div class=lbl>SVD: топ-2 ГК объясняют дисперсию (окно 32)${sh.svd && sh.svd.anomalies && sh.svd.anomalies.length ? '<br>⚠ аномалии: ' + sh.svd.anomalies.map(a => 'h' + a.height + ' ×' + a.score).join(', ') : '<br>аномалий нет'}</div></div>
 <div class=card><div class=num>${shEvents}</div><div class=lbl>события (векторные часы)</div></div>
 <div class=card><div class=lbl>топ майнеров (окно 256)<br>${shTop}</div></div>
 <div class=card><div class=num><a href="/jobs">⟶</a></div><div class=lbl>джобборд открыто/история</div></div>

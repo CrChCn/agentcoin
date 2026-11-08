@@ -323,7 +323,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|gov(\.html)?|docs(\.html)?|shield(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -375,7 +375,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|gov(\.html)?|docs(\.html)?|shield(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -432,7 +432,10 @@ if (process.env.AGT_SITE_SYNC !== '0') {
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   try {
   const url = new URL(req.url, 'http://localhost');
-  const p = url.pathname;
+  // ТЗ сайта: данные — из API /api/v1/...; нода отдаёт тот же API с корня —
+  // алиас делает оба префикса рабочими (read-only, дальше — обычные проверки).
+  const rawP = url.pathname;
+  const p = rawP === '/api/v1' || rawP === '/api/v1/' ? '/' : (rawP.startsWith('/api/v1/') ? rawP.slice(7) : rawP);
   // Казино и лотерея удалены из продукта — явный 404 (а не 403 админ-плоскости),
   // чтобы внешний потребитель видел «такого API больше нет».
   if (/^\/(casino|lottery|lot)(\/|\.html$|$)/.test(p)) {
@@ -450,6 +453,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
+    p === '/gov' || p === '/gov.html' || p === '/docs' || p === '/docs.html' || p === '/shield.html' ||
+    p === '/create-wallet' || p === '/create-wallet.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
@@ -2684,6 +2689,26 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
   if (p === '/jobs' || p === '/jobs.html') {
     serveSitePage(res, 'jobs.html');
+  }
+  // --- ТЗ сайта: страницы /gov /shield /docs /create-wallet + доки из docs/ ---
+  if (p === '/gov' || p === '/gov.html') return serveSitePage(res, 'gov.html');
+  if (p === '/shield' || p === '/shield.html') {
+    if (req.method === 'GET' && (req.headers.accept || '').includes('application/json')) {
+      try { return json(res, 200, shieldSnapshot(bc.chain, bc.vclock, 256)); }
+      catch (e) { return json(res, 500, { error: 'shield_error', detail: e.message }); }
+    }
+    return serveSitePage(res, 'shield.html');
+  }
+  if (p === '/docs' || p === '/docs.html') return serveSitePage(res, 'docs.html');
+  if (p === '/create-wallet' || p === '/create-wallet.html') return serveSitePage(res, 'create-wallet.html');
+  if (req.method === 'GET' && p.startsWith('/docs/') && p.endsWith('.md')) {
+    const name = p.slice(6);
+    if (!/^[A-Za-z0-9_.-]+\.md$/.test(name) || name.includes('..')) return json(res, 400, { error: 'bad_doc_name' });
+    try {
+      const content = fs.readFileSync(path.join(__dirname, 'docs', name), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(content);
+    } catch (e) { return json(res, 404, { error: 'not_found' }); }
   }
 
   if (p === '/') {

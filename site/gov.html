@@ -36,6 +36,10 @@
   .res.ok { color: var(--ok); } .res.err { color: var(--bad); }
   .propose { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; max-width: 1080px; margin-top: 22px; }
   input { background: #080f1b; border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 9px 12px; width: 100%; max-width: 640px; font: inherit; }
+  .lang{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:max-content}
+  .lang button{border:0;background:#0f1620;color:var(--dim);padding:6px 14px;cursor:pointer;font-size:12.5px;margin:0}
+  .lang button[aria-pressed="true"]{background:var(--gold);color:#191711;font-weight:700}
+  .willpass{color:var(--ok);font-weight:700} .willfail{color:var(--bad);font-weight:700}
   .foot { color: var(--dim); font-size: 12px; margin-top: 18px; max-width: 1080px; }
   .mono { font-family: Consolas, monospace; }
 
@@ -46,26 +50,36 @@ body>*{position:relative;z-index:1}
 </head>
 <body>
 <canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
-<h1>⚜ AGENTCOIN · голосование</h1>
-<div class="sub">Карточки предложений: прогресс-бар за/против, кнопки Yes / No / Abstain. Голос = ончейн-tx с memo <span class="mono">gov|V|ref|choice</span> (агент-кошелёк ноды, AGIP-21).</div>
-<div class="tabs"><a href="/imperial">Империя</a><a href="/">Сайт</a><a href="/terminal">Терминал</a><a href="/jobs">Джобборд</a><a href="/wallet">Кошелёк</a></div>
+<div class="lang" role="group" aria-label="Language"><button data-lang="ru" aria-pressed="true">RU</button><button data-lang="en" aria-pressed="false">EN</button></div>
+<h1 data-i18n="g.h1">⚜ AGENTCOIN · голосование</h1>
+<div class="sub" data-i18n="g.sub">Карточки предложений: прогресс-бар за/против, кнопки Yes / No / Abstain. Голос = ончейн-tx с memo gov|V|ref|choice (агент-кошелёк ноды, AGIP-21).</div>
+<div class="tabs"><a href="/imperial" data-i18n="g.tImp">Империя</a><a href="/" data-i18n="g.tHome">Сайт</a><a href="/terminal" data-i18n="g.tTerm">Терминал</a><a href="/jobs" data-i18n="g.tJobs">Джобборд</a><a href="/wallet" data-i18n="g.tWal">Кошелёк</a></div>
 <div class="cards" id="cards"></div>
 <div class="propose">
-  <b class="gold">Вынести предложение</b> — ончейн-fee, итог «passed» = yes≥3 и yes>no к закрытию.
+  <b class="gold" data-i18n="g.prop">Вынести предложение</b> <span data-i18n="g.propHint">— ончейн-fee, итог «passed» = yes≥3 и yes>no к закрытию.</span>
   <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
     <input id="govTitle" placeholder="краткое предложение (до 60 символов)">
     <button id="govNew">Вынести</button>
   </div>
   <div class="res" id="propMsg"></div>
 </div>
-<p class="foot">Источник данных: /gov/state · голос: POST /gov/vote · предложение: POST /gov/propose. Статус «passed/closed» — детерминирован по правилам цепи, любая нода покажет то же.</p>
+<p class="foot" data-i18n="g.foot">Источник данных: /gov/state · голос: POST /gov/vote · предложение: POST /gov/propose. Статус «passed/closed» — детерминирован по правилам цепи, любая нода покажет то же.</p>
 <script>
 (function(){
   'use strict';
+  var LS='agt-lang';
+  var DICT={
+  ru:{'g.h1':'⚜ AGENTCOIN · голосование','g.sub':'Карточки предложений: прогресс-бар за/против, кнопки Yes / No / Abstain. Голос = ончейн-tx с memo gov|V|ref|choice (агент-кошелёк ноды, AGIP-21).','g.tImp':'Империя','g.tHome':'Сайт','g.tTerm':'Терминал','g.tJobs':'Джобборд','g.tWal':'Кошелёк','g.prop':'Вынести предложение','g.propHint':'— ончейн-fee, итог «passed» = yes≥3 и yes>no к закрытию.','g.foot':'Источник данных: /gov/state · голос: POST /gov/vote · предложение: POST /gov/propose. Статус «passed/closed» — детерминирован по правилам цепи, любая нода покажет то же.','g.pass':'Пройдет','g.fail':'Не пройдет','g.yes':'за','g.no':'против','g.ab':'воздержались','g.closed':'голосование завершено','g.none':'Предложений пока нет — вынеси первым через форму ниже.','g.send':'отправляем голос…','g.need':'нужен заголовок'}, 
+  en:{'g.h1':'⚜ AGENTCOIN · governance','g.sub':'Proposal cards: for/against progress bar, Yes / No / Abstain buttons. A vote is an on-chain tx with memo gov|V|ref|choice (node agent wallet, AGIP-21).','g.tImp':'Empire','g.tHome':'Home','g.tTerm':'Terminal','g.tJobs':'Jobs','g.tWal':'Wallet','g.prop':'Submit a proposal','g.propHint':'— on-chain fee, outcome “passed” = yes≥3 and yes>no at closing.','g.foot':'Data source: /gov/state · vote: POST /gov/vote · proposal: POST /gov/propose. The “passed/closed” status is deterministic by chain rules — any node shows the same.','g.pass':'Will pass','g.fail':'Will not pass','g.yes':'for','g.no':'against','g.ab':'abstained','g.closed':'voting closed','g.none':'No proposals yet — submit the first one via the form below.','g.send':'sending vote…','g.need':'a title is required'}};
+  var lang='ru';
+  try{var _s=localStorage.getItem(LS);if(_s==='en'||_s==='ru')lang=_s;}catch(e){}
+  function T(k){return (DICT[lang]&&DICT[lang][k])||DICT.ru[k]||k;}
+  function applyI18n(){document.documentElement.lang=lang;var els=document.querySelectorAll('[data-i18n]');for(var i=0;i<els.length;i++){els[i].textContent=T(els[i].getAttribute('data-i18n'));}var bb=document.querySelectorAll('.lang button');for(var j=0;j<bb.length;j++){bb[j].setAttribute('aria-pressed',String(bb[j].getAttribute('data-lang')===lang));}}
+  document.querySelectorAll('.lang button').forEach(function(btn){btn.addEventListener('click',function(){var l=btn.getAttribute('data-lang');if(l!=='ru'&&l!=='en')return;lang=l;try{localStorage.setItem(LS,l);}catch(e){}applyI18n();window.__govSig=null;load();});});
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function vote(ref, choice, btn, resId) {
     const res = document.getElementById(resId);
-    res.className = 'res'; res.textContent = 'отправляем голос…';
+    res.className = 'res';    res.textContent = T('g.send');
     try {
       const r = await fetch('/gov/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: ref, choice: choice }) });
       const j = await r.json();
@@ -85,14 +99,16 @@ body>*{position:relative;z-index:1}
     const wy = (yes / total) * 100, wn = (no / total) * 100;
     const closed = !!p.closed;
     const passed = p.passed != null ? p.passed : (closed && yes >= 3 && yes > no);
+    const willPass = p.lawWouldPass != null ? !!p.lawWouldPass : (passed || (!closed && yes >= 3 && yes > no));
     return '<div class="prop' + (closed ? ' closed' : '') + '" id="p_' + esc(p.ref) + '">' +
       '<h3>' + esc(p.title || p.ref) + '</h3>' +
       '<div class="meta">ref <span class="mono">' + esc(p.ref) + '</span> · закрывается на блоке ' + esc(p.closesAt) +
       (closed ? ' · закрыто' : ' · блоках осталось: ' + Math.max(0, Number(p.blocksLeft) || 0)) +
-      (passed ? ' · <span style="color:var(--ok)">passed</span>' : '') + '</div>' +
+      (passed ? ' · <span style="color:var(--ok)">passed</span>' : '') +
+      (closed ? '' : ' · <span class="' + (willPass ? 'willpass' : 'willfail') + '">' + T(willPass ? 'g.pass' : 'g.fail') + '</span>') + '</div>' +
       '<div class="bar"><i class="yes" style="width:' + wy.toFixed(1) + '%"></i><i class="no" style="width:' + wn.toFixed(1) + '%"></i></div>' +
-      '<div class="counts"><span>' + esc('✦ yes') + ' <b>' + yes + '</b></span><span>' + esc('▬ no') + ' <b>' + no + '</b></span><span>' + esc('○ abstain') + ' <b>' + ab + '</b></span></div>' +
-      (closed ? '<div class="res dim">' + esc('голосование завершено') + '</div>' :
+      '<div class="counts"><span>✦ ' + T('g.yes') + ' <b>' + yes + '</b></span><span>▬ ' + T('g.no') + ' <b>' + no + '</b></span><span>○ ' + T('g.ab') + ' <b>' + ab + '</b></span></div>' +
+      (closed ? '<div class="res dim">' + T('g.closed') + '</div>' :
         '<div><button data-ref="' + esc(p.ref) + '" data-ch="yes">Yes</button>' +
         '<button class="no" data-ref="' + esc(p.ref) + '" data-ch="no">No</button>' +
         '<button class="ab" data-ref="' + esc(p.ref) + '" data-ch="abstain">Abstain</button></div>') +
@@ -105,7 +121,8 @@ body>*{position:relative;z-index:1}
       const r = await fetch('/gov/state', { cache: 'no-store' });
       const st = await r.json();
       const pr = st && (st.proposals || []);
-      if (!pr.length) { cards.innerHTML = '<div class="prop">Предложений пока нет — bumped первым через форму ниже.</div>'; return; }
+      if (!pr.length) { cards.innerHTML = '<div class="prop">' + T('g.none') + '</div>'; return; }
+    applyI18n();
       document.querySelectorAll('[id^="r_"]').forEach(el => { if (el.textContent) resMemory[el.id] = el.textContent; });
       const sig = pr.map(p => p.ref + '|' + (p.yes || 0) + '/' + (p.no || 0) + '/' + (p.closed ? 1 : 0)).join(';');
       if (sig === window.__govSig) return;
@@ -129,7 +146,7 @@ body>*{position:relative;z-index:1}
   document.getElementById('govNew').onclick = async () => {
     const t = document.getElementById('govTitle').value.trim();
     const res = document.getElementById('propMsg');
-    if (!t) { res.textContent = 'нужен заголовок'; return; }
+    if (!t) { res.textContent = T('g.need'); return; }
     try {
       const r = await fetch('/gov/propose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: t }) });
       const j = await r.json();

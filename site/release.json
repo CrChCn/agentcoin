@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "release": "site-v3-e3ff7aa30b74a7ed",
+  "release": "site-v2-a1546d063097b690",
   "apiVersion": 2,
   "files": {
-    "index.html": "bc23032c7537a4b779ec9517019c41e1c55ea992e3f1f73b02af6fa840279d67",
-    "imperial.html": "81de65ae561d52cdc87119562460e3fa7e7b380ef0adabf0e6bbcea0007841c4",
+    "index.html": "210e3ea4253568add53da2534d7aba01bb7fd505ec303ae3d8a85554bec895f0",
+    "imperial.html": "933d8c00436181dfc30933cfe5fb91dd1a097381ff479225b5b565385324dfd7",
     "terminal.html": "1a37907ab708bae00fb0247a373b905c79910f8ad321835bd26f1b56d161b098",
     "dashboard.html": "205d6c64b1515ccf66e27af13b087b7e5dff6e8d839327a3a856d746208de37d",
     "chat.html": "74914cd4cc8a37e948de6015714069f6d9841e14360e2545d2c9e27ed8d80ff2",
@@ -12,7 +12,6 @@
     "mbc20.html": "e9ff3d0d2574c74a9265fc35934aaa44f372ae96dedc87dfa1945e808df29f45",
     "cabinet.html": "ce14df3951c2fd4c9c7265b4b4354bad671079ea38f84884a0c30cd17109fe2d",
     "jobs.html": "d26e1a36217eae001054fc6907a4f4db1d91fc03d9e353749994be29fa3993a0",
-    "panel.js": "4a77c9c9768656e58a669cdb274ad2b36e498a54227378452f88b0f9fecd9ee0",
-    "assets/tokens/agt.png": "71e93e631b33a4f4d899cf89ff61de243485aa578aae4d5068ee4a503a37f670"
+    "panel.js": "4a77c9c9768656e58a669cdb274ad2b36e498a54227378452f88b0f9fecd9ee0"
   }
 }

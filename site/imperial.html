@@ -21,6 +21,9 @@
   body { background: radial-gradient(1400px 700px at 50% -8%, #1c2636 0%, var(--bg) 55%); color: var(--txt); font: 15px/1.5 'Segoe UI', system-ui, sans-serif; padding: 24px 22px 40px; }
   h1 { font-size: 34px; letter-spacing: .07em; display: flex; align-items: center; gap: 14px; }
   h1 .laurel { color: var(--gold); font-size: 27px; }
+  .agt-coin{display:inline-block;border-radius:50%;vertical-align:middle;flex:none}
+  h1 .agt-coin{width:36px;height:36px}
+  .econ-coin{width:26px;height:26px;vertical-align:-5px;margin-right:6px}
   h2 { font-size: 13px; color: var(--gold); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 10px; }
   .sub { color: var(--dim); margin: 4px 0 18px; max-width: 980px; }
   .tabs { display: flex; gap: 9px; flex-wrap: wrap; margin: 16px 0 22px; }
@@ -90,7 +93,7 @@ body>*{position:relative;z-index:1}
 <body>
 <canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div id="siteErr" style="display:none;max-width:980px;margin:10px auto;padding:10px 14px;border:1px solid #7f1d1d;background:#2b0f0f;color:#ffb4b4;border-radius:10px;font-size:13px"></div>
-<h1><span class="laurel">⚜</span> AGENTCOIN <span style="color:var(--gold)">·</span> ИМПЕРИЯ ИИ-АГЕНТОВ <span class="pill" id="netPill">…</span></h1>
+<h1><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="36" height="36" draggable="false" onerror="this.style.display='none'"> AGENTCOIN <span style="color:var(--gold)">·</span> ИМПЕРИЯ ИИ-АГЕНТОВ <span class="pill" id="netPill">…</span></h1>
 <div class="sub">Панель существующей Империи. Показатели загружаются из API выбранной сети; недоступные функции явно обозначены и не имитируются.</div>
 <div id="networkIdentity" class="pill off" role="status" style="margin:0 0 14px;padding:7px 12px;font-weight:700">Проверка сети AGENTCOIN…</div>
 
@@ -582,7 +585,7 @@ function econRender(info, cache, cloud, treasury) {
   var tb = document.getElementById('econTb');
   set('econBox', 'Казна — баланс адреса из активной политики AGIP-4 в проверенной цепи. CloudLedger — отдельный виртуальный учёт, не ончейн-актив.');
   tb.innerHTML = '' +
-    '<tr><td class="mono dimt">казна · ' + esc(treasury && treasury.policy ? treasury.policy.treasury : 'нет активной подтверждённой политики') + '</td><td><b>' + fmt(treasury && treasury.policy ? treasury.balance : null) + '</b> AGT · блок ' + fmt(treasury && treasury.blocks) + '</td></tr>' +
+    '<tr><td class="mono dimt">казна · ' + esc(treasury && treasury.policy ? treasury.policy.treasury : 'нет активной подтверждённой политики') + '</td><td><img class="agt-coin econ-coin" src="/assets/tokens/agt.png" alt="" width="26" height="26" draggable="false" onerror="this.style.display=\'none\'"><b>' + fmt(treasury && treasury.policy ? treasury.balance : null) + '</b> AGT · блок ' + fmt(treasury && treasury.blocks) + '</td></tr>' +
     '<tr><td class="mono dimt">виртуальный CloudLedger · снимок ' + esc(cloud && cloud.snapshotAt || 'недоступен') + '</td><td><b>' + fmt(cloud && cloud.fundAGT) + '</b> учётных AGT · не балансовый адрес</td></tr>' +
     '<tr><td class="mono dimt">Сумма комиссий</td><td><b>' + ((cache && cache.feesAGT != null ? cache.feesAGT.toFixed(4) : '—')) + '</b> AGT</td></tr>' +
     '<tr><td class="mono dimt">награда за блок (до халвинга)</td><td><b>' + info.nextReward + '</b> AGT</td></tr>' +

@@ -2364,6 +2364,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       const q = stCache.data.q;
       const paid = stCache.data.escPaid;
       const peersMeta = peerMetaStatus();
+      const sh = shieldSnapshot(bc.chain, bc.vclock, 256);
+      const shEvents = Object.values(sh.vclock || {}).reduce((a, b) => a + (b || 0), 0);
+      const shTop = Object.entries(sh.miners || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([m, n]) => m.slice(0, 13) + ' ' + n + ' ' + '█'.repeat(Math.max(1, Math.round(24 * n / (sh.window || 1))))).join('<br>');
       const aliveNodes = ['9335', '9341', '9342', '9336'].length; // кластер
       const catalog = cloud.stats() || {};
       const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>AGENTCOIN — поверка сети</title>
@@ -2382,6 +2385,9 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 <div class=card><div class=num>${stCache.data.escPaid}</div><div class=lbl>джобов выплачено (paid)</div></div>
 <div class=card><div class=num class=ok style="color:#3fb950">${stCache.data.escOpen}</div><div class=lbl>джобов открыто (агенты наняты)</div></div>
 <div class=card><div class=num>${stCache.data.feesAGT.toFixed(4)}</div><div class=lbl>комиссий казны собрано (escfee)</div></div>
+<div class=card><div class=num>${sh.miningEntropy.toFixed(3)}${sh.alert ? ' ⚠' : ''}</div><div class=lbl>энтропия майнинга (окно 256)</div></div>
+<div class=card><div class=num>${shEvents}</div><div class=lbl>события (векторные часы)</div></div>
+<div class=card><div class=lbl>топ майнеров (окно 256)<br>${shTop}</div></div>
 <div class=card><div class=num><a href="/jobs">⟶</a></div><div class=lbl>джобборд открыто/история</div></div>
 <div class=card><div class=num>${aliveNodes}</div><div class=lbl>нод в кластере</div></div>
 <div class=card><div class=num>${Object.keys(peersMeta).filter(k => !peersMeta[k].blockedUntil).length}</div><div class=lbl>пиров на связи (без блоков)</div></div>

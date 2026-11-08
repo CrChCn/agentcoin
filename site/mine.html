@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AGENTCOIN — локальный майнинг</title>
+<style>
+:root{--bg:#0b0d10;--card:#14181d;--line:#232a31;--fg:#e6edf3;--dim:#8b98a5;--acc:#f0b429;--ok:#2ea043}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0;color:var(--acc)}
+nav a{color:var(--dim);text-decoration:none;margin-right:14px}
+nav a:hover{color:var(--fg)}
+main{max-width:820px;margin:28px auto;padding:0 20px;display:grid;gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+h2{margin:0 0 12px;font-size:15px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
+label{display:block;font-size:13px;color:var(--dim);margin:10px 0 6px}
+input{width:100%;padding:11px 12px;border-radius:8px;border:1px solid var(--line);background:#0e1216;color:var(--fg);font-family:ui-monospace,monospace;font-size:13px}
+button{margin-top:14px;padding:12px 20px;border-radius:9px;border:0;background:var(--acc);color:#111;font-weight:700;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+button.sec{background:#1f262d;color:var(--fg)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:6px}
+.stat{background:#0e1216;border:1px solid var(--line);border-radius:10px;padding:12px}
+.stat b{display:block;font-size:22px;color:var(--acc)}
+.stat span{font-size:12px;color:var(--dim)}
+pre{margin:10px 0 0;background:#0e1216;border:1px solid var(--line);border-radius:10px;padding:10px;max-height:220px;overflow:auto;font-size:12px;color:var(--dim)}
+.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<header>
+  <h1>⛏ AGENTCOIN</h1>
+  <nav>
+    <a href="/">Лэндинг</a><a href="/terminal">Терминал</a><a href="/jobs">Джобборд</a><a href="/mine">Майнинг</a>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <h2>Локальный майнинг (WASM, в вашем браузере)</h2>
+    <p style="color:var(--dim);margin:0 0 4px">Нода отдаёт шаблон блока, nonce ищет ваш браузер. Награда за блок идёт напрямую на ваш адрес — ключи никуда не отправляются.</p>
+    <label>Адрес для награды (AGT…)</label>
+    <input id="addr" placeholder="AGT..." autocomplete="off" spellcheck="false">
+    <button id="go">Начать майнинг</button>
+    <button id="stop" class="sec" disabled>Стоп</button>
+    <div class="grid">
+      <div class="stat"><b id="hs">0</b><span>хэшей/с</span></div>
+      <div class="stat"><b id="total">0</b><span>всего хэшей</span></div>
+      <div class="stat"><b id="blocks">0</b><span>найдено блоков</span></div>
+      <div class="stat"><b id="earned">0</b><span>заработано AGT</span></div>
+    </div>
+    <pre id="log">готов</pre>
+  </div>
+</main>
+<script>/*!
+ * hash-wasm (https://www.npmjs.com/package/hash-wasm)
+ * (c) Dani Biro
+ * @license MIT
+ */
+
+!function(A,I){"object"==typeof exports&&"undefined"!=typeof module?I(exports):"function"==typeof define&&define.amd?define(["exports"],I):I((A="undefined"!=typeof globalThis?globalThis:A||self).hashwasm=A.hashwasm||{})}(this,function(A){"use strict";var I,B={name:"sha256",data:"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",hash:"8ed695a3"};function g(A,I,B,g){return new(B||(B=Promise))(function(Q,E){function c(A){try{d(g.next(A))}catch(A){E(A)}}function i(A){try{d(g.throw(A))}catch(A){E(A)}}function d(A){var I;A.done?Q(A.value):(I=A.value,I instanceof B?I:new B(function(A){A(I)})).then(c,i)}d((g=g.apply(A,I||[])).next())})}"function"==typeof SuppressedError&&SuppressedError;class Q{constructor(){this.mutex=Promise.resolve()}lock(){let A=()=>{};return this.mutex=this.mutex.then(()=>new Promise(A)),new Promise(I=>{A=I})}dispatch(A){return g(this,void 0,void 0,function*(){const I=yield this.lock();try{return yield Promise.resolve(A())}finally{I()}})}}const E="undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:"undefined"!=typeof window?window:global,c=null!==(I=E.Buffer)&&void 0!==I?I:null,i=E.TextEncoder?new E.TextEncoder:null;function d(A,I){return(15&A)+(A>>6|A>>3&8)<<4|(15&I)+(I>>6|I>>3&8)}const n="a".charCodeAt(0)-10,o="0".charCodeAt(0);function a(A,I,B){let g=0;for(let Q=0;Q<B;Q++){let B=I[Q]>>>4;A[g++]=B>9?B+n:B+o,B=15&I[Q],A[g++]=B>9?B+n:B+o}return String.fromCharCode.apply(null,A)}const e=null!==c?A=>{if("string"==typeof A){const I=c.from(A,"utf8");return new Uint8Array(I.buffer,I.byteOffset,I.length)}if(c.isBuffer(A))return new Uint8Array(A.buffer,A.byteOffset,A.length);if(ArrayBuffer.isView(A))return new Uint8Array(A.buffer,A.byteOffset,A.byteLength);throw new Error("Invalid data type!")}:A=>{if("string"==typeof A)return i.encode(A);if(ArrayBuffer.isView(A))return new Uint8Array(A.buffer,A.byteOffset,A.byteLength);throw new Error("Invalid data type!")},C="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",t=new Uint8Array(256);for(let A=0;A<64;A++)t[C.charCodeAt(A)]=A;function y(A){const I=function(A){let I=Math.floor(.75*A.length);const B=A.length;return"="===A[B-1]&&(I-=1,"="===A[B-2]&&(I-=1)),I}(A),B=A.length,g=new Uint8Array(I);let Q=0;for(let I=0;I<B;I+=4){const B=t[A.charCodeAt(I)],E=t[A.charCodeAt(I+1)],c=t[A.charCodeAt(I+2)],i=t[A.charCodeAt(I+3)];g[Q]=B<<2|E>>4,Q+=1,g[Q]=(15&E)<<4|c>>2,Q+=1,g[Q]=(3&c)<<6|63&i,Q+=1}return g}const D=16384,z=new Q,N=new Map;function r(A,I){return g(this,void 0,void 0,function*(){let B=null,Q=null,E=!1;if("undefined"==typeof WebAssembly)throw new Error("WebAssembly is not supported in this environment!");const c=()=>new DataView(B.exports.memory.buffer).getUint32(B.exports.STATE_SIZE,!0),i=z.dispatch(()=>g(this,void 0,void 0,function*(){if(!N.has(A.name)){const I=y(A.data),B=WebAssembly.compile(I.buffer);N.set(A.name,B)}const I=yield N.get(A.name);B=yield WebAssembly.instantiate(I,{})})),n=(A=null)=>{E=!0,B.exports.Hash_Init(A)},o=A=>{if(!E)throw new Error("update() called before init()");(A=>{let I=0;for(;I<A.length;){const g=A.subarray(I,I+D);I+=g.length,Q.set(g),B.exports.Hash_Update(g.length)}})(e(A))},C=new Uint8Array(2*I),t=(A,g=null)=>{if(!E)throw new Error("digest() called before init()");return E=!1,B.exports.Hash_Final(g),"binary"===A?Q.slice(0,I):a(C,Q,I)},r=A=>"string"==typeof A?A.length<4096:A.byteLength<D;let F=r;switch(A.name){case"argon2":case"scrypt":F=()=>!0;break;case"blake2b":case"blake2s":F=(A,I)=>I<=512&&r(A);break;case"blake3":F=(A,I)=>0===I&&r(A);break;case"xxhash64":case"xxhash3":case"xxhash128":case"crc64":F=()=>!1}return yield(()=>g(this,void 0,void 0,function*(){B||(yield i);const A=B.exports.Hash_GetBuffer(),I=B.exports.memory.buffer;Q=new Uint8Array(I,A,D)}))(),{getMemory:()=>Q,writeMemory:(A,I=0)=>{Q.set(A,I)},getExports:()=>B.exports,setMemorySize:A=>{B.exports.Hash_SetMemorySize(A);const I=B.exports.Hash_GetBuffer(),g=B.exports.memory.buffer;Q=new Uint8Array(g,I,A)},init:n,update:o,digest:t,save:()=>{if(!E)throw new Error("save() can only be called after init() and before digest()");const I=B.exports.Hash_GetState(),g=c(),Q=B.exports.memory.buffer,i=new Uint8Array(Q,I,g),n=new Uint8Array(4+g);return function(A,I){const B=I.length>>1;for(let g=0;g<B;g++){const B=g<<1;A[g]=d(I.charCodeAt(B),I.charCodeAt(B+1))}}(n,A.hash),n.set(i,4),n},load:I=>{if(!(I instanceof Uint8Array))throw new Error("load() expects an Uint8Array generated by save()");const g=B.exports.Hash_GetState(),Q=c(),i=4+Q,n=B.exports.memory.buffer;if(I.length!==i)throw new Error(`Bad state length (expected ${i} bytes, got ${I.length})`);if(!function(A,I){if(A.length!==2*I.length)return!1;for(let B=0;B<I.length;B++){const g=B<<1;if(I[B]!==d(A.charCodeAt(g),A.charCodeAt(g+1)))return!1}return!0}(A.hash,I.subarray(0,4)))throw new Error("This state was written by an incompatible hash implementation");const o=I.subarray(4);new Uint8Array(n,g,Q).set(o),E=!0},calculate:(A,g=null,E=null)=>{if(!F(A,g))return n(g),o(A),t("hex",E);const c=e(A);return Q.set(c),B.exports.Hash_Calculate(c.length,g,E),a(C,Q,I)},hashLength:I}})}const F=new Q;let q=null;A.createSHA256=function(){return r(B,32).then(A=>{A.init(256);const I={init:()=>(A.init(256),I),update:B=>(A.update(B),I),digest:I=>A.digest(I),save:()=>A.save(),load:B=>(A.load(B),I),blockSize:64,digestSize:32};return I})},A.sha256=function(A){if(null===q)return function(A,I,B){return g(this,void 0,void 0,function*(){const g=yield A.lock(),Q=yield r(I,B);return g(),Q})}(F,B,32).then(I=>(q=I,q.calculate(A,256)));try{const I=q.calculate(A,256);return Promise.resolve(I)}catch(A){return Promise.reject(A)}}});
+</script>
+<script>
+const $ = id => document.getElementById(id);
+const log = m => { const el = $('log'); el.textContent = new Date().toISOString().slice(11,19) + ' ' + m + '\n' + el.textContent.slice(0, 4000); };
+const dbits = hex => { let b = 0; for (const ch of hex) { const v = parseInt(ch,16); if (v===0){b+=4;continue;} if(v<2)b+=3;else if(v<4)b+=2;else if(v<8)b+=1; break; } return b; };
+const ser = h => [h.version,h.prevHash,h.merkleRoot,h.timestamp,h.difficultyBits,h.nonce,h.chainId].join('|');
+const enc = new TextEncoder();
+let running = false, found = 0, earned = 0, totalHashes = 0, running0 = Date.now();
+
+const shaFactory = () => (typeof globalThis.createSHA256 === 'function' ? globalThis.createSHA256
+  : (globalThis.hashwasm && globalThis.hashwasm.createSHA256));
+let _hA = null, _hB = null;
+const _buf = new TextEncoder().encode('0'.repeat(256));
+async function sha256d(str) {
+  // Один инстанс на оба прохода: создавать WASM на каждый nonce — 100× медленнее.
+  if (!_hA) { _hA = await shaFactory()(); _hB = await shaFactory()(); }
+  const bytes = new TextEncoder().encode(str);
+  _hA.init(); _hA.update(bytes);
+  const first = _hA.digest('binary');
+  _hB.init(); _hB.update(first);
+  return _hB.digest('hex');
+}
+
+async function template(miner) {
+  const r = await fetch('/blocktemplate', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ miner }) });
+  if (!r.ok) throw new Error('blocktemplate ' + r.status);
+  return r.json();
+}
+
+async function loop() {
+  const miner = $('addr').value.trim();
+  if (!/^AGT[0-9a-f]{40}$/.test(miner)) { log('адрес не канонический: AGT + 40 hex'); running = false; $('go').disabled = false; $('stop').disabled = true; return; }
+  localStorage.setItem('agt_miner', miner);
+  while (running) {
+    let t;
+    try { t = await template(miner); } catch (e) { log(e.message); await new Promise(r=>setTimeout(r,3000)); continue; }
+    const header = t.header;
+    log(`шаблон h=${t.height} bits=${header.difficultyBits} txs=${t.txs.length}`);
+    const deadline = Date.now() + 20000;
+    let hits = 0;
+    while (running && Date.now() < deadline) {
+      for (let k = 0; k < 250 && running; k++) {
+        header.nonce++;
+        const h = await sha256d(ser(header));
+        hits++; totalHashes++;
+        if (hits % 2000 === 0) { const secs=(Date.now()-running0)/1000; $('hs').textContent = Math.round(totalHashes/Math.max(1,secs)); $('total').textContent = totalHashes; }
+        if (dbits(h) >= header.difficultyBits) {
+          log(`🎯 nonce=${header.nonce} hash=${h.slice(0,24)}… отправляю`);
+          const r = await fetch('/block/submit', { method:'POST', headers:{'content-type':'application/json'},
+            body: JSON.stringify({ miner, header, txs: t.txs }) });
+          const j = await r.json().catch(()=>({}));
+          log('submit ' + r.status + ' ' + JSON.stringify(j).slice(0,220));
+          if (r.ok) { found++; earned += 50; $('blocks').textContent = found; $('earned').textContent = earned; }
+          running = false;
+          break;
+        }
+      }
+      await new Promise(r=>setTimeout(r,0));
+    }
+    const secs = (Date.now()-running0)/1000;
+    $('hs').textContent = Math.round(totalHashes/secs);
+    $('total').textContent = totalHashes;
+    if (running && found === 0) log('шаблон устарел, беру новый');
+  }
+  $('go').disabled = false; $('stop').disabled = true;
+  log('остановлено');
+}
+
+$('go').onclick = () => { if (running) return; running = true; running0 = Date.now(); $('go').disabled = true; $('stop').disabled = false; loop(); };
+$('stop').onclick = () => { running = false; };
+$('addr').value = localStorage.getItem('agt_miner') || '';
+log('готов: вставьте адрес и нажмите «Начать майнинг»');
+</script>
+</body>
+</html>

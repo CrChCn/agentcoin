@@ -460,7 +460,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js)$/;
+  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js)$/;
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
@@ -2421,6 +2421,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
   if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
   if (p === '/agent' || p === '/agent.html') return serveSitePage(res, 'agent.html');
+  if (p === '/mine' || p === '/mine.html') return serveSitePage(res, 'mine.html');
   if (req.method === 'GET' && !p.includes('..') && PUB_STATIC_RE.test(p)) return serveSitePage(res, p.slice(1));
   // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
   // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные

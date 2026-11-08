@@ -52,12 +52,14 @@
 <div class="cards" id="kpisRight">
   <div class="card"><div class="num" id="kJobs">—</div><div class="lbl">джобы (paid/open)</div></div>
   <div class="card"><div class="num" id="kNodes">—</div><div class="lbl">ноды</div></div>
+<div class="card"><div class="num" id="kEntropy">—</div><div class="lbl">энтропия майнинга</div></div>
+  <div class="card"><div class="num" id="kVclock">—</div><div class="lbl">события (векторные часы)</div></div>
   <div class="card"><div class="num" id="kFees">—</div><div class="lbl">комиссии (escfee)</div></div>
 </div>
 
 <div id="tip"></div>
 <div class="cta"><a href="/create-wallet">⚡ Стать агентом</a></div>
-<div class="foot">данные: /api/v1 · обновление 5с · если API молчит — цифры «—», шторм живёт</div>
+<div class="foot">данные: прямые роуты ноды · обновление 5с · если API молчит — цифры «—», шторм живёт</div>
 
 <script>
 (function () {
@@ -137,7 +139,7 @@
   }
 
   function updateData() {
-    api('/api/v1/stats-data', function (d) {
+    api('/stats-data', function (d) {
       if (d) {
         data.blocks = d.blocks; data.supply = d.supply; data.treasury = d.treasury;
         data.paid = d.paidJobs; data.fees = d.feesAGT;
@@ -152,7 +154,15 @@
         lastBlocks = d.blocks;
       }
     });
-    api('/api/v1/escrow/state', function (d) {
+    api('/shield', function (d) {
+      if (d) {
+        set('kEntropy', (d.miningEntropy === null || d.miningEntropy === undefined) ? '—' : Number(d.miningEntropy).toFixed(3));
+        set('kVclock', (d.vclockEvents === null || d.vclockEvents === undefined) ? '—' : fmt(d.vclockEvents));
+        var kEnt = document.getElementById('kEntropy');
+        if (kEnt) kEnt.style.color = d.alert ? '#ff5d5d' : '';
+      }
+    });
+    api('/escrow/state', function (d) {
       var open = null, paid = null;
       if (d && d.escrows) {
         open = 0; paid = 0;
@@ -167,13 +177,13 @@
         set('kJobs', (data.paid === null ? '—' : fmt(data.paid)) + ' / ' + fmt(open));
       }
     });
-    api('/api/v1/network/nodes', function (d) {
+    api('/network/nodes', function (d) {
       try {
         var n = Array.isArray(d) ? d.length : (d.nodes ? d.nodes.length : null);
         data.nodes = n; set('kNodes', n === null ? '—' : String(n));
       } catch (e) { set('kNodes', '—'); }
     });
-    api('/api/v1/balances?limit=' + MAX_NEURONS, function (d) {
+    api('/balances?limit=' + MAX_NEURONS, function (d) {
       if (d && d.balances && d.balances.length) {
         var list = d.balances.slice(0, MAX_NEURONS);
         for (var i = 0; i < neurons.length && i < list.length; i++) {
@@ -183,7 +193,7 @@
         }
       }
     });
-    api('/api/v1/mempool', function (d) {
+    api('/mempool', function (d) {
       if (d && d.txs && d.txs.length) {
         var t = d.txs[d.txs.length - 1];
         burstTx(t);              // AC-4: мемnul-tx → зелёная вспышка синапса

@@ -224,6 +224,11 @@ export async function syncOne(bc, peerUrl) {
       log.push(`${peerUrl}: genesis mismatch (different network), skip`);
       return log;
     }
+    // Vector clocks: merge peer causality (peer /life exposes vclock).
+    try {
+      const pclock = await fetchOptional(peerUrl + '/life');
+      if (pclock && pclock.vclock && bc.mergeVclock(pclock.vclock)) log.push(`${peerUrl}: vclock merged`);
+    } catch (e) { if (e instanceof LocalChainChanged) throw e; }
     const myH = chainAtStart.length;
     const peerH = info.blocks;
       log.push(`${peerUrl}: peer height ${peerH}, ours ${myH} (our work ${chainWork(chainAtStart)})`);

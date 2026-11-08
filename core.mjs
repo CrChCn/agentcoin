@@ -36,6 +36,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
+import { loadVclock, saveVclock, inc as vclockInc, merge as vclockMerge, sanitizeClock as sanitizeVclock } from './vclock.mjs';
 
 // ============ Security Controller: регистр атак + пожизненные баны ============
 // Правила безопасности (жёсткие):
@@ -1161,7 +1163,10 @@ export class Blockchain {
     this.gateways = new Gateways(dataDir, this.security);
     this.pool = new MiningPool(dataDir, this.security);
     this.load();
+    this.nodeId = process.env.AGT_NODE_ID || os.hostname();
+    this.vclock = loadVclock(dataDir);
     if (this.blockCount() === 0) this.createGenesis();
+    // Vector clocks: causal event ordering (vclock.mjs).
   }
 
   load() {
@@ -1190,6 +1195,22 @@ export class Blockchain {
   saveMempool() {
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(this.mempoolFile(), JSON.stringify(this.mempool, null, 2));
+  }
+  // ---- Vector clocks: tick on every accepted event, merge on peer sync ----
+  vTick() {
+    try {
+      this.vclock = vclockInc(this.vclock, this.nodeId);
+      saveVclock(this.dataDir, this.vclock);
+    } catch { /* auxiliary - never break consensus */ }
+  }
+  mergeVclock(remote) {
+    const clean = sanitizeVclock(remote);
+    if (!clean) return false;
+    try {
+      this.vclock = vclockMerge(this.vclock, clean);
+      saveVclock(this.dataDir, this.vclock);
+      return true;
+    } catch { return false; }
   }
   loadMempool() {
     try { const d = JSON.parse(fs.readFileSync(this.mempoolFile(), 'utf8')); this.mempool = Array.isArray(d) ? d : []; } catch { this.mempool = this.mempool || []; }
@@ -1291,6 +1312,7 @@ export class Blockchain {
     this.invalidateTxCache();
     this.difficultyBits = this.tip().header.difficultyBits;
     this.save();
+    this.vTick();
     this.refilterMempool();
     return { ok: true, forkedFrom: d, dropped: ourTail.length, added: blocks.length, ourWork, candWork };
   }
@@ -1406,6 +1428,7 @@ export class Blockchain {
     if (!verifySecondSig(tx, this.getTreasuryPolicy())) return { ok: false, reason: 'treasury_needs_2sig' };
     this.mempool.push(tx);
     this.saveMempool();
+    this.vTick();
     return { ok: true, mempoolSize: this.mempool.length };
   }
 
@@ -1468,6 +1491,7 @@ export class Blockchain {
         this.invalidateTxCache();
         this.difficultyBits = header.difficultyBits;
         this.save();
+        this.vTick();
         return { ...block, _jsonBuffer: JSON.stringify(txs).length };
       }
       header.nonce++;
@@ -1511,6 +1535,7 @@ export class Blockchain {
     this.invalidateTxCache();
     this.difficultyBits = header.difficultyBits;
     this.save();
+    this.vTick();
     return block;
   }
 

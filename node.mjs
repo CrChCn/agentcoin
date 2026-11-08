@@ -54,6 +54,7 @@ import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { VcgAuctions } from './vcg.mjs';
+import { isReserve, canAgentPay, isProposalPassed, isValidBlock } from './law.mjs'; // LAW: +валидность блока (4/4)
 import { assessTrust } from './ds.mjs';
 import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
@@ -622,6 +623,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       txIndex: found.txIndex,
       merkleBranch: branch,
       header: { version: header.version, prevHash: header.prevHash, merkleRoot: header.merkleRoot, timestamp: header.timestamp, difficultyBits: header.difficultyBits, nonce: header.nonce, chainId: header.chainId },
+      lawBlockValid: isValidBlock(found.blk.hash, header.difficultyBits), // LAW-L4 (4/4): PoW блока пруфа
       note: 'recompute: cur=txid; для каждой записи ветки cur = side==right ? sha256d(cur+hash) : sha256d(hash+cur) — итог должен равняться header.merkleRoot; затем computeBlockHash(header) проверьте у блок-хэша у себя'
     });
   }
@@ -675,6 +677,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       address,
       balance: balances[address] || 0,
       unit: TICKER,
+      reserve: isReserve(address), // LAW-L6 (шаг 1/4): протокольный адрес
       ...(banned ? { spendRight: 'denied_locally', opinion: 'permabanned', note: 'баланс на цепи честный; расход заблокирован локальной санкцией — оспоримо в gov' } : {}),
     });
   }
@@ -735,6 +738,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     let mgntOk = null;
     try { unitsOfAmountBigInt(tx.amount); mgntOk = true; } catch { mgntOk = false; }
     out.format.mgnt_exact = mgntOk;
+    out.law = { canAgentPay: canAgentPay(tx.from, { banned: bc.security.isBanned(tx.from) }) }; // LAW (2/4): advisory
     out.verdict = (out.format.ok && out.signature.ok && out.network_ok && out.balance.ok && out.nonce.ok && mgntOk !== false) ? 'preflight_pass' : 'preflight_reject';
     out.note = 'read-only: не гарантирует включение в блок — решает майнер/консенсус; snapshot мог измениться сразу после ответа';
     return json(res, 200, out);
@@ -1281,7 +1285,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // (иначе его 9-МБ проход вешал монитор). Публичный контракт: 200 = порт жив + поле
   // overloaded для различения «порушено» от «мёртв»; /life остаётся глубоким.
   if (p === '/health' && req.method === 'GET') return json(res, 200, cheapHealth());
-  if (p === '/network/nodes' && req.method === 'GET') return json(res, 200, await networkNodes());
+  if (p === '/network/nodes' && req.method === 'GET') { // AC-5: centrality (hub-and-spoke мониторинга: центр — эта нода)
+    const nn = await networkNodes();
+    try {
+      const list = (nn && nn.nodes) || [];
+      const self = list.find(n => n && (n.service || n.tipHash)) || list[0];
+      const ids = list.map(n => n.name);
+      const edges = list.filter(n => n !== self && n.reachable !== false).map(n => [self.name, n.name]);
+      const c = betweennessCentrality(ids, edges);
+      nn.nodes = list.map(n => ({ ...n, centrality: c[n.name] ?? null }));
+      nn.centralityNote = 'hub-and-spoke: эта нода опрашивает каждую цель; рёбра=self↔reachable';
+    } catch {}
+    return json(res, 200, nn);
+  }
   if (p === '/ops/watchdog/state') {
     let st = { nodes: {}, startedAt: null, note: 'watchdog.json не найден (watchdog.mjs не запускался на этой машине)' };
     try { st = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '..', 'data', 'watchdog.json'), 'utf8')); } catch {
@@ -1446,7 +1462,11 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
 
   // ================= GOV (предложения + голосование из цепи) =================
-  if (p === '/gov/state') return json(res, 200, govState(bc));
+  if (p === '/gov/state') { // LAW-L2 (3/4): advisory lawWouldPass (полное правило: closed && pass)
+    const st = govState(bc);
+    st.proposals = st.proposals.map(x => ({ ...x, lawWouldPass: isProposalPassed(x.yes, x.no, st.yesMin) }));
+    return json(res, 200, st);
+  }
   if ((p === '/gov/proposal' || p === '/gov/propose') && req.method === 'POST') { // /gov/propose — алиас из ТЗ этапа 2
     const { author, title, blocks = 100 } = await body(req);
     // AGIP-21: author больше не нужен в UI — агент прислал только title, адрес подставляет нода
@@ -1812,9 +1832,75 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const S = escrowStateOnce(url.searchParams.get('fresh') === '1');
     const now = Date.now() / 1000;
     const shape = e => ({ ...e, expired: !e.status.startsWith('open') && e.status === 'open' ? false : (e.status === 'open' && e.deadlineTs < now) });
-    const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now }));
-    const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash }));
+    const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now, shapley: escrowShapley(e.openedAmount, e.paidOut || 0), shapleyValue: escrowShapley(e.openedAmount, e.paidOut || 0).shapleyValue }));
+    const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash, shapley: escrowShapley(e.openedAmount, e.paidOut || 0), shapleyValue: escrowShapley(e.openedAmount, e.paidOut || 0).shapleyValue }));
     return json(res, 200, { stats: S.stats, fees: S.fees.slice(-50).reverse(), open, history, note: 'комиссия казны за успех джоба ~2.5% (env AGT_JOB_FEE_PCT) — memo escfee:<id> в цепи' });
+  }
+
+  // ===== AC-5: недостающая математика — графы (betweenness) и Шепли =====
+  // Betweenness centrality, Брандес, неориентированный граф, нормализация 0..1.
+  function betweennessCentrality(nodeIds, edges) {
+    const ids = [...new Set(nodeIds)];
+    const adj = new Map(ids.map(id => [id, new Set()]));
+    for (const e of edges || []) {
+      const a = e && e[0], b = e && e[1];
+      if (!adj.has(a) || !adj.has(b) || a === b) continue;
+      adj.get(a).add(b); adj.get(b).add(a);
+    }
+    const cb = Object.fromEntries(ids.map(id => [id, 0]));
+    for (const s of ids) {
+      const stack = [], pred = new Map(ids.map(w => [w, []]));
+      const sigma = Object.fromEntries(ids.map(w => [w, 0])); sigma[s] = 1;
+      const dist = Object.fromEntries(ids.map(w => [w, -1])); dist[s] = 0;
+      const q = [s];
+      while (q.length) {
+        const v = q.shift(); stack.push(v);
+        for (const w of adj.get(v)) {
+          if (dist[w] < 0) { q.push(w); dist[w] = dist[v] + 1; }
+          if (dist[w] === dist[v] + 1) { sigma[w] += sigma[v]; pred.get(w).push(v); }
+        }
+      }
+      const delta = Object.fromEntries(ids.map(w => [w, 0]));
+      while (stack.length) {
+        const w = stack.pop();
+        for (const v of pred.get(w)) delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
+        if (w !== s) cb[w] += delta[w];
+      }
+    }
+    const n = ids.length, norm = n > 2 ? 1 / ((n - 1) * (n - 2)) : 0;
+    const out = {};
+    for (const id of ids) out[id] = Math.round(cb[id] * norm * 10000) / 10000;
+    return out;
+  }
+  // Точный вектор Шепли перебором перестановок (n<=8), иначе пропорциональный фолбэк.
+  // v: словарь коалиций "a,b" (отсортированные имена) -> значение; v({})=0.
+  function shapleyValues(players, v) {
+    const ps = [...new Set(players)];
+    const key = (s) => [...s].sort().join(',');
+    const val = (s) => (s.size === 0 ? 0 : (v[key(s)] ?? 0));
+    const phi = Object.fromEntries(ps.map(p => [p, 0]));
+    if (ps.length > 8) {
+      const singles = ps.map(p => val(new Set([p])));
+      const tot = singles.reduce((a, b) => a + b, 0) || 1;
+      const grand = v[key(new Set(ps))] ?? tot;
+      ps.forEach((p, i) => { phi[p] = Math.round((singles[i] / tot) * grand * 1e9) / 1e9; });
+      return { values: phi, exact: false };
+    }
+    const permute = (arr) => arr.length <= 1 ? [arr] : arr.flatMap((x, i) => permute([...arr.slice(0, i), ...arr.slice(i + 1)]).map(r => [x, ...r]));
+    const perms = permute(ps), fact = perms.length;
+    for (const perm of perms) {
+      const s = new Set(); let prev = 0;
+      for (const p of perm) { s.add(p); const cur = val(s); phi[p] += (cur - prev); prev = cur; }
+    }
+    for (const p of ps) phi[p] = Math.round((phi[p] / fact) * 1e9) / 1e9;
+    return { values: phi, exact: true };
+  }
+  // Доля сторон эскроу-пирога: v({e})=удержано, v({w})=выплачено, v({e,w})=открыто.
+  function escrowShapley(openedAmount, paidOut) {
+    const opened = Number(openedAmount) || 0, paid = Number(paidOut) || 0;
+    const v = { employer: Math.max(0, opened - paid), worker: paid, 'employer,worker': opened };
+    const r = shapleyValues(['employer', 'worker'], v);
+    return { employer: r.values.employer, worker: r.values.worker, shapleyValue: r.values.worker, exact: r.exact };
   }
 
   // --- VCG-аукционы: честное распределение задач (commit-reveal, вторая цена) ---

@@ -323,7 +323,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|gov(\.html)?|docs(\.html)?|shield(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -375,7 +375,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|gov(\.html)?|docs(\.html)?|shield(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -453,7 +453,8 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
-    p === '/gov' || p === '/gov.html' || p === '/docs' || p === '/docs.html' || p === '/shield.html' ||
+    p === '/gov' || p === '/gov.html' || p === '/docs' || p === '/docs.html' || p === '/shield' || p === '/shield.html' ||
+    p === '/mine' || p === '/mine.html' || p === '/agent' || p === '/agent.html' ||
     p === '/create-wallet' || p === '/create-wallet.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
@@ -474,7 +475,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
+  const PUB_STATIC_RE = /^[/](?:_next\/[A-Za-z0-9_\.\/\-]+|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
@@ -2690,6 +2691,8 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/jobs' || p === '/jobs.html') {
     serveSitePage(res, 'jobs.html');
   }
+  if (p === '/mine' || p === '/mine.html') return serveSitePage(res, 'mine.html');
+  if (p === '/agent' || p === '/agent.html') return serveSitePage(res, 'agent.html');
   // --- ТЗ сайта: страницы /gov /shield /docs /create-wallet + доки из docs/ ---
   if (p === '/gov' || p === '/gov.html') return serveSitePage(res, 'gov.html');
   if (p === '/shield' || p === '/shield.html') {

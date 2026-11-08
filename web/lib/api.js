@@ -1,0 +1,57 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+
+export async function jget(path) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch(path, { signal: ctl.signal, cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export function fmt(n, dec = 0) {
+  if (n == null || Number.isNaN(Number(n))) return '—';
+  return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: dec, minimumFractionDigits: dec });
+}
+
+export function fmtT(n) {
+  if (n == null) return '—';
+  const s = String(n);
+  return s.includes('.') ? s : (Number(n) / 1e9).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+}
+
+// Polling hook: returns {data, updatedAt, stale}. stale=true if no success for 5 min.
+export function useApi(path, intervalMs, deps = []) {
+  const [data, setData] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    let stop = false;
+    async function load() {
+      try {
+        const d = await jget(path);
+        if (!stop) {
+          setData(d);
+          setUpdatedAt(Date.now());
+        }
+      } catch (e) { /* keep old data, stale badge appears */ }
+    }
+    load();
+    const iv = setInterval(load, intervalMs);
+    const tick = setInterval(() => setNow(Date.now()), 5000);
+    return () => { stop = true; clearInterval(iv); clearInterval(tick); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return { data, updatedAt, stale: updatedAt > 0 && now - updatedAt > 5 * 60 * 1000, never: updatedAt === 0 };
+}
+
+export function timeStr(ts) {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString('ru-RU', { hour12: false });
+  } catch (e) { return '—'; }
+}

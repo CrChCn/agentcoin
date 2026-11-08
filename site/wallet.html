@@ -29,6 +29,8 @@ body{
 }
 .logo{font-weight:800;letter-spacing:.06em;color:var(--gold2);white-space:nowrap}
 .logo .co{color:var(--gold)}
+.logo .agt-coin{width:32px;height:32px;vertical-align:middle;border-radius:50%}
+.balance-big .agt-coin{width:28px;height:28px;vertical-align:-4px;border-radius:50%;margin-right:8px}
 .netstat{color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .netstat b{color:var(--txt);font-weight:600}
 .spacer{flex:1}
@@ -81,7 +83,7 @@ body{
   backdrop-filter:blur(10px);box-shadow:var(--shadow);padding:18px;
 }
 .panel h2{margin:0 0 10px;font-size:16px;color:var(--gold2);letter-spacing:.02em}
-.balance-big{font-size:44px;font-weight:800;color:var(--gold2);line-height:1.1;letter-spacing:.01em}
+.balance-big{font-size:44px;font-weight:800;color:var(--gold2);line-height:1.1;letter-spacing:.01em;overflow-wrap:anywhere}
 .balance-unit{font-size:16px;color:var(--mut);font-weight:500}
 .addr-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .addr{flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -146,7 +148,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
 <body>
 
 <header class="topbar">
-  <div class="logo">⚜ <span class="co">AGENTCOIN</span> WALLET</div>
+  <div class="logo"><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="32" height="32" draggable="false" onerror="this.style.display='none'"> <span class="co">AGENTCOIN</span> WALLET</div>
   <div class="netstat" id="netstat">Сеть: …</div>
   <div class="spacer"></div>
   <div class="seg" role="group" aria-label="Language">
@@ -173,7 +175,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
 <main class="cab hidden" id="cab">
   <section class="panel">
     <h2 data-i="balanceTitle">Баланс</h2>
-    <div class="balance-big"><span id="balNum">0</span> <span class="balance-unit">AGT</span></div>
+    <div class="balance-big"><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="28" height="28" draggable="false" onerror="this.style.display='none'"><span id="balNum">0</span> <span class="balance-unit">AGT</span></div>
     <div class="hint" id="balNote"></div>
     <div class="addr-row">
       <div class="addr mono" id="addrShow">—</div>

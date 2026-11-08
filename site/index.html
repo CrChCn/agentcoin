@@ -101,7 +101,7 @@ async function jget(p){var r=await fetch(p,{signal:AbortSignal.timeout(10000)});
 async function load(){
 try{
 var s=await jget('/stats-data');
-set('sBlocks',s.blocks);set('sSupply',s.supply);set('sTreasury',s.treasury);set('sJobs',null);
+set('sBlocks',s.blocks);set('sSupply',s.supply);set('sTreasury',s.treasury);
 document.getElementById('eSupply2').textContent=s.supply!=null?s.supply:'—';
 document.getElementById('eJobs').textContent=s.paidJobs!=null?s.paidJobs:'—';
 document.getElementById('eTreasury2').textContent=s.treasury!=null?s.treasury:'—';
@@ -118,6 +118,7 @@ var html='';
 for(var i=0;i<bl.length&&i<20;i++){var b=bl[i];var ntx=b.txs?b.txs.length:(b.txCount!=null?b.txCount:0);
 html+='<div><span class="h">'+t('ev.block')+' '+b.height+'</span> <span class="t">'+String(b.hash||'').slice(0,12)+'… · '+ntx+' '+t('ev.tx')+' · '+t('ev.diff')+' '+(b.header&&b.header.difficultyBits!=null?b.header.difficultyBits:'?')+'</span></div>';}
 document.getElementById('feed').innerHTML=html||'<div class="t">'+t('f.loading')+'</div>';
+if(bl.length&&bl[0].header&&bl[0].header.difficultyBits!=null)document.getElementById('sDiff').textContent=bl[0].header.difficultyBits;
 document.getElementById('feedErr').style.display='none';
 }catch(e){var fe=document.getElementById('feedErr');fe.textContent=t('f.err');fe.style.display='block';}
 setTimeout(loadFeed,20000);

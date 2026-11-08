@@ -460,7 +460,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js)$/;
+  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);

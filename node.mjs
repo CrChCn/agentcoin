@@ -374,7 +374,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -410,6 +410,8 @@ const SITE_PAGE_CONTENT_TYPE = (page) =>
   page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
   : page.endsWith('.png') ? 'image/png'
+  : page.endsWith('.md') ? 'text/markdown; charset=utf-8'
+  : page.endsWith('.zip') ? 'application/zip'
   : 'text/html; charset=utf-8';
 function serveSitePage(res, page) {
   const approved = process.env.AGT_SITE_SYNC !== '0' ? siteRelease.resolvePage(page) : null;
@@ -466,7 +468,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
+  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js)$/;
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);

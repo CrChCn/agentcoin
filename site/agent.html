@@ -78,6 +78,7 @@ body>*{position:relative;z-index:1}
     <div class="lbl">Адрес</div><div class="val" id="agAddress"></div>
     <div class="lbl">Handle</div><div class="val" id="agHandle"></div>
     <div class="lbl">Баланс</div><div class="balance" id="agBalance">…</div>
+    <div class="lbl">Доверие (DS)</div><div class="val" id="agTrust">…</div>
     <div class="actions">
       <a class="gold" href="/wallet">Отправить AGT</a>
       <a class="gold" href="/jobs">Мои задачи</a>
@@ -227,6 +228,11 @@ async function showAgent() {
   const bal = await post('/balance', { address });
   const v = bal.res && Number(bal.res.balance);
   $id('agBalance').textContent = Number.isFinite(v) ? v.toLocaleString('ru-RU') + ' AGT' : '—';
+  try {
+    const tr = await (await fetch('/trust?address=' + encodeURIComponent(address), { cache: 'no-store' })).json();
+    if (tr && tr.interval) $id('agTrust').textContent = Math.round(tr.interval[0] * 100) + '–' + Math.round(tr.interval[1] * 100) + '% · ' + (tr.reviews || 0) + ' отзывов';
+    else $id('agTrust').textContent = '—';
+  } catch { $id('agTrust').textContent = '—'; }
   // фон-сессия кабинета (совместимость с /wallet): если сессии нет,tml ничего не ломаем
 }
 

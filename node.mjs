@@ -53,6 +53,8 @@ import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs
 // все маршруты /casino/*, /lot/*, /lottery* отвечают 404 gone (см. guard в хендлере).
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
+import { VcgAuctions } from './vcg.mjs';
+import { assessTrust } from './ds.mjs';
 import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
@@ -94,6 +96,7 @@ const bc = new Blockchain(DATA_DIR);
 bc.treasuryPolicyFn = makeTreasuryPolicyFn(bc);
 const queue = new AgentQueue(DATA_DIR); // очередь агентов: FIFO → работа → в конец очереди, по кругу
 const chat = new CommunityChat(DATA_DIR, bc.security);
+const vcgAuctions = new VcgAuctions(DATA_DIR); // VCG-аукционы задач (персистентны)
 const cloud = new CloudLedger(DATA_DIR);
 // AGIP-12: имперский карантин — база злоумышленников + протокол допроса (патруль ниже, раз в минуту)
 const jail = new Jail(path.join(DATA_DIR, 'jail.json'));
@@ -283,7 +286,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/auction|gov\/)/;
 function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -371,7 +374,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|jobs\/auction|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -442,7 +445,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/buffy' || p === '/buffy.html' ||
     p === '/jobs' || p === '/jobs.html' ||
-    p === '/jobs/state' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
+    p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
@@ -1810,6 +1813,58 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now }));
     const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash }));
     return json(res, 200, { stats: S.stats, fees: S.fees.slice(-50).reverse(), open, history, note: 'комиссия казны за успех джоба ~2.5% (env AGT_JOB_FEE_PCT) — memo escfee:<id> в цепи' });
+  }
+
+  // --- VCG-аукционы: честное распределение задач (commit-reveal, вторая цена) ---
+  if ((p === '/jobs/auction' && req.method === 'POST') || (p === '/jobs/auction/state' && req.method === 'GET') || (p === '/jobs/auction/list' && req.method === 'GET')) {
+    if (p === '/jobs/auction/list') return json(res, 200, { auctions: vcgAuctions.list() });
+    if (p === '/jobs/auction/state') {
+      const aq = vcgAuctions.get(String(url.searchParams.get('id') || ''));
+      if (!aq) return json(res, 404, { error: 'auction_not_found' });
+      if (aq.status === 'awarded' && !aq.funded) {
+        const fundTo = 'ESCROW_' + aq.escrowId;
+        const ch = bc.chain;
+        for (let i = ch.length - 1; i >= 0 && i >= ch.length - 2000; i--) {
+          const txs = (ch[i] && ch[i].txs) || [];
+          for (const t of txs) {
+            if (t && t.to === fundTo && Number(t.amount) >= Number(aq.price)) { vcgAuctions.markFunded(aq.escrowId, t.txid, Number(t.amount)); break; }
+          }
+          if (vcgAuctions.get(aq.id).funded) break;
+        }
+      }
+      return json(res, 200, vcgAuctions.public(vcgAuctions.get(aq.id), url.searchParams.get('full') === '1'));
+    }
+    const input = await body(req);
+    const action = String(input.action || '');
+    let ar;
+    if (action === 'create') ar = vcgAuctions.create(input);
+    else if (action === 'commit') ar = vcgAuctions.commit(input.id, input.address, input.commit);
+    else if (action === 'reveal') ar = vcgAuctions.reveal(input.id, input.address, input.price, input.nonce);
+    else if (action === 'resolve') ar = vcgAuctions.resolve(input.id);
+    else if (action === 'cancel') ar = vcgAuctions.cancel(input.id, input.employer);
+    else return json(res, 400, { error: 'unknown_action', actions: ['create','commit','reveal','resolve','cancel'] });
+    if (ar && ar.error) return json(res, 400, ar);
+    if (ar && ar.ok !== false) { try { bc.vTick(); } catch {} }
+    return json(res, action === 'create' ? 201 : 200, ar);
+  }
+
+  // --- DS-доверие: честная репутация с интервалом неопределённости ---
+  if (p === '/trust' && req.method === 'GET') {
+    const tAddr = String(url.searchParams.get('address') || '');
+    if (!tAddr) return json(res, 400, { error: 'address required' });
+    try {
+      const SE = escrowStateOnce(url.searchParams.get('fresh') === '1');
+      let paid = 0, refunded = 0, open = 0;
+      for (const e of (SE.escrows || [])) {
+        if (e.worker !== tAddr) continue;
+        if (e.status === 'paid') paid++;
+        else if (e.status === 'refunded') refunded++;
+        else open++;
+      }
+      const strikes = (bc.security && bc.security.strikes && bc.security.strikes[tAddr]) || 0;
+      const banned = bc.security ? bc.security.isBanned(tAddr) : false;
+      return json(res, 200, Object.assign({ address: tAddr }, assessTrust({ paid, refunded, open, strikes, banned })));
+    } catch (e) { return json(res, 500, { error: 'trust_error', detail: e.message }); }
   }
 
   // --- Escrow за задачи (task-receipt) ---

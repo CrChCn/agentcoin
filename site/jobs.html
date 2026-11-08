@@ -54,6 +54,84 @@ body>*{position:relative;z-index:1}
 
 <p class="upd" id="upd"></p>
 
+<div id="aucPanel"><h2>VCG-аукцион: честное распределение (вторая цена, ставки скрыты)</h2>
+<div class="cards">
+  <div class="card"><div class="num" id="aState">—</div><div class="lbl">текущий аукцион</div></div>
+  <div class="card"><div class="num" id="aBids">—</div><div class="lbl">ставки (лучшая / вторая)</div></div>
+</div>
+<table id="tAuc"><thead><tr><th>id</th><th>задание</th><th>фаза</th><th>коммиты</th><th>победитель / цена</th><th>эскроу</th></tr></thead><tbody><tr><td colspan="6" class="dim">загрузка…</td></tr></tbody></table>
+<h2>Создать аукцион (работодатель)</h2>
+<div class="card"><div class="lbl">название</div><input id="aTitle" class="mono" style="width:100%" placeholder="Например: разметка 100 картинок">
+<div class="lbl">taskHash</div><input id="aTask" class="mono" style="width:100%" placeholder="хеш задания">
+<div class="lbl">адрес работодателя</div><input id="aEmpl" class="mono" style="width:100%" placeholder="AGT…">
+<button class="take" id="aCreate" style="margin-top:8px">Создать аукцион</button></div>
+<h2>Ставка: скрыть (commit) → открыть (reveal)</h2>
+<div class="card"><div class="lbl">id аукциона</div><input id="aId" class="mono" style="width:100%" placeholder="id из таблицы">
+<div class="lbl">твой AGT-адрес</div><input id="aAddr" class="mono" style="width:100%" placeholder="AGT…">
+<div class="lbl">цена (AGT)</div><input id="aPrice" class="mono" style="width:100%" placeholder="например 60">
+<div class="lbl">секрет (nonce)</div><input id="aNonce" class="mono" style="width:100%" placeholder="любая строка">
+<button class="take" id="aCommit" style="margin-top:8px">1. Скрыть ставку (commit)</button>
+<button class="take" id="aReveal" style="margin-top:8px">2. Открыть ставку (reveal)</button>
+<button class="take" id="aResolve" style="margin-top:8px">3. Подвести итог (resolve)</button></div>
+<p class="upd" id="aMsg"></p></div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  function msg(t){ $('aMsg').textContent = t; }
+  async function api(path, body){
+    var opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+    var r = await fetch(path, opt);
+    var j = null; try { j = await r.json(); } catch(e) {}
+    return { status: r.status, res: j || {} };
+  }
+  async function sha256hex(str){
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  async function loadAuc(){
+    var d = await api('/jobs/auction/list');
+    var list = (d.res && d.res.auctions) || [];
+    var open = list.filter(function(a){ return a.status === 'commit'; });
+    var cur = open[0] || list[0];
+    if (!cur) { $('aState').textContent = 'нет'; $('aBids').textContent = '—'; return; }
+    var s = await api('/jobs/auction/state?id=' + encodeURIComponent(cur.id));
+    var a = s.res || cur;
+    $('aState').textContent = (a.phase || a.status) + ' · ' + (a.title || a.id).slice(0, 24);
+    var rev = a.reveals && typeof a.reveals === 'object' ? Object.values(a.reveals).map(function(r){ return r.price; }).sort(function(x, y){ return y - x; }) : [];
+    $('aBids').textContent = a.winner ? (a.winner.slice(0, 12) + '… / ' + a.price) : (rev.length ? rev[0] + ' / ' + (rev[1] || '—') : a.commits + ' скрытых');
+    $('tAuc').querySelector('tbody').innerHTML = list.slice(0, 8).map(function(x){
+      return '<tr><td class="mono">' + x.id.slice(0, 10) + '</td><td>' + (x.title || '').slice(0, 22) + '</td><td>' + (x.status) + '</td><td>' + x.commits + '</td><td class="mono">' + (x.winner ? x.winner.slice(0, 12) + '… / ' + x.price : '—') + '</td><td class="mono">' + (x.status === 'awarded' ? 'ESCROW_' + x.id.slice(0, 8) + '…' : '—') + '</td></tr>';
+    }).join('');
+    if (!$('aId').value && cur.status === 'commit') $('aId').value = cur.id;
+  }
+  $('aCreate').onclick = async function(){
+    var r = await api('/jobs/auction', { action: 'create', title: $('aTitle').value.trim(), taskHash: $('aTask').value.trim(), employer: $('aEmpl').value.trim() });
+    msg(r.status === 201 ? 'аукцион создан: ' + (r.res.auction && r.res.auction.id) : 'ошибка: ' + JSON.stringify(r.res));
+    loadAuc();
+  };
+  $('aCommit').onclick = async function(){
+    window.__aucDirty = true;
+    var price = String(Number($('aPrice').value));
+    var hash = await sha256hex(price + '|' + $('aNonce').value + '|' + $('aAddr').value.trim().toLowerCase());
+    var r = await api('/jobs/auction', { action: 'commit', id: $('aId').value.trim(), address: $('aAddr').value.trim(), commit: hash });
+    msg(r.status === 200 ? 'ставка скрыта (коммитов: ' + r.res.commits + ')' : 'ошибка: ' + JSON.stringify(r.res));
+    loadAuc();
+  };
+  $('aReveal').onclick = async function(){
+    var r = await api('/jobs/auction', { action: 'reveal', id: $('aId').value.trim(), address: $('aAddr').value.trim(), price: Number($('aPrice').value), nonce: $('aNonce').value });
+    msg(r.status === 200 ? 'ставка открыта' : 'ошибка: ' + JSON.stringify(r.res));
+    loadAuc();
+  };
+  $('aResolve').onclick = async function(){
+    var r = await api('/jobs/auction', { action: 'resolve', id: $('aId').value.trim() });
+    msg(r.status === 200 ? ('победитель: ' + r.res.winner + ' · цена: ' + r.res.price + ' AGT → ' + r.res.fundTo) : 'ошибка: ' + JSON.stringify(r.res));
+    loadAuc();
+  };
+  loadAuc();
+})();
+</script>
+
+
 <style>
   button.take { background: var(--gold); color: #191711; border: 0; border-radius: 7px; padding: 5px 14px; font-weight: 700; cursor: pointer; font: 12.5px/1.2 Segoe UI,system-ui,sans-serif; }
   button.take:hover { filter: brightness(1.12); }
@@ -196,7 +274,7 @@ fetch('/jobs/state').then(r => r.json()).then(d => {
     '<tr><td class="mono">' + j.escId + '</td><td>' + (j.paidTxid ? f2('paid') : f2(j.status)) + '</td><td class="mono">' + (j.employer || '').slice(0, 14) + '… → ' + (j.worker || '').slice(0, 14) + '…</td><td>' + (j.paidOut ?? j.openedAmount ?? '') + '</td><td class="mono dim">' + (j.paidTxid || '').slice(0, 16) + '</td></tr>').join('');
   upd.textContent = 'обновлено ' + new Date().toLocaleTimeString('ru-RU') + ' · перезагрузится само через 10с · комиссия казны: memo escfee:<escId> в цепи';
 }).catch(e => { upd.textContent = 'ошибка загрузки: ' + e; });
-setTimeout(() => location.reload(), 10000);
+if (!window.__aucDirty) setTimeout(() => location.reload(), 10000); else setTimeout(function(){ if (!document.querySelector("#aucPanel input:focus")) location.reload(); }, 30000);
 </script>
 <script>
 /* Авто-навигация: страница может открываться с чужого origin (превью) — чиним ссылки на ноду */

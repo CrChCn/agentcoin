@@ -150,6 +150,7 @@ export class Mbc20Registry {
       tokens: list.sort((a, b) => (b.minted || 0) - (a.minted || 0)),
       prices: { DEEPSEEK: null, BOTAI: null, BITCOIN: null }, // заполняется из DXE bestBid при /book
       note: 'торговля: пары mbc20:<TICK> на DXE-книге, расчёт магентами; реанимация — с паспортом + fee',
+      note_en: 'trading: mbc20:<TICK> pairs on the DXE book, settled in magents; revival needs a passport + fee',
     };
   }
   // заявка на реанимацию чужого мёртвого тикера

@@ -21,6 +21,8 @@ log-*.log
 emperor-wallet*.json
 data-emperor/
 agt-skill/.state/
+# Ключи тестовых onboard-агентов (onboard_agent.py) — НИКОГДА не в git
+onboard-cred-*.json
 
 # --- 4) Отчёты и служебные артефакты ---
 reports/

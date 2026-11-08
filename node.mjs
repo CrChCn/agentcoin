@@ -1963,6 +1963,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const wallets = loadWallets();
     const w = wallets[employer];
     if (!w) return json(res, 404, { error: 'employer_wallet_not_on_this_node' });
+    if (!/^[a-f0-9]{16,64}$/.test(String(taskHash || ''))) return json(res, 400, { error: 'taskHash_must_be_hex_16_64', hint: 'иначе claim/payout не найдут эскроу (fail-fast)' });
     const escId = escIdOf();
     const escAddress = ESCROW_PREFIX + escId;
     const deadlineTs = Math.floor(Date.now() / 1000) + Number(deadlineSec);

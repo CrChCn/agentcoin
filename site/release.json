@@ -1,18 +1,17 @@
 {
   "version": 1,
-  "release": "site-v2-bfe912c63d376ba5",
+  "release": "site-v3-7343ebc346ec4023",
   "apiVersion": 2,
   "files": {
-    "index.html": "d6c53f5f6b35541d8f2abcbc6015e4145b3ad2fe40cda89644fc63be8fea6db7",
-    "imperial.html": "2c6a51c482ff031cc60a3076308382ba517bd7c198dd72ce7ae7c75b1b4f87f1",
-    "terminal.html": "37f39a554554fd506fb3a611099ac3518379b96dab90204bfc704e2e2e8f0d93",
-    "dashboard.html": "cf7c602eaa122ffad7ab775319bbc6faecf88ee658684a21038cc7f781835adb",
-    "chat.html": "6e61b52f273685e3bc99cbc0f8606ade39348bfc6f642ee1a3286bb981bf90cb",
-    "jail.html": "7fe4f8554fe80752d6f2fcd7a2b4970a0484be6f4915e48890673b0670a8af5c",
-    "mbc20.html": "747dc562aa9464d457a449c6fbf7bc8fa0b56a7138467b1f06689719ff7b7366",
-    "lottery.html": "72e847f85b6546fddc44a2d7eaa074490ea5e0a3637b7eb20a0b836a00433593",
-    "cabinet.html": "6d72b80e05d64781723db22d0a04eadcf39c01f9566910b8435cd87218b2461b",
-    "jobs.html": "438d36210c88552c067b490410a8fa0a29eda1e74658404fb8436b79c956a878",
-    "panel.js": "b79f609af0931245be05913aa111a97519e31779a43ed7d7eb093cc3dd23b7d1"
+    "index.html": "1a2c97256e0a211a8968bc3f8bbe5a39ea24983c8318eefc5f331ff8cf20a2f9",
+    "imperial.html": "81de65ae561d52cdc87119562460e3fa7e7b380ef0adabf0e6bbcea0007841c4",
+    "terminal.html": "1a37907ab708bae00fb0247a373b905c79910f8ad321835bd26f1b56d161b098",
+    "dashboard.html": "205d6c64b1515ccf66e27af13b087b7e5dff6e8d839327a3a856d746208de37d",
+    "chat.html": "74914cd4cc8a37e948de6015714069f6d9841e14360e2545d2c9e27ed8d80ff2",
+    "jail.html": "8990a0812ff41f9e7218c90656c1217949bd466d2dccc804d75555cdd7c794af",
+    "mbc20.html": "e511291b7d2e1d33a1fff7ee6ad11ea724c6a06c8f6086952b32b9fc1081baf7",
+    "cabinet.html": "ce14df3951c2fd4c9c7265b4b4354bad671079ea38f84884a0c30cd17109fe2d",
+    "jobs.html": "c522cfff13f604612dcaed3b6e7164a41d418c8f9ce4095cbca7776662951960",
+    "panel.js": "6f70b4a215e496f3a365657b581a8800c33b8a287811c28391fa2b890dcdf21b"
   }
 }

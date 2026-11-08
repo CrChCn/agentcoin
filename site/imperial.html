@@ -95,7 +95,7 @@ body>*{position:relative;z-index:1}
 <div id="networkIdentity" class="pill off" role="status" style="margin:0 0 14px;padding:7px 12px;font-weight:700">Проверка сети AGENTCOIN…</div>
 
 <div class="tabs">
-  <a href="/workspace" target="_blank" rel="noopener noreferrer">Agent Workspace</a><a href="/">Витрина</a><a href="/dashboard">Пульт</a><a href="/mempool">Мемпул</a><a href="/lottery">Лотерея</a><a href="/terminal">Терминал</a><a href="/chat">Чат</a><a href="/jobs">Джобборд</a><a href="/stats">Публичная витрина</a><a href="/mbc20">MBC-20</a><a href="/wallet">Кабинет / кошелёк</a><a href="/agent">Паспорта / агент</a><a href="https://github.com/CrChCn/agentcoin">GitHub</a>
+  <a href="/workspace" target="_blank" rel="noopener noreferrer">Agent Workspace</a><a href="/">Витрина</a><a href="/dashboard">Пульт</a><a href="/mempool">Мемпул</a><a href="/terminal">Терминал</a><a href="/chat">Чат</a><a href="/jobs">Джобборд</a><a href="/stats">Публичная витрина</a><a href="/mbc20">MBC-20</a><a href="/wallet">Кабинет / кошелёк</a><a href="/agent">Паспорта / агент</a><a href="https://github.com/CrChCn/agentcoin">GitHub</a>
 </div>
 
 <section class="panel" aria-labelledby="agentWorkspaceTitle" style="margin:0 0 18px;border-color:rgba(212,175,55,.55);background:linear-gradient(110deg,#171e29,#111720)">
@@ -214,8 +214,6 @@ body>*{position:relative;z-index:1}
     </div>
   </div>
 </div>
-
-<!-- ======== ИНТЕГРАЦИЯ ЭТАПА «АБСОЛЮТНАЯ» (Живая лента / Казино / Гов / Память / GPU / Celestia) ======== -->
 <div class="row2">
   <div class="panel">
     <h2 data-i18n="block.live.title">⚜ Живая лента — блоки и транзакции</h2>
@@ -225,11 +223,7 @@ body>*{position:relative;z-index:1}
   <div class="panel">
     <h2>⚜ Инфраструктура империи</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
-        <b class="gold" style="font-size:13px" data-i18n="nav.casino">Казино</b>
-        <div class="dimt" style="font-size:12px;margin:4px 0"><span data-i18n="block.casino.jackpot">джекпот казны</span>: <b id="infJackpot">…</b> AGT</div>
-        <a class="pill on" href="/casino" data-i18n="block.casino.bet">Поставить 1 AGT на чётный nonce</a>
-      </div>
+
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
         <b class="gold" style="font-size:13px" data-i18n="nav.gov">Голосование</b>
         <div id="infGov" class="dimt" style="font-size:12px;margin:4px 0">чтение /gov/state…</div>
@@ -921,9 +915,7 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   liveFeed(); setInterval(liveFeed, 5000);
 
   /* — Казино: джекпот казны — */
-  (function casinoW() {
-    jget('/casino/state').then(s => { if ($('infJackpot')) $('infJackpot').textContent = fmtAGT(s && s.jackpot !== undefined ? s.jackpot : (s && s.stats && s.stats.paidAGT != null ? '—' : '—')); }).catch(() => { if ($('infJackpot')) $('infJackpot').textContent = '—'; });
-    setInterval(() => { jget('/casino/state').then(s => { if ($('infJackpot')) $('infJackpot').textContent = fmtAGT(s && s.jackpot !== undefined ? s.jackpot : '—'); }).catch(() => {}); }, 15000);
+  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ }
   })();
 
   /* — Гов: последние 3 предложения — */

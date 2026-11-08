@@ -69,7 +69,7 @@ body>*{position:relative;z-index:1}
   <div class="cmds">
     <button data-ccmd="balance">[balance]</button>
     <button data-ccmd="jobs">[jobs]</button>
-    <button data-ccmd="casino">[casino]</button>
+    
     <button data-ccmd="treasury">[treasury]</button>
     <button data-ccmd="help">[help]</button>
   </div>
@@ -341,7 +341,6 @@ if ($('cabAddr').value) tick(); else tick();
         line('команды:', 'ok');
         line('&nbsp;&nbsp;balance AGT… — баланс адреса (POST /balance)');
         line('&nbsp;&nbsp;jobs — джобборд (/jobs/state)');
-        line('&nbsp;&nbsp;casino — состояние казино (/casino/state)');
         line('&nbsp;&nbsp;treasury — казна (/treasury/state)');
         line('&nbsp;&nbsp;help — список команд');
       } else if (head === 'balance') {
@@ -355,10 +354,6 @@ if ($('cabAddr').value) tick(); else tick();
         line('джобы: открыто <b>' + (s.open || 0) + '</b> · выплачено <b class="ok">' + (s.paid || 0) + '</b> · рефандов ' + (s.refunded || 0));
         (j.open || []).slice(0, 5).forEach(x => line('&nbsp;&nbsp;' + esc(cut(x.escId, 12)) + ' · ' + esc(cut(x.worker, 18)) + ' · ' + (x.amount != null ? x.amount : '?') + ' AGT'));
         if (!(j.open || []).length) line('&nbsp;&nbsp;пусто — создать через терминал (панель эскроу ниже)');
-      } else if (head === 'casino') {
-        const j = await (await fetch(API + '/casino/state')).json();
-        const s = j.stats || {};
-        line('казино: высота ' + (j.height != null ? j.height : '?') + ' · раундов ' + (s.rounds || 0) + ' · открытых ' + (s.openBets || 0) + ' · выплачено <b class="ok">' + (s.paidAGT || 0) + '</b> AGT');
       } else if (head === 'treasury') {
         const j = await (await fetch(API + '/treasury/state')).json();
         const keys = Object.keys(j).slice(0, 8);

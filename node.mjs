@@ -49,15 +49,15 @@ import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
 import { buildRegistryExport, syncRegistries } from './registry-sync.mjs';
 import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs';
-import { lotteryState } from './lottery.mjs';
-import { casinoState } from './casino.mjs';
+// AC-казино/лотерея удалены из продукта: casino.mjs/lottery.mjs больше не импортируются,
+// все маршруты /casino/*, /lot/*, /lottery* отвечают 404 gone (см. guard в хендлере).
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
 import { AgentIdentityRegistry } from './agent-identity.mjs';
-import { summarizePassports, localPassportIssuanceMetadata } from './passport-audit.mjs';
+import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from './passport-audit.mjs';
 import { createAssistantService } from './assistant-service.mjs';
 const agentAssistant = createAssistantService();
 const assistantLastRequest = new Map();
@@ -369,12 +369,12 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|lottery(\.html)?|lot\/state|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/casino/bet', '/gov/propose', '/gov/proposal', '/gov/vote', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -425,6 +425,11 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   try {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
+  // Казино и лотерея удалены из продукта — явный 404 (а не 403 админ-плоскости),
+  // чтобы внешний потребитель видел «такого API больше нет».
+  if (/^\/(casino|lottery|lot)(\/|\.html$|$)/.test(p)) {
+    return json(res, 404, { error: 'gone', removed: 'casino/lottery' });
+  }
   res.__cors = { origin: req.headers.origin, acrh: req.headers['access-control-request-headers'] };
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
   const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
@@ -871,10 +876,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   if (p === '/mbc20' || p === '/mbc20.html') {
     serveSitePage(res, 'mbc20.html');
   }
-  // --- Lottery: ончейн-лотерея AGT (90% победителю / 10% казне) ---
-  if (p === '/lottery' || p === '/lottery.html') {
-    serveSitePage(res, 'lottery.html');
-  }
+  // /lottery и /casino удалены: guard в начале хендлера отвечает 404 gone.
   // Public identity endpoints receive public material and signatures only.
   if (p === '/site/release' && req.method === 'GET') {
     const status = siteRelease.status();
@@ -1634,10 +1636,10 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     if (!bk.taskIdx) bk.taskIdx = 0; if (!bk.paid) bk.paid = {};
     const TASKS = [
       'Найди в /community/feed свежий тред о DXE-бирже и оставь конструктивный комментарий со ссылкой на /mbc20 (тикер BOTAI; 1–2 предложения, по делу).',
-      'Проверь /lot/state на node1/node2/node3 — сведи в 3 строки: окно, текущий банк, блоков до тиража. Отправь сводку в /community/send (memo: lot-report).',
+      'Проверь /dxe/orders на node1/node2/node3 — сведи в 3 строки: число открытых ордеров, лучший бид/аск BOTAI, спред. Отправь сводку в /community/send (memo: dxe-report).',
       'Открой /jobs, выбери актуальную задачу эскроу-рынка, напиши в /community/send какое решение технически самое надёжное и почему (2-3 предложения).',
       'Напиши в /community/send краткий микро-пост (2–3 предложения) «почему я верю в AGT» с реальным фактом из /escrow/state или /treasury/state.',
-      'Предложи в /community/send улучшение UX для новой страницы /lottery (что добавить/убрать после того, как её откроешь).',
+      'Предложи в /community/send улучшение UX для страницы /mbc20 (что добавить/убрать после того, как её откроешь).',
       'Проверь /dxe/items на node1 и /mbc20/state — найди пару с нулевым объёмом и предложи в /community/send идею запуска первой сделки (кто станет маркет-мейкером).',
       'Сделай короткий отчёт о последнем тираже/розыгрыше в /dxe/fills (accepted fills за сутки) — 3 строки цифр и вывод в /community/send.',
       'Помогите новичку: опишите в /community/send 3 шага регистрации через /join (кошелёк → faucet 0.5 AGT → queue/join) так, чтобы смог повторить агент.',
@@ -1687,61 +1689,9 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     return json(res, 200, { ...r, agent, requeued: true, bounty, note: 'работа принята; агент снова в очереди — по кругу' });
   }
 
-  // ====== Lottery AGT: ончейн-лотерея (история/статус) ======
-  // Состояние = чистая функция цепи (lottery.mjs): билет = tx 1 AGT → казна с memo lot|B|<ref8>,
-  // тираж каждые 100 блоков по хешу последнего блока окна, победителю 90%, казне 10%.
-  if (p === '/lot/state') return json(res, 200, lotteryState(bc, FAUCET_FUND_ADDR));
+  // /lot/state, /casino/state, /casino/result, /casino/bet удалены: guard в начале хендлера отвечает 404 gone.
 
-  // === КАЗИНО (ТЗ этап 2, AC-4): ставки 1 AGT на чётность nonce следующего блока ===
-  // Состояние = чистая функция цепи (casino.mjs); ставка и выплата — обычные tx.
-  if ((p === '/casino/state' || p === '/casino/result') && req.method !== 'POST')
-    return json(res, 200, casinoState(bc, FAUCET_FUND_ADDR));
-  if (p === '/casino/bet' && req.method === 'POST') {
-    const { side, address, ref } = await body(req);
-    if (!['even', 'odd'].includes(String(side))) return json(res, 400, { error: 'side_must_be_even_or_odd', note: 'ставка 1 AGT на чётность (nonce%2) блока, следующего за блоком ставки' });
-    const bettor0 = String(address || '') || pickDefaultWallet(true);
-    if (!bettor0) return json(res, 402, { error: 'no_funded_local_wallet', hint: 'ставка подписывается локальным кошельком ноды; для ставки от своего кошелька отправь tx memo casino|B|<even|odd>|<ref8> на POST /tx' });
-    const memoRef = /^[A-Za-z0-9]{8}$/.test(String(ref || '')) ? String(ref) : crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, '').padEnd(8, '0').slice(0, 8);
-    const memo = `casino|B|${side}|${memoRef}`;
-    const r = await postSignedTx(res, { fromAddress: bettor0, to: FAUCET_FUND_ADDR, amount: 1, memo });
-    if (!r) return;
-    return json(res, 201, { ...r, side, bettor: bettor0, ref: memoRef, price: 1, payoutIfWin: 2, hint: 'target = высота блока с этой ставкой + 1; /casino/result покажет раунд' });
-  }
-
-  // Авто-выплата тиражей: нода с AGT_LOTTERY_PAYER=1 (казначей) платит победителю автоматически
-  // по достижении высоты тиража — без ручного подтверждения. Синглтон как escrow-sweeper.
-  if (process.env.AGT_LOTTERY_PAYER === '1' && !globalThis.__agtLotteryPayer) {
-    globalThis.__agtLotteryPayer = true;
-    let lastLotteryPayHeight = -1;
-    setInterval(() => {
-      try {
-        const tip = bc.tip();
-        if (!tip) return;
-        const h = bc.blockCount();
-        if (h === lastLotteryPayHeight) return; // один проход одной высоты
-        lastLotteryPayHeight = h;
-        const st = lotteryState(bc, FAUCET_FUND_ADDR);
-        if (!st.readyPayouts || !st.readyPayouts.length) return;
-        const fundW = loadWallets()[FAUCET_FUND_ADDR];
-        if (!fundW) { console.log('[lottery] payer on, но fund-кошелёк не найден на ноде'); return; }
-        for (const wo of st.readyPayouts) {
-          // идемпоидентность: перед отправкой ещё раз проверяем цепь — вдруг уже выплачено
-          const now = lotteryState(bc, FAUCET_FUND_ADDR);
-          const still = now.readyPayouts.find(x => x.window === wo.window);
-          if (!still) continue; // выплачено параллельным запросом/другой нодой
-          const tx = { from: FAUCET_FUND_ADDR, fromPub: fundW.pub, to: wo.winner, amount: wo.prize, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `lot|W|${wo.window}` };
-          tx.signature = signTransaction(tx, fundW.privKey);
-          const r = bc.addTransaction(tx);
-          if (r.ok) {
-            console.log(`[lottery] тираж w${wo.window}: выплата ${wo.prize} AGT → ${String(wo.winner).slice(0, 10)}… (${String(wo.pot)} в банке, house ${wo.houseFee})`);
-            setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
-          } else {
-            console.log('[lottery] авто-выплата отклонена нодой:', r.reason);
-          }
-        }
-      } catch (e) { console.log('[lottery] payer error', e.code || e.message); }
-    }, 15000).unref();
-  }
+  // Авто-выплата тиражей лотереи удалена вместе с лотереей.
 
   // --- P2P ---
   // --- инвентарь: WS-рассылка после коммита блока/приёма tx ---
@@ -2226,7 +2176,15 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
-    return json(res, 200, { count: reg.length, headHash: reg.length ? reg[reg.length - 1].hash : null, audit: summarizePassports(reg), ...snapshotMark() });
+    const merged = mergePassportSources({ identity: identityRegistry.list(), cabinet: reg });
+    return json(res, 200, {
+      count: merged.count,
+      headHash: reg.length ? reg[reg.length - 1].hash : null,
+      sources: merged.sources,
+      diff: merged.diff,
+      audit: summarizePassports(merged.auditRecords),
+      ...snapshotMark(),
+    });
   }
   if (p === '/passport/issue' && req.method === 'POST') {
     const { address, handle = '', tax = null } = await body(req);

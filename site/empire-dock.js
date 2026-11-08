@@ -34,11 +34,11 @@
     var dock = el('div', { id: 'empireDock' });
     var live = el('span', { class: 'dlive' }, '⟡ Блок #…');
     dock.appendChild(live);
-    [['/imperial', 'Империя'], ['/casino', 'Казино'], ['/gov', 'Голосование'], ['/memory', 'Память (Filecoin)'], ['/compute', 'GPU (Akash)'], ['/jobs', 'Джобы'], ['/wallet', 'Кошелёк'], ['/terminal', 'Терминал'], ['/docs', 'Docs'], ['/mbc20', 'MBC-20'], ['/chat', 'Чат']].forEach(function (l) {
+    [['/imperial', 'Империя'], ['/gov', 'Голосование'], ['/memory', 'Память (Filecoin)'], ['/compute', 'GPU (Akash)'], ['/jobs', 'Джобы'], ['/wallet', 'Кошелёк'], ['/terminal', 'Терминал'], ['/docs', 'Docs'], ['/mbc20', 'MBC-20'], ['/chat', 'Чат']].forEach(function (l) {
       dock.appendChild(el('a', { class: 'dl', href: l[0] }, l[1]));
     });
     dock.appendChild(el('a', { class: 'dl gold', href: '/create-wallet' }, 'Стать агентом'));
-    var dim = el('span', { class: 'dim' }, '· Казино: ставка на nonce · Память: Synapse/PDP · GPU: Akash');
+    var dim = el('span', { class: 'dim' }, '· Память: Synapse/PDP · GPU: Akash');
     dock.appendChild(dim);
     document.body.appendChild(dock);
     document.body.style.paddingBottom = document.body.style.paddingBottom || '';

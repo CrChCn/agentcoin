@@ -286,7 +286,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/auction|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|gov\/)/;
 function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -374,7 +374,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -1816,6 +1816,72 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
 
   // --- VCG-аукционы: честное распределение задач (commit-reveal, вторая цена) ---
+  // ====== PoUW: Groth16 ZK-verify + выплата за доказанное вычисление ======
+  // Схема pouw.circom: публичное задание c (полупростое), приватное решение a*b=c.
+  // Пруф доказывает знание сомножителей, не раскрывая их. Ключи — тестовая
+  // single-contributor церемония на ноде (документирована как тестовая; для
+  // прод-выплат нужна MPC-церемония с заменой zkey/vk).
+  // snarkjs грузится лениво из vendor (нет файла → 503 zk_unavailable, нода жива).
+  async function loadZk() {
+    const g = (globalThis.__agtZk ||= {});
+    if (!g.snark) {
+      const mod = await import('/opt/agentcoin-node/vendor/node_modules/snarkjs/build/main.cjs');
+      g.snark = mod.default || mod;
+    }
+    if (!g.vkText || !g.vkAt || Date.now() - g.vkAt > 60000) {
+      g.vkText = fs.readFileSync('/opt/agentcoin-node/zkbuild/verification_key.json', 'utf8');
+      g.vkAt = Date.now();
+    }
+    return { snark: g.snark, vk: JSON.parse(g.vkText) };
+  }
+  function loadPouw() {
+    try { const f = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'pouw.json'), 'utf8')); return { claims: (f && f.claims) || {} }; }
+    catch { return { claims: {} }; }
+  }
+  function savePouw(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(path.join(DATA_DIR, 'pouw.json'), JSON.stringify(f, null, 2)); }
+  function zkShapeOk(proof, signals) {
+    if (!proof || typeof proof !== 'object' || proof.protocol !== 'groth16' || proof.curve !== 'bn128') return 'bad_protocol';
+    const arr = (x, n) => Array.isArray(x) && x.length === n && x.every(v => typeof v === 'string' && v.length > 0 && v.length < 100);
+    if (!arr(proof.pi_a, 3) || !arr(proof.pi_c, 3)) return 'bad_proof_points';
+    if (!Array.isArray(proof.pi_b) || proof.pi_b.length !== 3 || !proof.pi_b.every(r => arr(r, 2))) return 'bad_proof_points';
+    if (!Array.isArray(signals) || signals.length !== 1 || typeof signals[0] !== 'string' || !/^[0-9]+$/.test(signals[0])) return 'bad_signals';
+    return null;
+  }
+  if (p === '/jobs/zkclaim/state' && req.method === 'GET') {
+    const f = loadPouw();
+    return json(res, 200, { circuit: 'pouw-multiplier-v1', curve: 'bn128', reward: 0.25, unit: TICKER, ceremony: 'test-single-contributor', claims: Object.keys(f.claims).length, verifyEndpoint: 'POST /jobs/zkclaim {proof, publicSignals, address}' });
+  }
+  if (p === '/jobs/zkclaim' && req.method === 'POST') {
+    const { proof, publicSignals, address } = await body(req);
+    if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
+    if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
+    const shapeErr = zkShapeOk(proof, publicSignals);
+    if (shapeErr) return json(res, 400, { error: shapeErr });
+    const c = publicSignals[0];
+    const key = address + '|' + c;
+    const f = loadPouw();
+    const now = Date.now();
+    if (f.claims[key] && now - f.claims[key] < 24 * 3600_000)
+      return json(res, 429, { error: 'already_claimed_24h', hint: 'один claim на (адрес, задание) в сутки' });
+    let zk;
+    try { zk = await loadZk(); } catch { return json(res, 503, { error: 'zk_unavailable', hint: 'верификатор ещё строится (церемония), повтори позже' }); }
+    const t0 = Date.now();
+    let ok = false;
+    try { ok = await zk.snark.groth16.verify(zk.vk, publicSignals, proof); } catch (e) { return json(res, 422, { error: 'verify_crashed', detail: String(e && e.message || e).slice(0, 160) }); }
+    const ms = Date.now() - t0;
+    if (!ok) return json(res, 422, { verified: false, ms });
+    const FUND = { address: FAUCET_FUND_ADDR };
+    const fundW = loadWallets()[FUND.address];
+    if (!fundW) return json(res, 503, { error: 'fund_wallet_missing' });
+    const claimTx = { from: FUND.address, fromPub: fundW.pub, to: address, amount: 0.25, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: 'pouw:' + c.slice(0, 24) };
+    claimTx.signature = signTransaction(claimTx, fundW.privKey);
+    const r = bc.addTransaction(claimTx);
+    if (!r.ok) return json(res, 503, { error: 'fund_tx_rejected', detail: r.reason });
+    f.claims[key] = now;
+    savePouw(f);
+    setImmediate(() => { gossipTx(claimTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: claimTx }); });
+    return json(res, 200, { verified: true, ms, paid: 0.25, unit: TICKER, to: address, challenge: c, note: 'pouw claim принят и оплачен из фонда' });
+  }
   if ((p === '/jobs/auction' && req.method === 'POST') || (p === '/jobs/auction/state' && req.method === 'GET') || (p === '/jobs/auction/list' && req.method === 'GET')) {
     if (p === '/jobs/auction/list') return json(res, 200, { auctions: vcgAuctions.list() });
     if (p === '/jobs/auction/state') {

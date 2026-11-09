@@ -58,21 +58,49 @@ function waJwtVerify(tok, req) {
   let p; try { p = JSON.parse(waUnb64u(parts[1]).toString('utf8')); } catch { return { ok: false, why: 'bad_payload' }; }
   if (!p || typeof p.sub !== 'string' || typeof p.ip !== 'string' || typeof p.jti !== 'string') return { ok: false, why: 'bad_payload' };
   if (!p.exp || Date.now() >= p.exp) return { ok: false, why: 'expired' };
-  if (waLoad().revoked.issued[p.jti]) return { ok: false, why: 'revoked' };
+  // Отзыв — только живой: просроченная запись описывает прошлое и подчищается лениво.
+  // (P0-фикс: раньше выдача сразу же помечала jti отозванным — ни одна сессия не переживала /auth/session.)
+  const rj = waLoad().revoked.issued[p.jti];
+  if (rj) { if (rj > Date.now()) return { ok: false, why: 'revoked' }; delete waLoad().revoked.issued[p.jti]; }
   if (waLoad().epoch[p.sub] && p.ep !== waLoad().epoch[p.sub]) return { ok: false, why: 'epoch_invalidated' };
   if (p.ip !== waIp(req)) return { ok: false, why: 'ip_changed_invalidated' }; // AC-7
   return { ok: true, p };
 }
-function waBearer(req) {
+function waBearer(req) { return waAuthToken(req).tok; }
+// Сессия из двух источников: Bearer (CLI/тесты/совместимость) либо HttpOnly-cookie
+// agt_wa (браузер). Кука ставится ответами входа и никогда не читается из JS.
+function waAuthToken(req) {
   const h = String(req.headers.authorization || '');
-  return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+  if (h.startsWith('Bearer ')) { const t = h.slice(7).trim(); if (t) return { tok: t, via: 'bearer' }; }
+  const ck = String(req.headers.cookie || '');
+  const m = ck.match(/(?:^|;\\s*)agt_wa=([^;]{1,4096})/);
+  if (m) { try { const t = decodeURIComponent(m[1]).trim(); if (t) return { tok: t, via: 'cookie' }; } catch {} }
+  return { tok: null, via: null };
+}
+// Куки-сессия требует явного JS-заголовка: обычная cross-site форма его не выставит.
+// Второй рубеж — SameSite=Strict на самой куке.
+function waCsrfOk(req) {
+  const h = String(req.headers['x-requested-with'] || req.headers['x-csrf'] || '').toLowerCase();
+  return h === 'xmlhttprequest' || h === '1';
+}
+function waTls(req) {
+  return !!((req.socket && req.socket.encrypted) ||
+    String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
+}
+function waSetSessionCookie(res, jwt, req) {
+  // Secure — только поверх TLS: на loopback-тестах без HTTPS кука иначе не сохранится.
+  res.setHeader('Set-Cookie', 'agt_wa=' + encodeURIComponent(jwt) +
+    '; Path=/; HttpOnly; SameSite=Strict' + (waTls(req) ? '; Secure' : ''));
+}
+function waClearSessionCookie(res) {
+  res.setHeader('Set-Cookie', 'agt_wa=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
 }
 function waIssueAndRegister(sub, req) {
   const ip = waIp(req);
   const w = waJwtIssue(sub);
   const jwt = w.make(ip);
-  waLoad().revoked.issued[w.jti] = Date.now() + WA_TTL_MS;
-  waPersist();
+  // Выдача НЕ помечает jti отозванным (иначе сессия умирала бы в тот же миг).
+  // Отзыв — только явный: /auth/logout (jti) или /auth/logout-all (epoch).
   return jwt;
 }
 
@@ -128,13 +156,22 @@ function waAuthDataCheck(authDataBuf, expectRp, needUV) {
 async function handleWalletAuth(req, res, p) {
   const bodyJ = await body(req).catch(() => ({}));
   const J = (code, o) => { json(res, code, o); return true; };
+  // Анти-CSRF для куки-сессий: Bearer-источники не затрагиваются.
+  const wa = waAuthToken(req);
+  if (wa.via === 'cookie' && req.method === 'POST' && !waCsrfOk(req))
+    return J(403, { ok: false, error: 'csrf_header_required',
+      hint: 'куки-сессия требует заголовок X-Requested-With: XMLHttpRequest' });
 
   if (p === '/auth/session') {
-    const tok = waBearer(req); if (!tok) return J(401, { ok: false, error: 'no_token' });
+    const tok = wa.tok; if (!tok) return J(401, { ok: false, error: 'no_token' });
     const v = waJwtVerify(tok, req);
     if (!v.ok) return J(401, { ok: false, error: 'session_invalidated', reason: v.why });
     const sub = v.p.sub, S = waLoad();
-    return J(200, { ok: true, sub, ip: waIp(req), exp: v.p.exp,
+    // Кабинетный токен для /cabinet/*:browser-сессия по куке восстанавливается без
+    // повторного входа; клиент хранит его только в памяти и обновляет при каждой проверке.
+    let cabTok = null;
+    try { const cs = cabinet.issueSession(sub, 'wallet-jwt'); if (cs && cs.ok) cabTok = cs.token; } catch {}
+    return J(200, { ok: true, sub, ip: waIp(req), exp: v.p.exp, cabinetToken: cabTok,
       pinSet: !!S.pins[sub], faceOn: Object.values(S.creds).some((c) => c.sub === sub), phoneSet: false });
   }
   if (p === '/auth/file/challenge') {
@@ -148,10 +185,11 @@ async function handleWalletAuth(req, res, p) {
     const { address, nonce, challengeId, signature } = bodyJ || {};
     const r = cabinet.loginChallenge(address, nonce, signature, challengeId);
     if (!r.ok) return J(400, { error: r.error || 'login_failed', hint: 'подпишите challenge (CLI) и повторите' });
-    return J(200, { ok: true, sub: address, walletJwt: waIssueAndRegister(address, req), cabinetToken: r.token || null });
+    const waJwt = waIssueAndRegister(address, req); waSetSessionCookie(res, waJwt, req);
+    return J(200, { ok: true, sub: address, walletJwt: waJwt, cabinetToken: r.token || null });
   }
   if (p === '/auth/pin/set' || p === '/auth/pin/disable') {
-    const tok = waBearer(req); const v = tok ? waJwtVerify(tok, req) : { ok: false };
+    const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false };
     if (!v.ok) return J(401, { ok: false, error: 'session_required', reason: v.why });
     const sub = v.p.sub, S = waLoad();
     if (p === '/auth/pin/disable') { delete S.pins[sub]; waPersist(); return J(200, { ok: true, pinSet: false }); }
@@ -172,17 +210,28 @@ async function handleWalletAuth(req, res, p) {
       if (a.length === cand.length && crypto.timingSafeEqual(a, cand)) { hit = sub; break; }
     }
     if (!hit) return J(401, { error: 'pin_not_matched' });
-    return J(200, { ok: true, sub: hit, walletJwt: waIssueAndRegister(hit, req) });
+    const waJwtPin = waIssueAndRegister(hit, req); waSetSessionCookie(res, waJwtPin, req);
+    return J(200, { ok: true, sub: hit, walletJwt: waJwtPin });
   }
   if (p === '/auth/webauthn/challenge') {
+    // Challenge привязан к режиму и (если известен) к адресу: nonce регистрации
+    // нельзя потратить на вход и наоборот; для входа по известному адресу сервер
+    // возвращает allowCredentials — клиент обязан декодировать id в бинарный вид.
+    const mode = (bodyJ && bodyJ.mode === 'register') ? 'register' : 'login';
+    const wsub = (bodyJ && typeof bodyJ.address === 'string' && bodyJ.address) || null;
     const ch = crypto.randomBytes(32).toString('base64url');
     const id = crypto.randomBytes(10).toString('hex');
-    waLoad().webNonces[id] = { challenge: ch, exp: Date.now() + 2 * 60 * 1000, used: false };
+    waLoad().webNonces[id] = { challenge: ch, exp: Date.now() + 2 * 60 * 1000, used: false, mode: mode, sub: wsub };
     waPersist();
-    return J(200, { id, challenge: ch, allowCredentials: [] });
+    let allow = [];
+    if (mode === 'login' && wsub) {
+      for (const cid of Object.keys(waLoad().creds))
+        if (waLoad().creds[cid].sub === wsub) allow.push({ type: 'public-key', id: cid, transports: ['internal'] });
+    }
+    return J(200, { id, challenge: ch, mode: mode, allowCredentials: allow });
   }
   if (p === '/auth/webauthn/register') {
-    const tok = waBearer(req); const v = tok ? waJwtVerify(tok, req) : { ok: false };
+    const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false };
     if (!v.ok) return J(401, { ok: false, error: 'session_required', reason: v.why });
     const sub = v.p.sub;
     const { id, credential } = bodyJ || {};
@@ -191,11 +240,11 @@ async function handleWalletAuth(req, res, p) {
     for (const nk of Object.keys(waLoad().webNonces)) {
       const rec = waLoad().webNonces[nk];
       if (rec.exp > Date.now() && !rec.used) { nonce = rec; nonceKey = nk; break; }
-    }
-    if (!nonce) return J(400, { error: 'webauthn_challenge_not_issued' });
-    nonce.used = true;
-    try {
-      waWebAuthnCd(credential.clientDataJSON, 'webauthn.create', nonce);
+    }      if (!nonce) return J(400, { error: 'webauthn_challenge_not_issued' });
+      if (nonce.mode && nonce.mode !== 'register') return J(400, { error: 'webauthn_mode_mismatch' });
+      nonce.used = true;
+      try {
+        waWebAuthnCd(credential.clientDataJSON, 'webauthn.create', nonce);
       const att = waCbor(waUnb64u(credential.attestationObject));
       const authData = att.v && att.v.authData;
       const ad = waAuthDataCheck(authData, 'agentcoin.work', false);
@@ -220,11 +269,11 @@ async function handleWalletAuth(req, res, p) {
     for (const nk of Object.keys(waLoad().webNonces)) {
       const rec = waLoad().webNonces[nk];
       if (rec.exp > Date.now() && !rec.used) { nonce = rec; nonceKey = nk; break; }
-    }
-    if (!nonce) return J(400, { error: 'webauthn_challenge_not_issued' });
-    nonce.used = true;
-    try {
-      waWebAuthnCd(credential.clientDataJSON, 'webauthn.get', nonce);
+    }      if (!nonce) return J(400, { error: 'webauthn_challenge_not_issued' });
+      if (nonce.mode && nonce.mode !== 'login') return J(400, { error: 'webauthn_mode_mismatch' });
+      nonce.used = true;
+      try {
+        waWebAuthnCd(credential.clientDataJSON, 'webauthn.get', nonce);
       const authData = waUnb64u(credential.authenticatorData);
       const ad = waAuthDataCheck(authData, 'agentcoin.work', false);
       if (ad.counter && c.counter && ad.counter <= c.counter) throw new Error('counter_replay');
@@ -235,7 +284,8 @@ async function handleWalletAuth(req, res, p) {
       c.counter = ad.counter;
       delete waLoad().webNonces[nonceKey];
       waPersist();
-      return J(200, { ok: true, sub: c.sub, walletJwt: waIssueAndRegister(c.sub, req) });
+      const waJwtFace = waIssueAndRegister(c.sub, req); waSetSessionCookie(res, waJwtFace, req);
+      return J(200, { ok: true, sub: c.sub, walletJwt: waJwtFace });
     } catch (e) {
       if (nonceKey) delete waLoad().webNonces[nonceKey];
       waPersist();
@@ -243,7 +293,7 @@ async function handleWalletAuth(req, res, p) {
     }
   }
   if (p === '/auth/webauthn/disable') {
-    const tok = waBearer(req); const v = tok ? waJwtVerify(tok, req) : { ok: false };
+    const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false };
     if (!v.ok) return J(401, { ok: false, error: 'session_required' });
     let n = 0;
     for (const id of Object.keys(waLoad().creds)) if (waLoad().creds[id].sub === v.p.sub) { delete waLoad().creds[id]; n++; }
@@ -255,13 +305,15 @@ async function handleWalletAuth(req, res, p) {
     return J(200, { ok: false, gateway: 'not_configured', error: 'sms_gateway_not_configured', message: hint, hint: hint });
   }
   if (p === '/auth/logout') {
-    const tok = waBearer(req); const v = tok ? waJwtVerify(tok, req) : { ok: false, why: 'no_token' };
+    const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false, why: 'no_token' };
     if (v.ok) { waLoad().revoked.issued[v.p.jti] = Date.now() + WA_TTL_MS; waPersist(); }
+    waClearSessionCookie(res);
     return J(200, { ok: true, logged_out: true });
   }
   if (p === '/auth/logout-all') {
-    const tok = waBearer(req); const v = tok ? waJwtVerify(tok, req) : { ok: false, why: 'no_token' };
+    const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false, why: 'no_token' };
     if (v.ok) { waLoad().epoch[v.p.sub] = (waLoad().epoch[v.p.sub] || 0) + 1; waPersist(); }
+    waClearSessionCookie(res);
     return J(200, { ok: true, all_sessions_invalidated: !!v.ok });
   }
   return false; // не наш маршрут

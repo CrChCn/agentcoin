@@ -31,6 +31,7 @@ body{
 .logo .co{color:var(--gold)}
 .netstat{color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .netstat b{color:var(--txt);font-weight:600}
+.stale{color:var(--gold2)}
 .spacer{flex:1}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{background:transparent;border:0;color:var(--mut);padding:6px 12px;cursor:pointer;font:inherit;font-size:13px}
@@ -98,6 +99,9 @@ body{
 table.list{width:100%;border-collapse:collapse;font-size:13px}
 table.list td,table.list th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
 table.list th{color:var(--mut);font-weight:600}
+dl.confirm{margin:10px 0 0;font-size:13px}
+dl.confirm dt{color:var(--mut);float:left;clear:left;min-width:110px}
+dl.confirm dd{margin:0 0 6px 118px;word-break:break-all}
 .switch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
 .switch:last-child{border-bottom:0}
 .switch .lbl{font-size:14px}
@@ -120,6 +124,7 @@ table.list th{color:var(--mut);font-weight:600}
   border:1px solid var(--line);background:transparent;color:var(--mut);padding:8px 4px;border-radius:10px;cursor:pointer;font:inherit;font-size:12.5px;
 }
 .tabs button.on{border-color:var(--gold);color:var(--gold2);background:rgba(212,175,55,.1)}
+.tabs button:disabled{opacity:.4;cursor:not-allowed}
 .tabpane{border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(7,9,13,.45);min-height:120px}
 .drop{
   border:2px dashed rgba(212,175,55,.4);border-radius:12px;padding:18px;text-align:center;color:var(--mut);
@@ -130,7 +135,6 @@ table.list th{color:var(--mut);font-weight:600}
   font-size:26px;letter-spacing:.5em;text-align:center;background:var(--panel2);border:1px solid var(--line);
   border-radius:10px;color:var(--gold2);padding:10px;width:100%;font-family:Consolas,monospace;
 }
-.jwt{word-break:break-all;font-size:11px;color:var(--mut)}
 .close-x{position:absolute;top:12px;right:14px;border:0;background:transparent;color:var(--mut);font-size:18px;cursor:pointer}
 .modal-wrap{position:relative}
 /* ---------- модал отправки ---------- */
@@ -139,6 +143,9 @@ footer.f{max-width:980px;margin:0 auto 30px;padding:0 18px;color:var(--mut);font
   .topbar{flex-wrap:wrap}
   .netstat{order:3;width:100%}
   .balance-big{font-size:34px}
+  .orb-chip{font-size:12px;padding:6px 10px}
+  #chipSend{left:74%!important}
+  #chipRecv{left:22%!important}
 }
 kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px}
 </style>
@@ -173,7 +180,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
 <main class="cab hidden" id="cab">
   <section class="panel">
     <h2 data-i="balanceTitle">Баланс</h2>
-    <div class="balance-big"><span id="balNum">0</span> <span class="balance-unit">AGT</span></div>
+    <div class="balance-big"><span id="balNum">—</span> <span class="balance-unit">AGT</span></div>
     <div class="hint" id="balNote"></div>
     <div class="addr-row">
       <div class="addr mono" id="addrShow">—</div>
@@ -204,14 +211,17 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
   <section class="panel">
     <h2 data-i="statusTitle">Сессия</h2>
     <div class="hint" id="sessLine"></div>
-    <div class="jwt mono" id="jwtShow"></div>
+    <div class="hint" id="sessExp"></div>
   </section>
 </main>
 
-<!-- молитвенная тишина для история -->
 <section class="panel hidden" id="panelHistory" style="max-width:980px;margin:0 auto 50px;">
   <h2 data-i="historyTitle">История операций</h2>
-  <div style="overflow:auto"><table class="list" id="histTable"><thead><tr><th data-i="hWhen">Когда</th><th data-i="hKind">Тип</th><th data-i="hSum">Сумма</th><th>txid</th></tr></thead><tbody><tr><td colspan="4" class="hint">—</td></tr></tbody></table></div>
+  <div style="overflow:auto"><table class="list" id="histTable"><thead><tr><th data-i="hWhen">Когда</th><th data-i="hKind">Тип</th><th data-i="hSum">Сумма</th><th data-i="hStatus">Статус</th><th>txid</th></tr></thead><tbody><tr><td colspan="5" class="hint">—</td></tr></tbody></table></div>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="btn hidden" id="histMore" data-i="histMore">Показать ещё</button>
+    <span class="hint" id="histMsg"></span>
+  </div>
 </section>
 
 <footer class="f" id="foot">AGENTCOIN · Ядро Агента · v1 (AGIP-W2R)</footer>
@@ -226,10 +236,10 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       <button data-tab="face" id="tabFace" data-i="tabFace">🫥 Face ID</button>
       <button data-tab="pin"  id="tabPin"  data-i="tabPin">🔢 PIN</button>
       <button data-tab="file" id="tabFile" data-i="tabFile">📁 Файл</button>
-      <button data-tab="sms"  id="tabSms"  data-i="tabSms">📱 SMS</button>
+      <button data-tab="sms"  id="tabSms" data-i="tabSms" disabled>📱 SMS</button>
     </div>
 
-    <div class="tabpane" id="paneFace">
+    <div class="tabpane hidden" id="paneFace">
       <div class="field">
         <label data-i="faceDesc">Биометрия устройства (Windows Hello / Touch ID)</label>
         <button class="btn gold" id="faceLogin" data-i="faceLogin">Войти по биометрии</button>
@@ -256,26 +266,17 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" id="fileChallenge" data-i="fileChallenge">1. Получить challenge</button>
+        <button class="btn" id="fileChallengeDl" data-i="fileDl" disabled>⤓ challenge.json</button>
         <button class="btn gold" id="fileLogin" data-i="fileLogin">2. Войти (подпись)</button>
       </div>
-      <div class="field"><label data-i="fileCmd">Команда для локальной подписи</label>
-        <textarea id="fileCmd" rows="2" class="mono" readonly></textarea></div>
+      <div class="field"><label data-i="fileJson">Точные данные для подписи (challenge-файл)</label>
+        <textarea id="fileJson" rows="4" class="mono" readonly></textarea></div>
       <div class="field"><label data-i="fileSig">Подпись challenge (64 байта hex)</label>
         <input id="fileSig" class="mono" maxlength="128" placeholder="hex128"></div>
       <div class="hint" id="fileMsg"></div>
     </div>
 
     <div class="tabpane hidden" id="paneSms">
-      <div class="field">
-        <label data-i="smsPhone">Номер телефона (E.164)</label>
-        <input id="smsPhone" placeholder="+7…">
-        <button class="btn" id="smsSend" data-i="smsSend">Отправить код</button>
-      </div>
-      <div class="field">
-        <label data-i="smsCode">Код из SMS</label>
-        <input id="smsCode" class="mono" maxlength="6" placeholder="••••••">
-        <button class="btn" id="smsVerify" data-i="smsVerify">Проверить код</button>
-      </div>
       <div class="hint" id="smsMsg"></div>
     </div>
   </div>
@@ -289,8 +290,15 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
     <div class="field"><label data-i="to">Получатель (адрес AGT…)</label><input id="sendTo" class="mono" placeholder="AGT…"></div>
     <div class="field"><label data-i="amount">Сумма (AGT)</label><input id="sendAmt" inputmode="decimal" placeholder="1.000000000"></div>
     <div class="field"><label data-i="memo">Мемо (до 120 символов)</label><input id="sendMemo" maxlength="120"></div>
+    <div class="hint" id="sendEst"></div>
     <button class="btn" id="sendPrepare" data-i="sendPrepare">1. Подготовить</button>
-    <div class="field"><label data-i="sendCmd">Команда подписи (CLI)</label><textarea id="sendCmd" rows="2" class="mono" readonly></textarea></div>
+    <dl class="confirm hidden" id="sendConfirm"></dl>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn hidden" id="sendOpDl" data-i="sendOpDl">⤓ операция (JSON)</button>
+    </div>
+    <div class="field"><label data-i="sendCmd">Команда подписи (локальный CLI)</label>
+      <textarea id="sendCmd" rows="3" class="mono" readonly></textarea></div>
+    <div class="hint" id="sendSignHint"></div>
     <div class="field"><label data-i="sendSig">Подпись (hex128)</label><input id="sendSig" class="mono" maxlength="128"></div>
     <button class="btn gold" id="sendSubmit" data-i="sendSubmit">2. Отправить в мемпул</button>
     <div class="hint" id="sendMsg"></div>
@@ -309,6 +317,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       <div class="addr mono" id="recvUriFull">—</div>
       <button class="btn" id="recvCopy">⧉ <span data-i="copy">Скопировать</span></button>
     </div>
+    <div class="hint" id="recvMsg"></div>
   </div>
 </div>
 
@@ -316,90 +325,156 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
 "use strict";
 /* ============================================================
    AGENTCOIN · Ядро Агента — /wallet (AGIP-W2R). Самодостаточно.
+   Безопасность клиента:
+   - Токены сессии (JWT, кабинетный токен) живут ТОЛЬКО в памяти.
+     localStorage/sessionStorage для секретов не используются; старые ключи
+     удаляются при миграции. Кука agt_wa — HttpOnly, её ставит сервер.
+   - Все данные API вставляются через textContent/DOM — innerHTML нет.
+   - Суммы: строгая десятичная запись (≤9 знаков), целые минорные единицы
+     (BigInt). Значения, не представимые точно на проводе, отклоняются.
    ============================================================ */
 const $=(id)=>document.getElementById(id);
+/* ---------- сессия: только память ---------- */
+const Sess={jwt:null,cab:null,addr:null,exp:0};
 const API={
-  async post(path,body,jwt){const r=await fetch(path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},jwt?{Authorization:'Bearer '+jwt}:{}),body:JSON.stringify(body||{})});return{status:r.status,json:await r.json().catch(()=>({}))}},
-  async get(path){const r=await fetch(path);return{status:r.status,json:await r.json().catch(()=>({}))}}
+  async post(path,body,ms){
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),ms||15000);
+    try{
+      const r=await fetch(path,{method:'POST',credentials:'same-origin',signal:ctrl.signal,
+        headers:Object.assign({'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+          Sess.jwt?{Authorization:'Bearer '+Sess.jwt}:{}),
+        body:JSON.stringify(body||{})});
+      return{status:r.status,json:await r.json().catch(()=>({}))};
+    }catch(e){return{status:0,json:{},netErr:true}}
+    finally{clearTimeout(to)}
+  },
+  async get(path,ms){
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),ms||15000);
+    try{
+      const r=await fetch(path,{credentials:'same-origin',signal:ctrl.signal});
+      return{status:r.status,json:await r.json().catch(()=>({}))};
+    }catch(e){return{status:0,json:{},netErr:true}}
+    finally{clearTimeout(to)}
+  }
 };
+/* ---------- точные суммы ---------- */
+const ADDR_RE=/^AGT[0-9a-f]{40}$/;
+const HEX128=/^[0-9a-fA-F]{128}$/;
+// Строгая десятичная запись AGT (≤9 знаков после точки) -> целые минорные единицы.
+// Возвращает {minor:String, num:Number}; num — значение, как его увидит провод;
+// несовпадение round-trip (потеря точности) — отказ вместо тихой порчи.
+function parseAmountToMinor(s){
+  const m=/^(\d+)(?:\.(\d{1,9}))?$/.exec(String(s||'').trim());
+  if(!m) throw Error('bad_amount');
+  const minor=BigInt(m[1])*1000000000n+BigInt((m[2]||'').padEnd(9,'0'));
+  if(minor<=0n) throw Error('bad_amount');
+  const asNum=Number(m[1]+'.'+(m[2]||'0'));
+  if(!Number.isFinite(asNum)||asNum<=0) throw Error('bad_amount');
+  if(BigInt(Math.round(asNum*1e9))!==minor) throw Error('inexact_amount');
+  return{minor:minor.toString(),num:asNum};
+}
+function fmtMgnt(x){const v=BigInt(x);const a=(v/1000000000n).toString();let f=(v%1000000000n).toString().padStart(9,'0').replace(/0+$/,'');return a+(f?'.'+f:'')}
+/* ---------- DOM без innerHTML ---------- */
+function setText(id,s){$(id).textContent=(s==null?'':String(s))}
+function el(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e}
 /* ---------------- i18n ---------------- */
 const I18N={
 ru:{logo:'AGENTCOIN WALLET',logout:'Выйти',heroSub:'Самостоятельное управление AGT · ключи не покидают профиль',
  send:'Отправить',receive:'Получить',history:'История',tipSend:'Подписать и отправить AGT',tipRecv:'Адрес и сумма для входящего платежа',tipHist:'Последние операции адреса',scaleNote:'Размер ядра = баланс',
- balanceTitle:'Баланс',copy:'Скопировать',secTitle:'Безопасность · для агента',biometry:'Face ID / Touch ID',biometrySt:'Регистрация платформенного WebAuthn-ключа',
+ balanceTitle:'Баланс',copy:'Скопировать',copied:'Скопировано в буфер.',balLoading:'Загрузка…',balZero:'Точный ноль: на адресе нет средств.',balStale:'Данные устарели: узел недоступен.',balNoAccess:'Войдите, чтобы увидеть баланс.',
+ secTitle:'Безопасность · для агента',biometry:'Face ID / Touch ID',biometrySt:'Регистрация платформенного WebAuthn-ключа',
  pin:'PIN-код (4–6 цифр)',pinSt:'Хешируется на сервере (scrypt), IP-сессия',phone:'Привязать телефон',phoneSt:'Для SMS-входа',logoutAll:'Выйти везде',statusTitle:'Сессия',
+ sessActive:'Сессия активна',sessOff:'Нет сессии',sessUntil:'до ',sessGone:'Сессия завершена сервером',sessNetErr:'Сервер недоступен — сессия сохранена, попробуйте позже.',sessRetry:'Повторить проверку',
  authTitle:'Вход в кошелёк',authSub:'Каждый метод опционален; настройте в разделе «Безопасность».',tabFace:'🫥 Face ID',tabPin:'🔢 PIN',tabFile:'📁 Файл',tabSms:'📱 SMS',
  faceDesc:'Биометрия устройства (Windows Hello / Touch ID)',faceLogin:'Войти по биометрии',pinEnter:'Введите PIN (4–6 цифр)',pinLogin:'Войти по PIN',
  dropZone:'Перетащите паспорт JSON сюда, или нажмите, чтобы выбрать файл',fileAddr:'Адрес паспорта (из JSON)',fileChallenge:'1. Получить challenge',fileLogin:'2. Войти (подпись)',
- fileCmd:'Команда для локальной подписи',fileSig:'Подпись challenge (64 байта hex)',
- smsPhone:'Номер телефона (E.164)',smsSend:'Отправить код',smsCode:'Код из SMS',smsVerify:'Проверить код',
- sendTitle:'Отправить AGT',to:'Получатель (адрес AGT…)',amount:'Сумма (AGT)',memo:'Мемо (до 120 символов)',sendPrepare:'1. Подготовить',sendCmd:'Команда подписи (CLI)',sendSig:'Подпись (hex128)',sendSubmit:'2. Отправить в мемпул',
+ fileJson:'Точные данные для подписи (challenge-файл)',fileDl:'⤓ challenge.json',fileSig:'Подпись challenge (64 байта hex)',
+ fileSignSpec:'Подпишите UTF-8 байты поля nonce ключом паспорта (Ed25519) — в ответ 64 байта hex. Секретный ключ никуда не отправляется.',
+ smsHint:'SMS-вход отключён: шлюз не настроен. Используйте Face ID, PIN или файл.',
+ sendTitle:'Отправить AGT',to:'Получатель (адрес AGT…)',amount:'Сумма (AGT)',memo:'Мемо (до 120 символов)',sendPrepare:'1. Подготовить',sendCmd:'Команда подписи (локальный CLI)',sendSig:'Подпись (hex128)',sendSubmit:'2. Отправить в мемпул',sendOpDl:'⤓ операция (JSON)',
+ estArrive:'получит',estFee:'комиссия сети',estInsuf:'Недостаточно средств.',
  recvTitle:'Получить AGT',recvAddr:'Ваш адрес',recvUri:'URI',recvAmt:'Запрашиваемая сумма (необязательно)',
- historyTitle:'История операций',hWhen:'Когда',hKind:'Тип',hSum:'Сумма',
- errNoFile:'Сначала выберите паспорт JSON.',errNoChallenge:'Сначала получите challenge.',errNoSig:'Введите подпись (hex128).',errNoAddr:'Введите получателя.',errNoAmt:'Введите сумму.',
- filePassportOk:'Паспорт распознан. Выполните команду подписи в CLI и вставьте подпись.',fileLogged:'Вход выполнен.',pinLogged:'Вход по PIN выполнен.',faceLogged:'Вход по биометрии выполнен.',
+ historyTitle:'История операций',hWhen:'Когда',hKind:'Тип',hSum:'Сумма',hStatus:'Статус',histMore:'Показать ещё',histEmpty:'Операций нет.',histMempool:'в мемпуле',histConf:'подтверждена',histNeedLogin:'Войдите заново: сессия недействительна.',histLoadErr:'История недоступна: сбой узла. Попробуйте позже.',
+ errNoFile:'Сначала выберите паспорт JSON.',errBadPassport:'Паспорт отклонён: ',errNoChallenge:'Сначала получите challenge.',errNoSig:'Введите подпись (hex128).',errNoAddr:'Введите получателя.',errBadAddr:'Адрес получателя неверный (AGT + 40 hex).',errNoAmt:'Введите сумму.',errBadAmt:'Сумма: десятичная запись, до 9 знаков после точки.',errInexact:'Сумма не представима точно — уменьшите точность.',
+ filePassportOk:'Паспорт распознан. Скачайте challenge-файл, подпишите nonce локально и вставьте подпись.',fileLogged:'Вход выполнен.',pinLogged:'Вход по PIN выполнен.',faceLogged:'Вход по биометрии выполнен.',
  faceNa:'Биометрия не поддерживается в этом браузере.',faceNeedReg:'Ваш Face ID ещё не зарегистрирован. Нажмите переключатель в «Безопасность».',faceRegOk:'Face ID зарегистрирован для этого агента.',
- smsHint:'SMS-шлюз не подключён (нет ключей). Используйте Face ID, PIN или файл.',phoneBindOff:'SMS-привязка отключена: шлюз не настроен.',pinErr:'PIN должен быть 4–6 цифр.',pinSetOk:'PIN сохранён (scrypt-хеш на сервере).',pinDisableOk:'PIN отключён.',errLoginFirst:'Сначала войдите PIN/файлом, затем регистрируйте биометрию.',errNoPhone:'Номер в формате E.164 (+…).',smsSent:'Код отправлен (если шлюз настроен).', fileChallengeOk:'Challenge выпущен (TTL 5 мин).',
- net:'Сеть',block:'Блок',sessionOn:'Активна',sessionOff:'Нет сессии',sessLine:'JWT привязан к IP; смена IP инвалидирует сессию.',jwtNone:'— JWT не выдан —',
- copied:'Скопировано в буфер.',sendOk:'Транзакция принята в мемпул · txid ',sendMempool:'Транзакция в мемпуле',sendConfirmed:'Транзакция подтверждена',sent:'отправка',recv:'получение'},
+ pinErr:'PIN должен быть 4–6 цифр.',pinSetOk:'PIN сохранён (scrypt-хеш на сервере).',pinDisableOk:'PIN отключён.',errLoginFirst:'Сначала войдите PIN/файлом, затем регистрируйте биометрию.',errNoPhone:'Номер в формате E.164 (+…).',smsSent:'Код отправлен (если шлюз настроен).',fileChallengeOk:'Challenge выпущен (TTL 5 мин).',
+ net:'Сеть',block:'Блок',blockStale:'данные устарели',sessionOn:'Активна',sessionOff:'Нет сессии',
+ sendOk:'Транзакция принята в мемпул · txid ',sendMempool:'Транзакция в мемпуле',sendConfirmed:'Транзакция подтверждена',sendUnknown:'Статус неизвестен — проверьте историю по txid ',sendRejected:'Отклонено: ',sent:'отправка',recv:'получение',
+ opTo:'Получатель',opAmount:'Сумма',opMemo:'Мемо',opTxid:'txid (подписывается)',opTtl:'Заявка жива',opSec:'сек',opChanged:'Поля изменились — заявка сброшена, подготовьте заново.',opBusy:'Запрос уже выполняется…',
+ logoutAllOk:'Все сессии отозваны сервером.',logoutAllPartial:'Сервер НЕ подтвердил общий отзыв — локальный выход выполнен, проверьте другие устройства.',
+ copiedRecv:'URI скопировано.',recvBadAmt:'Сумма для URI неверна — URI без суммы.'},
 en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet · keys never leave the profile',
  send:'Send',receive:'Receive',history:'History',tipSend:'Sign & broadcast AGT',tipRecv:'Address & amount for incoming payment',tipHist:'Recent address operations',scaleNote:'Core size = balance',
- balanceTitle:'Balance',copy:'Copy',secTitle:'Security · per agent',biometry:'Face ID / Touch ID',biometrySt:'Register platform WebAuthn credential',
+ balanceTitle:'Balance',copy:'Copy',copied:'Copied.',balLoading:'Loading…',balZero:'Exact zero: no funds on this address.',balStale:'Stale data: node unreachable.',balNoAccess:'Sign in to see the balance.',
+ secTitle:'Security · per agent',biometry:'Face ID / Touch ID',biometrySt:'Register platform WebAuthn credential',
  pin:'PIN (4–6 digits)',pinSt:'Hashed server-side (scrypt), IP-bound session',phone:'Link phone',phoneSt:'For SMS login',logoutAll:'Log out everywhere',statusTitle:'Session',
+ sessActive:'Session active',sessOff:'No session',sessUntil:'until ',sessGone:'Session ended by server',sessNetErr:'Server unreachable — session kept, retry later.',sessRetry:'Retry check',
  authTitle:'Wallet sign-in',authSub:'Every method is optional; enable them in “Security”.',tabFace:'🫥 Face ID',tabPin:'🔢 PIN',tabFile:'📁 File',tabSms:'📱 SMS',
  faceDesc:'Device biometrics (Windows Hello / Touch ID)',faceLogin:'Sign in with biometrics',pinEnter:'Enter PIN (4–6 digits)',pinLogin:'Sign in with PIN',
  dropZone:'Drag & drop passport JSON here, or click to choose a file',fileAddr:'Passport address (from JSON)',fileChallenge:'1. Get challenge',fileLogin:'2. Sign in (signature)',
- fileCmd:'Local signing command',fileSig:'Challenge signature (64-byte hex)',
- smsPhone:'Phone number (E.164)',smsSend:'Send code',smsCode:'SMS code',smsVerify:'Verify code',
- sendTitle:'Send AGT',to:'Recipient (AGT… address)',amount:'Amount (AGT)',memo:'Memo (max 120)',sendPrepare:'1. Prepare',sendCmd:'Signing command (CLI)',sendSig:'Signature (hex128)',sendSubmit:'2. Broadcast to mempool',
+ fileJson:'Exact signing data (challenge file)',fileDl:'⤓ challenge.json',fileSig:'Challenge signature (64-byte hex)',
+ fileSignSpec:'Sign the UTF-8 bytes of the nonce field with the passport key (Ed25519) — reply with 64 bytes hex. The secret key is never sent anywhere.',
+ smsHint:'SMS login is disabled: no gateway configured. Use Face ID, PIN or file.',
+ sendTitle:'Send AGT',to:'Recipient (AGT… address)',amount:'Amount (AGT)',memo:'Memo (max 120)',sendPrepare:'1. Prepare',sendCmd:'Signing command (local CLI)',sendSig:'Signature (hex128)',sendSubmit:'2. Broadcast to mempool',sendOpDl:'⤓ operation (JSON)',
+ estArrive:'recipient gets',estFee:'network fee',estInsuf:'Insufficient funds.',
  recvTitle:'Receive AGT',recvAddr:'Your address',recvUri:'URI',recvAmt:'Requested amount (optional)',
- historyTitle:'Operation history',hWhen:'When',hKind:'Kind',hSum:'Amount',
- errNoFile:'Choose a passport JSON first.',errNoChallenge:'Get the challenge first.',errNoSig:'Enter the signature (hex128).',errNoAddr:'Enter the recipient.',errNoAmt:'Enter the amount.',
- filePassportOk:'Passport recognised. Run the signing command in CLI and paste the signature.',fileLogged:'Signed in.',pinLogged:'Signed in with PIN.',faceLogged:'Signed in with biometrics.',
+ historyTitle:'Operation history',hWhen:'When',hKind:'Kind',hSum:'Amount',hStatus:'Status',histMore:'Show more',histEmpty:'No operations.',histMempool:'in mempool',histConf:'confirmed',histNeedLogin:'Sign in again: session is invalid.',histLoadErr:'History unavailable: node failure. Retry later.',
+ errNoFile:'Choose a passport JSON first.',errBadPassport:'Passport rejected: ',errNoChallenge:'Get the challenge first.',errNoSig:'Enter the signature (hex128).',errNoAddr:'Enter the recipient.',errBadAddr:'Bad recipient address (AGT + 40 hex).',errNoAmt:'Enter the amount.',errBadAmt:'Amount: decimal notation, up to 9 fraction digits.',errInexact:'Amount is not exactly representable — reduce precision.',
+ filePassportOk:'Passport recognised. Download the challenge file, sign the nonce locally and paste the signature.',fileLogged:'Signed in.',pinLogged:'Signed in with PIN.',faceLogged:'Signed in with biometrics.',
  faceNa:'Biometry is not supported in this browser.',faceNeedReg:'Your Face ID is not registered yet. Toggle it in “Security”.',faceRegOk:'Face ID registered for this agent.',
- smsHint:'SMS gateway is not configured (no keys). Use Face ID, PIN or file.',phoneBindOff:'SMS link disabled: gateway not configured.',pinErr:'PIN must be 4–6 digits.',pinSetOk:'PIN saved (scrypt hash on the server).',pinDisableOk:'PIN disabled.',errLoginFirst:'Sign in with PIN/file first, then register biometry.',errNoPhone:'Phone in E.164 format (+…).',smsSent:'Code sent (if gateway set).',fileChallengeOk:'Challenge issued (TTL 5 min).',
- net:'Network',block:'Block',sessionOn:'Active',sessionOff:'No session',sessLine:'JWT is bound to IP; an IP change invalidates it.',jwtNone:'— no JWT —',
- copied:'Copied.',sendOk:'Transaction accepted to mempool · txid ',sendMempool:'Transaction in mempool',sendConfirmed:'Transaction confirmed',sent:'send',recv:'receive'}
+ pinErr:'PIN must be 4–6 digits.',pinSetOk:'PIN saved (scrypt hash on the server).',pinDisableOk:'PIN disabled.',errLoginFirst:'Sign in with PIN/file first, then register biometry.',errNoPhone:'Phone in E.164 format (+…).',smsSent:'Code sent (if gateway set).',fileChallengeOk:'Challenge issued (TTL 5 min).',
+ net:'Network',block:'Block',blockStale:'stale data',sessionOn:'Active',sessionOff:'No session',
+ sendOk:'Transaction accepted to mempool · txid ',sendMempool:'Transaction in mempool',sendConfirmed:'Transaction confirmed',sendUnknown:'Status unknown — check history by txid ',sendRejected:'Rejected: ',sent:'send',recv:'receive',
+ opTo:'Recipient',opAmount:'Amount',opMemo:'Memo',opTxid:'txid (being signed)',opTtl:'Request lives',opSec:'s',opChanged:'Fields changed — request reset, prepare again.',opBusy:'Request already running…',
+ logoutAllOk:'All sessions revoked by server.',logoutAllPartial:'Server did NOT confirm global revocation — local logout done, check other devices.',
+ copiedRecv:'URI copied.',recvBadAmt:'Bad URI amount — URI without amount.'}
 };
-let LANG=localStorage.getItem('agtLang')||'ru';
+let LANG='ru';
+try{LANG=localStorage.getItem('agtLang')||'ru'}catch(e){LANG='ru'}
 function t(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.ru[k]||k}
 function applyLang(){
   document.documentElement.lang=LANG;
-  for(const el of document.querySelectorAll('[data-i]'))el.textContent=t(el.getAttribute('data-i'));
+  for(const e of document.querySelectorAll('[data-i]'))e.textContent=t(e.getAttribute('data-i'));
   for(const b of document.querySelectorAll('.seg [data-lang]'))b.classList.toggle('on',b.dataset.lang===LANG);
-  renderNet(); renderBal(); updateSess(); if(!jwt)showAuth();
+  renderNet(); renderBal(); updateSess(); if(!Sess.addr)showAuth();
 }
-for(const b of document.querySelectorAll('.seg [data-lang]'))b.onclick=()=>{LANG=b.dataset.lang;localStorage.setItem('agtLang',LANG);applyLang()};
+for(const b of document.querySelectorAll('.seg [data-lang]'))b.onclick=()=>{LANG=b.dataset.lang;try{localStorage.setItem('agtLang',LANG)}catch(e){}applyLang()};
 
 /* ---------------- сцена: Ядро Агента (canvas, без CDN) ---------------- */
-let balMgnt=null; // mGNT строкой
+let balanceMGNT=null; // строка минорных единиц
 const orb=$('orb'); const octx=orb.getContext('2d');
 let rotA=0.9, rotB=0.4, drag=null, curScale=1, tgt=1;
+let orbW=0, orbH=0; // кэш размеров: не читаем DOM каждый кадр
 const PTS=[]; // фибо-спираль точек сферы
 (function(){const N=520;const ga=Math.PI*(3-Math.sqrt(5));
  for(let i=0;i<N;i++){const y=1-(i/(N-1))*2;const r=Math.sqrt(1-y*y);const th=ga*i;
    PTS.push({x:Math.cos(th)*r,y,z:Math.sin(th)*r,w:0.5+0.5*Math.random()});}})();
 function fitOrb(){const w=orb.clientWidth||800,h=orb.clientHeight||430,d=Math.min(devicePixelRatio||1,2);
- orb.width=w*d;orb.height=h*d;octx.setTransform(d,0,0,d,0,0)}
+ orb.width=w*d;orb.height=h*d;octx.setTransform(d,0,0,d,0,0);orbW=w;orbH=h}
 new ResizeObserver(fitOrb).observe(orb);
-function proj(p,t){ // вращение Y(X)
- let x=p.x*Math.cos(t)+p.z*Math.sin(t), z=-p.x*Math.sin(t)+p.z*Math.cos(t);
- let y=p.y*Math.cos(rotB)-z*Math.sin(rotB); z=p.y*Math.sin(rotB)+z*Math.cos(rotB);
+const reduceMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cosA={v:0},sinA={v:0},cosB={v:0},sinB={v:0};
+function proj(p){ // вращение: тригонометрия один раз на кадр
+ let x=p.x*cosA.v+p.z*sinA.v, z=-p.x*sinA.v+p.z*cosA.v;
+ let y=p.y*cosB.v-z*sinB.v; z=p.y*sinB.v+z*cosB.v;
  return {x,y,z}}
 function drawOrb(ts){
- const w=orb.clientWidth,h=orb.clientHeight,cx=w/2,cy=h/2;
- const R=Math.min(w,h)*0.24*curScale + Math.sin(ts*0.0021)*4*curScale;
+ const w=orbW||orb.clientWidth,h=orbH||orb.clientHeight,cx=w/2,cy=h/2;
+ const R=Math.min(w,h)*0.24*curScale+(reduceMotion?0:Math.sin(ts*0.0021)*4*curScale);
+ cosA.v=Math.cos(rotA);sinA.v=Math.sin(rotA);cosB.v=Math.cos(rotB);sinB.v=Math.sin(rotB);
  octx.clearRect(0,0,w,h);
  // свечение
  const g=octx.createRadialGradient(cx,cy,R*0.1,cx,cy,R*2.1);
  g.addColorStop(0,'rgba(212,175,55,.30)');g.addColorStop(.45,'rgba(212,175,55,.10)');g.addColorStop(1,'rgba(212,175,55,0)');
  octx.fillStyle=g;octx.fillRect(0,0,w,h);
- // точки
- for(const p of PTS){const q=proj(p,rotA);const depth=0.5+0.5*(q.z+1)/2;const rr=R;
-  const X=cx+q.x*rr, Y=cy-q.y*rr;
+ // точки (тени только у ближних — дешёвый проход)
+ for(const p of PTS){const q=proj(p,rotA);const depth=0.5+0.5*(q.z+1)/2;
+  const X=cx+q.x*R, Y=cy-q.y*R;
   octx.beginPath();octx.arc(X,Y,1.15+p.w*1.5*depth,0,7);
   octx.fillStyle=`rgba(232,205,105,${(0.25+0.75*depth)*0.85})`;
-  octx.shadowColor='rgba(240,217,124,.55)';octx.shadowBlur=6*depth;octx.fill();}
+  if(depth>0.55){octx.shadowColor='rgba(240,217,124,.55)';octx.shadowBlur=5}else octx.shadowBlur=0;
+  octx.fill();}
  octx.shadowBlur=0;
  // ядро
  const core=octx.createRadialGradient(cx,cy,0,cx,cy,R*0.55);
@@ -415,6 +490,7 @@ function drawOrb(ts){
     let X=cx+x*R*0.62, Y=cy+y2*R*0.62;
     if(a)octx.lineTo(X,Y);else octx.moveTo(X,Y);}
    octx.strokeStyle=`rgba(212,175,55,${o[2]*0.5})`;octx.lineWidth=1;octx.stroke();}
+ if(reduceMotion)return; // один статичный кадр
  rotA+=0.0026; const T=(typeof tgt==='number')?tgt:1; curScale+=(T-curScale)*0.04;
  requestAnimationFrame(drawOrb);
 }
@@ -422,242 +498,487 @@ orb.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,a:rotA,b:rotB};};
 orb.onpointermove=e=>{if(!drag)return;rotA=drag.a+(e.clientX-drag.x)*0.005;rotB=Math.max(-1.3,Math.min(1.3,drag.b+(e.clientY-drag.y)*0.005));};
 orb.onpointerup=orb.onpointerleave=()=>drag=null;
 // пульс от баланса
-function setOrbScale(){$('scaleNote').classList.toggle('hidden',balMgnt===null);}
+function setOrbScale(){$('scaleNote').classList.toggle('hidden',balanceMGNT===null);}
 /* ---------------- состояние ---------------- */
-let jwt=null,addr=null,passportData=null,pendOp=null,pendChallenge=null;
-const HEX128=/^[0-9a-fA-F]{128}$/;
-function showAuth(){$('authOverlay').classList.remove('hidden')}
+let passportData=null,pendOp=null,pendChallenge=null;
+const AUTH_GONE=new Set(['expired','revoked','epoch_invalidated','ip_changed_invalidated','session_required','session_invalidated']);
+let lastFocused=null;
+function openOverlay(id){lastFocused=document.activeElement;$(id).classList.remove('hidden')}
+function closeOverlay(id){$(id).classList.add('hidden');if(lastFocused&&lastFocused.focus)try{lastFocused.focus()}catch(e){}}
+function showAuth(){openOverlay('authOverlay')}
 function hideAuth(){$('authOverlay').classList.add('hidden')}
 function afterLogin(){
   hideAuth();
   $('cab').classList.remove('hidden');
   $('btnLogout').classList.remove('hidden');
-  $('addrShow').textContent=addr;$('recvAddr').textContent=addr;
-  $('secMsg').textContent='';refreshAuthState();updateSess();
+  setText('addrShow',Sess.addr);setText('recvAddr',Sess.addr);
+  setText('secMsg','');refreshAuthState();updateSess();loadBal();
 }
 function updateSess(){
-  $('sessLine').textContent = (jwt?'JWT · ':t('sessLine'));
-  $('sessLine').innerHTML = '<span class="'+(jwt?'ok':'')+'">'+t(jwt?'sessionOn':'sessionOff')+'</span> · '+t('sessLine');
-  $('jwtShow').textContent = jwt?jwt:t('jwtNone');
-  $('jwtShow').innerHTML = jwt?('<span class="mono">'+jwt+'</span>'):'<span class="mono">'+t('jwtNone')+'</span>';
+  const on=!!Sess.addr;
+  const line=$('sessLine');line.textContent='';
+  line.append(el('span',t(on?'sessionOn':'sessionOff'),on?'ok':''),document.createTextNode(' · '+t('sessLine')));
+  if(on&&Sess.exp){
+    const d=new Date(Sess.exp);
+    setText('sessExp',t('sessActive')+': '+t('sessUntil')+d.toLocaleString(LANG==='ru'?'ru':'en'));
+  }else setText('sessExp',on?t('sessActive'):'');
 }
-/* ---------------- верхняя панель ---------------- */
-let nodeInfo=null;
+/* ---------------- верхняя панель: сеть ---------------- */
+let nodeInfo=null,netOkAt=0;
+function validInfo(j){
+  return j&&typeof j==='object'&&Number.isFinite(Number(j.blocks))&&
+    (typeof j.chainId==='string'||typeof j.network==='string');
+}
 async function renderNet(){
-  try{ if(!nodeInfo){const r=await API.get('/info'); if(r.ok!==false){nodeInfo=r.json;} }
-   $('netstat').innerHTML = t('net')+': <b>'+(nodeInfo.chainId||nodeInfo.network||'AGENTCOIN')+'</b> · '+t('block')+': <b>#'+(nodeInfo.blocks!=null?nodeInfo.blocks:'…')+'</b>';
-  }catch(e){$('netstat').innerHTML=t('net')+': <b class="bad">offline</b>';}
+  try{
+    const r=await API.get('/info',8000);
+    if(r.netErr)throw Error('net');
+    if(r.status===200&&validInfo(r.json)){nodeInfo=r.json;netOkAt=Date.now()}
+    else if(!nodeInfo)throw Error('bad');
+  }catch(e){/* показываем последнее известное с пометкой */}
+  const line=$('netstat');line.textContent='';
+  if(!nodeInfo){line.append(document.createTextNode(t('net')+': '),el('b',t('balStale'),'bad'));return}
+  const stale=Date.now()-netOkAt>60000;
+  line.append(document.createTextNode(t('net')+': '),
+    el('b',(nodeInfo.chainId||nodeInfo.network||'AGENTCOIN')),
+    document.createTextNode(' · '+t('block')+': '),
+    el('b','#'+nodeInfo.blocks));
+  if(stale)line.append(document.createTextNode(' · '),el('span','('+t('blockStale')+')','stale'));
+  else line.append(document.createTextNode(' · '+new Date(netOkAt).toLocaleTimeString(LANG==='ru'?'ru':'en')));
 }
 renderNet();setInterval(renderNet,20000);
-/* ---------------- баланс ---------------- */
-let balanceMGNT=null;
-function fmtMgnt(x){const v=BigInt(x);const a=(v/1000000000n).toString();let f=(v%1000000000n).toString().padStart(9,'0').replace(/0+$/,'');return a+(f?'.'+f:'')}
+/* ---------------- баланс: состояния ---------------- */
 function renderBal(){
-  if(balanceMGNT===null)return;
-  $('balNum').textContent=fmtMgnt(balanceMGNT);
+  if(balanceMGNT===null)return; // состояние ставит loadBal
+  setText('balNum',fmtMgnt(balanceMGNT));
   const n=Number(fmtMgnt(balanceMGNT))||0;
   tgt=Math.max(0.55,Math.min(1.9,0.6+Math.log10(n+1)*0.28));
   setOrbScale();
 }
-async function loadBal(){if(!addr)return;try{const r=await API.post('/balance',{address:addr});if(r.json&&r.json.balanceMGNT!=null){balanceMGNT=String(r.json.balanceMGNT);renderBal();}}catch(e){}}
-/* ---------------- Войти: вкладки ---------------- */ let curTab='face';
- function pick(name){curTab=name;for(const p of ['face','pin','file','sms']){$('pane'+p[0].toUpperCase()+p.slice(1)).classList.toggle('hidden',p!==name);document.querySelector('.tabs [data-tab="'+p+'"]').classList.toggle('on',p===name)}}
- window._walletPick=pick;
-for(const b of document.querySelectorAll('.tabs button'))b.onclick=()=>window._walletPick(b.dataset.tab);
-$('authClose').onclick=hideAuth;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideAuth();$('sendOverlay').classList.add('hidden');$('recvOverlay').classList.add('hidden')}});
-
+let balGen=0;
+async function loadBal(){
+  if(!Sess.addr){balanceMGNT=null;setText('balNum','—');setText('balNote',t('balNoAccess'));setOrbScale();return}
+  const gen=++balGen,forAddr=Sess.addr;
+  setText('balNum','…');setText('balNote',t('balLoading'));
+  const r=await API.post('/balance',{address:forAddr});
+  if(gen!==balGen||forAddr!==Sess.addr)return; // ответ чужой сессии — выбросить
+  if(r.netErr||r.status!==200||!r.json||r.json.balanceMGNT==null){
+    setText('balNum','—');setText('balNote',t('balStale'));return;
+  }
+  try{
+    balanceMGNT=String(r.json.balanceMGNT);
+    if(balanceMGNT==='0')setText('balNote',t('balZero'));else setText('balNote','');
+    renderBal();
+  }catch(e){setText('balNum','—');setText('balNote',t('balStale'))}
+}
+/* ---------------- Войти: вкладки ---------------- */
+let curTab='face';
+function pick(name){curTab=name;for(const p of ['face','pin','file','sms']){$('pane'+p[0].toUpperCase()+p.slice(1)).classList.toggle('hidden',p!==name);const tab=document.querySelector('.tabs [data-tab="'+p+'"]');if(tab)tab.classList.toggle('on',p===name)}}
+window._walletPick=pick;
+for(const b of document.querySelectorAll('.tabs button'))if(!b.disabled)b.onclick=()=>window._walletPick(b.dataset.tab);
+$('authClose').onclick=()=>closeOverlay('authOverlay');
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverlay('authOverlay');closeOverlay('sendOverlay');closeOverlay('recvOverlay')}});
+$('tabSms').onclick=()=>{setText('smsMsg',t('smsHint'))};
+// SMS-вход отключён на клиенте: шлюза нет (сервер тоже отвечает not_configured).
+setText('smsMsg',t('smsHint'));
 /* ---- Face ID (WebAuthn) ---- */
 const webauthnOK=!!(window.PublicKeyCredential&&navigator.credentials);
-$('faceSupport').textContent=webauthnOK?'':'⚠ '+t('faceNa');
-async function webauthnFlow(mode){ // mode: 'login' | 'register'
- if(!webauthnOK){$('faceMsg').textContent=t('faceNa');return}
- $('faceMsg').textContent='…';
- // 1. challenge от сервера
- const ch=await API.post('/auth/webauthn/challenge',{address:addr||null,mode});
- if(!ch.json.challenge){$('faceMsg').textContent=(ch.json.error||'challenge_failed');return}
- const challengeStr=ch.json.challenge;
- const b64=(s)=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
- try{
-  if(mode==='register'){
-    if(!addr||!jwt){$('faceMsg').textContent=t('errLoginFirst');return}
-    const cred=await navigator.credentials.create({publicKey:{
-      challenge:b64(challengeStr), rp:{name:'AGENTCOIN',id:location.hostname},
-      user:{id:b64(btoa(addr)),name:addr,displayName:'AGENTCOIN agent'},
-      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
-      timeout:60000}});
-    const r=await API.post('/auth/webauthn/register',{sub:addr,id:cred.id,credential:{
-      rawId:btoanew(cred.rawId),clientDataJSON:b64en(cred.response.clientDataJSON),
-      attestationObject:b64en(cred.response.attestationObject)}},jwt);
-    if(r.status<300&&r.json.ok){$('faceMsg').textContent=t('faceRegOk');$('secMsg').textContent=t('faceRegOk');refreshAuthState()}
-    else $('faceMsg').textContent=(r.json.error||'register_failed');
-  }else{
-    const cred=await navigator.credentials.get({publicKey:{
-      challenge:b64(challengeStr), rpId:location.hostname, userVerification:'required', timeout:60000,
-      allowCredentials: ch.json.allowCredentials||[]}});
-    const r=await API.post('/auth/webauthn/login',{id:cred.id,
-      clientDataJSON:b64en(cred.response.clientDataJSON),
-      authenticatorData:b64en(cred.response.authenticatorData),
-      signature:b64en(cred.response.signature)});
-    if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('faceMsg').textContent=t('faceLogged')}
-    else $('faceMsg').textContent=(r.json.error||'login_failed');
-  }
- }catch(e){$('faceMsg').textContent='⚠ '+(e.name==='NotAllowedError'?'отменено пользователем':(e.message||'error'))}
+setText('faceSupport',webauthnOK?'':'⚠ '+t('faceNa'));
+function b64ToBuf(s){
+  const bin=atob(String(s).replace(/-/g,'+').replace(/_/g,'/'));
+  const b=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);
+  return b.buffer;
 }
 function b64en(buf){const b=new Uint8Array(buf);let s='';b.forEach(c=>s+=String.fromCharCode(c));return btoa(s)}
-function btoanew(buf){const b=new Uint8Array(buf);let s='';b.forEach(c=>s+=String.fromCharCode(c));return btoa(s)}
+// allowCredentials от сервера: id приходит base64url — браузеру нужен бинарный вид.
+function decodeAllow(list){
+  const out=[];
+  for(const c of (list||[])){
+    try{
+      if(!c||typeof c.id!=='string')continue;
+      out.push({type:'public-key',id:b64ToBuf(c.id),
+        transports:Array.isArray(c.transports)?c.transports.filter(x=>typeof x==='string'):undefined});
+    }catch(e){/* битая запись — пропускаем, не роняем вход */}
+  }
+  return out;
+}
+async function webauthnFlow(mode){ // mode: 'login' | 'register'
+  if(!webauthnOK){setText('faceMsg',t('faceNa'));return}
+  setText('faceMsg','…');
+  // challenge привязан к режиму и адресу (сервер вернёт mode mismatch при подмене)
+  const ch=await API.post('/auth/webauthn/challenge',{address:Sess.addr||null,mode});
+  if(!ch.json.challenge){setText('faceMsg','⚠ '+(ch.json.error||'challenge_failed'));return}
+  try{
+    if(mode==='register'){
+      if(!Sess.addr||!Sess.jwt){setText('faceMsg',t('errLoginFirst'));return}
+      // RP ID: сервер проверяет точное значение 'agentcoin.work'.
+      const cred=await navigator.credentials.create({publicKey:{
+        challenge:b64ToBuf(ch.json.challenge),rp:{name:'AGENTCOIN',id:location.hostname},
+        user:{id:b64ToBuf(btoa(Sess.addr)),name:Sess.addr,displayName:'AGENTCOIN agent'},
+        pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+        authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
+        timeout:60000}});
+      const r=await API.post('/auth/webauthn/register',{id:cred.id,credential:{
+        rawId:b64en(cred.rawId),clientDataJSON:b64en(cred.response.clientDataJSON),
+        attestationObject:b64en(cred.response.attestationObject)}});
+      if(r.status<300&&r.json.ok){setText('faceMsg',t('faceRegOk'));setText('secMsg',t('faceRegOk'));refreshAuthState()}
+      else{setText('faceMsg','⚠ '+(r.json.error||'register_failed'));setText('secMsg','⚠ '+(r.json.error||'register_failed'))}
+    }else{
+      const cred=await navigator.credentials.get({publicKey:{
+        challenge:b64ToBuf(ch.json.challenge),rpId:location.hostname,
+        userVerification:'required',timeout:60000,
+        allowCredentials:decodeAllow(ch.json.allowCredentials)}});
+      const r=await API.post('/auth/webauthn/login',{id:cred.id,credential:{
+        clientDataJSON:b64en(cred.response.clientDataJSON),
+        authenticatorData:b64en(cred.response.authenticatorData),
+        signature:b64en(cred.response.signature)}});
+      if(r.status<300&&r.json.ok){
+        Sess.addr=r.json.sub;Sess.jwt=r.json.walletJwt||null;Sess.cab=null;Sess.exp=0;
+        if(r.json.exp)Sess.exp=r.json.exp;
+        await afterLogin();setText('faceMsg',t('faceLogged'));
+      }
+      else setText('faceMsg','⚠ '+(r.json.error||'login_failed'));
+    }
+  }catch(e){setText('faceMsg','⚠ '+(e.name==='NotAllowedError'?'отменено пользователем':(e.message||'error')))}
+}
 $('faceLogin').onclick=()=>webauthnFlow('login');
 /* ---- PIN ---- */
 $('pinLogin').onclick=async()=>{
- const pin=$('pinInput').value.trim();
- if(!/^\d{4,6}$/.test(pin)){$('pinMsg').textContent=t('pinErr');return}
- $('pinMsg').textContent='…';
- const r=await API.post('/auth/pin/login',{pin});
- if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('pinMsg').textContent=t('pinLogged')}
- else $('pinMsg').textContent='⚠ '+(r.json.error||r.json.message||'PIN не совпадает');
+  const pin=$('pinInput').value.trim();
+  if(!/^\d{4,6}$/.test(pin)){setText('pinMsg',t('pinErr'));return}
+  setText('pinMsg','…');
+  const r=await API.post('/auth/pin/login',{pin});
+  if(r.status<300&&r.json.ok){
+    Sess.addr=r.json.sub;Sess.jwt=r.json.walletJwt||null;Sess.cab=null;Sess.exp=0;
+    await afterLogin();setText('pinMsg',t('pinLogged'));
+  }
+  else setText('pinMsg','⚠ '+(r.json.error||r.json.message||'PIN не совпадает'));
 };
-/* ---- Файл (паспорт JSON) ---- */
+/* ---- Файл (публичный паспорт JSON) ---- */
+const PP_ALLOW=['schema','version','network','identityId','address','pub','label','createdAt',
+  'handle','agentId','certificate','issuerPub','issuerFingerprint','tax','seq','seqStr','issuedAt'];
+function resetFileState(){
+  passportData=null;pendChallenge=null;
+  $('passportFile').value='';
+  setText('fileAddr','');setText('fileJson','');setText('fileSig','');
+  $('fileChallengeDl').disabled=true;$('fileSig').value='';
+}
 $('dropZone').onclick=()=>$('passportFile').click();
 $('dropZone').ondragover=e=>{e.preventDefault();$('dropZone').classList.add('hot')};
 $('dropZone').ondragleave=()=>$('dropZone').classList.remove('hot');
 $('dropZone').ondrop=e=>{e.preventDefault();$('dropZone').classList.remove('hot');if(e.dataTransfer.files[0])readPass(e.dataTransfer.files[0])};
 $('passportFile').onchange=e=>{if(e.target.files[0])readPass(e.target.files[0])};
 async function readPass(f){
- if(!f||f.size>65536){$('fileMsg').textContent=t('errNoFile');return}
- try{
-  const j=JSON.parse(await f.text());const pp=j.passport||j;
-  // публичный паспорт не должен содержать секретов
-  for(const k of ['privKey','privateKey','secret','seed','mnemonic'])if(k in (j.passport||j))throw Error('secret_field_'+k);
-  if(!pp.address)throw Error('address_missing');
-  passportData=pp;$('fileAddr').value=pp.address;$('fileMsg').textContent=t('filePassportOk');pendChallenge=null;
- }catch(e){$('fileMsg').textContent='⚠ '+e.message}
+  resetFileState(); // старый паспорт/подпись/challenge недействительны сразу
+  if(!f||f.size>65536){setText('fileMsg',t('errNoFile'));return}
+  try{
+    const j=JSON.parse(await f.text());const pp=(j&&typeof j==='object'&&(j.passport||j))||null;
+    if(!pp||typeof pp!=='object')throw Error('not_object');
+    // Публичный экспорт — только явный список полей; секретов быть не должно.
+    for(const k of ['privKey','privateKey','secret','seed','mnemonic','priv','password'])if(k in pp)throw Error('secret_field_'+k);
+    for(const k of Object.keys(pp))if(!PP_ALLOW.includes(k))throw Error('unknown_field_'+k);
+    if(!pp.address||!ADDR_RE.test(pp.address))throw Error('address_missing_or_bad');
+    if(pp.network&&pp.network!=='AGENTCOIN')throw Error('network_mismatch');
+    passportData=pp;setText('fileAddr',pp.address);
+    setText('fileMsg',t('filePassportOk'));
+  }catch(e){resetFileState();setText('fileMsg','⚠ '+t('errBadPassport')+e.message)}
 }
 $('fileChallenge').onclick=async()=>{
- if(!passportData){$('fileMsg').textContent=t('errNoFile');return}
- $('fileMsg').textContent='…';
- const r=await API.post('/auth/file/challenge',{address:passportData.address});
- if(r.status<300&&r.json.ok&&r.json.nonce){pendChallenge=r.json;
-  const cid=r.json.challengeId;
-  $('fileCmd').value='node src/cli.mjs sign-challenge profile.json --challenge '+JSON.stringify(r.json.nonce);
-  $('fileMsg').textContent=t('fileChallengeOk')+' · '+r.json.nonce.slice(0,24)+'…';
- }else $('fileMsg').textContent='⚠ '+(r.json.error||'challenge_failed');
+  if(!passportData){setText('fileMsg',t('errNoFile'));return}
+  setText('fileMsg','…');
+  const r=await API.post('/auth/file/challenge',{address:passportData.address});
+  if(r.status<300&&r.json.ok&&r.json.nonce){
+    pendChallenge=r.json;
+    const pack={schema:'agentcoin.auth.challenge.v1',network:'AGENTCOIN',
+      address:passportData.address,nonce:r.json.nonce,challengeId:r.json.challengeId,
+      ttlSec:r.json.ttlSec||300,issuedAt:new Date().toISOString(),
+      sign:{bytes:'utf-8 of nonce',alg:'Ed25519',reply:'64 bytes hex (hex128)'},
+      note:t('fileSignSpec')};
+    setText('fileJson',JSON.stringify(pack,null,2));
+    $('fileChallengeDl').disabled=false;
+    setText('fileMsg',t('fileChallengeOk')+' · '+r.json.nonce.slice(0,24)+'…');
+  }else setText('fileMsg','⚠ '+(r.json.error||'challenge_failed'));
+};
+$('fileChallengeDl').onclick=()=>{
+  if(!pendChallenge)return;
+  const pack=JSON.parse($('fileJson').textContent||'{}');
+  const blob=new Blob([JSON.stringify(pack,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='agentcoin-challenge-'+String(pendChallenge.challengeId||'x').slice(0,16)+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 };
 $('fileLogin').onclick=async()=>{
- if(!passportData){$('fileMsg').textContent=t('errNoFile');return}
- if(!pendChallenge){$('fileMsg').textContent=t('errNoChallenge');return}
- const sig=$('fileSig').value.trim();
- if(!HEX128.test(sig)){$('fileMsg').textContent=t('errNoSig');return}
- $('fileMsg').textContent='…';
- const r=await API.post('/auth/file/login',{address:passportData.address,nonce:pendChallenge.nonce,challengeId:pendChallenge.challengeId,signature:sig});
- if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin();$('fileMsg').textContent=t('fileLogged')}
- else $('fileMsg').textContent='⚠ '+(r.json.error||'login_failed');
+  if(!passportData){setText('fileMsg',t('errNoFile'));return}
+  if(!pendChallenge){setText('fileMsg',t('errNoChallenge'));return}
+  const sig=$('fileSig').value.trim();
+  if(!HEX128.test(sig)){setText('fileMsg',t('errNoSig'));return}
+  setText('fileMsg','…');
+  const r=await API.post('/auth/file/login',{address:passportData.address,
+    nonce:pendChallenge.nonce,challengeId:pendChallenge.challengeId,signature:sig});
+  if(r.status<300&&r.json.ok){
+    Sess.addr=r.json.sub;Sess.jwt=r.json.walletJwt||null;
+    Sess.cab=r.json.cabinetToken||null;Sess.exp=0;
+    await afterLogin();setText('fileMsg',t('fileLogged'));
+  }
+  else setText('fileMsg','⚠ '+(r.json.error||'login_failed'));
 };
-/* ---- SMS ---- */
-$('smsSend').onclick=async()=>{
- const ph=$('smsPhone').value.trim();
- if(!/^\+\d{6,18}$/.test(ph)){$('smsMsg').textContent=t('errNoPhone');return}
- $('smsMsg').textContent='…';
- const r=await API.post('/auth/sms/send',{phone:ph,address:addr||null});
- if(r.json.ok===false&&r.json.gateway==='not_configured'){$('smsMsg').innerHTML='⚠ '+t('smsHint');return}
- if(r.json.ok)$('smsMsg').textContent=t('smsSent');
- else $('smsMsg').textContent='⚠ '+(r.json.error||'send_failed');
-};
-$('smsVerify').onclick=async()=>$('smsMsg').textContent='⚠ '+t('smsHint');
-
 /* ---------------- Кнопки орбит ---------------- */
-$('chipSend').onclick=()=>{if(!addr||!jwt){showAuth();return}$('sendOverlay').classList.remove('hidden')};
-$('chipRecv').onclick=()=>{ if(!addr||!jwt){showAuth();return} $('recvAddr').textContent=addr;$('recvUri').textContent='agentcoin:'+addr;onRecvAmt();$('recvOverlay').classList.remove('hidden')};
+function needLogin(){if(!Sess.addr){showAuth();return true}return false}
+$('chipSend').onclick=()=>{if(needLogin())return;openOverlay('sendOverlay')};
+$('chipRecv').onclick=()=>{if(needLogin())return;setText('recvAddr',Sess.addr);setText('recvUri','agentcoin:'+Sess.addr);setText('recvMsg','');onRecvAmt();openOverlay('recvOverlay')};
 $('recvAmtAsk').oninput=onRecvAmt;
-function onRecvAmt(){const a=$('recvAmtAsk').value.trim();$('recvUriFull').textContent='agentcoin:'+addr+(a?'?amount='+encodeURIComponent(a):'')}
-$('recvCopy').onclick=()=>navigator.clipboard.writeText($('recvUriFull').textContent);
-$('chipHist').onclick=async()=>{ if(!addr||!jwt){showAuth();return}
- $('panelHistory').classList.remove('hidden');$('panelHistory').scrollIntoView({behavior:'smooth'});
- const r=await API.post('/cabinet/wallet/history',{address:addr,token:cabToken()});
- const rows=(r.json&&r.json.items)||[]; const tb=$('histTable').querySelector('tbody');tb.innerHTML='';
- if(!rows.length)tb.innerHTML='<tr><td colspan="4" class="hint">—</td></tr>';
- for(const h of rows.slice(0,20)){
-   const tr=document.createElement('tr');
-   tr.innerHTML='<td>'+new Date(h.time||Date.now()).toLocaleString(LANG==='ru'?'ru':'en')+'</td><td>'+(h.kind==='in'?t('recv'):t('sent'))+'</td><td class="mono">'+(h.amount||h.value||'')+'</td><td class="mono">'+(h.txid||'').slice(0,16)+'…</td>';
-   tb.append(tr);}
+function onRecvAmt(){
+  let suffix='';
+  const a=$('recvAmtAsk').value.trim();
+  if(a){
+    try{suffix='?amount='+encodeURIComponent(fmtMgnt(parseAmountToMinor(a).minor))}
+    catch(e){suffix=''}
+  }
+  setText('recvUriFull','agentcoin:'+Sess.addr+suffix);
+}
+$('recvCopy').onclick=()=>{
+  const done=()=>setText('recvMsg',t('copiedRecv'));
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText($('recvUriFull').textContent).then(done,()=>setText('recvMsg','⚠ copy_failed'));
+  else setText('recvMsg','⚠ copy_failed');
 };
-function cabToken(){return sessionStorage.getItem('agtCabToken')||null}
-/* ---------------- Отправить ---------------- */
-$('sendClose').onclick=()=>$('sendOverlay').classList.add('hidden');
+$('recvClose').onclick=()=>closeOverlay('recvOverlay');
+$('chipHist').onclick=async()=>{
+  if(needLogin())return;
+  $('panelHistory').classList.remove('hidden');
+  $('panelHistory').scrollIntoView({behavior:'smooth'});
+  await loadHistory(null);
+};
+/* ---------------- История: DOM, пагинация, статусы ---------------- */
+let histBefore=null,histBusy=false;
+function histRow(r){
+  const tr=document.createElement('tr');
+  const when=(r.status==='mempool'||r.height==null)?t('histMempool')
+    :new Date((r.ts||0)*1000||Date.now()).toLocaleString(LANG==='ru'?'ru':'en');
+  const dir=(r.from===Sess.addr)?t('sent'):t('recv');
+  const sum=(r.amountAGT!=null?String(r.amountAGT):(r.amountMGNT!=null?fmtMgnt(String(r.amountMGNT)):''))+' AGT';
+  const st=r.status==='mempool'?t('histMempool'):t('histConf')+(r.height!=null?' #'+r.height:'');
+  const tx=(r.txid||'').slice(0,16)+'…';
+  tr.append(el('td',when),el('td',dir),el('td',sum,'mono'),el('td',st),el('td',tx,'mono'));
+  tr.title=String(r.txid||'');
+  return tr;
+}
+async function loadHistory(before){
+  if(histBusy||!Sess.addr||!Sess.cab)return;
+  histBusy=true;setText('histMsg','…');$('histMore').classList.add('hidden');
+  const r=await API.post('/cabinet/wallet/history',{address:Sess.addr,token:Sess.cab,limit:25,
+    ...(before!=null?{beforeHeight:before}:{})});
+  histBusy=false;
+  if(r.netErr||r.status>=500){setText('histMsg','⚠ '+t('histLoadErr'));return}
+  if(r.status===401||(r.json&&r.json.error==='session_invalid_or_foreign')){
+    setText('histMsg','⚠ '+t('histNeedLogin'));return;
+  }
+  if(!r.json||r.json.ok===false&&r.json.error){setText('histMsg','⚠ '+(r.json.error||'history_failed'));return}
+  const tb=$('histTable').querySelector('tbody');
+  if(before==null){tb.replaceChildren();histBefore=null}
+  let n=0;
+  for(const m of (r.json.mempoolRows||[])){tb.append(histRow(Object.assign({status:'mempool'},m)));n++}
+  for(const row of (r.json.rows||[])){tb.append(histRow(row));n++}
+  if(n===0&&before==null)tb.append(el('tr'),el('td',t('histEmpty'),'hint'));
+  histBefore=(r.json.nextBeforeHeight!=null)?r.json.nextBeforeHeight:null;
+  if(histBefore!=null)$('histMore').classList.remove('hidden');
+  setText('histMsg','');
+}
+$('histMore').onclick=()=>loadHistory(histBefore);
+/* ---------------- Отправить: смета -> заявка -> подпись ---------------- */
+function resetPend(reason){
+  if(pendOp&&reason)setText('sendMsg',reason);
+  pendOp=null;
+  $('sendConfirm').classList.add('hidden');$('sendConfirm').replaceChildren();
+  $('sendOpDl').classList.add('hidden');
+  setText('sendCmd','');setText('sendSignHint','');$('sendSig').value='';
+}
+for(const id of ['sendTo','sendAmt','sendMemo'])$(id).addEventListener('input',()=>resetPend(t('opChanged')));
+$('sendClose').onclick=()=>closeOverlay('sendOverlay');
+function confirmDl(label,value){const c=$('sendConfirm');c.append(el('dt',label),el('dd',value,'mono'));c.classList.remove('hidden')}
+let sendBusy=false;
 $('sendPrepare').onclick=async()=>{
- pendOp=null;if(!$('sendTo').value.trim()){$('sendMsg').textContent=t('errNoAddr');return}
- if(!/^(\d+)(\.\d{1,9})?$/.test($('sendAmt').value.trim())||Number($('sendAmt').value)<=0){$('sendMsg').textContent=t('errNoAmt');return}
- $('sendMsg').textContent='…';
- const r=await API.post('/cabinet/op-request',{address:addr,token:cabToken(),op:{kind:'send',to:$('sendTo').value.trim(),amount:Number($('sendAmt').value),memo:$('sendMemo').value}});
- if(r.json&&r.json.opId&&r.json.payload&&r.json.payload.txidHex){
-   pendOp={opId:r.json.opId,txidHex:r.json.payload.txidHex};
-   $('sendCmd').value='node src/cli.mjs sign-op profile.json --op-id '+r.json.opId+' --txid '+r.json.payload.txidHex;
-   $('sendMsg').textContent=t('fileCmd')+' ok';
- } else $('sendMsg').textContent='⚠ '+(r.json.error||'op_request_failed');
+  if(sendBusy){setText('sendMsg',t('opBusy'));return}
+  resetPend('');
+  const to=$('sendTo').value.trim();
+  if(!to){setText('sendMsg',t('errNoAddr'));return}
+  if(!ADDR_RE.test(to)){setText('sendMsg',t('errBadAddr'));return}
+  let amt;
+  try{amt=parseAmountToMinor($('sendAmt').value)}
+  catch(e){setText('sendMsg',t(e.message==='inexact_amount'?'errInexact':'errBadAmt'));return}
+  if(!Sess.cab){setText('sendMsg',t('histNeedLogin'));return}
+  const memo=$('sendMemo').value;
+  sendBusy=true;$('sendPrepare').disabled=true;$('sendSubmit').disabled=true;
+  setText('sendMsg','…');setText('sendEst','');
+  try{
+    // 1) смета — что увидит получатель и хватит ли средств
+    const est=await API.post('/cabinet/wallet/estimate',{address:Sess.addr,token:Sess.cab,to,amount:amt.num});
+    if(est.netErr||est.status>=500){setText('sendMsg','⚠ '+t('histLoadErr'));return}
+    if(!est.json||est.json.ok!==true){setText('sendMsg','⚠ '+(est.json.error||'estimate_failed'));return}
+    if(est.json.sufficient===false){setText('sendMsg',t('estInsuf'));return}
+    setText('sendEst',t('estArrive')+': '+est.json.arrival+' AGT · '+t('estFee')+': 0 AGT');
+    // 2) заявка — канонический пакет, ИЗ НЕГО строится экран подтверждения
+    const r=await API.post('/cabinet/op-request',{address:Sess.addr,token:Sess.cab,
+      op:{kind:'send',to,amount:amt.num,memo}});
+    if(r.netErr||r.status>=500){setText('sendMsg','⚠ '+t('histLoadErr'));return}
+    if(!r.json||!r.json.opId||!r.json.payload||!r.json.payload.txidHex){
+      setText('sendMsg','⚠ '+(r.json.error||'op_request_failed'));return;
+    }
+    // 3) сверка: пакет обязан совпадать с показанной сметой
+    const ptx=r.json.payload.tx||{};
+    if(ptx.to!==to||Number(ptx.amount)!==amt.num){setText('sendMsg','⚠ op_payload_mismatch');return}
+    pendOp={opId:r.json.opId,payload:r.json.payload};
+    confirmDl(t('opTo'),String(ptx.to));
+    confirmDl(t('opAmount'),fmtMgnt(parseAmountToMinor(String(ptx.amount)).minor)+' AGT');
+    confirmDl(t('opMemo'),String(ptx.memo||''));
+    confirmDl(t('opTxid'),String(r.json.payload.txidHex));
+    confirmDl(t('opTtl'),String(r.json.ttlSec||300)+' '+t('opSec'));
+    $('sendOpDl').classList.remove('hidden');
+    setText('sendCmd','echo \'{"password":"…"}\' | node agt-skill/sign-op.mjs --profile /private/agent/profile.json --op agentcoin-op-'+r.json.opId+'.json --to '+to+' --amount '+amt.num+(memo?' --memo "…"':''));
+    setText('sendSignHint',(r.json.signHint||'')+' · '+t('fileSignSpec'));
+    setText('sendMsg',t('fileCmd')+' ok');
+  }finally{sendBusy=false;$('sendPrepare').disabled=false;$('sendSubmit').disabled=false}
 };
+$('sendOpDl').onclick=()=>{
+  if(!pendOp)return;
+  const blob=new Blob([JSON.stringify({opId:pendOp.opId,payload:pendOp.payload},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='agentcoin-op-'+pendOp.opId+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+};
+async function lookupSubmittedTx(txid){
+  try{
+    const p=await API.get('/txproof/'+txid,8000);
+    if(p.status===200&&p.json&&typeof p.json.height==='number')return 'confirmed';
+  }catch(e){}
+  try{
+    const m=await API.get('/mempool?full=1',8000);
+    const arr=(m.json&&(m.json.mempool||m.json.txs||m.json.items))||[];
+    if(Array.isArray(arr)&&arr.some(x=>(x&&(x.txid||x))===txid))return 'mempool';
+  }catch(e){}
+  return 'unknown';
+}
 $('sendSubmit').onclick=async()=>{
- const sig=$('sendSig').value.trim();if(!HEX128.test(sig)){$('sendMsg').textContent=t('errNoSig');return}
- if(!pendOp){$('sendMsg').textContent=t('errNoChallenge');return}
- $('sendMsg').textContent='…';
- const r=await API.post('/cabinet/op-submit',{opId:pendOp.opId,signature:sig});
- if(r.status<300&&r.json&&r.json.accepted){$('sendMsg').innerHTML='<span class="ok">'+t('sendOk')+pendOp.txidHex+'</span>';loadBal()}
- else $('sendMsg').textContent='⚠ '+(r.json.error||'rejected');
+  const sig=$('sendSig').value.trim();
+  if(!HEX128.test(sig)){setText('sendMsg',t('errNoSig'));return}
+  if(!pendOp){setText('sendMsg',t('errNoChallenge'));return}
+  if(sendBusy){setText('sendMsg',t('opBusy'));return}
+  const op=pendOp;
+  sendBusy=true;$('sendSubmit').disabled=true;
+  setText('sendMsg','…');
+  try{
+    const r=await API.post('/cabinet/op-submit',{opId:op.opId,signature:sig});
+    pendOp=null; // opId одноразовый: сервер гасит его при любом исходе submit
+    if(r.netErr){
+      // Ответ потерян: исход выясняем ТОЛЬКО чтением (повторный submit невозможен).
+      const st=await lookupSubmittedTx(op.payload.txidHex);
+      if(st==='confirmed')setText('sendMsg',t('sendConfirmed')+' · '+op.payload.txidHex);
+      else if(st==='mempool')setText('sendMsg',t('sendMempool')+' · '+op.payload.txidHex);
+      else setText('sendMsg','⚠ '+t('sendUnknown')+op.payload.txidHex);
+    }
+    else if(r.status<300&&r.json&&r.json.accepted){
+      setText('sendMsg','');$('sendMsg').append(el('span',t('sendOk')+op.payload.txidHex,'ok'));
+      $('sendSig').value='';
+      loadBal();loadHistory(null);
+    }
+    else setText('sendMsg','⚠ '+t('sendRejected')+(r.json.error||'rejected'));
+  }finally{sendBusy=false;$('sendSubmit').disabled=false}
 };
 /* ---------------- Выйти ---------------- */
-async function logout(){ 
- // 1) сервер: revoke JWT
- if(jwt){try{await API.post('/auth/logout',{},jwt)}catch(e){}}
- // 2) локально
- localStorage.removeItem('agtWalletJwt');sessionStorage.removeItem('agtCabToken');
- jwt=null;addr=null;balanceMGNT=null;passportData=null;pendOp=null;pendChallenge=null;
- $('cab').classList.add('hidden');$('panelHistory').classList.add('hidden');
- $('btnLogout').classList.add('hidden');updateSess();showAuth();
+async function logout(){
+  // 1) сервер: revoke JWT (ошибки сети — в лог, локальный выход всё равно выполняем)
+  if(Sess.jwt){try{await API.post('/auth/logout',{})}catch(e){}}
+  // 2) локально: память + ВЕСЬ DOM сессии (баланс прошлого адреса не мелькает)
+  Sess.jwt=null;Sess.cab=null;Sess.addr=null;Sess.exp=0;
+  balanceMGNT=null;balGen++;passportData=null;pendOp=null;pendChallenge=null;
+  histBefore=null;
+  setText('balNum','—');setText('balNote',t('balNoAccess'));
+  setText('addrShow','—');setText('recvAddr','—');setText('secMsg','');
+  $('cab').classList.add('hidden');$('panelHistory').classList.add('hidden');
+  const tb=$('histTable').querySelector('tbody');tb.replaceChildren();
+  tb.append(el('tr'),el('td','—','hint'));
+  $('btnLogout').classList.add('hidden');
+  resetPend('');
+  updateSess();showAuth();
 }
 $('btnLogout').onclick=logout;
-$('btnLogoutAll').onclick=async()=>{if(jwt){await API.post('/auth/logout-all',{},jwt)}logout()};
-$('btnCopy').onclick=()=>{navigator.clipboard.writeText(addr).then(()=>$('secMsg').textContent=t('copied'))};
+$('btnLogoutAll').onclick=async()=>{
+  let ok=false;
+  if(Sess.jwt||Sess.addr){
+    try{
+      const r=await API.post('/auth/logout-all',{});
+      ok=r.status<300&&!!(r.json&&r.json.ok&&r.json.all_sessions_invalidated);
+    }catch(e){ok=false}
+  }
+  setText('secMsg',ok?t('logoutAllOk'):'⚠ '+t('logoutAllPartial'));
+  await logout();
+};
+$('btnCopy').onclick=()=>{
+  if(!Sess.addr)return;
+  const done=()=>setText('secMsg',t('copied'));
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(Sess.addr).then(done,()=>setText('secMsg','⚠ copy_failed'));
+  else setText('secMsg','⚠ copy_failed');
+};
 
 /* ---------------- Безопасность: переключатели ---------------- */
 async function refreshAuthState(){
- if(!addr||!jwt){setTg('tgFace',false);setTg('tgPin',false);setTg('tgPhone',false);return}
- const r=await API.post('/auth/session',{},jwt);  if(r.json&&r.json.ok===true){
-   setTg('tgPin',!!r.json.pinSet);setTg('tgFace',!!r.json.faceOn);setTg('tgPhone',!!r.json.phoneSet);
- } else if(r.status>=401||r.json.ok===false){ // IP-инвалидация или протух
-   logout();return;
- } else { setTg('tgPin',false);setTg('tgFace',false);setTg('tgPhone',false); }
+  if(!Sess.addr){setTg('tgFace',false);setTg('tgPin',false);setTg('tgPhone',false);return}
+  const r=await API.post('/auth/session',{});
+  if(r.netErr||r.status===429||r.status>=500){
+    // Временный сбой — сессию НЕ трогаем, только предупреждаем.
+    setText('secMsg','⚠ '+t('sessNetErr'));return;
+  }
+  if(r.json&&r.json.ok===true){
+    if(r.json.cabinetToken)Sess.cab=r.json.cabinetToken; // свежее — всегда в память
+    setTg('tgPin',!!r.json.pinSet);setTg('tgFace',!!r.json.faceOn);setTg('tgPhone',!!r.json.phoneSet);
+    if(typeof r.json.exp==='number')Sess.exp=r.json.exp;
+    updateSess();return;
+  }
+  const reason=r.json&&(r.json.reason||r.json.error)||'';
+  if(r.status===401&&AUTH_GONE.has(reason)){logout();setText('faceMsg',t('sessGone'))}
+  else if(r.status===401)setText('secMsg','⚠ '+t('sessGone'));
+  else setText('secMsg','⚠ '+t('sessNetErr'));
 }
-function setTg(id,v){const el=$(id);el.classList.toggle('on',!!v);el.setAttribute('aria-checked',!!v);el.dataset.on=!!v}
+function setTg(id,v){const e=$(id);e.classList.toggle('on',!!v);e.setAttribute('aria-checked',!!v);e.dataset.on=!!v}
 /* PIN вкл/выкл */
 $('tgPin').addEventListener('click',async()=>{
- if(!addr||!jwt)return;
- if($('tgPin').dataset.on==='true'){const r=await API.post('/auth/pin/disable',{},jwt);refreshAuthState();$('secMsg').textContent=(r.json&&r.json.ok)?t('pinDisableOk'):'⚠';return}
- const pin=prompt(t('pinEnter'));if(!pin)return;
- if(!/^\d{4,6}$/.test(pin)){$('secMsg').textContent=t('pinErr');return}
- const r=await API.post('/auth/pin/set',{pin},jwt);
- if(r.status<300&&r.json.ok){$('secMsg').textContent=t('pinSetOk');refreshAuthState()}
- else $('secMsg').textContent='⚠ '+(r.json.error||'pin_set_failed');
+  if(!Sess.addr)return;
+  if($('tgPin').dataset.on==='true'){const r=await API.post('/auth/pin/disable',{});refreshAuthState();setText('secMsg',(r.json&&r.json.ok)?t('pinDisableOk'):'⚠');return}
+  const pin=prompt(t('pinEnter'));if(!pin)return;
+  if(!/^\d{4,6}$/.test(pin)){setText('secMsg',t('pinErr'));return}
+  const r=await API.post('/auth/pin/set',{pin});
+  if(r.status<300&&r.json.ok){setText('secMsg',t('pinSetOk'));refreshAuthState()}
+  else setText('secMsg','⚠ '+(r.json.error||'pin_set_failed'));
 });
 /* Face ID вкл/выкл */
 $('tgFace').onclick=()=>{
- if(!addr||!jwt){showAuth();return}
- if($('tgFace').dataset.on==='true'){API.post('/auth/webauthn/disable',{},jwt).then(refreshAuthState);$('secMsg').textContent=t('pinDisableOk');return}
- window._walletPick('face');webauthnFlow('register');
+  if(!Sess.addr){showAuth();return}
+  if($('tgFace').dataset.on==='true'){API.post('/auth/webauthn/disable',{}).then(refreshAuthState);setText('secMsg',t('pinDisableOk'));return}
+  window._walletPick('face');webauthnFlow('register');
 };
-$('tgPhone').onclick=async()=>$('secMsg').textContent=t('phoneBindOff');
+$('tgPhone').onclick=async()=>setText('secMsg',t('phoneBindOff'));
 
 /* ---------------- init ---------------- */
 function boot(){
- fitOrb();requestAnimationFrame(drawOrb);
- applyLang();
- // автологин: JWT из localStorage → проверить на сервере
- const sj=localStorage.getItem('agtWalletJwt');
- if(sj)API.post('/auth/session',{},sj).then(r=>{
-   if(r.status<300&&r.json.ok){jwt=sj;addr=r.json.sub;if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin()}
-   else localStorage.removeItem('agtWalletJwt');
-   if(!addr)showAuth();
- }).catch(()=>showAuth());
- else showAuth();
- setInterval(()=>{if(addr)loadBal()},15000);
+  // Миграция: старые ключи сессии из браузерного хранилища удаляются.
+  try{localStorage.removeItem('agtWalletJwt')}catch(e){}
+  try{sessionStorage.removeItem('agtCabToken')}catch(e){}
+  try{localStorage.removeItem('agtLastAddr')}catch(e){}
+  fitOrb();
+  if(reduceMotion)drawOrb(0);else requestAnimationFrame(drawOrb);
+  applyLang();
+  // Единственная проверка при старте (тайм-аут 8с): кука agt_wa (HttpOnly) уйдёт сама.
+  API.post('/auth/session',{},8000).then(async r=>{
+    if(r.status<300&&r.json.ok){
+      Sess.addr=r.json.sub;Sess.jwt=null; // JWT из тела больше не забираем: кука держит сессию
+      Sess.cab=r.json.cabinetToken||null;
+      Sess.exp=(typeof r.json.exp==='number')?r.json.exp:0;
+      await afterLogin();
+    }
+    else Sess.addr=null;
+    if(!Sess.addr)showAuth();
+  }).catch(()=>showAuth());
+  setInterval(()=>{if(Sess.addr)loadBal()},15000);
 }
 boot();
 </script>

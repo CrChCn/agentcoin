@@ -213,6 +213,12 @@ export const exportPublicProfile = readPublicProfile;
 export async function inspectProfile({ profilePath = DEFAULT_PROFILE_PATH, password } = {}) {
   return publicIdentity(await decryptEnvelope(await readEnvelope(profilePath), password));
 }
+// Локальная подпись операций кабинета (sign-op): возвращает закрытый ключ ТОЛЬКО
+// в память вызывающего процесса. Никогда не выводит ключ в stdout и не отправляет по сети.
+export async function readPrivateKey({ profilePath = DEFAULT_PROFILE_PATH, password } = {}) {
+  const s = await decryptEnvelope(await readEnvelope(profilePath), password);
+  return { address: s.address, pub: s.pub, privKey: s.privKey, network: s.network };
+}
 
 /** Decrypt, validate, and re-encrypt with a fresh salt and IV. No plaintext export. */
 export async function createEncryptedBackup({ profilePath = DEFAULT_PROFILE_PATH, password, backupPassword = password, backupPath } = {}) {

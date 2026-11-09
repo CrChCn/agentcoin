@@ -303,7 +303,7 @@ async function reserveReport() {
   const vaultBal = await agtBal(vault.address);
   const supply = Number((await wagt.totalSupply()) / E18);
   const ledger = loadLedger();
-  const open = Object.entries(ledger).filter(([, e]) => e.state !== 'minted')
+  const open = Object.entries(ledger).filter(([, e]) => e.state === 'intent' || e.state === 'needs-review')
     .map(([dep, e]) => ({ depositId: dep, agtTxid: e.agtTxid, state: e.state }));
   const ok = vaultBal === supply && open.length === 0;
   return { vault: vaultBal, supply, open,

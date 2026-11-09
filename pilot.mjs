@@ -309,9 +309,36 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     });
   }
 
+  // ---------- сверка только для чтения (процедура отката) ----------
+  // Та же классификация, что reconcile, но БЕЗ submitTx и БЕЗ записи в журнал:
+  // missing = txid нет ни в цепи, ни в мемпуле → требует отдельного разбора,
+  // повторная отправка — только отдельным явно разрешённым шагом оператора.
+  function reconcileAudit() {
+    if (!faucetEnabled && !payoutEnabled) return { ok: false, error: 'pilot_disabled' };
+    return withDb((q) => {
+    const out = { faucet: [], payouts: [] };
+    const chainSet = bc.knownChainTxids();
+    const classify = (row, ref, fund) => {
+      let tx = null;
+      try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, txid: row.txid || null, state: row.state, seen: 'unreadable', needsReview: true }; }
+      if (!tx || typeof tx !== 'object') return { ...ref, txid: row.txid || null, state: row.state, seen: 'unreadable', needsReview: true };
+      tx.txid ||= tx.digestVersion === 2 ? txDigestV2(tx) : txDigest(tx);
+      if (tx.txid && chainSet.has(tx.txid)) return { ...ref, txid: tx.txid, state: row.state, seen: 'chain', needsReview: false };
+      if (tx.from !== fund) return { ...ref, txid: tx.txid, state: row.state, seen: 'fund_changed', needsReview: true };
+      if (tx.txid && bc.mempool.some(t => t.txid === tx.txid)) return { ...ref, txid: tx.txid, state: row.state, seen: 'mempool', needsReview: false };
+      return { ...ref, txid: tx.txid, state: row.state, seen: 'missing', needsReview: true };
+    };
+    if (faucetEnabled) for (const row of q.openFaucet.all())
+      out.faucet.push(classify(row, { challengeId: row.challenge_id }, faucetFund));
+    if (payoutEnabled) for (const row of q.openPayouts.all())
+      out.payouts.push(classify(row, { key: row.key }, payoutFund));
+    return { ok: true, ...out };
+    });
+  }
+
   return {
     faucetEnabled, payoutEnabled, faucetProblems: problems,
-    faucetChallenge, faucetClaim, payoutRequest, reconcile,
+    faucetChallenge, faucetClaim, payoutRequest, reconcile, reconcileAudit,
     status: () => withDb((q) => ({ faucetEnabled, payoutEnabled, problems,
       counts: q.counts.get(), funds: { faucetFund: faucetFund || null, payoutFund: payoutFund || null } })),
   };

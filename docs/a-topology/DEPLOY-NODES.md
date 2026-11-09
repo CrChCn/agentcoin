@@ -178,7 +178,10 @@ curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" "$AGT_PILOT_LOCAL_URL/pilot/status
 согласованным SQLite backup или после остановки службы; при переносе остановить старый
 экземпляр ДО запуска нового. `recorded` с причиной = платёж зарезервирован, требует разбора.
 Остановка новых заявок: убрать пилотные env + рестарт; сохранить журнал, реестр и txid.
-Стенд API: `node tools/stand/stand-a5.mjs` (23/23: кран, лимиты, выплаты, рестарт, fail-closed).
+Стенд API: `node tools/stand/stand-a5.mjs` (27/27: кран, привязка challenge к сети/аудитории,
+лимиты, выплаты, v2-подпись за порогом `AGT_TX_DIGEST_V2_HEIGHT`, рестарт, fail-closed).
+Формат challenge — JSON-массив `['agentcoin:faucet:v1', chainId, audience, …]`; формат tx пилот
+следует порогу v2 сети (до порога v1, после — v2 с chainId).
 
 ## Что остаётся за владельцем (заблокировано без него)
 

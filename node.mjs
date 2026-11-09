@@ -281,7 +281,7 @@ const hub = new WsHub();
 const pilot = createPilot({ dataDir: DATA_DIR, bc, loadWallets,
   announce: (tx) => setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); }),
   identity: { find: (a) => identityRegistry.findByAddress(a), verify: (cert) => identityRegistry.verifyPassport(cert) },
-  isBanned: (a) => bc.security.isBanned(a) });
+  isBanned: (a) => bc.security.isBanned(a), audience: identityRegistry.meta().audience });
 // быстрый приём WS-блока в цепь: тот же набор правил, что сетевой append
 function applyBlockFast(chain, blk) {
   chain.chain.push(blk);

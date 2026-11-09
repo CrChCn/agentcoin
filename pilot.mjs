@@ -11,15 +11,18 @@
    denied/failed — в лимиты НЕ входят. Повторная подача — всегда исходной подписью.
    1 AGT = 1_000_000_000 минорных. Суммы в реестре/запросах — целые minor.
    Лимиты крана: 0.5/адрес, 5/сутки UTC, 20/пилот. Лимиты выплат: 10/оператор, 20/неделя UTC.
-   Высота активации формата tx здесь не применяется: payout/faucet всегда строят
-   текущий формат ноды; reconcile лишь перечитывает журнал и цепь.
+   Формат tx — по порогу AGT_TX_DIGEST_V2_HEIGHT (до порога v1, после — v2
+   с chainId; txid выставляем сами: addTransaction ставит только v1-digest).
+   Challenge message — JSON-массив с chainId и audience (привязка к сети/ноде).
+   Записи, чей from не совпадает с текущим фондом контура, reconcile не трогает
+   (fund_changed): смена фонда требует ручного разбора.
 */
 'use strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { signTransaction } from './core.mjs';
+import { signTransaction, signTransactionV2, txDigest, txDigestV2, txDigestV2Activation, networkChainId } from './core.mjs';
 
 export const MINOR_PER_AGT = 1_000_000_000;
 export const FAUCET_PER_ADDRESS_MINOR = 500_000_000;   // 0.5 AGT один раз на адрес
@@ -34,7 +37,7 @@ const dayUTC = (ts) => new Date(ts).toISOString().slice(0, 10);
 const mondayUTC = (ts) => { const d = new Date(ts); const wd = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - wd); return d.toISOString().slice(0, 10); };
 const isMonday = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && mondayUTC(new Date(s + 'T00:00:00Z').getTime()) === s;
 
-export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBanned }) {
+export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBanned, audience }) {
   const faucetFund = (process.env.AGT_PILOT_FAUCET_FUND || '').trim();
   const payoutFund = (process.env.AGT_PILOT_PAYOUT_FUND || '').trim();
   const revokedFile = (process.env.AGT_PILOT_REVOKED_FILE || '').trim();
@@ -99,13 +102,22 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     return s;
   };
   const fundWallet = (addr) => { const w = loadWallets()[addr]; return w && w.privKey ? w : null; };
-  // tx строит текущий формат ноды (v1, как остальной код ноды); подпись — ключом фонда.
+  // tx строит формат по порогу активации v2 (как приёмник /tx); подпись — ключом фонда.
+  // txid выставляем сами ДО addTransaction: он ставит только v1-txDigest при пустом поле.
   const buildSignedTx = (fundAddr, to, amountMinor, memo) => {
     const w = fundWallet(fundAddr);
     if (!w) return { error: 'fund_key_missing' };
     const tx = { from: fundAddr, fromPub: w.pub, to, amount: amountMinor / MINOR_PER_AGT,
       nonce: Date.now() * 1000 + Math.floor(Math.random() * 1000), ts: Math.floor(Date.now() / 1000), memo };
-    tx.signature = signTransaction(tx, w.privKey);
+    if (bc.chain.length >= txDigestV2Activation({})) {
+      tx.digestVersion = 2; tx.chainId = networkChainId();
+      tx.signature = signTransactionV2(tx, w.privKey);
+      if (!tx.signature) return { error: 'fund_sign_failed' };
+      tx.txid = txDigestV2(tx);
+    } else {
+      tx.signature = signTransaction(tx, w.privKey);
+      tx.txid = txDigest(tx);
+    }
     return { tx };
   };
   const submitTx = (tx) => {
@@ -124,7 +136,9 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     if (!ident) return { ok: false, error: 'passport_not_found', hint: 'паспорт агента должен быть в локальном реестре идентификации' };
     const id = crypto.randomBytes(16).toString('hex');
     const expiresAt = nowMs() + CHALLENGE_TTL_MS;
-    const message = `AGT-PILOT-FAUCET|${address}|${FAUCET_PER_ADDRESS_MINOR}|${id}|${expiresAt}`;
+    // Привязка к сети и ноде: чужой challenge (другая сеть/аудитория) здесь не подпишут осмысленно.
+    const message = JSON.stringify(['agentcoin:faucet:v1', networkChainId(), audience ?? null,
+      address, FAUCET_PER_ADDRESS_MINOR, id, expiresAt]);
     return withDb((q) => {
       q.addChallenge.run(id, address, FAUCET_PER_ADDRESS_MINOR, message, expiresAt);
       return { ok: true, challengeId: id, message, amountMinor: FAUCET_PER_ADDRESS_MINOR, expiresAt };
@@ -218,10 +232,13 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     if (!faucetEnabled && !payoutEnabled) return { ok: false, error: 'pilot_disabled' };
     return withDb((q) => {
     const out = { faucet: [], payouts: [] };
-    const settle = (row, markConfirmed, ref) => {
+    const settle = (row, markConfirmed, ref, fund) => {
+      let tx = null;
+      try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, action: 'recorded', reason: 'bad_tx_json' }; }
+      // Фонд контура сменился после записи: чужую подпись не трогаем, только помечаем.
+      if (tx && tx.from !== fund) return { ...ref, action: 'recorded', reason: 'fund_changed', note: 'from записи не совпадает с текущим фондом' };
       if (row.txid && chainTxids().has(row.txid)) { markConfirmed(); return { ...ref, action: 'confirmed', txid: row.txid }; }
       if (row.state === 'pending') {
-        const tx = JSON.parse(row.tx_json);
         submitTx(tx); // исходная подпись; already_in_chain/duplicate_tx = уже видна
         if (chainTxids().has(tx.txid)) { markConfirmed(); return { ...ref, action: 'confirmed', txid: tx.txid }; }
         return { ...ref, action: 'pending', txid: tx.txid, note: 'в mempool/ожидает блока' };
@@ -229,9 +246,9 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
       return { ...ref, action: 'recorded', reason: row.reason || 'needs_review' };
     };
     for (const row of q.openFaucet.all())
-      out.faucet.push(settle(row, () => q.setFaucet.run('confirmed', null, null, null, row.challenge_id), { challengeId: row.challenge_id }));
+      out.faucet.push(settle(row, () => q.setFaucet.run('confirmed', null, null, null, row.challenge_id), { challengeId: row.challenge_id }, faucetFund));
     for (const row of q.openPayouts.all())
-      out.payouts.push(settle(row, () => q.setPayout.run('confirmed', null, null, null, row.key), { key: row.key }));
+      out.payouts.push(settle(row, () => q.setPayout.run('confirmed', null, null, null, row.key), { key: row.key }, payoutFund));
     return { ok: true, ...out };
     });
   }

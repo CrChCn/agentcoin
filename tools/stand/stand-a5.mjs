@@ -52,7 +52,7 @@ async function boot(extraEnv = {}) {
     AGT_BOOTSTRAP_FILE: path.join(root, 'boot.json'),
     AGT_ADMIN_MODE: 'token', AGT_ADMIN_TOKEN: ADMIN, AGT_BIND: '127.0.0.1',
     AGT_SPORE: '0', AGT_SITE_SYNC: '0', AGT_PEER_DISCOVERY: '0', ...extraEnv };
-  for (const k of ['AGT_CORE_P0_HEIGHT', 'AGT_TX_DIGEST_V2_HEIGHT', 'AGT_MGNT_HEIGHT', 'AGT_TRUSTED_ISSUERS_FILE', 'AGT_PASSPORT_ISSUER_FINGERPRINT']) delete env[k];
+  for (const k of ['AGT_CORE_P0_HEIGHT', 'AGT_TX_DIGEST_V2_HEIGHT', 'AGT_MGNT_HEIGHT', 'AGT_TRUSTED_ISSUERS_FILE', 'AGT_PASSPORT_ISSUER_FINGERPRINT']) if (!(k in extraEnv)) delete env[k];
   try { fs.writeFileSync(path.join(root, 'boot.json'), '{"bootstrap":[]}'); } catch {}
   const proc = spawn(process.execPath, [path.join(REPO, 'node.mjs'), String(port)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = `http://127.0.0.1:${port}`;
@@ -92,11 +92,12 @@ async function main() {
     const dataDir = path.join(tmp, 'data'); fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'wallets.json'), JSON.stringify(wallets, null, 1));
     const PERIOD = mondayUTC(Date.now());
-    const op1 = createWallet('op1'), op2 = createWallet('op2'), op3 = createWallet('op3');
+    const op1 = createWallet('op1'), op2 = createWallet('op2'), op3 = createWallet('op3'), op4 = createWallet('op4');
     const registry = [
       { operatorId: 'node2-operator', period: PERIOD, address: op1.address, amountMinor: 10_000_000_000 },
       { operatorId: 'node2-operator-2', period: PERIOD, address: op2.address, amountMinor: 6_000_000_000 },
       { operatorId: 'node2-operator-3', period: PERIOD, address: op3.address, amountMinor: 10_000_000_000 },
+      { operatorId: 'node2-operator-4', period: PERIOD, address: op4.address, amountMinor: 1_000_000_000 },
     ];
     const regFile = path.join(tmp, 'registry.json'); fs.writeFileSync(regFile, JSON.stringify(registry, null, 1));
     const revFile = path.join(tmp, 'revoked.json'); fs.writeFileSync(revFile, '[]');
@@ -128,6 +129,17 @@ async function main() {
     // t2: claim
     let faucetTxid = null;
     {
+      const ch0 = await api('/faucet/pilot/challenge', { method: 'POST', body: { address: agent.address }, token: null });
+      let mOk = false;
+      try {
+        const m = JSON.parse(ch0.body.message);
+        const aud = (await api('/identity/meta')).body.audience;
+        const cid = (await api('/info')).body.chainId;
+        mOk = Array.isArray(m) && m[0] === 'agentcoin:faucet:v1' && m[1] === cid &&
+          m[2] === aud && m[3] === agent.address && m[4] === 500_000_000 &&
+          m[5] === ch0.body.challengeId && m[6] === ch0.body.expiresAt;
+      } catch {}
+      step('t2.0 challenge привязан к сети и аудитории', ch0.status === 200 && mOk, (ch0.body.message || '').slice(0, 90));
       const r = await faucetPay(agent);
       faucetTxid = r.txid;
       step('t2 claim → pending txid', r.ok && !!r.txid, `txid=${(r.txid || '').slice(0, 16)} err=${r.error || ''}`);
@@ -207,6 +219,29 @@ async function main() {
       const st = await api('/pilot/status');
       step('t6.2 счётчики журнала пережили рестарт', st.body.counts.faucet === 10 && st.body.counts.payouts === 2, JSON.stringify(st.body.counts));
       void conf;
+    }
+
+    // t8: порог v2 — пилот строит v2-tx (подпись поверх digestVersion=2 с chainId)
+    {
+      stop(); await sleep(500);
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile,
+        AGT_TX_DIGEST_V2_HEIGHT: '1' });
+      for (let i = 0; i < 2; i++) await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
+      const req4 = { operatorId: 'node2-operator-4', period: PERIOD, address: op4.address, amountMinor: 1_000_000_000 };
+      const exe = await api('/pilot/payout', { method: 'POST', body: { ...req4, execute: true } });
+      step('t8 v2-порог: execute → pending', exe.status === 200 && !!exe.body.txid, (exe.body.txid || '').slice(0, 16));
+      const mp = await api('/mempool?full=1');
+      const list = mp.body.txs || mp.body.mempool || [];
+      const found = (Array.isArray(list) ? list : []).find(t => t && t.txid === exe.body.txid);
+      step('t8.2 tx в mempool с digestVersion=2 и chainId', !!found && found.digestVersion === 2 && typeof found.chainId === 'string',
+        found ? `v${found.digestVersion} ${found.chainId}` : 'not found');
+      await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
+      const rec = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const done = (rec.body.payouts || []).find(x => x.key === 'node2-operator-4|' + PERIOD);
+      const b4 = Number((await api('/balance', { method: 'POST', body: { address: op4.address } })).body.balance);
+      step('t8.3 v2-tx в блоке: confirmed + баланс 1', done?.action === 'confirmed' && b4 === 1, `${done?.action} bal=${b4}`);
     }
 
     // t7: общий фонд → контуры не включаются

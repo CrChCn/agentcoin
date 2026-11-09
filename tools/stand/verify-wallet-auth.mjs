@@ -43,7 +43,7 @@ let built = nodeSrc;
 const anchorSrv = 'const server = http.createServer({';
 if (built.split(anchorSrv).length !== 2) throw new Error('server anchor gone');
 built = built.replace(anchorSrv, BLOCK + '\n' + anchorSrv);
-const mark = "if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');";
+const mark = "if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'wallet.html');";
 if (built.split(mark).length !== 2) throw new Error('router mark gone');
 built = built.replace(mark,
   "const _waHandled = await handleWalletAuth(req, res, p);\n  if (_waHandled) return;\n  " + mark);
@@ -194,7 +194,8 @@ try {
   const sub = await call('POST', '/cabinet/op-submit', { opId: op.json.opId, signature: sig });
   check(sub.status === 201 && sub.json.accepted === true, 'G4 op-submit с локальной подписью — 201 accepted');
   const sub2 = await call('POST', '/cabinet/op-submit', { opId: op.json.opId, signature: sig });
-  check(sub2.status === 400 && sub2.json.error === 'op_not_found', 'G5 повторный submit — op_not_found (идемпотентность)');
+  check(sub2.status === 200 && sub2.json.duplicate === true && sub2.json.txidFull === sub.json.txidFull,
+    'G5 повтор после потери ответа — тот же txidFull, без второго перевода (sealed)');
   const hist = await call('POST', '/cabinet/wallet/history', { address: ident.address, token: cab2, limit: 25 });
   check(hist.status === 200 && Array.isArray(hist.json.mempoolRows) && hist.json.mempoolRows.length >= 1,
     'G6 история видит операцию в мемпуле (mempoolRows)');

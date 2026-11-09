@@ -11,7 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createProfile } from '../agt-skill/agent-profile.mjs';
 import { readPrivateKey } from '../agt-skill/agent-profile.mjs';
-import { txDigest, verifyTransaction, createWallet } from '../core.mjs';
+import { txDigest, verifyTransaction, createWallet, amountMinorOf, minorToAgt } from '../core.mjs';
+import { SEND_BASE_FEE_MINOR } from '../wallet-api.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const html = await fs.readFile(path.join(root, 'site', 'wallet.html'), 'utf8');
@@ -120,4 +121,73 @@ test('wallet w2r: sign-op verifies package and signs txid', async () => {
     const bad4 = runSignOp(['--profile', profilePath, '--op', opPath, '--to', to, '--amount', '1.25', '--memo', 'w2r'], JSON.stringify({ password: 'wrong' }));
     assert.notEqual(bad4.status, 0, 'чужой пароль — отказ');
   });
+});
+
+// ---------- P1: миноры API — каноника, границы, контракт нулевой комиссии ----------
+test('wallet w2r: amountMinorOf/minorToAgt exactness and boundaries', () => {
+  assert.equal(String(amountMinorOf('2500000000')), '2500000000', 'миноры строкой');
+  assert.equal(String(amountMinorOf('2.5')), '2500000000', 'decimal-строка AGT');
+  assert.equal(String(amountMinorOf(2.5)), '2500000000', 'legacy Number совместим');
+  assert.equal(String(amountMinorOf('1')), '1', 'минимальная сумма 1 mGNT');
+  assert.equal(minorToAgt('1'), '0.000000001', 'минимальная сумма в AGT');
+  assert.equal(minorToAgt('2500000000'), '2.5', 'обратное преобразование точное');
+  assert.equal(minorToAgt('10000000000000001'), '10000000.000000001', 'граница точности держится строкой');
+  assert.throws(() => amountMinorOf('0.0000000001'), /value_exceeds_scale_9/, '10 знаков — inexact');
+  assert.throws(() => amountMinorOf('1.0000000001'), /value_exceeds_scale_9/, '10 знаков — inexact');
+  assert.throws(() => amountMinorOf('0'), /amount_not_positive/, 'ноль — отказ');
+  assert.throws(() => amountMinorOf('abc'), /value_not_decimal/, 'мусор — отказ');
+  assert.equal(SEND_BASE_FEE_MINOR, '0', 'контракт: базовая комиссия сети 0 (миноры)');
+});
+
+// ---------- sign-op: канонические миноры, сводка, рассинхрон пакета ----------
+test('wallet w2r: sign-op amount-minor, summary and package/tx desync', async () => {
+  await withProfile(async (tmp, profilePath, ident) => {
+    const to = createWallet('receiver').address;
+    const tx = { from: ident.address, fromPub: ident.pub, to, amount: 1.25,
+      nonce: 1700000000000, ts: 1700000000, memo: 'w2r' };
+    const txid = txDigest(tx);
+    const pkg = { opId: 'cd'.repeat(16), ttlSec: 300,
+      payload: { kind: 'send', tx: { ...tx, txid }, txidHex: txid,
+        amountMinor: '1250000000', feeMinor: '0', network: 'AGENTCOIN' } };
+    const opPath = path.join(tmp, 'opm.json');
+    await fs.writeFile(opPath, JSON.stringify(pkg));
+    const ok = runSignOp(['--profile', profilePath, '--op', opPath, '--to', to,
+      '--amount-minor', '1250000000', '--memo', 'w2r', '--network', 'AGENTCOIN'],
+      JSON.stringify({ password: 'test-password-1' }));
+    assert.equal(ok.status, 0, 'sign-op --amount-minor ok: ' + ok.stderr);
+    assert.match(ok.stderr, /network : AGENTCOIN/, 'сводка: сеть');
+    assert.match(ok.stderr, /1250000000 mGNT = 1.25 AGT/, 'сводка: точная сумма');
+    assert.match(ok.stderr, /0 mGNT/, 'сводка: комиссия');
+    assert.match(ok.stderr, /ttl     : 300s/, 'сводка: срок заявки');
+    // Пакет врёт о сумме при честном txid: amountMinor не совпадает с tx.amount.
+    const lied = JSON.parse(JSON.stringify(pkg));
+    lied.payload.amountMinor = '1250000001';
+    const liedPath = path.join(tmp, 'op-lied.json');
+    await fs.writeFile(liedPath, JSON.stringify(lied));
+    const bad = runSignOp(['--profile', profilePath, '--op', liedPath, '--to', to,
+      '--amount-minor', '1250000001', '--memo', 'w2r', '--network', 'AGENTCOIN'],
+      JSON.stringify({ password: 'test-password-1' }));
+    assert.notEqual(bad.status, 0, 'рассинхрон amountMinor/tx.amount — отказ');
+    assert.match(bad.stderr, /op_amount_package_mismatch/, 'код отказа — package_mismatch');
+    // Чужой network в пакете — отказ.
+    const net2 = JSON.parse(JSON.stringify(pkg));
+    net2.payload.network = 'OTHERNET';
+    const netPath = path.join(tmp, 'op-net.json');
+    await fs.writeFile(netPath, JSON.stringify(net2));
+    const badN = runSignOp(['--profile', profilePath, '--op', netPath, '--to', to,
+      '--amount-minor', '1250000000', '--memo', 'w2r', '--network', 'AGENTCOIN'],
+      JSON.stringify({ password: 'test-password-1' }));
+    assert.notEqual(badN.status, 0, 'чужой network — отказ');
+  });
+});
+
+// ---------- P0: страница шлёт миноры, обрабатывает duplicate и держит итог выхода ----------
+test('wallet w2r: page sends minors, handles duplicate, keeps logout result', () => {
+  assert.ok(script.includes('amountMinor:amt.minor'), 'estimate и op-request шлют amountMinor');
+  assert.ok(script.includes("String(r.json.payload.amountMinor||'')!==amt.minor"), 'сверка пакета — строкой минор, без Number');
+  assert.ok(script.includes('--amount-minor'), 'команда CLI — канонические миноры');
+  assert.ok(script.includes('txidFull'), 'полный txid из submit используется для сверки');
+  assert.ok(script.includes('duplicate'), 'идемпотентный повтор обработан (duplicate:true)');
+  assert.ok(script.includes('logoutNotice'), 'итог «выйти везде» — в постоянном нотисе');
+  assert.ok(script.includes('logoutAllPartial') && script.includes('повтор'), 'неподтверждённый отзыв — сессия сохранена + повтор');
 });

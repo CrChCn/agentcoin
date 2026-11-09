@@ -81,12 +81,16 @@ try {
   let wantMinor;
   try { wantMinor = amountMinorOf(expectMinorRaw !== null ? expectMinorRaw : expectAmountRaw); }
   catch { fail('expect_amount_not_exact'); }
-  let gotMinor;
-  try {
-    gotMinor = payload.amountMinor !== undefined && payload.amountMinor !== null
-      ? amountMinorOf(payload.amountMinor)
-      : amountMinorOf(tx.amount);
-  } catch { fail('op_amount_not_exact'); }
+  // Сумма берётся из tx.amount (поле, покрытое txid); заявленный amountMinor пакета
+  // обязан совпадать с ним — иначе пакет врёт о сумме при честном txid.
+  let txMinor;
+  try { txMinor = amountMinorOf(tx.amount); } catch { fail('op_amount_not_exact'); }
+  if (payload.amountMinor !== undefined && payload.amountMinor !== null) {
+    let pkgMinor;
+    try { pkgMinor = amountMinorOf(payload.amountMinor); } catch { fail('op_amount_not_exact'); }
+    if (pkgMinor !== txMinor) fail('op_amount_package_mismatch');
+  }
+  const gotMinor = txMinor;
   if (wantMinor !== gotMinor || wantMinor <= 0n) fail('op_amount_mismatch');
   const feeMinor = payload.feeMinor !== undefined && payload.feeMinor !== null ? String(payload.feeMinor) : null;
   if (feeMinor !== null && !/^\d+$/.test(feeMinor)) fail('op_fee_not_exact');

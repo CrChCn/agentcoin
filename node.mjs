@@ -1126,6 +1126,11 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       return json(res, 200, { ok: true, kind: 'job-claim', escId: rec.data.escId, taskHash: rec.data.taskHash, worker: rec.data.worker, amount: rec.data.amount, receiptSig: signature, workerPub: rec.passportPub, hint: 'квитанция готова; payout подписывается работодателем (escrow/payout)' });
     }
     const tx = { ...rec.data.tx, signature };
+    // Защита от рассинхрона пакет/tx: сумма провода обязана совпадать с минорами заявки.
+    if (rec.kind === 'send' && rec.data && rec.data.amountMinor != null) {
+      try { if (amountMinorOf(tx.amount).toString() !== String(rec.data.amountMinor)) return json(res, 400, { error: 'op_amount_package_mismatch' }); }
+      catch { return json(res, 400, { error: 'op_amount_not_exact' }); }
+    }
     if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 409, r);

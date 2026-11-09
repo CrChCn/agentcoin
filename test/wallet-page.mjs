@@ -176,13 +176,24 @@ test('wallet page, session-scoped history, estimate and signed op flow', { timeo
   const origin = node.origin;
 
   await t.test('wallet page and format module are served publicly', async () => {
+    // WALLET-RELEASE: канонический /wallet — новый site/wallet.html (миноры, op-пакеты).
     const page = await fetch(origin + '/wallet', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(page.status, 200);
     const html = await page.text();
-    for (const marker of ['Кошелёк AGENTCOIN', 'Алисы', 'Бобу', 'effectiveFrom', '/cabinet/op-request', '/cabinet/wallet/history']) {
-      assert.ok(html.includes(marker), 'маркер: ' + marker);
+    for (const marker of ['AGENTCOIN', 'WALLET', '/cabinet/op-request', '/cabinet/wallet/history', 'amountMinor', 'txidFull']) {
+      assert.ok(html.includes(marker), 'маркер релиза: ' + marker);
     }
     assert.ok(!/<input[^>]*type=["']?password/i.test(html), 'страница не запрашивает пароль');
+    const same = await fetch(origin + '/wallet.html', { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    assert.equal(same.status, 200);
+    assert.equal(same.headers.get('content-type'), page.headers.get('content-type'));
+    // legacy-страница жива по явному адресу (регресс старых закладок исключён).
+    const legacy = await fetch(origin + '/user-wallet-page.html', { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    assert.equal(legacy.status, 200);
+    const legacyHtml = await legacy.text();
+    for (const marker of ['Кошелёк AGENTCOIN', 'Алисы', 'Бобу', '/cabinet/op-request', '/cabinet/wallet/history']) {
+      assert.ok(legacyHtml.includes(marker), 'legacy-маркер: ' + marker);
+    }
     const fmt = await fetch(origin + '/wallet-format.js', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(fmt.status, 200);
     assert.match(await fmt.text(), /AgentcoinWalletFormat/);
@@ -214,7 +225,7 @@ test('wallet page, session-scoped history, estimate and signed op flow', { timeo
     const self = await request(origin, '/cabinet/wallet/estimate', { address: identity.address, token, to: identity.address, amount: '1' });
     assert.equal(self.status, 400); assert.equal(self.body.error, 'self_send');
     const bad = await request(origin, '/cabinet/wallet/estimate', { address: identity.address, token, to: alice, amount: '0.0000000005' });
-    assert.equal(bad.status, 400); assert.equal(bad.body.error, 'invalid_amount', 'пол-магента отвергаются');
+    assert.equal(bad.status, 400); assert.equal(bad.body.error, 'inexact_amount', 'пол-магента отвергаются точным кодом (P1: миноры)');
     const gw = await good(origin, '/cabinet/wallet/estimate', { address: identity.address, token, to: alice, route: 'gateway', amount: '1' });
     assert.equal(gw.route, 'gateway'); assert.equal(gw.unavailable, 'no_forward_gw');
     const rndToken = crypto.randomBytes(64).toString('hex');

@@ -84,6 +84,7 @@ async function main() {
         const u = new URL(req.url, 'http://x');
         const send = (s, obj) => { const b = JSON.stringify(obj); res.writeHead(s, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(b) }); res.end(b); };
         if (/^\/pilot\//.test(u.pathname)) return send(403, { error: 'proxy_admin_prefix_denied' }); // правило 1: до ноды не доходит
+        if (/^\/api\/v1\/(pilot|faucet)\//.test(u.pathname)) return send(403, { error: 'proxy_admin_prefix_denied' }); // правило 1б: /api/v1-префикс не открывает admin/кран (как guard ноды)
         const m = `${req.method} ${u.pathname}`;
         const fwd = (m === 'POST /faucet/pilot/challenge' || m === 'POST /faucet/pilot/claim' ||
           m === 'GET /life' || m === 'GET /network/nodes');
@@ -133,6 +134,10 @@ async function main() {
     step('P9 GET /network/nodes через прокси → 200 JSON', rn.status === 200 && /application\/json/.test(rn.ct || ''), `${rn.status}`);
     const gt = await via('/pilot/status', { token: 'wrong' });
     step('P10 токен не открывает /pilot/* через прокси → 403', gt.status === 403 && gt.text.includes('proxy_admin_prefix_denied'), `${gt.status}`);
+    const a1 = await via('/api/v1/pilot/status');
+    step('P13 GET /api/v1/pilot/status → 403 до ноды (префикс не открывает)', a1.status === 403 && a1.text.includes('proxy_admin_prefix_denied') && !forwarded.includes('GET /api/v1/pilot/status'), `${a1.status}`);
+    const a2 = await via('/api/v1/faucet/pilot/challenge', { method: 'POST', body: {} });
+    step('P14 POST /api/v1/faucet/pilot/challenge → 403 (кран только без префикса)', a2.status === 403 && !forwarded.includes('POST /api/v1/faucet/pilot/challenge'), `${a2.status}`);
     const lb = await direct('/pilot/status');
     step('P11 loopback с токеном → 200 (операторский путь жив)', lb.status === 200 && lb.body.faucetEnabled === true, `${lb.status}`);
     step('P12 запрещённое не доходило до ноды', !forwarded.some((m) => m.startsWith('GET /pilot/') || m.startsWith('POST /pilot/')), forwarded.join(',').slice(0, 160));

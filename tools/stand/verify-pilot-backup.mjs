@@ -94,6 +94,37 @@ step('B8 reconcile после восстановления → pending, тот �
 const sumAfter = createHash('sha256').update(readFileSync(dbFile)).digest('hex');
 step('B8b контрольная сумма восстановленного журнала совпала', sumAfter === sumBefore, sumAfter.slice(0, 16));
 
+// C) дефект отката: новая pending-запись ПОСЛЕ бэкапа.
+// C1: вторая выплата (новый txid) в живом каталоге.
+const claim2 = pilot.faucetClaim(chOther2.challengeId, sign(null, Buffer.from(chOther2.message), other.privKey).toString('hex'));
+step('C1 вторая запись → pending, новый txid', claim2.status === 'pending' && claim2.txid !== claim.txid, `${claim2.status || claim2.error} txid=${(claim2.txid || '').slice(0, 12)}`);
+// C2: откат КОНФИГУРАЦИИ сохраняет текущий журнал: снимаем актуальную копию до любых изменений.
+const liveCopy = join(backupDir, 'pilot-payments-live.sqlite');
+cpSync(dbFile, liveCopy);
+const liveDb = new DatabaseSync(liveCopy);
+let liveRows = [];
+try { liveRows = liveDb.prepare('SELECT challenge_id, txid, state FROM faucet_payments ORDER BY id').all(); } finally { liveDb.close(); }
+step('C2 актуальный журнал сохранён: обе записи с исходными txid', liveRows.length === 2 && liveRows.every((r) => r.txid), liveRows.map((r) => `${(r.txid || '').slice(0, 8)}:${r.state}`).join(','));
+// C3: восстановление СТАРОГО архива — только в отдельный каталог: новая запись там отсутствует.
+const sepDir = join(root, 'restore-check'); mkdirSync(sepDir, { recursive: true });
+execFileSync('tar', ['-xzf', join('backup', archiveName)], { cwd: root });
+renameSync(join(root, 'pilot-payments.sqlite'), join(sepDir, 'pilot-payments.sqlite'));
+const sepDb = new DatabaseSync(join(sepDir, 'pilot-payments.sqlite'));
+let sepRows = [];
+try { sepRows = sepDb.prepare('SELECT txid FROM faucet_payments').all(); } finally { sepDb.close(); }
+step('C3 старый архив проверен отдельно: новая запись там ОТСУТСТВУЕТ (перезапись вживую потеряла бы её)',
+  sepRows.length === 1 && !sepRows.some((r) => r.txid === claim2.txid) && existsSync(dbFile),
+  `архив: ${sepRows.length} запись; живой каталог цел`);
+step('C4 живой каталог цел после всех операций', existsSync(dbFile), '');
+const st2 = pilot.status();
+step('C5 счётчик живого журнала = 2', st2.counts?.faucet === 2, JSON.stringify(st2.counts));
+const submitsBefore = bc.mempool.length;
+const rec2 = pilot.reconcile();
+const both = (rec2.faucet || []).filter((r) => r.action === 'pending');
+step('C6 повторная сверка: обе pending с исходными txid, новых отправок нет', both.length === 2 && bc.mempool.length === submitsBefore &&
+  both.some((r) => r.txid === claim.txid) && both.some((r) => r.txid === claim2.txid),
+  both.map((r) => (r.txid || '').slice(0, 8)).join(','));
+
 const failed = out.filter((s) => !s.ok).length;
 console.log(`ИТОГ backup-verify: ${out.length - failed} pass / ${failed} fail`);
 rmSync(root, { recursive: true, force: true });

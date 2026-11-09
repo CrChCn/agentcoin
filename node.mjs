@@ -59,6 +59,7 @@ import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
+import { PinAuth } from './pin-auth.mjs';
 import { AgentIdentityRegistry } from './agent-identity.mjs';
 import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from './passport-audit.mjs';
 import { createAssistantService } from './assistant-service.mjs';
@@ -112,6 +113,8 @@ if (!['issuer', 'replica'].includes(identityRole)) throw new Error('invalid_iden
 const passportIssuerFingerprint = process.env.AGT_PASSPORT_ISSUER_FINGERPRINT || identityRegistry.meta().issuerFingerprint;
 if (!identityRegistry.meta().trustedIssuers.includes(passportIssuerFingerprint)) throw new Error('passport_issuer_not_pinned');
 const cabinet = new Cabinet({ identityRegistry, walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
+// PIN-вход кабинета (запасной вход по адресу + PIN 4–6 цифр; scrypt-хеш в data/pin-auth.json).
+const pinAuth = new PinAuth(DATA_DIR);
 // SPORE (AGIP-18 MVP): слой «узла-организма» — геном/физарум/метаболизм.
 // Включается ТОЛЬКО env AGT_SPORE=1 (канарейки 9340/9344/9345); консенсус не тронут.
 // Ревью 2026-10-17: spore.mjs исторически не закоммичен в репо — статический import
@@ -379,7 +382,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -970,6 +973,30 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/cabinet/logout' && req.method === 'POST') {
     const { token } = await body(req);
     return json(res, 200, cabinet.logout(token));
+  }
+  // --- PIN-вход кабинета: запасной вход по адресу + PIN (сценарий приёмки: паспорт →
+  // настройка в «Безопасности» → выход → PIN-вход; неверный PIN — понятный отказ). ---
+  if (p === '/cabinet/pin/status' && req.method === 'POST') {
+    const { address } = await body(req);
+    if (typeof address !== 'string' || !/^AGT[0-9a-f]{40}$/.test(address)) return json(res, 400, { ok: false, error: 'invalid_address' });
+    return json(res, 200, { ok: true, pinSet: pinAuth.hasPin(address) });
+  }
+  if (p === '/cabinet/pin/login' && req.method === 'POST') {
+    const { address, pin } = await body(req);
+    const v = pinAuth.verify(address, pin);
+    if (!v.ok) {
+      const status = v.error === 'pin_not_set' ? 404 : v.error === 'pin_locked_try_later' ? 429 : 401;
+      return json(res, status, v);
+    }
+    const s = cabinet.issueSession(address, 'pin');
+    return json(res, s.ok ? 200 : 401, s.ok ? s : { ok: false, error: s.error });
+  }
+  if ((p === '/cabinet/pin/set' || p === '/cabinet/pin/disable') && req.method === 'POST') {
+    const { address, token, pin } = await body(req);
+    // PIN меняет только владелец живой паспортной сессии (любой via: подпись, PIN, автологин).
+    if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'Сначала войди по паспорту.' });
+    const r = p === '/cabinet/pin/disable' ? pinAuth.disable(address) : pinAuth.setPin(address, pin);
+    return json(res, r.ok ? 200 : 400, r);
   }
   // ================== AGIP-46: операции кабинета с локальной подписью агента ==================
   // Кабинет агента умеет готовить операцию, а НЕ подписывать её: сервер строит

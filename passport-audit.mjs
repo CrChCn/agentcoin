@@ -4,6 +4,28 @@ export function localPassportIssuanceMetadata() {
   return { version: 1, source: 'local_node', ownershipVerified: false };
 }
 
+// Слияние двух источников паспортов для /passport/count: реестр identity-ноды и
+// файл кабинета. Адреса — точные идентификаторы (без нормализации регистра).
+// Read-only агрегат: count — уникальные адреса обоих источников; diff — кто где
+// есть; auditRecords — конкатенация для summarizePassports.
+export function mergePassportSources({ identity, cabinet } = {}) {
+  const idRecs = Array.isArray(identity) ? identity : [];
+  const cabRecs = Array.isArray(cabinet) ? cabinet : [];
+  const addrOf = r => (r && typeof r === 'object' && typeof r.address === 'string' && r.address.length > 0 ? r.address : null);
+  const idAddrs = new Set(idRecs.map(addrOf).filter(Boolean));
+  const cabAddrs = new Set(cabRecs.map(addrOf).filter(Boolean));
+  return {
+    count: new Set([...idAddrs, ...cabAddrs]).size,
+    sources: { identity: idRecs.length, cabinet: cabRecs.length },
+    diff: {
+      onlyIdentity: [...idAddrs].filter(a => !cabAddrs.has(a)),
+      onlyCabinet: [...cabAddrs].filter(a => !idAddrs.has(a)),
+      inBoth: [...idAddrs].filter(a => cabAddrs.has(a)).length,
+    },
+    auditRecords: [...idRecs, ...cabRecs],
+  };
+}
+
 export function summarizePassports(input) {
   const records = Array.isArray(input) ? input : input?.passports;
   if (!Array.isArray(records)) throw new TypeError('passport_registry_must_be_array');

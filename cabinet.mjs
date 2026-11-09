@@ -145,6 +145,11 @@ export class Cabinet {
     return s;
   }
   logout(token) { this.sessions.delete(token); return { ok: true }; }
+  // PIN-вход: проверка секрета — в PinAuth, выдача сессии — здесь (via='pin').
+  issueSession(address, via) {
+    if (!this.findPassportByAddress(address)) return { ok: false, error: 'passport_not_found' };
+    return this._session(address, via);
+  }
   state(address, via) {
     const rec = this.findPassportByAddress(address);
     const bal = this.balances()[address] || 0;

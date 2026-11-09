@@ -1,9 +1,11 @@
-// accept-v2-mainnet.mjs — приёмка моста wAGT v2 к запуску mainnet.
-// Локально, тестовые средства. Дополняет cycle-v2 (23/23: пауза/ротация/рестарт),
+// accept-v2-mainnet.mjs — приёмка моста wAGT v2 на тестовых средствах.
+// Локально + ссылка на подтверждённый обмен Sepolia как доказательство
+// предыдущего обмена. Дополняет cycle-v2 (пауза/ротация/владение/лимиты/рестарт),
 // закрывая пробелы ТЗ: сбои по ОБОИМ направлениям (до отправки / мемпул /
 // в блоке без записи / исчезновение события при реорге), резерв с открытыми
 // операциями, искусственное расхождение + ручное возобновление, контрольный
 // цикл с пулом (покупка+продажа) на контракте v2.
+// Статус mainnet: торговля в основной сети ОТЛОЖЕНА, бюджет ликвидности 0 USDC.
 // Повтор:  cd tools/wagt-cycle && npm run accept:v2
 // Выход:   accept-v2-report.json + exit 0/1.
 import { spawn } from 'node:child_process';
@@ -13,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import hre from 'hardhat';
+import { execSync } from 'node:child_process';
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const ROOT_URL = new URL('../../..', import.meta.url);
@@ -134,7 +137,9 @@ const agtMempoolHas = async (txid) => {
 await hre.run('compile');
 const [owner, minter, pauser, stranger, trader, lp] = await hre.ethers.getSigners();
 const F = await hre.ethers.getContractFactory('WAGTv2', owner);
-const wagt = await F.deploy(minter.address, pauser.address);
+// owner_ назначается при развёртывании (в проде — мультисиг); полная проверка
+// назначения и двухшаговой передачи — cycle-v2, секция O (O1–O12).
+const wagt = await F.deploy(owner.address, minter.address, pauser.address);
 await wagt.waitForDeployment();
 const A = await wagt.getAddress();
 log(`WAGTv2=${A}`);
@@ -156,6 +161,14 @@ const resetHalt = (dir, reason, by = 'operator-reviewed') => {
   const h = loadHalt(); h[dir] = null; saveHalt(h);
   log(`  halt[${dir}] снят вручную (${by}): ${reason}`);
 };
+// ---------- ЛИМИТЫ (ТОЛЬКО релейер; в контракте лимитов НЕТ — см. L7) ----------
+const LIMITS = { maxMintPerOp: 40, maxReleasePerOp: 10 }; // целые AGT/wAGT за одну операцию
+const gateMint = (amount) => (Number.isInteger(amount) && amount > 0 && amount <= LIMITS.maxMintPerOp)
+  ? { ok: true } : { ok: false, reason: 'mint_limit_exceeded' };
+const gateRelease = (amount) => (Number.isInteger(amount) && amount > 0 && amount <= LIMITS.maxReleasePerOp)
+  ? { ok: true } : { ok: false, reason: 'release_limit_exceeded' };
+const gitHead = (() => { try { return execSync('git rev-parse HEAD', { cwd: ROOT }).toString().trim(); } catch { return 'unknown'; } })();
+const contractHead = (() => { try { return execSync('git log -1 --format=%H -- tools/wagt-cycle/contracts/WAGTv2.sol', { cwd: ROOT }).toString().trim(); } catch { return 'unknown'; } })();
 const E = {}; // evidence per case
 
 // ресинк mint-направления (новый процесс после «сбоя»)
@@ -165,6 +178,10 @@ async function resyncMint(symbol) {
   for (const [dep, e] of Object.entries(ledger)) {
     if (e.state === 'minted' || e.state === 'void-reviewed') continue;
     if (loadHalt().agt2evm) { recovered.push(dep + ':blocked-by-halt'); continue; }
+    if (!gateMint(e.amount).ok) { // лимит релейера: в цепь не уходит
+      e.state = 'needs-review';
+      setHalt('agt2evm', 'mint_limit_exceeded', `${dep}: amount ${e.amount} > ${LIMITS.maxMintPerOp}`);
+      recovered.push(dep + ':limit-refused-mint_limit_exceeded'); continue; }
     const onchain = await wagt.mintedDeposit(hre.ethers.id(dep));
     if (onchain) { e.state = 'minted'; e.mintTx ||= 'recovered-onchain'; recovered.push(dep + ':already-minted'); continue; }
     if (e.pendingTx) {
@@ -215,6 +232,10 @@ async function resyncRelease(symbol) {
   const out = [];
   for (const [bhash, e] of Object.entries(rl)) {
     if (e.state === 'confirmed' || e.state === 'void-reviewed') continue;
+    if (!gateRelease(e.amount).ok) { // лимит релейера: выплата не создаётся
+      e.state = 'needs-review';
+      setHalt('evm2agt', 'release_limit_exceeded', `burn ${short(bhash)}: amount ${e.amount} > ${LIMITS.maxReleasePerOp}`);
+      out.push(bhash.slice(0, 12) + ':limit-refused-release_limit_exceeded'); continue; }
     const g = await releaseGate(bhash);
     if (g.halted) { out.push(bhash.slice(0, 12) + ':blocked-' + g.reason); continue; }
     if (g.notMature) { out.push(bhash.slice(0, 12) + ':immature-wait'); continue; }
@@ -249,7 +270,41 @@ async function resyncRelease(symbol) {
 // ---------- A. роли на фактическом состоянии (кратко, полно — cycle-v2 P/R) ----------
 check(await wagt.owner() === owner.address, 'A1 owner на месте');
 check(await wagt.minter() === minter.address && await wagt.pauser() === pauser.address, 'A2 minter/pauser на месте');
-check(await revertedWith(wagt.connect(stranger).pause(), 'not_pauser'), 'A3 посторонний не ставит паузу; снимает только pauser, minter меняет только owner (см. cycle-v2 P/R)');
+check(await revertedWith(wagt.connect(stranger).pause(), 'not_pauser'), 'A3 посторонний не ставит паузу; снимает только pauser, minter меняет только owner (полно — cycle-v2 O/P/R)');
+
+// ---------- L. лимиты: границы и попытка превышения ----------
+{
+  check(gateMint(LIMITS.maxMintPerOp).ok === true, 'L1 граница mint ok');
+  const overMint = gateMint(LIMITS.maxMintPerOp + 1);
+  check(overMint.ok === false && overMint.reason === 'mint_limit_exceeded', 'L2 over mint denied');
+  check(gateRelease(LIMITS.maxReleasePerOp).ok === true, 'L3 граница release ok');
+  const overRel = gateRelease(LIMITS.maxReleasePerOp + 1);
+  check(overRel.ok === false && overRel.reason === 'release_limit_exceeded', 'L4 over release denied');
+  const depBig = 'acc-Lbig-' + Date.now().toString(16);
+  { const l = loadLedger(); l[depBig] = { agtTxid: 'deadbeef'.repeat(8), amount: LIMITS.maxMintPerOp + 1, to: trader.address, state: 'intent', mintTx: null, pendingTx: null }; saveLedger(l); }
+  const supB = await wagt.totalSupply();
+  const rBig = await resyncMint('L-mint-over');
+  const supA = await wagt.totalSupply();
+  E.limitMintOver = { ledgerAfter: loadLedger()[depBig], haltAfter: loadHalt().agt2evm, supplyDelta: String(supA - supB) };
+  check(rBig.recovered.some((r) => r.startsWith(depBig + ':limit-refused-mint_limit_exceeded')) && supA === supB,
+    'L5 попытка 41 через ресинк: mint НЕТ (supply не изменился)');
+  check(loadHalt().agt2evm?.reason === 'mint_limit_exceeded', 'L5b превышение лимита mint — halt направления');
+  { const l = loadLedger(); l[depBig].state = 'void-reviewed'; saveLedger(l); }
+  resetHalt('agt2evm', 'разбор L5: сверхлимитная заявка отклонена, журнал помечен');
+  const bBig = '0x' + 'dd'.repeat(32);
+  { const rl = loadRLedger(); rl[bBig] = { burnBlock: 1, amount: LIMITS.maxReleasePerOp + 1, agtRecipient: user.address, state: 'intent', releaseTxid: null }; saveRLedger(rl); }
+  const uB = await agtBal(user.address);
+  const rRel = await resyncRelease('L-rel-over');
+  const uA = await agtBal(user.address);
+  E.limitReleaseOver = { rledgerAfter: loadRLedger()[bBig], haltAfter: loadHalt().evm2agt, userDelta: uA - uB };
+  check(rRel.recovered.some((r) => r.includes(':limit-refused-release_limit_exceeded')) && uA === uB,
+    'L6 попытка 11 через ресинк: выплата НЕ создана (баланс не изменился)');
+  check(loadHalt().evm2agt?.reason === 'release_limit_exceeded', 'L6b превышение лимита release — halt направления');
+  { const rl = loadRLedger(); rl[bBig].state = 'void-reviewed'; saveRLedger(rl); }
+  resetHalt('evm2agt', 'разбор L6: сверхлимитная выплата отклонена, журнал помечен');
+  check(!F.interface.hasFunction('setMintLimit') && !F.interface.hasFunction('mintLimit') && !F.interface.hasFunction('maxMint') &&
+    !F.interface.hasFunction('setReleaseLimit'), 'L7 лимитов НЕТ в контракте (ABI): действуют только в релейере');
+}
 
 // ---------- B1. mint: сбой ДО отправки ----------
 {
@@ -542,16 +597,20 @@ const C = {};
   // lock 40 -> mint 40 LP + faucet 400 tAGT -> ликвидность 40/400
   const depL = 'acc-F-liq-' + Date.now().toString(16);
   const LL = await lockAgt(user, vault.address, 40, depL);
+  check(gateMint(40).ok === true, 'F стартовый выпуск 40 укладывается в лимит mint (граница)');
   await (await wagt.connect(minter).mint(lp.address, 40n * E18, hre.ethers.id(depL), LL.txid)).wait();
   await (await tagt.faucet(lp.address, 400n * E18)).wait();
   await (await wagt.connect(lp).approve(PA, 40n * E18)).wait();
   await (await tagt.connect(lp).approve(PA, 400n * E18)).wait();
+  check(await wagt.balanceOf(lp.address) >= 40n * E18 && await tagt.balanceOf(lp.address) >= 400n * E18,
+    'F у кошелька ликвидности ОБА тестовых токена (40 wAGT + 400 tAGT), подписывает lp');
   await (await pool.connect(lp).addLiquidity(40n * E18, 400n * E18)).wait();
   C.lockMintTx = LL.txid;
   check(await pool.reserve0() === 40n * E18 && await pool.reserve1() === 400n * E18, 'F пул: 40 wAGT / 400 tAGT');
   // lock 5 -> mint 5 трейдеру
   const depT = 'acc-F-trade-' + Date.now().toString(16);
   const LT = await lockAgt(user, vault.address, 5, depT);
+  check(gateMint(5).ok === true, 'F выпуск 5 для трейдера укладывается в лимит mint');
   await (await wagt.connect(minter).mint(trader.address, 5n * E18, hre.ethers.id(depT), LT.txid)).wait();
   // продажа: 2 wAGT -> tAGT по формуле V2
   await (await wagt.connect(trader).approve(PA, 2n * E18)).wait();
@@ -575,11 +634,13 @@ const C = {};
   check(r0 * r1 >= 40n * E18 * (400n * E18), 'F инвариант x*y=k держится после обеих сделок');
   // сжигание остатка -> возврат
   const wBal = await wagt.balanceOf(trader.address);
+  check(wBal > 0, 'F после покупки/продажи у трейдера остался отдельный остаток wAGT для контрольного возврата');
   const burnInt = (wBal / E18) * E18; // целые wAGT: пыть остаётся у трейдера, резерв точен
   const dust = wBal - burnInt;
   const burn = await wagt.connect(trader).burn(burnInt, user.address);
   const burnRc = await burn.wait();
   for (let i = 0; i < MIN_EVM_CONF; i++) await evm('evm_mine', []);
+  check(gateRelease(Number(burnInt / E18)).ok === true, 'F контрольный возврат укладывается в лимит release');
   { const rl = loadRLedger(); rl[burnRc.hash] = { burnBlock: burnRc.blockNumber, amount: Number(burnInt / E18), agtRecipient: user.address, state: 'intent', releaseTxid: null }; saveRLedger(rl); }
   const uBefore = await agtBal(user.address);
   const { recovered, rledger } = await resyncRelease('F');
@@ -595,12 +656,22 @@ const C = {};
 // --- отчёт ---
 await node.stop();
 const report = {
-  base: { sha: '080064ad3b43e8c1f9dac651886581c7d583ea0d', cycleV2: '23/23 OK (npm run cycle:v2, тот же SHA)' },
-  roles: 'owner/pauser/minter на местах; stranger denied (полно — cycle-v2 P/R)',
+  code: { standSha: gitHead, contractSha: contractHead, contractFile: 'tools/wagt-cycle/contracts/WAGTv2.sol' },
+  evmChainId: 31337,
+  roles: 'owner (назначен при деплое)/pauser/minter на местах; stranger denied; двухшаговая передача — полно в cycle-v2 O (O1-O12)',
+  limits: { values: LIMITS, scope: 'relayer-only, no on-chain caps (ABI без лимитных функций)', overLimit: { mint: E.limitMintOver, release: E.limitReleaseOver } },
   mintCrashes: { Ma: E.Ma, Mb: E.Mb, Mc: E.Mc, Md: E.Md },
   releaseCrashes: { Ea: E.Ea, Eb: E.Eb, Ec: E.Ec, Ed: E.Ed, Ee: E.Ee },
   reserve: { open: E.reserveOpen, settled: E.reserveSettled, divergence: E.divergence, haltLog: E.haltLog, final: E.reserveFinal },
   controlCycle: C,
+  priorExchange: {
+    network: 'sepolia', uniswap: 'official V2',
+    wagt: '0x64FEA6B5a6BE1CA8f8301Ad63b33356eA548b590', tagt: '0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50',
+    pair: '0x02778d388a9D397d9583524169506256d4179fDC',
+    swapSell2wAGT: '0x72f4e6aaf8eb98013170bef7b3d0607263adf8cc8a0c75e01e64d979fa26e26c',
+    burn3wAGT: '0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252e2cb7af16',
+    note: 'exchange Sepolia - proof of prior exchange; new local WAGT v2 run - controlCycle',
+  },
 };
 await fs.promises.writeFile(path.join(ROOT, 'tools', 'wagt-cycle', 'accept-v2-report.json'), JSON.stringify(report, null, 2));
 log('report: tools/wagt-cycle/accept-v2-report.json');

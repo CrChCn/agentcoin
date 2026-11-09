@@ -2,7 +2,7 @@
 // пауза, ротация minter, переживание рестарта релейера, отчёт резерва.
 // Повтор:  cd tools/wagt-cycle && npm run cycle:v2
 // Выход:   cycle-v2-report.json + exit 0/1.
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -120,10 +120,38 @@ async function lockAgt(fromW, to, amount, depositId) {
 await hre.run('compile');
 const [owner, minter, pauser, stranger, trader] = await hre.ethers.getSigners();
 const F = await hre.ethers.getContractFactory('WAGTv2', owner);
-const wagt = await F.deploy(minter.address, pauser.address);
+const wagt = await F.deploy(trader.address, minter.address, pauser.address);
 await wagt.waitForDeployment();
 const A = await wagt.getAddress();
-log(`WAGTv2=${A} owner=${owner.address.slice(0, 10)}… minter=${minter.address.slice(0, 10)}… pauser=${pauser.address.slice(0, 10)}…`);
+log(`WAGTv2=${A} owner(desig)=${(await wagt.owner()).slice(0, 10)}… deployer=${owner.address.slice(0, 10)}… minter=${minter.address.slice(0, 10)}… pauser=${pauser.address.slice(0, 10)}…`);
+
+// ---------- ВЛАДЕНИЕ: назначение при развёртывании + проверяемая передача ----------
+// Деплой выше: owner_=trader (назначенный владелец, в проде — мультисиг);
+// деплоер (signer owner) владельцем НЕ стал.
+const O = {};
+check(await wagt.owner() === trader.address, 'O1 владелец назначен при развёртывании (owner_=назначенный адрес, не деплоер)');
+check(await wagt.pendingOwner() === hre.ethers.ZeroAddress, 'O2 передачи в ожидании нет');
+O.deployerRotateDenied = await revertedWith(wagt.connect(owner).setMinter(owner.address), 'not_owner');
+check(O.deployerRotateDenied, 'O3 деплоер без owner_ менять minter не может (not_owner)');
+O.strangerPauserDenied = await revertedWith(wagt.connect(stranger).setPauser(stranger.address), 'not_owner');
+check(O.strangerPauserDenied, 'O4 посторонний менять pauser не может (not_owner)');
+O.zeroTransferDenied = await revertedWith(wagt.connect(trader).transferOwnership(hre.ethers.ZeroAddress), 'zero_owner');
+check(O.zeroTransferDenied, 'O5 передача на нулевой адрес отклонена (zero_owner)');
+await (await wagt.connect(trader).transferOwnership(stranger.address)).wait();
+check(await wagt.pendingOwner() === stranger.address && await wagt.owner() === trader.address, 'O6 шаг 1: pendingOwner назначен, права ещё у старого');
+O.earlyAcceptDenied = await revertedWith(wagt.connect(owner).acceptOwnership(), 'not_pending_owner');
+check(O.earlyAcceptDenied, 'O7 чужой accept отклонён (not_pending_owner)');
+await (await wagt.connect(stranger).acceptOwnership()).wait();
+check(await wagt.owner() === stranger.address && await wagt.pendingOwner() === hre.ethers.ZeroAddress, 'O8 шаг 2: владелец сменился, ожидание очищено');
+O.oldOwnerDead = await revertedWith(wagt.connect(trader).setMinter(trader.address), 'not_owner');
+check(O.oldOwnerDead, 'O9 старый владелец потерял права (not_owner)');
+await (await wagt.connect(stranger).setPauser(pauser.address)).wait();
+check(await wagt.pauser() === pauser.address, 'O10 новый владелец управляет pauser');
+await (await wagt.connect(stranger).transferOwnership(owner.address)).wait();
+await (await wagt.connect(owner).acceptOwnership()).wait();
+check(await wagt.owner() === owner.address, 'O11 владение возвращено операционному owner для остальных секций');
+O.strangerAfterReturn = await revertedWith(wagt.connect(stranger).setMinter(stranger.address), 'not_owner');
+check(O.strangerAfterReturn, 'O12 после возврата посторонний снова без прав (not_owner)');
 
 // ---------- ПАУЗА ----------
 const R = {};
@@ -179,6 +207,13 @@ await (await wagt.connect(owner).setPauser(stranger.address)).wait();
 check(await wagt.pauser() === stranger.address, 'R6 owner сменил pauser (ротация дежурного)');
 await (await wagt.connect(owner).setPauser(pauser.address)).wait(); // вернуть для чистоты отчёта
 
+// ---------- ЛИМИТЫ (ТОЛЬКО релейер; в контракте лимитов НЕТ — см. L7) ----------
+const LIMITS = { maxMintPerOp: 40, maxReleasePerOp: 10 }; // целые AGT/wAGT за одну операцию
+const gateMint = (amount) => (Number.isInteger(amount) && amount > 0 && amount <= LIMITS.maxMintPerOp)
+  ? { ok: true } : { ok: false, reason: 'mint_limit_exceeded' };
+const gitHead = (() => { try { return execSync('git rev-parse HEAD', { cwd: ROOT }).toString().trim(); } catch { return 'unknown'; } })();
+const contractHead = (() => { try { return execSync('git log -1 --format=%H -- tools/wagt-cycle/contracts/WAGTv2.sol', { cwd: ROOT }).toString().trim(); } catch { return 'unknown'; } })();
+
 // ---------- РЕСТАРТ РЕЛЕЙЕРА: файловый журнал + сверка с обеими цепями ----------
 // ledger.json: depositId -> {agtTxid, amount, to, state: 'intent'|'minted', mintTx}
 const ledgerFile = path.join(workdir, 'ledger.json');
@@ -193,6 +228,10 @@ async function resync(symbol) {
   const recovered = [];
   for (const [dep, e] of Object.entries(ledger)) {
     if (e.state === 'minted') continue;
+    if (!gateMint(e.amount).ok) { // лимит релейера: в цепь не уходит
+      e.state = 'needs-review';
+      const h = loadHalt(); h.agt2evm = { reason: 'mint_limit_exceeded', detail: `${dep}: amount ${e.amount} > ${LIMITS.maxMintPerOp}`, at: new Date().toISOString() }; saveHalt(h);
+      recovered.push(dep + ':limit-refused-mint_limit_exceeded'); continue; }
     const onchain = await wagt.mintedDeposit(hre.ethers.id(dep));
     const proof = await jget(origin, '/txproof/' + e.agtTxid);
     if (onchain) { e.state = 'minted'; e.mintTx ||= 'recovered-onchain'; recovered.push(dep + ':already-minted'); }
@@ -236,6 +275,29 @@ check(S.haltSurvivesRestart, 'S3 halt направления пережил ре
 { const h = loadHalt(); h.evm2agt = null; saveHalt(h); } // ручной сброс после разбора
 check(loadHalt().evm2agt === null, 'S4 halt снят только вручную после разбора');
 
+// ---------- ЛИМИТЫ: границы и попытка превышения ----------
+const L = {};
+check(gateMint(5).ok === true, 'L1 стартовый выпуск сценария (5) укладывается в лимит');
+check(gateMint(LIMITS.maxMintPerOp).ok === true, `L2 граница: ровно ${LIMITS.maxMintPerOp} — разрешено`);
+check(gateMint(LIMITS.maxMintPerOp + 1).ok === false && gateMint(LIMITS.maxMintPerOp + 1).reason === 'mint_limit_exceeded',
+  `L3 ${LIMITS.maxMintPerOp + 1} — отказ (mint_limit_exceeded)`);
+{ // попытка превышения через реальный путь ресинка
+  const dep = 'v2-depLbig-' + Date.now().toString(16);
+  { const l = loadLedger(); l[dep] = { agtTxid: 'deadbeef'.repeat(8), amount: LIMITS.maxMintPerOp + 1, to: trader.address, state: 'intent', mintTx: null }; saveLedger(l); }
+  const supBefore = await wagt.totalSupply();
+  const { recovered } = await resync('L');
+  const supAfter = await wagt.totalSupply();
+  L.bigRefused = recovered.some((r) => r.startsWith(dep + ':limit-refused-mint_limit_exceeded'));
+  L.bigHalt = loadHalt().agt2evm?.reason === 'mint_limit_exceeded';
+  check(L.bigRefused && supAfter === supBefore, 'L4 попытка 41 через ресинк: mint НЕТ (supply не изменился)');
+  check(L.bigHalt, 'L5 превышение лимита — halt направления (mint_limit_exceeded)');
+  { const l = loadLedger(); l[dep].state = 'void-reviewed'; saveLedger(l); }
+  { const h = loadHalt(); h.agt2evm = null; saveHalt(h); }
+  check(loadHalt().agt2evm === null, 'L6 halt по лимиту снят вручную после разбора');
+}
+check(!F.interface.hasFunction('setMintLimit') && !F.interface.hasFunction('mintLimit') && !F.interface.hasFunction('maxMint'),
+  'L7 лимитов НЕТ в контракте (ABI): действуют только в релейере');
+
 // ---------- ОТЧЁТ РЕЗЕРВА ----------
 async function reserveReport() {
   const vaultBal = await agtBal(vault.address);
@@ -269,8 +331,9 @@ log(`  halt-журнал: ${JSON.stringify(loadHalt())}`);
 // --- отчёт ---
 await node.stop();
 const report = { evmChainId: 31337, contract: A,
-  roles: { owner: owner.address, minter: await wagt.minter(), pauser: await wagt.pauser() },
-  pause: R, restart: S, reserve: { ...V, final: rep },
+  code: { standSha: gitHead, contractSha: contractHead, contractFile: 'tools/wagt-cycle/contracts/WAGTv2.sol' },
+  roles: { owner: await wagt.owner(), minter: await wagt.minter(), pauser: await wagt.pauser() },
+  ownership: O, pause: R, limits: { values: LIMITS, scope: 'relayer-only, no on-chain caps' }, restart: S, reserve: { ...V, final: rep },
   haltLog: loadHalt() };
 await fs.promises.writeFile(path.join(ROOT, 'tools', 'wagt-cycle', 'cycle-v2-report.json'), JSON.stringify(report, null, 2));
 log('report: tools/wagt-cycle/cycle-v2-report.json');

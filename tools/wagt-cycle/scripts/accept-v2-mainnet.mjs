@@ -645,6 +645,7 @@ const C = {};
   const uBefore = await agtBal(user.address);
   const { recovered, rledger } = await resyncRelease('F');
   const uAfter = await agtBal(user.address);
+  C.burnTx = burnRc.hash; C.releaseTxid = rledger[burnRc.hash].releaseTxid; C.returnedAGT = uAfter - uBefore;
   check(recovered.some((r) => r.includes(':released-once:')) && uAfter - uBefore === Number(burnInt / E18),
     `F сжигание ${hre.ethers.formatUnits(wBal, 18)} wAGT -> возврат ${uAfter - uBefore} AGT`);
   const repF = await reserveReport();

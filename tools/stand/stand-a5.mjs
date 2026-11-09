@@ -372,6 +372,16 @@ async function main() {
       const st = await api('/pilot/status');
       step('t7 faucet==payout fund → оба контура выключены', st.status === 200 && !st.body.faucetEnabled && !st.body.payoutEnabled, st.body.problems?.join(','));
     }
+    stop(); await sleep(500);
+    await boot({ AGT_DATA_DIR: path.join(tmp, 'data-legacy-fund'),
+      AGT_FAUCET_FUND: '', AGT_PILOT_FAUCET_FUND: 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a',
+      AGT_PILOT_PAYOUT_FUND: 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a',
+      AGT_PILOT_PAYOUT_REGISTRY: regFile });
+    const legacyStatus = await api('/pilot/status');
+    step('t7.2 оба пилотных фонда отклонены при совпадении со старым фондом по умолчанию',
+      legacyStatus.status === 200 && !legacyStatus.body.faucetEnabled && !legacyStatus.body.payoutEnabled &&
+      legacyStatus.body.problems?.includes('faucet_fund_is_old_faucet') &&
+      legacyStatus.body.problems?.includes('payout_fund_is_old_faucet'));
   } catch (e) {
     step('harness', false, String(e.message || e).slice(0, 300));
     R.error = String(e.stack || e).slice(0, 800);

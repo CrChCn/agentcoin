@@ -32,21 +32,31 @@ export const FAUCET_PILOT_MINOR = 20_000_000_000;     // 20 AGT на весь п
 export const PAYOUT_PER_OP_MINOR = 10_000_000_000;    // 10 AGT на оператора
 export const PAYOUT_WEEK_MINOR = 20_000_000_000;      // 20 AGT на неделю UTC
 const CHALLENGE_TTL_MS = 10 * 60_000;
+const MAX_ACTIVE_CHALLENGES = 2048;
 export const COUNTED = ['recorded', 'pending', 'confirmed']; // входят в лимиты
 
 const dayUTC = (ts) => new Date(ts).toISOString().slice(0, 10);
 const mondayUTC = (ts) => { const d = new Date(ts); const wd = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - wd); return d.toISOString().slice(0, 10); };
-const isMonday = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && mondayUTC(new Date(s + 'T00:00:00Z').getTime()) === s;
+const isMonday = period => {
+  if (typeof period !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(period)) return false;
+  const time = Date.parse(period + 'T00:00:00Z');
+  return Number.isFinite(time) && mondayUTC(time) === period;
+};
+
+export function legacyFaucetFund() {
+  return process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a';
+}
 
 export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBanned, audience }) {
   const faucetFund = (process.env.AGT_PILOT_FAUCET_FUND || '').trim();
   const payoutFund = (process.env.AGT_PILOT_PAYOUT_FUND || '').trim();
   const revokedFile = (process.env.AGT_PILOT_REVOKED_FILE || '').trim();
   const registryFile = (process.env.AGT_PILOT_PAYOUT_REGISTRY || '').trim();
-  const oldFaucet = (process.env.AGT_FAUCET_FUND || '').trim();
+  const oldFaucet = legacyFaucetFund().trim();
   const problems = [];
   if (faucetFund && payoutFund && faucetFund === payoutFund) problems.push('faucet_fund_is_payout_fund');
   if (faucetFund && oldFaucet && faucetFund === oldFaucet) problems.push('faucet_fund_is_old_faucet');
+  if (payoutFund && payoutFund === oldFaucet) problems.push('payout_fund_is_old_faucet');
   if (registryFile && !path.isAbsolute(registryFile)) problems.push('registry_not_absolute');
   const faucetEnabled = Boolean(faucetFund) && problems.length === 0;
   const payoutEnabled = Boolean(payoutFund && registryFile) && problems.length === 0;
@@ -63,12 +73,17 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
       db.exec(`CREATE TABLE IF NOT EXISTS challenges(id TEXT PRIMARY KEY, address TEXT NOT NULL, amount_minor INTEGER NOT NULL, message TEXT NOT NULL, expires_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS faucet_payments(id INTEGER PRIMARY KEY AUTOINCREMENT, challenge_id TEXT UNIQUE NOT NULL, address TEXT NOT NULL, amount_minor INTEGER NOT NULL, txid TEXT, tx_json TEXT, state TEXT NOT NULL, reason TEXT, created_at INTEGER NOT NULL, day TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS payouts(key TEXT PRIMARY KEY, operator_id TEXT NOT NULL, period TEXT NOT NULL, address TEXT NOT NULL, amount_minor INTEGER NOT NULL, txid TEXT, tx_json TEXT, state TEXT NOT NULL, reason TEXT, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_challenges_expiry ON challenges(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_challenges_address ON challenges(address);
       CREATE INDEX IF NOT EXISTS idx_faucet_state ON faucet_payments(state); CREATE INDEX IF NOT EXISTS idx_payout_state ON payouts(state);`);
       return fn(mkQ(db));
     } finally { db.close(); }
   };
   const mkQ = (db) => ({
     addChallenge: db.prepare('INSERT INTO challenges(id,address,amount_minor,message,expires_at) VALUES(?,?,?,?,?)'),
+    pruneChallenges: db.prepare('DELETE FROM challenges WHERE expires_at<=?'),
+    challengeByAddress: db.prepare('SELECT * FROM challenges WHERE address=? ORDER BY expires_at DESC LIMIT 1'),
+    challengeCount: db.prepare('SELECT COUNT(*) AS total FROM challenges'),
     getChallenge: db.prepare('SELECT * FROM challenges WHERE id=?'),
     delChallenge: db.prepare('DELETE FROM challenges WHERE id=?'),
     faucetSum: db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS s FROM faucet_payments WHERE state IN (${COUNTED.map(s => `'${s}'`).join(',')})`),
@@ -89,19 +104,12 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
   const nowMs = () => Date.now();
   const readRevoked = () => {
     if (!revokedFile) return [];
-    try { const v = JSON.parse(fs.readFileSync(revokedFile, 'utf8')); return Array.isArray(v) ? v : []; }
+    try { const v = JSON.parse(fs.readFileSync(revokedFile, 'utf8')); return Array.isArray(v) ? v : null; }
     catch { return null; }
   };
   const readRegistry = () => {
     try { const v = JSON.parse(fs.readFileSync(registryFile, 'utf8')); return Array.isArray(v) ? v : null; }
     catch { return null; }
-  };
-  // Раздельно: цепь (confirmed) и очередь (pending). Смешивание давало ложный
-  // confirmed для tx, видимой только в mempool, с потерей записи после рестарта.
-  const chainOnlyTxids = () => {
-    const s = new Set();
-    for (const b of (bc.chain || [])) for (const t of (b.txs || [])) if (t && t.txid) s.add(t.txid);
-    return s;
   };
   const fundWallet = (addr) => { const w = loadWallets()[addr]; return w && w.privKey ? w : null; };
   // tx строит формат по порогу активации v2 (как приёмник /tx); подпись — ключом фонда.
@@ -144,18 +152,27 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     const message = JSON.stringify(['agentcoin:faucet:v1', networkChainId(), audience ?? null,
       address, FAUCET_PER_ADDRESS_MINOR, id, expiresAt]);
     return withDb((q) => {
+      q.pruneChallenges.run(expiresAt - CHALLENGE_TTL_MS);
+      const existing = q.challengeByAddress.get(address);
+      if (existing) {
+        return { ok: true, challengeId: existing.id, message: existing.message,
+          amountMinor: existing.amount_minor, expiresAt: existing.expires_at };
+      }
+      if (q.challengeCount.get().total >= MAX_ACTIVE_CHALLENGES) {
+        return { ok: false, error: 'challenge_capacity' };
+      }
       q.addChallenge.run(id, address, FAUCET_PER_ADDRESS_MINOR, message, expiresAt);
       return { ok: true, challengeId: id, message, amountMinor: FAUCET_PER_ADDRESS_MINOR, expiresAt };
     });
   }
   function faucetClaim(challengeId, signature) {
     if (!faucetEnabled) return { ok: false, error: 'pilot_faucet_disabled' };
-    if (typeof challengeId !== 'string' || typeof signature !== 'string') return { ok: false, error: 'bad_params' };
+    if (typeof challengeId !== 'string' || !/^[a-f0-9]{32}$/.test(challengeId) ||
+        typeof signature !== 'string' || !/^[a-f0-9]{128}$/i.test(signature)) return { ok: false, error: 'bad_params' };
     const deny = (reason) => ({ ok: false, error: reason });
     return withDb((q) => {
       const ch = q.getChallenge.get(challengeId);
       if (!ch || ch.expires_at <= nowMs()) { if (ch) q.delChallenge.run(challengeId); return deny('challenge_unknown_or_expired'); }
-      q.delChallenge.run(challengeId); // одноразовый
       const ident = identity.find(ch.address);
       if (!ident) return deny('passport_not_found');
       const v = identity.verify(ident.certificate);
@@ -164,6 +181,7 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
         const okSig = crypto.verify(null, Buffer.from(ch.message, 'utf8'), ident.pub, Buffer.from(String(signature), 'hex'));
         if (!okSig) return deny('bad_signature');
       } catch { return deny('bad_signature'); }
+      q.delChallenge.run(challengeId); // Погашаем только после проверки подписи владельца.
       if (isBanned(ch.address)) return deny('address_banned');
       const revoked = readRevoked();
       if (revoked === null) return deny('revoked_list_unreadable');
@@ -251,12 +269,14 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     if (!faucetEnabled && !payoutEnabled) return { ok: false, error: 'pilot_disabled' };
     return withDb((q) => {
     const out = { faucet: [], payouts: [] };
+    const chainSet = bc.knownChainTxids();
     const settle = (row, mark, ref, fund) => {
       let tx = null;
       try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, action: 'recorded', reason: 'bad_tx_json', txid: row.txid || null }; }
+      if (!tx || typeof tx !== 'object') return { ...ref, action: 'recorded', reason: 'bad_tx_json', txid: row.txid || null };
       tx.txid ||= tx.digestVersion === 2 ? txDigestV2(tx) : txDigest(tx);
       // В цепи → confirmed (подтверждаем без пересылки).
-      if (tx.txid && chainOnlyTxids().has(tx.txid)) {
+      if (tx.txid && chainSet.has(tx.txid)) {
         if (row.state !== 'confirmed' || row.txid !== tx.txid) mark('confirmed', tx.txid, null);
         return { ...ref, action: 'confirmed', txid: tx.txid };
       }
@@ -271,7 +291,7 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
       // ИСХОДНОЙ подписанной транзакции (тот же txid).
       const s = submitTx(tx);
       if (s.ok) {
-        if (chainOnlyTxids().has(tx.txid)) {
+        if (chainSet.has(tx.txid)) {
           if (row.state !== 'confirmed') mark('confirmed', tx.txid, null);
           return { ...ref, action: 'confirmed', txid: tx.txid };
         }

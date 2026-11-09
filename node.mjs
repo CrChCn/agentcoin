@@ -60,7 +60,7 @@ import { assessTrust } from './ds.mjs';
 import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
-import { createPilot } from './pilot.mjs';
+import { createPilot, legacyFaucetFund } from './pilot.mjs';
 import { Cabinet } from './cabinet.mjs';
 import { PinAuth } from './pin-auth.mjs';
 import { AgentIdentityRegistry } from './agent-identity.mjs';
@@ -1582,7 +1582,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
 
   // ====== Faucet: стартовый фонд для новичка (0.5 AGT раз в сутки на адрес, rate-limit по IP) ======
-  const FAUCET_FUND_ADDR = (process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a');
+  const FAUCET_FUND_ADDR = legacyFaucetFund();
   const FAUCET_FILE = path.join(DATA_DIR, 'faucet.json');
   // дефолты обязательны при ЧТЕНИИ существующего файла тоже: старый faucet.json без ip/ipAt/dripped
   // иначе f.ip[ip] на свежей песочнице = unhandledRejection и запрос висит без ответа (поймано accept'ом)
@@ -1601,7 +1601,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   };
   const pilotCode = (r) => r.ok ? 200 : ({ pilot_faucet_disabled: 503, pilot_payout_disabled: 503, pilot_disabled: 503,
     pilot_admin_token_not_configured: 503, bad_params: 400, bad_address: 400, passport_not_found: 404,
-    challenge_unknown_or_expired: 404, payout_conflict: 409, per_op_over_limit: 409, over_weekly_budget: 409,
+    challenge_unknown_or_expired: 404, challenge_capacity: 429, payout_conflict: 409, per_op_over_limit: 409, over_weekly_budget: 409,
     not_in_registry: 403, fund_tx_rejected: 502, fund_insufficient: 409 }[r.error] || 403);
   if (p === '/faucet/pilot/challenge' && req.method === 'POST') {
     const { address } = await body(req).catch(() => ({}));

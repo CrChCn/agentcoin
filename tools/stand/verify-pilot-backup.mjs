@@ -7,8 +7,8 @@
 //     проверка архива → снос каталога → восстановление → сверка находит запись
 //     и тот же challenge для второго адреса, reconcile возвращает pending.
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from 'node:fs';
-import { sign } from 'node:crypto';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { createHash, sign } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -60,6 +60,9 @@ const chk = new DatabaseSync(copyFile);
 let integrity = '';
 try { integrity = chk.prepare('PRAGMA integrity_check').get()?.integrity_check || ''; } finally { chk.close(); }
 step('B2 integrity_check копии', integrity === 'ok', integrity);
+const stray = readdirSync(dataDir).filter((f) => /-(wal|shm|journal)$/.test(f));
+step('B2b нет WAL/journal-файлов (withDb закрывает соединение)', stray.length === 0, stray.join(',') || 'чисто');
+const sumBefore = createHash('sha256').update(readFileSync(copyFile)).digest('hex');
 const archiveName = `agt-pilot-${new Date().toISOString().slice(0, 10)}.tgz`;
 const archive = join(backupDir, archiveName);
 // относительные пути: на Windows двоеточие диска в -f/-C tar читает как хост;
@@ -67,6 +70,10 @@ const archive = join(backupDir, archiveName);
 execFileSync('tar', ['-czf', archiveName, 'pilot-payments.sqlite'], { cwd: backupDir });
 const listing = execFileSync('tar', ['-tzf', archiveName], { cwd: backupDir, encoding: 'utf8' }).trim();
 step('B3 архив создан и содержит журнал', existsSync(archive) && listing.includes('pilot-payments.sqlite'), `${statSync(archive).size} байт / ${listing}`);
+chmodSync(archive, 0o600); // на сервере (Ubuntu) даёт 600; на Windows chmod — no-op
+const amode = (statSync(archive).mode & 0o777).toString(8);
+const modeOk = process.platform === 'win32' ? true : amode === '600';
+step('B3b права архива ограничены, sha256 зафиксирована', modeOk, `${amode}${process.platform === 'win32' ? ' (windows: chmod no-op, на сервере 600)' : ''} sha256=${sumBefore.slice(0, 16)}…`);
 
 // снос каталога (имитация потери) → восстановление из архива
 rmSync(dataDir, { recursive: true, force: true });
@@ -84,6 +91,8 @@ step('B7 challenge второго адреса тот же (таблица chall
 const rec = pilot.reconcile();
 const still = (rec.faucet || []).find((r) => r.challengeId === chAgent.challengeId);
 step('B8 reconcile после восстановления → pending, тот же txid', still?.action === 'pending' && still?.txid === claim.txid, `${still?.action} ${(still?.txid || '').slice(0, 12)}`);
+const sumAfter = createHash('sha256').update(readFileSync(dbFile)).digest('hex');
+step('B8b контрольная сумма восстановленного журнала совпала', sumAfter === sumBefore, sumAfter.slice(0, 16));
 
 const failed = out.filter((s) => !s.ok).length;
 console.log(`ИТОГ backup-verify: ${out.length - failed} pass / ${failed} fail`);

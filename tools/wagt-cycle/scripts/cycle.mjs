@@ -18,6 +18,23 @@ const { signTransaction, txDigest } = await import(new URL('core.mjs', ROOT_URL)
 const { recoverFromMnemonic } = await import(new URL('bip39-lite.mjs', ROOT_URL));
 
 const E18 = 10n ** 18n;
+// Пороги зрелости (число подтверждений, env-переопределяемые):
+// депозит AGT доступен для mint, когда tip-блоки - proofHeight >= MIN_AGT_CONF;
+// burn wAGT разрешает release, когда evmTip - burnBlock >= MIN_EVM_CONF
+// и событие burn — в канонической цепи. Откат, убравший подтверждённое
+// событие, ОСТАНАВЛИВАЕТ направление (halt); снимается только вручную.
+const MIN_AGT_CONF = Math.max(0, Number(process.env.WAGT_MIN_AGT_CONF || 2));
+const MIN_EVM_CONF = Math.max(0, Number(process.env.WAGT_MIN_EVM_CONF || 2));
+const routeHalt = { agt2evm: null, evm2agt: null }; // {reason, detail, at}
+function haltRoute(dir, reason, detail) {
+  routeHalt[dir] = { reason, detail: String(detail || '').slice(0, 200), at: new Date().toISOString() };
+  log(`  HALT ${dir}: ${reason} (${routeHalt[dir].detail}) — новые операции остановлены`);
+  return { halted: true, reason };
+}
+function operatorResetHalt(dir, why) {
+  const prev = routeHalt[dir]; routeHalt[dir] = null;
+  log(`  operator: halt ${dir} снят вручную (${why}), было: ${prev?.reason || '—'}`);
+}
 const out = [];
 const log = (m) => { out.push(m); console.log(m); };
 const fails = [];
@@ -80,6 +97,7 @@ async function mineTo(origin, miner, tries = 12) {
   }
   throw new Error('mine failed: ' + JSON.stringify((await jpost(origin, '/mine', { miner })).body).slice(0, 160));
 }
+async function agtTip() { const l = await jget(origin, '/life'); return Number(l.body.blocks); }
 async function agtBalance(origin, address) {
   const b = await jpost(origin, '/balance', { address });
   const v = b.body.balanceMGNT ?? b.body.balance;
@@ -155,16 +173,38 @@ log(`WAGT=${A.wagt} TAGT=${A.tagt} POOL=${A.pool}`);
 // --- MINT #1 против lock#1 (релейер сверяет цепь, идемпотентность по depositId) ---
 const ledger = {}; // depositId -> {agtTxid, amount, mintTx}
 async function relayMint(depositId, agtTxid, amountAgt, to) {
+  if (routeHalt.agt2evm) return { halted: true, reason: routeHalt.agt2evm.reason };
   if (ledger[depositId]) return { duplicate: true, mintTx: ledger[depositId].mintTx };
-  // сверка с цепью: lock-tx входит в запечатанный блок (txproof 200)
+  // сверка с цепью: lock-tx входит в запечатанный блок (txproof 200) И набрал порог.
+  // До порога — отказ lock_immature (не очередь, не mint): реорг ещё может унести событие.
   const proof = await jget(origin, '/txproof/' + agtTxid);
-  if (proof.status !== 200) throw new Error('lock tx not proven on chain');
+  if (proof.status !== 200 || typeof proof.body?.height !== 'number')
+    return { notMature: true, reason: 'lock_event_missing' };
+  const depth = (await agtTip()) - proof.body.height;
+  if (depth < MIN_AGT_CONF) return { notMature: true, reason: 'lock_immature', depth };
   const t = await wagt.mint(to, BigInt(amountAgt) * E18,
     hre.ethers.id(depositId), agtTxid);
   const rc = await t.wait();
   ledger[depositId] = { agtTxid, amount: amountAgt, mintTx: rc.hash };
   return { duplicate: false, mintTx: rc.hash };
 }
+// Ворота release: burn должен быть зрел (порог EVM) и присутствовать в канонической
+// цепи. Исчезнувшее событие (откат после выдачи) — halt направления: новые операции
+// по маршруту останавливаются, причина фиксируется для разбора.
+async function relayReleaseGate(burnTxHash) {
+  if (routeHalt.evm2agt) return { halted: true, reason: routeHalt.evm2agt.reason };
+  const rc = await hre.ethers.provider.getTransactionReceipt(burnTxHash);
+  if (!rc || Number(rc.status) !== 1) return haltRoute('evm2agt', 'burn_event_vanished', burnTxHash.slice(0, 18));
+  const tip = await hre.ethers.provider.getBlockNumber();
+  const depth = tip - rc.blockNumber;
+  if (depth < MIN_EVM_CONF) return { notMature: true, reason: 'burn_immature', depth };
+  return { mature: true, blockNumber: rc.blockNumber, depth };
+}
+// до порога: mint недоступен (lock_immature), после добора блоков — доступен
+const M1early = await relayMint(dep1, L1.tx.txid, LOCK1, lp.address);
+check(M1early.notMature === true && M1early.reason === 'lock_immature',
+  `mint до порога ${MIN_AGT_CONF} отклонён (lock_immature, depth=${M1early.depth})`);
+for (let i = 0; i < MIN_AGT_CONF; i++) await mineTo(origin, sink.address);
 const M1 = await relayMint(dep1, L1.tx.txid, LOCK1, lp.address);
 check(!M1.duplicate && M1.mintTx, `mint#1 ${LOCK1} wAGT <- deposit ${dep1}, evmTx=${M1.mintTx.slice(0, 18)}…`);
 // повтор того же депозита — двойного выпуска нет
@@ -188,6 +228,7 @@ check(r0 === 40n * E18 && r1 === 400n * E18, `пул: 40 wAGT / 400 tAGT (x*y=k)
 const dep2 = 'dep-' + Date.now().toString(16) + '-trade';
 const L2 = await lockAgt(user, vault.address, LOCK2, dep2);
 check(L2.proofOk, `lock#2 ${LOCK2} AGT, txid=${L2.tx.txid.slice(0, 16)}…`);
+for (let i = 0; i < MIN_AGT_CONF; i++) await mineTo(origin, sink.address);
 const M2 = await relayMint(dep2, L2.tx.txid, LOCK2, trader.address);
 check(!M2.duplicate, `mint#2 ${LOCK2} wAGT трейдеру, evmTx=${M2.mintTx.slice(0, 18)}…`);
 
@@ -206,6 +247,9 @@ check(wBal === 3n * E18, `остаток трейдера ровно 3 wAGT (5-2
 const btx = await wagt.connect(trader).burn(wBal, user.address);
 const brc = await btx.wait();
 log(`burn 3 wAGT, evmTx=${brc.hash.slice(0, 18)}…`);
+for (let i = 0; i < MIN_EVM_CONF; i++) await hre.network.provider.send('evm_mine', []);
+const Gmain = await relayReleaseGate(brc.hash);
+check(Gmain.mature === true, `burn зрел после порога ${MIN_EVM_CONF} (depth=${Gmain.depth}) — release разрешён`);
 const userBefore = await agtBalance(origin, user.address);
 const relTx = signAgtTx(vault.address, vault.pub, vault.privKey, user.address, 3, `wagt-release:${brc.hash}`);
 const relSub = await jpost(origin, '/tx', relTx);
@@ -219,6 +263,54 @@ const supply = await wagt.totalSupply();
 const supplyAgt = Number(supply / E18);
 check(vaultBal === LOCK1 + LOCK2 - 3 && supplyAgt === vaultBal,
   `резерв сходится: vault=${vaultBal} AGT == wAGT supply=${supplyAgt}`);
+
+// --- R: откаты до/после порога + остановка маршрута (B1) ---
+// R0: событие AGT отсутствует — отказ без mint.
+const Rres = {};
+const R0 = await relayMint('dep-bogus-' + Date.now().toString(16), '00'.repeat(32), 1, trader.address);
+Rres.agtMissingRefused = R0.notMature === true && R0.reason === 'lock_event_missing';
+check(Rres.agtMissingRefused, 'R0 неизвестный lock-tx → lock_event_missing, mint нет');
+// R1: свежий lock 1 AGT — до порога отказ, после добора блоков — mint.
+// Круговой возврат (burn+release следом), чтобы инвариант не сдвинулся.
+const depR = 'dep-' + Date.now().toString(16) + '-reorg';
+const LR = await lockAgt(user, vault.address, 1, depR);
+const R1early = await relayMint(depR, LR.tx.txid, 1, trader.address);
+Rres.agtGateBeforeThreshold = R1early.notMature === true && R1early.reason === 'lock_immature';
+check(Rres.agtGateBeforeThreshold, `R1 до порога ${MIN_AGT_CONF}: lock_immature (depth=${R1early.depth})`);
+for (let i = 0; i < MIN_AGT_CONF; i++) await mineTo(origin, sink.address);
+const R1 = await relayMint(depR, LR.tx.txid, 1, trader.address);
+check(!R1.duplicate && R1.mintTx, `R1 после порога: mint 1 wAGT (${(R1.mintTx || '').slice(0, 18)}…)`);
+// R2: burn -> зрелость -> откат EVM (evm_revert) стирает подтверждённое событие -> halt.
+const evm = hre.ethers.provider;
+const snapR = await evm.send('evm_snapshot', []);
+const bR = await (await wagt.connect(trader).burn(E18, user.address)).wait();
+for (let i = 0; i < MIN_EVM_CONF; i++) await evm.send('evm_mine', []);
+const GRmature = await relayReleaseGate(bR.hash);
+Rres.evmGateMatured = GRmature.mature === true;
+check(Rres.evmGateMatured, `R2 burn зрел после порога ${MIN_EVM_CONF} (depth=${GRmature.depth})`);
+await evm.send('evm_revert', [snapR]); // откат ПОСЛЕ порога: подтверждённое событие исчезло
+const GRgone = await relayReleaseGate(bR.hash);
+Rres.reorgHaltedRoute = GRgone.halted === true && GRgone.reason === 'burn_event_vanished';
+check(Rres.reorgHaltedRoute, 'R2 после отката: burn_event_vanished, направление остановлено');
+const GRagain = await relayReleaseGate(bR.hash);
+check(GRagain.halted === true, 'R2 новые release по маршруту блокированы halt');
+check(routeHalt.agt2evm === null, 'R2 halt затронул только evm2agt (mint-направление открыто)');
+// Разбор завершён (стенд): halt снимается ТОЛЬКО вручную, событие пересоздаётся заново.
+operatorResetHalt('evm2agt', 'стенд R2: причина разобрана');
+const userR0 = await agtBalance(origin, user.address);
+const bR2 = await (await wagt.connect(trader).burn(E18, user.address)).wait();
+for (let i = 0; i < MIN_EVM_CONF; i++) await evm.send('evm_mine', []);
+const GR2 = await relayReleaseGate(bR2.hash);
+Rres.haltResetRecovered = GR2.mature === true;
+check(Rres.haltResetRecovered, 'R2 после сброса halt: burn зрел, release разрешён');
+const relR = signAgtTx(vault.address, vault.pub, vault.privKey, user.address, 1, `wagt-release:${bR2.hash}`);
+const relRsub = await jpost(origin, '/tx', relR);
+check(relRsub.status === 200 || relRsub.status === 201, `R2 release 1 AGT, txid=${relR.txid.slice(0, 16)}…`);
+await mineTo(origin, sink.address);
+check(await agtBalance(origin, user.address) === userR0 + 1, 'R2 пользователь получил 1 AGT обратно');
+const vaultBalR = await agtBalance(origin, vault.address);
+const supplyR = Number((await wagt.totalSupply()) / E18);
+check(vaultBalR === vaultBal && supplyR === supplyAgt, `R-инвариант: vault=${vaultBalR} == supply=${supplyR} (как до R)`);
 
 // --- рестарт ноды: баланс резерва сходится ---
 await node.stop();
@@ -237,6 +329,7 @@ const report = {
   evmTx: { mint1: M1.mintTx, mint2: M2.mintTx, swap: src.hash, burn: brc.hash },
   amounts: { lock1: LOCK1, lock2: LOCK2, swapInWagt: '2', burnWagt: '3', releaseAgt: 3 },
   checks: { replayBlockedOffchain: true, replayBlockedOnchain: replayReverted,
+    minAgtConf: MIN_AGT_CONF, minEvmConf: MIN_EVM_CONF, ...Rres,
     reserveAfterRestart: vaultBal, wagtSupply: supplyAgt, backingInvariant: vaultBal === supplyAgt },
 };
 await fs.promises.writeFile(path.join(ROOT, 'tools', 'wagt-cycle', 'cycle-report.json'),

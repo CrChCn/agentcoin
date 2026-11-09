@@ -1,19 +1,30 @@
 # Выкладка рабочих нод A2 (пошагово для оператора, по одному серверу)
 
-## Статус узлов (свежие данные 2026-11-09 ~12:14 UTC, снято публично)
+## Статус узлов (свежие данные 2026-11-09 ~12:56 UTC, снято публично; прошлое: ~12:14 UTC — 38287/`00e5c9ae…`)
 
 | Узел | Высота/tip | Статус | Роль в выкладке |
 |---|---|---|---|
-| `agentcoin.work` (upstream) | 38287 / `00e5c9ae…`, age ~212с, chainValid | Отвечает сам как нода («Эта нода» в `/api/v1/network/nodes`); peer_count=0 | Проверка оператором (ниже); выкладка после утверждения |
-| node1.agentcoin.work | 38287 / тот же tip, age ~235с, chainValid | **Отвечает, tip совпадает** (в A1 не отвечал) | Кандидат в mesh после проверки ростера |
-| node2 (Hetzner fsn1) | 38287 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | SEED — первый сервер |
-| node3 (DO fra1) | 38287 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | Второй сервер, пиром к node2 |
+| `agentcoin.work` (upstream) | 38327 / `00e9998e…`, chainValid | Отвечает сам как нода («Эта нода» в `/api/v1/network/nodes`); ростер: нода+node2+node3, все responding/fresh, tipAge ~115с | Проверка оператором (ниже); выкладка после утверждения |
+| node1.agentcoin.work | 38327 / тот же tip, age ~134с, chainValid, fresh | **Отвечает, tip совпадает**, но в ростере НЕТ | Кандидат в mesh после проверки ростера |
+| node2 (Hetzner fsn1) | 38327 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | SEED — первый сервер; **кандидат под пилот** |
+| node3 (DO fra1) | 38327 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | Второй сервер, пиром к node2 |
 
 Прямые `https://node2.agentcoin.work`, `https://node3.agentcoin.work` отдают
-заглушку `reserve node: dark (use https://agentcoin.work)` — это не API нод.
+заглушку `reserve node: dark (use https://agentcoin.work)` (проверено: 403) — это не API нод.
 Ростер `https://agentcoin.work/api/v1/network/nodes`: «Эта нода» + node2 + node3
 (все responding, behindObserved=0). node1 в ростере НЕТ, хотя его `/life`
 совпадает по tip — mesh с node1 только после появления в ростере.
+
+### Префлайт пилота AGT-A3-PREFLIGHT (12:56 UTC, только безопасные запросы, без токена)
+
+- `/faucet/pilot/challenge`, `/faucet/pilot/claim` через `https://agentcoin.work`:
+  POST (даже с невалидным телом `{}`/`{"address":"AGTX"}` — состояние не меняет)
+  → `405` от статики края; GET → `200` HTML-лендинг. Вывод: пилотные маршруты
+  к ноде НЕ проброшены — закрытие `/pilot/*` держится по умолчанию, кран снаружи
+  недоступен (ожидаемо до запуска). При запуске публиковать ТОЛЬКО
+  POST `/faucet/pilot/challenge` + POST `/faucet/pilot/claim`; `/pilot/*` — deny.
+- Предложение: пилот — на **node2** (SEED, в ростере responding/fresh). node1 —
+  только после появления в ростере и mesh; node3 — резерв.
 Upstream: API `agentcoin.work` обслуживает сама нода за этим именем
 (доказательство: прямые `/api/v1/life` и `/api/v1/network/nodes` с «Эта нода»);
 какой физический сервер — подтверждает оператор (ниже).
@@ -203,7 +214,7 @@ curl -s -H "x-admin-token: $AGT_ADMIN_TOKEN" https://<pilot-host>/pilot/status  
 с соседней нодой; публичный запрос крана + отказ без токена (команды выше); одна
 согласованная выдача крана и одна выплата оператору после dry-run; зафиксировать полные
 txid, высоты блоков и изменения балансов.
-Стенд API: `node tools/stand/stand-a5.mjs` (42/42: кран, привязка challenge к сети/аудитории,
+Стенд API: `node tools/stand/stand-a5.mjs` (43/43: кран, привязка challenge к сети/аудитории,
 лимиты, пустой фонд → `fund_insufficient` без записи (t1.2), отказ после подписи →
 `recorded`+txid+причина (t5.11c–e), различие точного дубля txid и конфликта по nonce
 (t5.11b), потеря mempool (t2.6/t5.6c), откат блока к снимку chain.json с восстановлением

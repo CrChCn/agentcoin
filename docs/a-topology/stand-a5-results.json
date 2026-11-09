@@ -1,0 +1,222 @@
+{
+ "startedAt": "2026-11-09T18:00:31.424Z",
+ "steps": [
+  {
+   "name": "t0 контуры включены",
+   "ok": true,
+   "detail": "{\"faucet\":0,\"payouts\":0}"
+  },
+  {
+   "name": "t0 /pilot/* без токена → закрыто (403)",
+   "ok": true,
+   "detail": "403/403"
+  },
+  {
+   "name": "t0 faucet публичен (ответ без токена, не 403)",
+   "ok": true,
+   "detail": "status=404"
+  },
+  {
+   "name": "t1 паспорт агента в локальном реестре",
+   "ok": true,
+   "detail": "{\"ok\":true,\"passport\":{\"payload\":{\"version\":1,\"network\":\"AGENTCOIN\",\"agentId\":\"agt-agent:d3a2abfeddc3d5179443b0673655215"
+  },
+  {
+   "name": "t1.2 пустой фонд → fund_insufficient, журнал пуст",
+   "ok": true,
+   "detail": "fund_insufficient counts={\"faucet\":0,\"payouts\":0}"
+  },
+  {
+   "name": "t2.0 challenge привязан к сети и аудитории",
+   "ok": true,
+   "detail": "[\"agentcoin:faucet:v1\",\"AGENTCOIN\",\"agentcoin-node:55179\",\"AGTd45932e651e03950084b64a3be89"
+  },
+  {
+   "name": "t2 claim → pending txid",
+   "ok": true,
+   "detail": "txid=5f88962366ee99b6 err="
+  },
+  {
+   "name": "t2.2 баланс +0.5 после блока",
+   "ok": true,
+   "detail": "bal=0.5"
+  },
+  {
+   "name": "t2.3 повтор → agent_cap_reached",
+   "ok": true,
+   "detail": "agent_cap_reached"
+  },
+  {
+   "name": "t2.5 claim без майнинга → pending",
+   "ok": true,
+   "detail": "8765eae82f525863"
+  },
+  {
+   "name": "t2.5b reconcile до блока → pending (не confirmed)",
+   "ok": true,
+   "detail": "pending"
+  },
+  {
+   "name": "t2.6 после потери mempool → тот же txid pending",
+   "ok": true,
+   "detail": "pending 8765eae82f525863"
+  },
+  {
+   "name": "t2.7 после блока → confirmed +0.5",
+   "ok": true,
+   "detail": "confirmed bal=0.5"
+  },
+  {
+   "name": "t3 отозванный адрес → passport_revoked",
+   "ok": true,
+   "detail": "passport_revoked"
+  },
+  {
+   "name": "t3.2 после снятия отзыва — pending",
+   "ok": true,
+   "detail": "929fd84333c4"
+  },
+  {
+   "name": "t4 сутки: 7 принято (=5.0 с учётом t2–t3), 8-й → daily_exhausted",
+   "ok": true,
+   "detail": "ok=7 last=daily_exhausted"
+  },
+  {
+   "name": "t4.2 ончейн ровно 10 выплат крана, все V1",
+   "ok": true,
+   "detail": "cnt=10 v1=true"
+  },
+  {
+   "name": "t5 dry-run eligible",
+   "ok": true,
+   "detail": "{\"ok\":true,\"eligible\":true,\"amountMinor\":10000000000}"
+  },
+  {
+   "name": "t5.2 execute → pending txid",
+   "ok": true,
+   "detail": "txid=0aea82d5e767a3e0"
+  },
+  {
+   "name": "t5.3 повтор → тот же txid",
+   "ok": true,
+   "detail": "0aea82d5e767a3e0"
+  },
+  {
+   "name": "t5.4 смена суммы → payout_conflict",
+   "ok": true,
+   "detail": "payout_conflict"
+  },
+  {
+   "name": "t5.5 вне реестра → not_in_registry",
+   "ok": true,
+   "detail": "not_in_registry"
+  },
+  {
+   "name": "t5.6 второй оператор 6 AGT → pending",
+   "ok": true,
+   "detail": "c17fbd095088bac6"
+  },
+  {
+   "name": "t5.6b reconcile до блока → обе pending (не confirmed)",
+   "ok": true,
+   "detail": "0aea82d5,c17fbd09"
+  },
+  {
+   "name": "t5.6c после потери mempool → те же txid pending",
+   "ok": true,
+   "detail": "0aea82d5,c17fbd09"
+  },
+  {
+   "name": "t5.7 16+10>20 → over_weekly_budget",
+   "ok": true,
+   "detail": "over_weekly_budget"
+  },
+  {
+   "name": "t5.8 reconcile → обе confirmed",
+   "ok": true,
+   "detail": "[{\"key\":\"node2-operator|2026-11-09\",\"action\":\"confirmed\",\"txid\":\"0aea82d5e767a3e0e79cb0b953da1a8c858ac5ea89d96769b115b1829b9eb396\"},{\"key\":\"node2-operator-2|202"
+  },
+  {
+   "name": "t5.9 баланс op1 = 10",
+   "ok": true,
+   "detail": "bal=10"
+  },
+  {
+   "name": "t5.9b баланс op2 = 6",
+   "ok": true,
+   "detail": "bal=6"
+  },
+  {
+   "name": "t5.10 откат блока → обе выплаты pending с теми же txid",
+   "ok": true,
+   "detail": "0aea82d5,c17fbd09"
+  },
+  {
+   "name": "t5.10b новый блок → обе confirmed, балансы 10 и 6",
+   "ok": true,
+   "detail": "conf=2 bal=10/6"
+  },
+  {
+   "name": "t5.11a выплата op5 1 AGT → pending",
+   "ok": true,
+   "detail": "e2bedee09bd0341e"
+  },
+  {
+   "name": "t5.11b конфликт по nonce → duplicate_tx (не подтверждение)",
+   "ok": true,
+   "detail": "400 duplicate_tx"
+  },
+  {
+   "name": "t5.11c конфликт в очереди → recorded + reason, тот же txid",
+   "ok": true,
+   "detail": "recorded duplicate_tx e2bedee0"
+  },
+  {
+   "name": "t5.11d после устранения → pending, тот же txid",
+   "ok": true,
+   "detail": "pending e2bedee0"
+  },
+  {
+   "name": "t5.11e блок → confirmed, баланс op5 = 1",
+   "ok": true,
+   "detail": "confirmed bal=1"
+  },
+  {
+   "name": "t6 рестарт: журнал на месте, новых отправок нет",
+   "ok": true,
+   "detail": "pending=0 payouts=[{\"key\":\"node2-operator|2026-11-09\",\"action\":\"confirmed\",\"txid\":\"0aea82d5e767a3e0e79cb0b953da1a8c858ac5ea89d96769b115b18"
+  },
+  {
+   "name": "t6.2 счётчики журнала пережили рестарт",
+   "ok": true,
+   "detail": "{\"faucet\":10,\"payouts\":3}"
+  },
+  {
+   "name": "t8 v2-порог: execute → pending",
+   "ok": true,
+   "detail": "971a437e8ccd4826"
+  },
+  {
+   "name": "t8.2 tx в mempool с digestVersion=2 и chainId",
+   "ok": true,
+   "detail": "v2 AGENTCOIN"
+  },
+  {
+   "name": "t8.3 v2-tx в блоке: confirmed + баланс 1",
+   "ok": true,
+   "detail": "confirmed bal=1"
+  },
+  {
+   "name": "t7 faucet==payout fund → оба контура выключены",
+   "ok": true,
+   "detail": "faucet_fund_is_payout_fund"
+  },
+  {
+   "name": "t7.2 оба пилотных фонда отклонены при совпадении со старым фондом по умолчанию",
+   "ok": true
+  }
+ ],
+ "finishedAt": "2026-11-09T18:01:15.425Z",
+ "passed": 43,
+ "failed": 0
+}

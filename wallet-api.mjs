@@ -5,7 +5,13 @@
 // Казна (AGIP-4 + height-gating): правило «2 подписи» применяется только к блокам
 // С ВЫСОТЫ активации политики (policy.effectiveFrom = closesAt + 1 из treasury.mjs).
 // ИСТОРИЧЕСКИЕ tx до активации валидны одной подписью — ретроактивное 2-sig запрещено.
-import { unitsOfAmountBigInt } from './core.mjs';
+import { unitsOfAmountBigInt, amountMinorOf, minorToAgt } from './core.mjs';
+
+// Контракт релиза кошелька: обычный P2P-перевод НЕ несёт базовой комиссии сети.
+// Смета direct-маршрута обязана возвращать ровно одну запись fees=[{type:'network',
+// amount:0}] и feeMinor:'0'; гарантия покрыта тестом (см. verify-wallet-release, Z-блок)
+// и фактом цепи: балансы меняются ровно на сумму перевода (проверка юнитами BigInt).
+export const SEND_BASE_FEE_MINOR = '0';
 
 const ADDR_RE = /^AGT[0-9a-f]{40}$/;
 const DEC_RE = /^(0|[1-9]\d*)(\.\d{1,9})?$/;
@@ -106,16 +112,29 @@ export function walletEstimate(bc, cabinet, body) {
   if (!cabinet.session(address, token)) return { status: 401, body: { error: 'session_invalid_or_foreign', hint: 'логинь заново' } };
   const to = String(body.to || '');
   if (!ADDR_RE.test(to)) return { status: 400, body: { error: 'invalid_to' } };
-  const amount = amountNums(body.amount);
-  if (!amount) return { status: 400, body: { error: 'invalid_amount', hint: 'десятичная запись, ≤9 знаков после точки' } };
+  // Каноника — миноры (amountMinor); legacy amount (число/decimal-строка) — совместимость.
+  // Неточные значения (>9 знаков) — честный 400 inexact_amount, а не тихая порча.
+  let minorU;
+  try {
+    minorU = body.amountMinor !== undefined && body.amountMinor !== null
+      ? amountMinorOf(body.amountMinor) : amountMinorOf(body.amount);
+  } catch (e) {
+    const code = String((e && e.message) || '');
+    if (/value_exceeds_scale_9/.test(code))
+      return { status: 400, body: { error: 'inexact_amount', hint: 'больше 9 знаков после точки — шлите целые миноры строкой (amountMinor)' } };
+    return { status: 400, body: { error: 'invalid_amount', hint: 'десятичная запись AGT или целые миноры строкой (amountMinor)' } };
+  }
+  const amount = minorToAgt(minorU);
   if (to === address) return { status: 400, body: { error: 'self_send', hint: 'получатель — вы сами; такой перевод будет self-tx' } };
   const bal = bc.balances()[address] || 0;
   const balAGT = Number(bal);
+  let balMinor = null;
+  try { balMinor = unitsOfAmountBigInt(bal); } catch {}
   const selRoute = body.route === 'gateway' ? 'gateway' : 'direct';
   const fees = [];
   let arrive = Number(amount);
-  // Базовая комиссия сети.
-  fees.push({ type: 'network', amount: 0, note: 'базовая комиссия сети AGT: 0 (fee-none)' });
+  // Базовая комиссия сети — контракт SEND_BASE_FEE_MINOR ('0'), см. выше.
+  fees.push({ type: 'network', amount: 0, feeMinor: SEND_BASE_FEE_MINOR, note: 'базовая комиссия сети AGT: 0 (fee-none)' });
   if (selRoute === 'gateway') {
     const map = bc.gateways && bc.gateways.map ? bc.gateways.map : {};
     const cands = Object.entries(map).filter(([, g]) => g && g.type === 'forward' && !bc.security.isBanned(g.owner));
@@ -138,11 +157,18 @@ export function walletEstimate(bc, cabinet, body) {
     if (tax) fees.push({ type: 'tax', amount: null, applied: false, rateBps: Math.max(0, Math.min(5000, Number(tax.rate) || 0)), note: 'налог по паспорту НЕ удерживается при обычном P2P-переводе (только escrow-payout/DXE)' });
   }
   if (arrive <= 0) return { status: 400, body: { error: 'fee_too_high', fees } };
+  let arrivalMinor = null, feeMinor = SEND_BASE_FEE_MINOR;
+  try {
+    arrivalMinor = unitsOfAmountBigInt(arrive).toString();
+    feeMinor = (minorU - BigInt(arrivalMinor)).toString();
+  } catch {}
+  const sufficient = balMinor === null ? Number(amount) <= balAGT : minorU <= balMinor;
   return { status: 200, body: {
     ok: true, route: selRoute, from: address, to, amountAGT: amount, arrival: arrive,
+    amountMinor: minorU.toString(), arrivalMinor, feeMinor,
     units: unitsObj(amount), arrivalUnits: unitsObj(arrive), fees,
     balanceAGT: balAGT,
-    sufficient: Number(amount) <= balAGT,
+    sufficient,
     explain: 'майнер не берёт комиссию с перевода; полная сумма списывается с отправителя; шлюз удерживает feeBps при leg2',
   } };
 }

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const SITE_RELEASE_FILES = Object.freeze(['index.html', 'imperial.html', 'terminal.html', 'dashboard.html', 'chat.html', 'jail.html', 'mbc20.html', 'cabinet.html', 'jobs.html', 'panel.js']);
+export const SITE_RELEASE_FILES = Object.freeze(['index.html', 'imperial.html', 'terminal.html', 'dashboard.html', 'chat.html', 'jail.html', 'mbc20.html', 'cabinet.html', 'jobs.html', 'wallet.html', 'panel.js']);
 export const SITE_RELEASE_SOURCE = 'https://raw.githubusercontent.com/CrChCn/agentcoin/main/site';
 const MANIFEST_MAX = 16_384, PAGE_MAX = 2 * 1024 * 1024, INTERVAL = 10 * 60_000;
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');

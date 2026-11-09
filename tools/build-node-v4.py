@@ -204,14 +204,29 @@ async function handleWalletAuth(req, res, p) {
     if (p === '/auth/pin/login') {
       const pin = (bodyJ || {}).pin;
       if (typeof pin !== 'string' || !/^\\d{4,6}$/.test(pin)) return J(400, { error: 'pin_must_be_4_6_digits' });
-      const S = waLoad(); let hit = null;
+      const S = waLoad(); S.pinFails = S.pinFails || {};
+      // Лимит попыток PIN (зеркало pin-auth.mjs: 5 неверных — замок 10 минут, сброс успехом).
+      const fk = 'ip:' + waIp(req);
+      const fe = S.pinFails[fk];
+      if (fe && fe.lockedUntil > Date.now())
+        return J(401, { error: 'pin_locked_try_later', hint: 'Слишком много неверных попыток. Подождите 10 минут или войдите по паспорту.' });
+      let hit = null;
       for (const sub of Object.keys(S.pins)) {
         const rec = S.pins[sub];
         const cand = crypto.scryptSync(pin, rec.salt, 32);
         const a = Buffer.from(rec.hash, 'hex');
         if (a.length === cand.length && crypto.timingSafeEqual(a, cand)) { hit = sub; break; }
       }
-      if (!hit) return J(401, { error: 'pin_not_matched' });
+      if (!hit) {
+        const fails = (fe && fe.lockedUntil > 0 && fe.lockedUntil <= Date.now() ? 0 : (fe ? fe.fails : 0)) + 1;
+        if (fails >= 5) {
+          S.pinFails[fk] = { fails: fails, lockedUntil: Date.now() + 10 * 60 * 1000 }; waPersist();
+          return J(401, { error: 'pin_locked_try_later', hint: 'Слишком много неверных попыток. Подождите 10 минут или войдите по паспорту.' });
+        }
+        S.pinFails[fk] = { fails: fails, lockedUntil: 0 }; waPersist();
+        return J(401, { error: 'pin_not_matched' });
+      }
+      delete S.pinFails[fk]; waPersist();
       const waJwtPin = waIssueAndRegister(hit, req); waSetSessionCookie(res, waJwtPin, req);
       return J(200, { ok: true, sub: hit, walletJwt: waJwtPin });
     }
@@ -223,6 +238,10 @@ async function handleWalletAuth(req, res, p) {
       const wsub = (bodyJ && typeof bodyJ.address === 'string' && bodyJ.address) || null;
       const ch = crypto.randomBytes(32).toString('base64url');
       const id = crypto.randomBytes(10).toString('hex');
+      // Лимит выдачи challenge: не более 20 живых на адрес (защита nonce-хранилища от спама).
+      { const _S = waLoad(); for (const _nk of Object.keys(_S.webNonces)) { const _r = _S.webNonces[_nk]; if (!_r || _r.exp <= Date.now() || _r.used) delete _S.webNonces[_nk]; } waPersist();
+        const _live = Object.keys(_S.webNonces).filter(function (_nk) { const _r = _S.webNonces[_nk]; return _r && (wsub ? _r.sub === wsub : !_r.sub); }).length;
+        if (_live >= 20) return J(429, { error: 'webauthn_challenge_rate_limited', hint: 'слишком много незавершённых challenge — завершите вход или дождитесь истечения (2 мин)' }); }
       waLoad().webNonces[id] = { challenge: ch, exp: Date.now() + 2 * 60 * 1000, used: false, mode: mode, sub: wsub };
       waPersist();
       let allow = [];
@@ -315,9 +334,14 @@ async function handleWalletAuth(req, res, p) {
     }
     if (p === '/auth/logout-all') {
       const tok = wa.tok; const v = tok ? waJwtVerify(tok, req) : { ok: false, why: 'no_token' };
-      if (v.ok) { waLoad().epoch[v.p.sub] = (waLoad().epoch[v.p.sub] || 0) + 1; waPersist(); }
+      let cabRev = 0;
+      if (v.ok) {
+        waLoad().epoch[v.p.sub] = (waLoad().epoch[v.p.sub] || 0) + 1; waPersist();
+        // Кросс-отзыв: «выйти везде» гасит и кабинетные токены адреса (cabinet.revokeAll).
+        try { if (typeof cabinet !== 'undefined' && cabinet && typeof cabinet.revokeAll === 'function') cabRev = cabinet.revokeAll(v.p.sub).revoked || 0; } catch {}
+      }
       waClearSessionCookie(res);
-      return J(200, { ok: true, all_sessions_invalidated: !!v.ok });
+      return J(200, { ok: true, all_sessions_invalidated: !!v.ok, cabinet_revoked: cabRev });
     }
     return false;
   } catch (e) {
@@ -344,6 +368,11 @@ mark = "    serveSitePage(res, 'user-wallet-page.html');\n  }\n  if (p === '/pas
 assert s.count(mark) == 1, s.count(mark)
 s = s.replace(mark,
   "    serveSitePage(res, 'user-wallet-page.html');\n  }\n  const _waHandled = await handleWalletAuth(req, res, p);\n  if (_waHandled) return;\n  if (p === '/passport-cabinet'", 1)
+
+# цель страницы /wallet -> wallet.html (релиз кошелька; /cabinet остаётся на user-wallet-page).
+wmark = "  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');"
+assert s.count(wmark) == 1, s.count(wmark)
+s = s.replace(wmark, "  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'wallet.html');\n  if (p === '/user-wallet-page.html') return serveSitePage(res, 'user-wallet-page.html');", 1)
 
 # гейт: /auth/* — публичная POST-поверхность
 gate = "PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p))"

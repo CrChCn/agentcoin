@@ -10,6 +10,7 @@ const MAX_CHALLENGES = 1000;
 const MAX_SESSIONS = 1000;
 const MAX_OPS = 1000; // AGIP-46: живых заявок на подпись операций на ноду
 const OP_TTL_MS = 5 * 60_000; // так же, как login-challenge: подписать успеет — иначе перевыпустить
+const SEAL_TTL_MS = 10 * 60_000; // окно идемпотентного повтора submit после потери ответа
 // AGIP-44 STAGE-1 (2026-10-18, решение оператора): максимум ОДНОВРЕМЕННО активных
 // сессий на паспорт. Не IP-лимит и не email — владение остаётся у ключа; кап
 // ограничивает число живых session-токенов одного агента (анти-Сибила: комнаты
@@ -32,6 +33,9 @@ export class Cabinet {
     // AGIP-46: заявки на подписание операций. Отдельный стор — login-challenge не может
     // израсходоваться как подтверждение операции и наоборот. Живёт только в RAM (5 мин).
     this.opRequests = new Map();
+    // Релиз кошелька: исполненные заявки (opId -> результат) для идемпотентного повтора
+    // submit после потери ответа. Живут SEAL_TTL_MS, затем повтор — честный op_not_found.
+    this.sealedOps = new Map();
     this.fallbackFingerprint = 'sha256:' + crypto.randomBytes(32).toString('hex');
   }
 
@@ -52,15 +56,30 @@ export class Cabinet {
     } catch (e) { return { ok: false, error: e.message || 'op_stash_failed' }; }
   }
   // Атомарное гашение: сначала удаляем (успешной или нет — повторный submit всегда мимо).
+  // Исполненный opId помнит результат SEAL_TTL_MS: повтор после потери ответа
+  // возвращает ТОТ ЖЕ txid (duplicate:true), а не вторую операцию.
   takeOp(opId) {
     this._pruneOps();
-    const rec = typeof opId === 'string' ? this.opRequests.get(opId) : null;
-    if (rec) this.opRequests.delete(opId);
-    return rec || null;
+    if (typeof opId === 'string') {
+      const sealed = this.sealedOps.get(opId);
+      if (sealed) return { sealed: true, result: sealed.result };
+      const rec = this.opRequests.get(opId);
+      if (rec) this.opRequests.delete(opId);
+      return rec || null;
+    }
+    return null;
+  }
+  sealOp(opId, result) {
+    try {
+      if (typeof opId !== 'string' || !opId || !result || typeof result !== 'object') return;
+      this.sealedOps.set(opId, { result: { ...result }, sealedAt: this.now() });
+      this._pruneOps();
+    } catch {}
   }
   _pruneOps() {
     const now = this.now();
     for (const [id, o] of this.opRequests) if (o.expiresAt <= now) this.opRequests.delete(id);
+    for (const [id, s] of this.sealedOps) if (s.sealedAt + SEAL_TTL_MS <= now) this.sealedOps.delete(id);
   }
   passports() {
     try { const r = JSON.parse(fs.readFileSync(this.passportFile, 'utf8')); return Array.isArray(r) ? r : (r.passports || []); }
@@ -145,6 +164,15 @@ export class Cabinet {
     return s;
   }
   logout(token) { this.sessions.delete(token); return { ok: true }; }
+  // «Выйти везде»: отзывает ВСЕ сессии адреса (включая ранее выданные кабинетные
+  // токены). Вызывается только при живой сессии того же адреса (проверяет вызыватель).
+  revokeAll(address) {
+    let n = 0;
+    try {
+      for (const [tok, s] of this.sessions) if (s && s.address === address) { this.sessions.delete(tok); n++; }
+    } catch {}
+    return { ok: true, revoked: n };
+  }
   // PIN-вход: проверка секрета — в PinAuth, выдача сессии — здесь (via='pin').
   issueSession(address, via) {
     if (!this.findPassportByAddress(address)) return { ok: false, error: 'passport_not_found' };

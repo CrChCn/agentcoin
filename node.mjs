@@ -41,6 +41,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
+  amountMinorOf, minorToAgt,
 } from './core.mjs';
 import { addPeer, loadPeers, savePeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
@@ -938,7 +939,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // WALLET-1: кабинет пользователя + кошелёк (history/estimate — wallet-api.mjs, read-only по сессии)
   // Файлы именованы user-* (guard SUBSTR '/wallet' ловит только слэшем внутри имени),
   // URL остаются /wallet и /wallet-format.js.
-  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');
+  // WALLET-RELEASE: канонический кошелёк — site/wallet.html (память вместо хранилищ,
+  // миноры, op-пакеты). Старая страница остаётся явно: /user-wallet-page.html.
+  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'wallet.html');
+  if (p === '/user-wallet-page.html') return serveSitePage(res, 'user-wallet-page.html');
   if (p === '/wallet-format.js') return serveSitePage(res, 'user-wallet-format-lib.js');
   if (p === '/cabinet/wallet/history' && req.method === 'POST') {
     const out = walletHistory(bc, cabinet, await body(req).catch(() => ({})));
@@ -980,7 +984,12 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return json(res, answer.ok ? 200 : 503, answer);
   }
   if (p === '/cabinet/logout' && req.method === 'POST') {
-    const { token } = await body(req);
+    const { address, token, all } = await body(req);
+    // «Выйти везде»: отзывает ВСЕ сессии адреса, включая ранее выданные кабинетные токены.
+    if (all === true) {
+      if (!cabinet.session(address, token)) return json(res, 401, { ok: false, error: 'session_invalid_or_foreign' });
+      return json(res, 200, { ok: true, all: true, ...cabinet.revokeAll(address) });
+    }
     return json(res, 200, cabinet.logout(token));
   }
   // --- PIN-вход кабинета: запасной вход по адресу + PIN (сценарий приёмки: паспорт →
@@ -1028,14 +1037,33 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     if (kind === 'send') {
       const to = String(op.to || '');
       if (!/^AGT[0-9a-f]{40}$/.test(to)) return json(res, 400, { error: 'invalid_to', hint: 'AGT-адрес получателя (v1 — только адрес, без @handle)' });
-      const amount = Number(op.amount);
-      if (!money(amount)) return json(res, 400, { error: 'invalid_amount' });
+      // Релиз кошелька: каноника суммы — целые миноры (amountMinor, строка).
+      // Legacy amount (число/decimal-строка) — совместимость старых клиентов;
+      // непредставимые значения (>9 знаков) — честный 400, а не тихая порча.
+      let minorU = null, amountErr = null;
+      try {
+        minorU = (op && op.amountMinor !== undefined && op.amountMinor !== null)
+          ? amountMinorOf(op.amountMinor) : amountMinorOf(op && op.amount);
+      } catch (e) {
+        const code = String((e && e.message) || '');
+        amountErr = /value_exceeds_scale_9/.test(code) ? 'inexact_amount' : 'invalid_amount';
+      }
+      if (amountErr || minorU === null)
+        return json(res, 400, { error: amountErr || 'invalid_amount',
+          hint: amountErr === 'inexact_amount'
+            ? 'больше 9 знаков после точки — шлите целые миноры строкой (amountMinor)'
+            : 'десятичная запись AGT или целые миноры строкой (amountMinor)' });
+      const amount = Number(minorToAgt(minorU));
+      let balMinor = null;
+      try { balMinor = unitsOfAmountBigInt(bal); } catch {}
       const memo = String(op.memo || '').slice(0, 120);
       if (RESERVED_MEMO_RE.test(memo)) return json(res, 400, { error: 'reserved_memo_prefix', hint: 'это служебные мемо индексеров; обычный перевод — без таких префиксов' });
-      if (amount > bal) return json(res, 402, { error: 'insufficient_balance', balance: bal, needed: amount });
+      if (balMinor === null ? amount > bal : minorU > balMinor)
+        return json(res, 402, { error: 'insufficient_balance', balance: bal, needed: amount, neededMinor: minorU.toString() });
       const tx = { from: address, fromPub: passportPub, to, amount, nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo };
       const txid = txDigest(tx);
-      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, to, amount, memo };
+      data = { kind, address, passportPub, tx: { ...tx, txid }, txidHex: txid, to, amount,
+        amountMinor: minorU.toString(), feeMinor: '0', network: networkChainId(), memo };
     } else if (kind === 'order') {
       const side = String(op.side || '');
       if (!['b', 's'].includes(side)) return json(res, 400, { error: 'side_must_be_b_or_s' });
@@ -1071,7 +1099,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     if (!st.ok) return json(res, st.error === 'session_required' ? 401 : 429, st);
     const payload = kind === 'job-claim'
       ? { kind, ...data, passportPub: undefined }
-      : { kind, tx: { ...data.tx }, txidHex: data.txidHex, ...(data.ref ? { ref: data.ref } : {}) };
+      : { kind, tx: { ...data.tx }, txidHex: data.txidHex,
+        ...(kind === 'send' ? { amountMinor: data.amountMinor, feeMinor: data.feeMinor, network: data.network } : {}),
+        ...(data.ref ? { ref: data.ref } : {}) };
     return json(res, 200, { ok: true, opId: st.opId, ttlSec: st.ttlSec, payload,
       signHint: kind === 'job-claim'
         ? 'подпишись hex-дайджестом: crypto.sign(null, Buffer.from(payload.digestHex,\'hex\'), privKey).toString(\'hex\')'
@@ -1080,8 +1110,13 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
   if (p === '/cabinet/op-submit' && req.method === 'POST') {
     const { opId, signature } = await body(req);
-    const rec = cabinet.takeOp(opId); // атомарно: повторный submit всегда op_not_found
+    const rec = cabinet.takeOp(opId); // атомарно гасится; исполненный opId помнит результат (sealed)
     if (!rec) return json(res, 400, { error: 'op_not_found', hint: 'заявка не существует, просрочена (5 мин) или уже потрачена' });
+    // Идемпотентный повтор после потери ответа: та же заявка уже исполнена —
+    // возвращаем ТОТ ЖЕ txid, второй перевод НЕ создаётся.
+    if (rec.sealed) return json(res, 200, { ok: true, duplicate: true, accepted: true,
+      kind: rec.result.kind, txid: String(rec.result.txidFull).slice(0, 16), txidFull: rec.result.txidFull,
+      hint: 'повтор после потери ответа: операция уже исполнена, второй перевод не создан' });
     if (typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) return json(res, 400, { error: 'invalid_signature' });
     if (rec.kind === 'job-claim') {
       if (!rec.passportPub) return json(res, 500, { error: 'op_record_corrupt' });
@@ -1096,7 +1131,8 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     if (!r.ok) return json(res, 409, r);
     setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); });
     console.log(`[agip-46] ${rec.kind}: ${rec.address} op=${String(tx.txid).slice(0, 16)}`);
-    return json(res, 201, { ok: true, accepted: true, kind: rec.kind, txid: String(tx.txid).slice(0, 16), mempool: r.mempoolSize, ...(rec.data.ref ? { ref: rec.data.ref, memo: rec.data.memo } : {}), hint: 'упакуется майнером; книга/баланс — после блока' });
+    cabinet.sealOp(opId, { kind: rec.kind, txidFull: String(tx.txid) });
+    return json(res, 201, { ok: true, accepted: true, kind: rec.kind, txid: String(tx.txid).slice(0, 16), txidFull: String(tx.txid), mempool: r.mempoolSize, ...(rec.data.ref ? { ref: rec.data.ref, memo: rec.data.memo } : {}), hint: 'упакуется майнером; книга/баланс — после блока' });
   }
   // ================== AGIP-45: автоматический вход оператора в кабинет ==================
   // Находится ЗА админ-барьером AGIP-37 (не в PUB_REQUEST_RE / PUB_TX_ROUTES):

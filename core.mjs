@@ -893,6 +893,36 @@ export function unitsOfAmountBigInt(amount) {
   return decimalToScaledUnits(amount, 9n); // магент-масштаб 1e-9 AGT
 }
 
+// Релиз кошелька: каноника сумм API — ЦЕЛЫЕ минорные единицы (mGNT) десятичной строкой.
+// Принимает: BigInt (>0), строку /^\d+$/ (миноры), decimal-строку/Number в AGT
+// (через unitsOfAmountBigInt: неточные — бросок value_exceeds_scale_9/value_not_decimal).
+// Совместимость: старые клиенты шлют amount числом/decimal-строкой — точные значения
+// проходят тем же кодом; отклоняются ТОЛЬКО непредставимые (>9 знаков).
+export function amountMinorOf(input) {
+  if (typeof input === 'bigint') {
+    if (input <= 0n) throw new Error('amount_not_positive');
+    return input;
+  }
+  if (typeof input === 'string' && /^\d+$/.test(input.trim())) {
+    const u = BigInt(input.trim());
+    if (u <= 0n) throw new Error('amount_not_positive');
+    return u;
+  }
+  const u = unitsOfAmountBigInt(input);
+  if (u <= 0n) throw new Error('amount_not_positive');
+  return u;
+}
+
+// Миноры -> точная decimal-строка AGT (для провода tx.amount: Number() от неё —
+// детерминированный ближайший double; все верификаторы выводят его из тех же минор).
+export function minorToAgt(minor) {
+  const u = typeof minor === 'bigint' ? minor : amountMinorOf(minor);
+  if (u <= 0n) throw new Error('amount_not_positive');
+  const s = u.toString().padStart(10, '0');
+  const int = s.slice(0, -9).replace(/^0+(?=\d)/, ''), frac = s.slice(-9).replace(/0+$/, '');
+  return frac ? int + '.' + frac : int;
+}
+
 // Универсальный точный decimal→BigInt конвертер: значение интерпретируется по своей
 // КОРРЕКТНОЙ decimal-записи (для double это String(x) — короткая round-trip запись,
 // возвращающая исходные decimal цифры). НЕ СПРАШИВАЕМ float-умножения: 0.000000015*1e9

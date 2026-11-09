@@ -7,16 +7,19 @@
 //   echo '{"password":"..."}' | node agt-skill/sign-op.mjs \
 //     --profile /private/agent/profile.json \
 //     --op agentcoin-op-<opId>.json \
-//     --to AGT... --amount 1.25 [--memo текст] [--network AGENTCOIN]
+//     --to AGT... --amount-minor 1250000000 [--memo текст] [--network AGENTCOIN]
+//   (legacy: --amount 1.25 вместо --amount-minor — точные значения; неточные — отказ)
 //
 // Что проверяет ДО подписи (несоответствие = отказ, код выхода 1):
-//   сеть профиля, from пакета == адресу профиля, привязка fromPub->from,
-//   to/amount/memo == переданным ожиданиям, точный пересчёт txid по core.mjs.
+//   сеть профиля и пакета, from пакета == адресу профиля, привязка fromPub->from,
+//   to/amount(matcher минорами)/memo == переданным ожиданиям, точный пересчёт txid.
+// ДО подписи в stderr печатается сводка пакета: сеть, отправитель, получатель,
+// точная сумма (миноры + AGT), комиссия пакета, срок действия заявки.
 // Подписываются БАЙТЫ txid (как требует /cabinet/op-submit: подпись над дайджестом).
 // В stdout — только {"opId","txid","signature"}; ключ в вывод не попадает.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { txDigest, addressFromPub, unitsOfAmountBigInt } from '../core.mjs';
+import { txDigest, addressFromPub, amountMinorOf, minorToAgt } from '../core.mjs';
 import { readPrivateKey } from './agent-profile.mjs';
 
 function fail(code, detail) {
@@ -26,7 +29,7 @@ function fail(code, detail) {
 }
 function arg(name) {
   const i = process.argv.indexOf('--' + name);
-  if (i < 0 || i + 1 >= process.argv.length) fail('usage_sign_op_missing_' + name);
+  if (i < 0 || i + 1 >= process.argv.length) return null;
   return process.argv[i + 1];
 }
 async function stdinJSON() {
@@ -41,8 +44,15 @@ async function stdinJSON() {
 
 try {
   const profilePath = arg('profile'), opPath = arg('op');
-  const expectTo = arg('to'), expectAmount = arg('amount');
+  if (!profilePath) fail('usage_sign_op_missing_profile');
+  if (!opPath) fail('usage_sign_op_missing_op');
+  const expectTo = arg('to');
+  if (!expectTo) fail('usage_sign_op_missing_to');
+  const expectMinorRaw = arg('amount-minor');
+  const expectAmountRaw = arg('amount');
+  if (!expectMinorRaw && !expectAmountRaw) fail('usage_sign_op_missing_amount');
   const expectMemo = process.argv.includes('--memo') ? arg('memo') : '';
+  if (expectMemo === null) fail('usage_sign_op_missing_memo');
   const expectNetwork = process.argv.includes('--network') ? arg('network') : 'AGENTCOIN';
   const { password } = await stdinJSON();
   if (typeof password !== 'string' || !password) fail('password_required');
@@ -50,9 +60,10 @@ try {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(opPath, 'utf8')); }
   catch { fail('op_file_unreadable', opPath); }
-  // Принимаем и полный ответ сервера {ok,opId,payload}, и сохранённый payload.
+  // Принимаем и полный ответ сервера {ok,opId,ttlSec,payload}, и сохранённый payload.
   const opId = raw.opId || (raw.payload && raw.payload.opId) || null;
   const payload = raw.payload || raw;
+  const ttlSec = Number(raw.ttlSec != null ? raw.ttlSec : (payload.ttlSec != null ? payload.ttlSec : 300));
   if (!opId || typeof opId !== 'string') fail('op_id_missing');
   if (!payload || payload.kind !== 'send' || !payload.tx || typeof payload.tx !== 'object') fail('op_not_send_package');
   if (typeof payload.txidHex !== 'string' || !/^[0-9a-f]{64}$/i.test(payload.txidHex)) fail('op_txid_hex_missing');
@@ -60,21 +71,47 @@ try {
 
   const ident = await readPrivateKey({ profilePath, password });
   if (ident.network !== expectNetwork) fail('profile_network_mismatch', ident.network);
+  if (payload.network !== undefined && payload.network !== expectNetwork)
+    fail('op_network_mismatch', String(payload.network));
   if (tx.from !== ident.address) fail('op_from_foreign', tx.from);
   if (!tx.fromPub || addressFromPub(tx.fromPub) !== tx.from) fail('op_frompub_not_bound');
   if (tx.to !== expectTo) fail('op_to_mismatch', tx.to);
   const memo = tx.memo || '';
-  if (memo !== expectMemo) fail('op_memo_mismatch');
-  let wantMinor, gotMinor;
-  try { wantMinor = unitsOfAmountBigInt(expectAmount); } catch { fail('expect_amount_not_exact'); }
-  try { gotMinor = unitsOfAmountBigInt(tx.amount); } catch { fail('op_amount_not_exact'); }
+  if (memo !== (expectMemo || '')) fail('op_memo_mismatch');
+  let wantMinor;
+  try { wantMinor = amountMinorOf(expectMinorRaw !== null ? expectMinorRaw : expectAmountRaw); }
+  catch { fail('expect_amount_not_exact'); }
+  let gotMinor;
+  try {
+    gotMinor = payload.amountMinor !== undefined && payload.amountMinor !== null
+      ? amountMinorOf(payload.amountMinor)
+      : amountMinorOf(tx.amount);
+  } catch { fail('op_amount_not_exact'); }
   if (wantMinor !== gotMinor || wantMinor <= 0n) fail('op_amount_mismatch');
+  const feeMinor = payload.feeMinor !== undefined && payload.feeMinor !== null ? String(payload.feeMinor) : null;
+  if (feeMinor !== null && !/^\d+$/.test(feeMinor)) fail('op_fee_not_exact');
 
   // Точный пересчёт идентификатора теми же байтами, что сервер: подпись обязана
   // относиться именно к показанному пакету, а не к чужому txid из файла.
   const recomputed = txDigest({ from: tx.from, to: tx.to, amount: tx.amount,
     nonce: tx.nonce, ts: tx.ts, memo: tx.memo || '' });
   if (recomputed !== payload.txidHex.toLowerCase()) fail('op_txid_mismatch');
+
+  // Сводка пакета ДО подписи — оператор сверяет глазами, что подписывает.
+  const tsMs = Number(tx.ts) * 1000;
+  const expiresAt = Number.isFinite(tsMs) && Number.isFinite(ttlSec)
+    ? new Date(tsMs + ttlSec * 1000).toISOString() : 'unknown';
+  process.stderr.write([
+    'op-package ' + opId,
+    '  network : ' + expectNetwork,
+    '  from    : ' + tx.from,
+    '  to      : ' + tx.to,
+    '  amount  : ' + gotMinor.toString() + ' mGNT = ' + minorToAgt(gotMinor) + ' AGT',
+    '  fee     : ' + (feeMinor === null ? 'unspecified-by-package' : feeMinor + ' mGNT (пакет: базовая комиссия сети 0)')
+      + (feeMinor !== null && feeMinor !== '0' ? '  <-- НЕНОЛЕВАЯ КОМИССИЯ' : ''),
+    '  txid    : ' + payload.txidHex.toLowerCase(),
+    '  ttl     : ' + ttlSec + 's, заявка истекает ~' + expiresAt,
+  ].join('\n') + '\n');
 
   const signature = crypto.sign(null, Buffer.from(payload.txidHex, 'hex'), ident.privKey).toString('hex');
   if (!/^[0-9a-f]{128}$/i.test(signature)) fail('signer_error');

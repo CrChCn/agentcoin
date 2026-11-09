@@ -148,6 +148,8 @@ footer.f{max-width:980px;margin:0 auto 30px;padding:0 18px;color:var(--mut);font
   #chipRecv{left:22%!important}
 }
 kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px}
+.notice{max-width:980px;margin:14px auto 0;padding:10px 14px;border:1px solid var(--gold);border-radius:10px;background:#231d08;color:#f3d98b;font-size:14px}
+.notice.hidden{display:none}
 </style>
 </head>
 <body>
@@ -162,6 +164,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
   </div>
   <button class="btn red hidden" id="btnLogout">⏻ <span data-i="logout">Выйти</span></button>
 </header>
+<div class="notice hidden" id="logoutNotice" role="status"></div>
 
 <section class="stage">
   <div class="hero">
@@ -340,7 +343,7 @@ const API={
   async post(path,body,ms){
     const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),ms||15000);
     try{
-      const r=await fetch(path,{method:'POST',credentials:'same-origin',signal:ctrl.signal,
+      const r=await fetch(path,{method:'POST',credentials:'same-origin',signal:ctrl.signal,keepalive:true,
         headers:Object.assign({'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
           Sess.jwt?{Authorization:'Bearer '+Sess.jwt}:{}),
         body:JSON.stringify(body||{})});
@@ -402,7 +405,7 @@ ru:{logo:'AGENTCOIN WALLET',logout:'Выйти',heroSub:'Самостоятел�
  net:'Сеть',block:'Блок',blockStale:'данные устарели',sessionOn:'Активна',sessionOff:'Нет сессии',
  sendOk:'Транзакция принята в мемпул · txid ',sendMempool:'Транзакция в мемпуле',sendConfirmed:'Транзакция подтверждена',sendUnknown:'Статус неизвестен — проверьте историю по txid ',sendRejected:'Отклонено: ',sent:'отправка',recv:'получение',
  opTo:'Получатель',opAmount:'Сумма',opMemo:'Мемо',opTxid:'txid (подписывается)',opTtl:'Заявка жива',opSec:'сек',opChanged:'Поля изменились — заявка сброшена, подготовьте заново.',opBusy:'Запрос уже выполняется…',
- logoutAllOk:'Все сессии отозваны сервером.',logoutAllPartial:'Сервер НЕ подтвердил общий отзыв — локальный выход выполнен, проверьте другие устройства.',
+ logoutAllOk:'Все сессии отозваны сервером (wa + кабинетные токены).',logoutAllPartial:'Сервер НЕ подтвердил общий отзыв — сессия сохранена. Повторите «Выйти везде» (повтор безопасен).',sendDup:'Повтор принят: та же операция, второй перевод не создан · txid ',opMinor:'Точная сумма',opFeeP:'Комиссия пакета',opNetP:'Сеть пакета',
  copiedRecv:'URI скопировано.',recvBadAmt:'Сумма для URI неверна — URI без суммы.'},
 en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet · keys never leave the profile',
  send:'Send',receive:'Receive',history:'History',tipSend:'Sign & broadcast AGT',tipRecv:'Address & amount for incoming payment',tipHist:'Recent address operations',scaleNote:'Core size = balance',
@@ -427,7 +430,7 @@ en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet ·
  net:'Network',block:'Block',blockStale:'stale data',sessionOn:'Active',sessionOff:'No session',
  sendOk:'Transaction accepted to mempool · txid ',sendMempool:'Transaction in mempool',sendConfirmed:'Transaction confirmed',sendUnknown:'Status unknown — check history by txid ',sendRejected:'Rejected: ',sent:'send',recv:'receive',
  opTo:'Recipient',opAmount:'Amount',opMemo:'Memo',opTxid:'txid (being signed)',opTtl:'Request lives',opSec:'s',opChanged:'Fields changed — request reset, prepare again.',opBusy:'Request already running…',
- logoutAllOk:'All sessions revoked by server.',logoutAllPartial:'Server did NOT confirm global revocation — local logout done, check other devices.',
+ logoutAllOk:'All sessions revoked by server (wa + cabinet tokens).',logoutAllPartial:'Server did NOT confirm global revocation — session kept. Retry “Log out everywhere” (retry is safe).',sendDup:'Duplicate accepted: same operation, no second transfer · txid ',opMinor:'Exact amount',opFeeP:'Package fee',opNetP:'Package network',
  copiedRecv:'URI copied.',recvBadAmt:'Bad URI amount — URI without amount.'}
 };
 let LANG='ru';
@@ -508,7 +511,7 @@ function closeOverlay(id){$(id).classList.add('hidden');if(lastFocused&&lastFocu
 function showAuth(){openOverlay('authOverlay')}
 function hideAuth(){$('authOverlay').classList.add('hidden')}
 function afterLogin(){
-  hideAuth();
+  showLogoutNote('');hideAuth();
   $('cab').classList.remove('hidden');
   $('btnLogout').classList.remove('hidden');
   setText('addrShow',Sess.addr);setText('recvAddr',Sess.addr);
@@ -811,30 +814,32 @@ $('sendPrepare').onclick=async()=>{
   sendBusy=true;$('sendPrepare').disabled=true;$('sendSubmit').disabled=true;
   setText('sendMsg','…');setText('sendEst','');
   try{
-    // 1) смета — что увидит получатель и хватит ли средств
-    const est=await API.post('/cabinet/wallet/estimate',{address:Sess.addr,token:Sess.cab,to,amount:amt.num});
+    // 1) смета — что увидит получатель и хватит ли средств (каноника — миноры)
+    const est=await API.post('/cabinet/wallet/estimate',{address:Sess.addr,token:Sess.cab,to,amount:amt.num,amountMinor:amt.minor});
     if(est.netErr||est.status>=500){setText('sendMsg','⚠ '+t('histLoadErr'));return}
     if(!est.json||est.json.ok!==true){setText('sendMsg','⚠ '+(est.json.error||'estimate_failed'));return}
     if(est.json.sufficient===false){setText('sendMsg',t('estInsuf'));return}
-    setText('sendEst',t('estArrive')+': '+est.json.arrival+' AGT · '+t('estFee')+': 0 AGT');
+    setText('sendEst',t('estArrive')+': '+est.json.arrival+' AGT · '+t('estFee')+': '+(est.json.feeMinor!=null?est.json.feeMinor+' mGNT':'0 AGT'));
     // 2) заявка — канонический пакет, ИЗ НЕГО строится экран подтверждения
     const r=await API.post('/cabinet/op-request',{address:Sess.addr,token:Sess.cab,
-      op:{kind:'send',to,amount:amt.num,memo}});
+      op:{kind:'send',to,amount:amt.num,amountMinor:amt.minor,memo}});
     if(r.netErr||r.status>=500){setText('sendMsg','⚠ '+t('histLoadErr'));return}
     if(!r.json||!r.json.opId||!r.json.payload||!r.json.payload.txidHex){
       setText('sendMsg','⚠ '+(r.json.error||'op_request_failed'));return;
     }
     // 3) сверка: пакет обязан совпадать с показанной сметой
     const ptx=r.json.payload.tx||{};
-    if(ptx.to!==to||Number(ptx.amount)!==amt.num){setText('sendMsg','⚠ op_payload_mismatch');return}
+    if(ptx.to!==to||String(r.json.payload.amountMinor||'')!==amt.minor){setText('sendMsg','⚠ op_payload_mismatch');return}
     pendOp={opId:r.json.opId,payload:r.json.payload};
     confirmDl(t('opTo'),String(ptx.to));
-    confirmDl(t('opAmount'),fmtMgnt(parseAmountToMinor(String(ptx.amount)).minor)+' AGT');
+    confirmDl(t('opMinor'),amt.minor+' mGNT = '+fmtMgnt(amt.minor)+' AGT');
+    confirmDl(t('opFeeP'),String(r.json.payload.feeMinor!=null?r.json.payload.feeMinor:'?')+' mGNT');
+    confirmDl(t('opNetP'),String(r.json.payload.network||'?'));
     confirmDl(t('opMemo'),String(ptx.memo||''));
     confirmDl(t('opTxid'),String(r.json.payload.txidHex));
     confirmDl(t('opTtl'),String(r.json.ttlSec||300)+' '+t('opSec'));
     $('sendOpDl').classList.remove('hidden');
-    setText('sendCmd','echo \'{"password":"…"}\' | node agt-skill/sign-op.mjs --profile /private/agent/profile.json --op agentcoin-op-'+r.json.opId+'.json --to '+to+' --amount '+amt.num+(memo?' --memo "…"':''));
+    setText('sendCmd','echo \'{"password":"…"}\' | node agt-skill/sign-op.mjs --profile /private/agent/profile.json --op agentcoin-op-'+r.json.opId+'.json --to '+to+' --amount-minor '+amt.minor+(memo?' --memo "…"':''));
     setText('sendSignHint',(r.json.signHint||'')+' · '+t('fileSignSpec'));
     setText('sendMsg',t('fileCmd')+' ok');
   }finally{sendBusy=false;$('sendPrepare').disabled=false;$('sendSubmit').disabled=false}
@@ -868,16 +873,29 @@ $('sendSubmit').onclick=async()=>{
   setText('sendMsg','…');
   try{
     const r=await API.post('/cabinet/op-submit',{opId:op.opId,signature:sig});
-    pendOp=null; // opId одноразовый: сервер гасит его при любом исходе submit
+    pendOp=null; // opId одноразовый: сервер гасит его при любом исходе submit (повтор вернёт тот же txid)
     if(r.netErr){
-      // Ответ потерян: исход выясняем ТОЛЬКО чтением (повторный submit невозможен).
-      const st=await lookupSubmittedTx(op.payload.txidHex);
-      if(st==='confirmed')setText('sendMsg',t('sendConfirmed')+' · '+op.payload.txidHex);
-      else if(st==='mempool')setText('sendMsg',t('sendMempool')+' · '+op.payload.txidHex);
-      else setText('sendMsg','⚠ '+t('sendUnknown')+op.payload.txidHex);
+      // Ответ потерян: безопасный повтор того же opId — сервер вернёт ТОТ ЖЕ txid
+      // (duplicate:true), второй перевод не создаётся. Если и повтор без ответа — исход только чтением.
+      let dup=null;
+      try{
+        const r2=await API.post('/cabinet/op-submit',{opId:op.opId,signature:sig});
+        if(r2.status<300&&r2.json&&(r2.json.accepted||r2.json.duplicate))dup=r2.json;
+      }catch(e){}
+      const full=(dup&&(dup.txidFull||op.payload.txidHex))||op.payload.txidHex;
+      if(dup){
+        setText('sendMsg','');$('sendMsg').append(el('span',(dup.duplicate?t('sendDup'):t('sendOk'))+full,'ok'));
+        $('sendSig').value='';loadBal();loadHistory(null);
+      }else{
+        const st=await lookupSubmittedTx(full);
+        if(st==='confirmed')setText('sendMsg',t('sendConfirmed')+' · '+full);
+        else if(st==='mempool')setText('sendMsg',t('sendMempool')+' · '+full);
+        else setText('sendMsg','⚠ '+t('sendUnknown')+full);
+      }
     }
-    else if(r.status<300&&r.json&&r.json.accepted){
-      setText('sendMsg','');$('sendMsg').append(el('span',t('sendOk')+op.payload.txidHex,'ok'));
+    else if(r.status<300&&r.json&&(r.json.accepted||r.json.duplicate)){
+      const full=r.json.txidFull||op.payload.txidHex;
+      setText('sendMsg','');$('sendMsg').append(el('span',(r.json.duplicate?t('sendDup'):t('sendOk'))+full,'ok'));
       $('sendSig').value='';
       loadBal();loadHistory(null);
     }
@@ -885,9 +903,11 @@ $('sendSubmit').onclick=async()=>{
   }finally{sendBusy=false;$('sendSubmit').disabled=false}
 };
 /* ---------------- Выйти ---------------- */
-async function logout(){
-  // 1) сервер: revoke JWT (ошибки сети — в лог, локальный выход всё равно выполняем)
+function showLogoutNote(msg){const n=$('logoutNotice');if(!msg){n.classList.add('hidden');return}n.textContent=msg;n.classList.remove('hidden')}
+async function logout(note){
+  // 1) сервер: revoke wa-JWT и кабинетного токена (ошибки сети — в лог, локальный выход всё равно выполняем)
   if(Sess.jwt){try{await API.post('/auth/logout',{})}catch(e){}}
+  if(Sess.cab&&Sess.addr){try{await API.post('/cabinet/logout',{address:Sess.addr,token:Sess.cab})}catch(e){}}
   // 2) локально: память + ВЕСЬ DOM сессии (баланс прошлого адреса не мелькает)
   Sess.jwt=null;Sess.cab=null;Sess.addr=null;Sess.exp=0;
   balanceMGNT=null;balGen++;passportData=null;pendOp=null;pendChallenge=null;
@@ -899,19 +919,34 @@ async function logout(){
   tb.append(el('tr'),el('td','—','hint'));
   $('btnLogout').classList.add('hidden');
   resetPend('');
+  // 3) итог — в постоянный нотис: виден и после скрытия кабинета
+  if(note)showLogoutNote(note);
   updateSess();showAuth();
 }
-$('btnLogout').onclick=logout;
+$('btnLogout').onclick=()=>logout(null);
 $('btnLogoutAll').onclick=async()=>{
-  let ok=false;
+  const btn=$('btnLogoutAll');btn.disabled=true;
+  setText('secMsg','…');
+  let ok=false,cabN=0;
   if(Sess.jwt||Sess.addr){
     try{
       const r=await API.post('/auth/logout-all',{});
-      ok=r.status<300&&!!(r.json&&r.json.ok&&r.json.all_sessions_invalidated);
+      if(!r.netErr&&r.status<300&&r.json&&r.json.ok){
+        ok=!!r.json.all_sessions_invalidated;cabN=Number(r.json.cabinet_revoked)||0;
+      }
     }catch(e){ok=false}
   }
-  setText('secMsg',ok?t('logoutAllOk'):'⚠ '+t('logoutAllPartial'));
-  await logout();
+  btn.disabled=false;
+  if(ok){
+    setText('secMsg','');
+    await logout();
+    showLogoutNote(t('logoutAllOk')+(cabN?' · cabinet: '+cabN:''));
+  }else{
+    // Отзыв НЕ подтверждён: сессию сохраняем (перезагрузка её восстановит — это правда),
+    // повтор «Выйти везде» безопасен — серверный отзыв идемпотентен.
+    const msg='⚠ '+t('logoutAllPartial');
+    setText('secMsg',msg);showLogoutNote(msg);
+  }
 };
 $('btnCopy').onclick=()=>{
   if(!Sess.addr)return;

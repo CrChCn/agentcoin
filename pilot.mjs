@@ -7,7 +7,8 @@
    AGT_PILOT_PAYOUT_REGISTRY— абсолютный путь к JSON-массиву утверждённых начислений
                               [{operatorId, period(понедельник UTC), address, amountMinor}].
    Журнал: pilot-payments.sqlite в DATA_DIR (node:sqlite). Состояния платежей:
-   recorded (намерение+подпись до отправки) → pending (отправлено) → confirmed;
+   recorded (намерение+подпись до отправки) → pending (отправлено) → confirmed
+   (confirmed-записи тоже в обороте сверки: откат блока возвращает их в работу);
    denied/failed — в лимиты НЕ входят. Повторная подача — всегда исходной подписью.
    1 AGT = 1_000_000_000 минорных. Суммы в реестре/запросах — целые minor.
    Лимиты крана: 0.5/адрес, 5/сутки UTC, 20/пилот. Лимиты выплат: 10/оператор, 20/неделя UTC.
@@ -75,11 +76,11 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     faucetSumDay: db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS s FROM faucet_payments WHERE day=? AND state IN (${COUNTED.map(s => `'${s}'`).join(',')})`),
     addFaucet: db.prepare('INSERT INTO faucet_payments(challenge_id,address,amount_minor,txid,tx_json,state,reason,created_at,day) VALUES(?,?,?,?,?,?,?,?,?)'),
     setFaucet: db.prepare('UPDATE faucet_payments SET state=?, reason=COALESCE(?,reason), txid=COALESCE(?,txid), tx_json=COALESCE(?,tx_json) WHERE challenge_id=?'),
-    openFaucet: db.prepare(`SELECT * FROM faucet_payments WHERE state IN ('recorded','pending')`),
+    openFaucet: db.prepare(`SELECT * FROM faucet_payments WHERE state IN ('recorded','pending','confirmed')`), // confirmed тоже: откат блока должен вернуть запись в оборот
     getPayout: db.prepare('SELECT * FROM payouts WHERE key=?'),
     addPayout: db.prepare('INSERT INTO payouts(key,operator_id,period,address,amount_minor,txid,tx_json,state,reason,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)'),
     setPayout: db.prepare('UPDATE payouts SET state=?, reason=COALESCE(?,reason), txid=COALESCE(?,txid), tx_json=COALESCE(?,tx_json) WHERE key=?'),
-    openPayouts: db.prepare(`SELECT * FROM payouts WHERE state IN ('recorded','pending')`),
+    openPayouts: db.prepare(`SELECT * FROM payouts WHERE state IN ('recorded','pending','confirmed')`), // confirmed тоже: см. выше
     payoutSumWeek: db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS s FROM payouts WHERE period=? AND state IN (${COUNTED.map(s => `'${s}'`).join(',')})`),
     payoutSumOp: db.prepare(`SELECT COALESCE(SUM(amount_minor),0) AS s FROM payouts WHERE operator_id=? AND period=? AND state IN (${COUNTED.map(s => `'${s}'`).join(',')})`),
     counts: db.prepare(`SELECT (SELECT COUNT(*) FROM faucet_payments) AS faucet, (SELECT COUNT(*) FROM payouts) AS payouts`),
@@ -124,8 +125,10 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
   const submitTx = (tx) => {
     const r = bc.addTransaction(tx);
     if (r.ok) { announce(tx); return { ok: true }; }
-    // already_in_chain/duplicate_tx: платёж уже виден — не ошибка журнала, а подтверждение
-    if (r.reason === 'already_in_chain' || r.reason === 'duplicate_tx') return { ok: true, already: true };
+    // already_in_chain: платёж уже виден — не ошибка журнала, а подтверждение.
+    // duplicate_tx — только если в очереди ТОЧНО та же txid (идемпотентный повтор);
+    // конфликт по (from,nonce) с другой txid — отказ с причиной, запись остаётся recorded.
+    if (r.reason === 'already_in_chain' || (r.reason === 'duplicate_tx' && bc.mempool.some(t => t.txid === tx.txid))) return { ok: true, already: true };
     return { ok: false, reason: r.reason || 'fund_tx_rejected' };
   };
 
@@ -170,12 +173,21 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
       const day = dayUTC(nowMs());
       if (Number(q.faucetSumDay.get(day).s) + ch.amount_minor > FAUCET_DAY_MINOR) return deny('daily_exhausted');
       if (Number(q.faucetSum.get().s) + ch.amount_minor > FAUCET_PILOT_MINOR) return deny('pilot_exhausted');
+      // Пустой фонд — до подписи: в журнале нет новой выплаты, лимит агента не занят.
+      const outgoing = bc.mempool.filter(tx => tx.from === faucetFund).reduce((total, tx) => total + tx.amount, 0);
+      if ((bc.balances()[faucetFund] || 0) - outgoing < ch.amount_minor / MINOR_PER_AGT) return deny('fund_insufficient');
       const { tx, error } = buildSignedTx(faucetFund, ch.address, ch.amount_minor, `pilot-faucet:${ch.address}`);
       if (error) return deny(error);
       const created = nowMs();
       q.addFaucet.run(challengeId, ch.address, ch.amount_minor, tx.txid || null, JSON.stringify(tx), 'recorded', null, created, day);
       const s = submitTx(tx);
-      if (!s.ok) { q.setFaucet.run('failed', s.reason, tx.txid || null, JSON.stringify(tx), challengeId); return deny('fund_tx_rejected'); }
+      // Отказ после записи подписи: остаётся recorded с исходным txid и причиной —
+      // запись учитывается в лимите (повтор не создаёт вторую выплату), сверка
+      // подаст исходную подпись после устранения причины.
+      if (!s.ok) {
+        q.setFaucet.run('recorded', s.reason, tx.txid, JSON.stringify(tx), challengeId);
+        return { ok: false, error: 'fund_tx_rejected', recorded: true, txid: tx.txid };
+      }
       q.setFaucet.run('pending', null, tx.txid || null, JSON.stringify(tx), challengeId);
       return { ok: true, status: 'pending', txid: tx.txid, amountMinor: ch.amount_minor };
     });
@@ -229,33 +241,49 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
   }
 
   // ---------- восстановление ----------
-  // confirmed — только если txid реально в цепи. Всё остальное открытое —
-  // повторная подача ИСХОДНОЙ подписанной транзакции (тот же txid):
-  // already_in_chain/duplicate_tx = уже видна → pending/confirmed,
-  // fund_tx_rejected = остаётся recorded с причиной на ручной разбор.
+  // confirmed — только если txid реально в цепи (очередь не в счёт).
+  // confirmed-записи тоже в обороте: откат блока (txid пропал из цепи и mempool)
+  // возвращает их к повторной подаче ИСХОДНОЙ подписи с тем же txid.
+  // pending в mempool — без пересылки. Отказ ноды → recorded с причиной;
+  // точный дубль txid — подтверждение, конфликт по (from,nonce) — отказ.
+  // Контур выключен или фонд сменился — старые записи не пересылаем.
   function reconcile() {
     if (!faucetEnabled && !payoutEnabled) return { ok: false, error: 'pilot_disabled' };
     return withDb((q) => {
     const out = { faucet: [], payouts: [] };
-    const chainSet = chainOnlyTxids();
     const settle = (row, mark, ref, fund) => {
       let tx = null;
-      try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, action: 'recorded', reason: 'bad_tx_json' }; }
+      try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, action: 'recorded', reason: 'bad_tx_json', txid: row.txid || null }; }
+      tx.txid ||= tx.digestVersion === 2 ? txDigestV2(tx) : txDigest(tx);
+      // В цепи → confirmed (подтверждаем без пересылки).
+      if (tx.txid && chainOnlyTxids().has(tx.txid)) {
+        if (row.state !== 'confirmed' || row.txid !== tx.txid) mark('confirmed', tx.txid, null);
+        return { ...ref, action: 'confirmed', txid: tx.txid };
+      }
       // Фонд контура сменился после записи: чужую подпись не трогаем, только помечаем.
-      if (tx && tx.from !== fund) return { ...ref, action: 'recorded', reason: 'fund_changed', note: 'from записи не совпадает с текущим фондом' };
-      if (row.txid && chainSet.has(row.txid)) { mark('confirmed', row.txid, null); return { ...ref, action: 'confirmed', txid: row.txid }; }
+      if (tx.from !== fund) return { ...ref, action: 'recorded', reason: 'fund_changed', txid: tx.txid, note: 'from записи не совпадает с текущим фондом' };
+      // Только в очереди → pending, пересылка не нужна.
+      if (tx.txid && bc.mempool.some(t => t.txid === tx.txid)) {
+        if (row.state !== 'pending' || row.txid !== tx.txid) mark('pending', tx.txid, null);
+        return { ...ref, action: 'pending', txid: tx.txid };
+      }
+      // Ни в цепи, ни в очереди (потеря mempool/откат блока) → повторная подача
+      // ИСХОДНОЙ подписанной транзакции (тот же txid).
       const s = submitTx(tx);
       if (s.ok) {
-        if (chainSet.has(tx.txid)) { mark('confirmed', tx.txid, null); return { ...ref, action: 'confirmed', txid: tx.txid }; }
+        if (chainOnlyTxids().has(tx.txid)) {
+          if (row.state !== 'confirmed') mark('confirmed', tx.txid, null);
+          return { ...ref, action: 'confirmed', txid: tx.txid };
+        }
         mark('pending', tx.txid, null);
         return { ...ref, action: 'pending', txid: tx.txid, ...(row.state === 'recorded' ? { note: 'повторно отправлено после восстановления' } : {}) };
       }
       mark('recorded', tx.txid, s.reason);
-      return { ...ref, action: 'recorded', reason: s.reason || row.reason || 'needs_review' };
+      return { ...ref, action: 'recorded', reason: s.reason || row.reason || 'needs_review', txid: tx.txid };
     };
-    for (const row of q.openFaucet.all())
+    if (faucetEnabled) for (const row of q.openFaucet.all())
       out.faucet.push(settle(row, (st, txid, reason) => q.setFaucet.run(st, reason, txid, row.tx_json, row.challenge_id), { challengeId: row.challenge_id }, faucetFund));
-    for (const row of q.openPayouts.all())
+    if (payoutEnabled) for (const row of q.openPayouts.all())
       out.payouts.push(settle(row, (st, txid, reason) => q.setPayout.run(st, reason, txid, row.tx_json, row.key), { key: row.key }, payoutFund));
     return { ok: true, ...out };
     });

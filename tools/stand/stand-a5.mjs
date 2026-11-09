@@ -21,7 +21,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { createWallet } from '../../core.mjs';
+import { createWallet, signTransaction, txDigest } from '../../core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..', '..');
@@ -92,20 +92,20 @@ async function main() {
     const dataDir = path.join(tmp, 'data'); fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'wallets.json'), JSON.stringify(wallets, null, 1));
     const PERIOD = mondayUTC(Date.now());
-    const op1 = createWallet('op1'), op2 = createWallet('op2'), op3 = createWallet('op3'), op4 = createWallet('op4');
+    const op1 = createWallet('op1'), op2 = createWallet('op2'), op3 = createWallet('op3'), op4 = createWallet('op4'), op5 = createWallet('op5');
     const registry = [
       { operatorId: 'node2-operator', period: PERIOD, address: op1.address, amountMinor: 10_000_000_000 },
       { operatorId: 'node2-operator-2', period: PERIOD, address: op2.address, amountMinor: 6_000_000_000 },
       { operatorId: 'node2-operator-3', period: PERIOD, address: op3.address, amountMinor: 10_000_000_000 },
       { operatorId: 'node2-operator-4', period: PERIOD, address: op4.address, amountMinor: 1_000_000_000 },
+      { operatorId: 'node2-operator-5', period: PERIOD, address: op5.address, amountMinor: 1_000_000_000 },
     ];
     const regFile = path.join(tmp, 'registry.json'); fs.writeFileSync(regFile, JSON.stringify(registry, null, 1));
     const revFile = path.join(tmp, 'revoked.json'); fs.writeFileSync(revFile, '[]');
     await boot({ AGT_DATA_DIR: dataDir,
       AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
       AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
-    // фонды пополнить майнингом
-    for (let i = 0; i < 4; i++) await api('/mine', { method: 'POST', body: { miner: faucetF.address } });
+    // фонд выплат пополнить майнингом сразу; фонд крана — после t1.2 (пустой фонд)
     for (let i = 0; i < 2; i++) await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
 
     // t0
@@ -124,6 +124,17 @@ async function main() {
     {
       const r = await registerAgent(agent, 'agent-1');
       step('t1 паспорт агента в локальном реестре', r.ok, r.detail);
+    }
+
+    // t1.2: пустой фонд крана — до подписи: fund_insufficient, без записи и лимита (A2.1)
+    {
+      const r = await faucetPay(agent);
+      const st = await api('/pilot/status');
+      step('t1.2 пустой фонд → fund_insufficient, журнал пуст',
+        r.error === 'fund_insufficient' && r.status === 409 && st.body.counts.faucet === 0,
+        `${r.error} counts=${JSON.stringify(st.body.counts)}`);
+      for (let i = 0; i < 4; i++) await api('/mine', { method: 'POST', body: { miner: faucetF.address } });
+      // тот же агент после пополнения получает 0.5 в t2 — лимит не был занят
     }
 
     // t2: claim
@@ -194,13 +205,16 @@ async function main() {
       step('t4 сутки: 7 принято (=5.0 с учётом t2–t3), 8-й → daily_exhausted', okN === 7 && lastErr === 'daily_exhausted', `ok=${okN} last=${lastErr}`);
       for (let i = 0; i < 3; i++) await api('/mine', { method: 'POST', body: { miner: faucetF.address } });
       const blocks = (await api('/blocks?from=0')).body.blocks || [];
-      const cnt = blocks.flatMap(b => b.txs || []).filter(t => (t.memo || '').startsWith('pilot-faucet:')).length;
-      step('t4.2 ончейн ровно 10 выплат крана', cnt === 10, `cnt=${cnt}`);
+      const faucetTxs = blocks.flatMap(b => (b.txs || []).map(t => ({ ...t, h: b.height })))
+        .filter(t => (t.memo || '').startsWith('pilot-faucet:'));
+      const v1ok = faucetTxs.every(t => t.digestVersion === undefined);
+      step('t4.2 ончейн ровно 10 выплат крана, все V1', faucetTxs.length === 10 && v1ok,
+        `cnt=${faucetTxs.length} v1=${v1ok}`);
     }
 
     // t5: выплаты
     const req1 = { operatorId: 'node2-operator', period: PERIOD, address: op1.address, amountMinor: 10_000_000_000 };
-    let payTxid = null;
+    let payTxid = null, payTxid2 = null, snapChain = null;
     {
       const dry = await api('/pilot/payout', { method: 'POST', body: { ...req1, execute: false } });
       step('t5 dry-run eligible', dry.status === 200 && dry.body.eligible === true, JSON.stringify(dry.body).slice(0, 120));
@@ -215,7 +229,7 @@ async function main() {
       step('t5.5 вне реестра → not_in_registry', unk.status === 403 && unk.body.error === 'not_in_registry', unk.body.error);
       const req2 = { operatorId: 'node2-operator-2', period: PERIOD, address: op2.address, amountMinor: 6_000_000_000 };
       const e2 = await api('/pilot/payout', { method: 'POST', body: { ...req2, execute: true } });
-      const payTxid2 = e2.body.txid;
+      payTxid2 = e2.body.txid;
       step('t5.6 второй оператор 6 AGT → pending', e2.status === 200 && !!payTxid2, (payTxid2 || '').slice(0, 16));
       const rec0 = await api('/pilot/reconcile', { method: 'POST', body: {} });
       const still = (rec0.body.payouts || []).filter(x => x.action === 'pending');
@@ -232,12 +246,83 @@ async function main() {
       const req3 = { operatorId: 'node2-operator-3', period: PERIOD, address: op3.address, amountMinor: 10_000_000_000 };
       const d3 = await api('/pilot/payout', { method: 'POST', body: { ...req3, execute: false } });
       step('t5.7 16+10>20 → over_weekly_budget', d3.status === 409 && d3.body.error === 'over_weekly_budget', d3.body.error);
+      // снимок цепи ДО блока выплат — точка отката для t5.10 (имитация потери блока на стенде)
+      snapChain = path.join(tmp, 'chain-pre-payout-block.json');
+      fs.copyFileSync(path.join(dataDir, 'chain.json'), snapChain);
       for (let i = 0; i < 2; i++) await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
       const rec = await api('/pilot/reconcile', { method: 'POST', body: {} });
       const conf = (rec.body.payouts || []).filter(x => x.action === 'confirmed').length;
       step('t5.8 reconcile → обе confirmed', rec.status === 200 && conf === 2, JSON.stringify(rec.body.payouts).slice(0, 160));
       const b1 = Number((await api('/balance', { method: 'POST', body: { address: op1.address } })).body.balance);
       step('t5.9 баланс op1 = 10', b1 === 10, `bal=${b1}`);
+      const b2 = Number((await api('/balance', { method: 'POST', body: { address: op2.address } })).body.balance);
+      step('t5.9b баланс op2 = 6', b2 === 6, `bal=${b2}`);
+    }
+
+    // t5.10: откат ноды к снимку до блока выплат + снос mempool (A1).
+    // После рестарта сверка восстанавливает обе выплаты с прежними txid;
+    // после нового блока — confirmed по каждой и сверка балансов получателей.
+    {
+      stop(); await sleep(500);
+      fs.copyFileSync(snapChain, path.join(dataDir, 'chain.json'));
+      try { fs.unlinkSync(path.join(dataDir, 'mempool.json')); } catch {}
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
+      const recR = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const rIds = (recR.body.payouts || []).filter(x => x.action === 'pending').map(x => x.txid).sort();
+      step('t5.10 откат блока → обе выплаты pending с теми же txid',
+        JSON.stringify(rIds) === JSON.stringify([payTxid, payTxid2].sort()),
+        rIds.map(t => (t || '').slice(0, 8)).join(','));
+      for (let i = 0; i < 2; i++) await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
+      const recR2 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const rConf = (recR2.body.payouts || []).filter(x => x.action === 'confirmed');
+      const b1r = Number((await api('/balance', { method: 'POST', body: { address: op1.address } })).body.balance);
+      const b2r = Number((await api('/balance', { method: 'POST', body: { address: op2.address } })).body.balance);
+      step('t5.10b новый блок → обе confirmed, балансы 10 и 6',
+        rConf.length === 2 && b1r === 10 && b2r === 6, `conf=${rConf.length} bal=${b1r}/${b2r}`);
+    }
+
+    // t5.11: отказ отправки + различие точного дубля и конфликта по nonce (A2.2).
+    // В очереди оставляем только чужую tx с тем же (from,nonce): сверка обязана
+    // сохранить исходную запись recorded с причиной, а не подтвердить её.
+    {
+      const req5 = { operatorId: 'node2-operator-5', period: PERIOD, address: op5.address, amountMinor: 1_000_000_000 };
+      const e5 = await api('/pilot/payout', { method: 'POST', body: { ...req5, execute: true } });
+      const p5 = e5.body.txid;
+      step('t5.11a выплата op5 1 AGT → pending', e5.status === 200 && !!p5, (p5 || '').slice(0, 16));
+      const mp5 = await api('/mempool?full=1');
+      const orig = ((mp5.body.txs || []).find(t => t.txid === p5)) || {};
+      const cflt = { from: payoutF.address, fromPub: payoutF.pub, to: op4.address, amount: 0.5,
+        nonce: orig.nonce, ts: Math.floor(Date.now() / 1000), memo: 'stand-conflict-probe' };
+      cflt.signature = signTransaction(cflt, payoutF.privKey); cflt.txid = txDigest(cflt);
+      const cr = await api('/tx', { method: 'POST', body: cflt });
+      step('t5.11b конфликт по nonce → duplicate_tx (не подтверждение)',
+        cr.status === 400 && cr.body.reason === 'duplicate_tx', `${cr.status} ${cr.body.reason || ''}`);
+      stop(); await sleep(500);
+      fs.writeFileSync(path.join(dataDir, 'mempool.json'), JSON.stringify([cflt])); // оригинал потерян, конфликт остался
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
+      const recC = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const cRow = (recC.body.payouts || []).find(x => x.key === 'node2-operator-5|' + PERIOD);
+      step('t5.11c конфликт в очереди → recorded + reason, тот же txid',
+        cRow?.action === 'recorded' && cRow?.reason === 'duplicate_tx' && cRow?.txid === p5,
+        `${cRow?.action} ${cRow?.reason || ''} ${(cRow?.txid || '').slice(0, 8)}`);
+      stop(); await sleep(500);
+      try { fs.unlinkSync(path.join(dataDir, 'mempool.json')); } catch {}
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
+      const recP = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const pRow = (recP.body.payouts || []).find(x => x.key === 'node2-operator-5|' + PERIOD);
+      step('t5.11d после устранения → pending, тот же txid',
+        pRow?.action === 'pending' && pRow?.txid === p5, `${pRow?.action} ${(pRow?.txid || '').slice(0, 8)}`);
+      await api('/mine', { method: 'POST', body: { miner: payoutF.address } });
+      const recF = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const fRow = (recF.body.payouts || []).find(x => x.key === 'node2-operator-5|' + PERIOD);
+      const b5 = Number((await api('/balance', { method: 'POST', body: { address: op5.address } })).body.balance);
+      step('t5.11e блок → confirmed, баланс op5 = 1', fRow?.action === 'confirmed' && b5 === 1, `${fRow?.action} bal=${b5}`);
     }
 
     // t6: рестарт на том же DATADIR
@@ -251,7 +336,7 @@ async function main() {
       const conf = (rec.body.payouts || []).filter(x => x.action === 'confirmed').length;
       step('t6 рестарт: журнал на месте, новых отправок нет', rec.status === 200 && newSubmits.length === 0, `pending=${newSubmits.length} payouts=${JSON.stringify(rec.body.payouts).slice(0, 120)}`);
       const st = await api('/pilot/status');
-      step('t6.2 счётчики журнала пережили рестарт', st.body.counts.faucet === 10 && st.body.counts.payouts === 2, JSON.stringify(st.body.counts));
+      step('t6.2 счётчики журнала пережили рестарт', st.body.counts.faucet === 10 && st.body.counts.payouts === 3, JSON.stringify(st.body.counts));
       void conf;
     }
 

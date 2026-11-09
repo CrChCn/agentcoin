@@ -1,19 +1,27 @@
 # Выкладка рабочих нод A2 (пошагово для оператора, по одному серверу)
 
-## Статус узлов (публично установлено 2026-11-09, A1)
+## Статус узлов (свежие данные 2026-11-09 ~12:14 UTC, снято публично)
 
-| Узел | Статус | Роль в выкладке |
-|---|---|---|
-| `agentcoin.work` | **upstream НЕ определён** — какой физический узел обслуживает API, неизвестно | Проверка оператором (ниже); не трогать до подтверждения |
-| node1.agentcoin.work | **НЕ подтверждён** — нет в ростере опрашивающей ноды | **Не использовать как обязательный**; только проверки |
-| node2 (Hetzner fsn1) | Подтверждён (отвечает, тот же tip) | SEED — первый сервер |
-| node3 (DO fra1) | Подтверждён (отвечает, тот же tip) | Второй сервер, пиром к node2 |
+| Узел | Высота/tip | Статус | Роль в выкладке |
+|---|---|---|---|
+| `agentcoin.work` (upstream) | 38287 / `00e5c9ae…`, age ~212с, chainValid | Отвечает сам как нода («Эта нода» в `/api/v1/network/nodes`); peer_count=0 | Проверка оператором (ниже); выкладка после утверждения |
+| node1.agentcoin.work | 38287 / тот же tip, age ~235с, chainValid | **Отвечает, tip совпадает** (в A1 не отвечал) | Кандидат в mesh после проверки ростера |
+| node2 (Hetzner fsn1) | 38287 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | SEED — первый сервер |
+| node3 (DO fra1) | 38287 / тот же tip (через ростер upstream) | Подтверждён, reachable, fresh | Второй сервер, пиром к node2 |
 
-Проверка оператором для неподтверждённого (с любого сервера):
-`nslookup node1.agentcoin.work`, `curl -s https://node1.agentcoin.work/api/v1/life`,
-сверить `tipHash` с node2/node3; `curl -s https://agentcoin.work/api/v1/network/nodes`
-— какой узел отвечает как «Эта нода» и есть ли node1 в списке. До совпадения
-tip и появления в ростере node1 в mesh не включать.
+Прямые `https://node2.agentcoin.work`, `https://node3.agentcoin.work` отдают
+заглушку `reserve node: dark (use https://agentcoin.work)` — это не API нод.
+Ростер `https://agentcoin.work/api/v1/network/nodes`: «Эта нода» + node2 + node3
+(все responding, behindObserved=0). node1 в ростере НЕТ, хотя его `/life`
+совпадает по tip — mesh с node1 только после появления в ростере.
+Upstream: API `agentcoin.work` обслуживает сама нода за этим именем
+(доказательство: прямые `/api/v1/life` и `/api/v1/network/nodes` с «Эта нода»);
+какой физический сервер — подтверждает оператор (ниже).
+
+Проверка оператором (с любого сервера):
+`nslookup node1.agentcoin.work`, `curl -s https://node1.agentcoin.work/life`,
+сверить `tipHash` с upstream; `curl -s https://agentcoin.work/api/v1/network/nodes`
+— есть ли node1 в списке. До появления в ростере node1 в mesh не включать.
 
 ## Правила выкладки (каждый подтверждённый сервер)
 
@@ -174,12 +182,33 @@ curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" -H 'Content-Type: application/json
   --data-binary @- "$AGT_PILOT_LOCAL_URL/pilot/reconcile" <<< '{}'   # после рестарта/сбоя
 curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" "$AGT_PILOT_LOCAL_URL/pilot/status"  # контуры, счётчики
 ```
-Восстановление/перенос: `pilot-payments.sqlite` лежит рядом с данными ноды — бэкапить
-согласованным SQLite backup или после остановки службы; при переносе остановить старый
-экземпляр ДО запуска нового. `recorded` с причиной = платёж зарезервирован, требует разбора.
-Остановка новых заявок: убрать пилотные env + рестарт; сохранить журнал, реестр и txid.
-Стенд API: `node tools/stand/stand-a5.mjs` (27/27: кран, привязка challenge к сети/аудитории,
-лимиты, выплаты, v2-подпись за порогом `AGT_TX_DIGEST_V2_HEIGHT`, рестарт, fail-closed).
+Резервная копия (на выбранной ноде, пилотный журнал ведёт и подписывает ТОЛЬКО она):
+```bash
+sudo systemctl stop agt-node
+sudo tar -czf /root/agt-pilot-$(date +%F).tgz -C /opt/agentcoin data-vps/wallets.json data-vps/pilot-revoked.json data-vps/pilot-registry.json data-agtx/pilot-payments.sqlite
+sudo systemctl start agt-node
+```
+Проверка пилота через фактический прокси (снаружи):
+```bash
+curl -s -X POST https://<pilot-host>/faucet/pilot/challenge -H 'Content-Type: application/json' -d '{"address":"AGT…"}'  # 200, без токена
+curl -s -X POST https://<pilot-host>/pilot/status -H 'Content-Type: application/json' -d '{}'                      # 403 без токена
+curl -s -H "x-admin-token: $AGT_ADMIN_TOKEN" https://<pilot-host>/pilot/status                                  # 200 с токеном (если прокси пускает)
+```
+`/pilot/*` наружу не публиковать (deny на прокси; операторские вызовы — только loopback).
+Восстановление/перенос: при переносе остановить старый экземпляр ДО запуска нового.
+`recorded` с причиной = платёж зарезервирован исходной подписью, требует разбора/сверки.
+Остановка пилота и откат конфигурации: убрать пилотные env + рестарт; журнал
+(`pilot-payments.sqlite`), реестр и txid сохранить — сверка по ним продолжается вручную.
+Рабочая приёмка (после утверждения сервера, фондов и реестра владельцем): совпадение цепи
+с соседней нодой; публичный запрос крана + отказ без токена (команды выше); одна
+согласованная выдача крана и одна выплата оператору после dry-run; зафиксировать полные
+txid, высоты блоков и изменения балансов.
+Стенд API: `node tools/stand/stand-a5.mjs` (42/42: кран, привязка challenge к сети/аудитории,
+лимиты, пустой фонд → `fund_insufficient` без записи (t1.2), отказ после подписи →
+`recorded`+txid+причина (t5.11c–e), различие точного дубля txid и конфликта по nonce
+(t5.11b), потеря mempool (t2.6/t5.6c), откат блока к снимку chain.json с восстановлением
+тех же txid (t5.10), выплаты, V1 до порога и v2-подпись за порогом `AGT_TX_DIGEST_V2_HEIGHT`,
+рестарт, fail-closed). Откат через снимок — имитация потери блока на стенде.
 Формат challenge — JSON-массив `['agentcoin:faucet:v1', chainId, audience, …]`; формат tx пилот
 следует порогу v2 сети (до порога v1, после — v2 с chainId).
 

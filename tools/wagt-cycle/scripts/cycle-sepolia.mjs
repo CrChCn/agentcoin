@@ -66,6 +66,7 @@ async function track(op, txResp) {
   const rc = await txResp.wait();
   gasLedger.push({ op, hash: rc.hash, gasUsed: rc.gasUsed.toString(),
     gasPrice: (rc.gasPrice ?? 0n).toString() });
+  if (rc.status !== 1) throw new Error(`${op} reverted on-chain: ${rc.hash}`);
   return rc;
 }
 const totalGasUsed = () => gasLedger.reduce((a, g) => a + BigInt(g.gasUsed), 0n);
@@ -109,7 +110,7 @@ const PLAN = [ // [операция, лимит газа, плательщик]
 ];
 const needDeployer = PLAN.filter((p) => p[2] === 'deployer').reduce((a, p) => a + BigInt(p[1]), 0n);
 const needTrader = PLAN.filter((p) => p[2] === 'trader').reduce((a, p) => a + BigInt(p[1]), 0n);
-const buffer = (x) => (x * 3n) / 2n; // x1.5
+const buffer = (x) => x * 2n; // x2: живая цена газа гуляет (факт прогона: ~7 gwei против пола 1 gwei)
 log(`gasPrice=${gasPrice} wei; оценка: deployer ~${fmtEth(buffer(needDeployer) * gasPrice)} ETH, trader ~${fmtEth(buffer(needTrader) * gasPrice)} ETH (с запасом x1.5)`);
 
 // На живой сети `sepolia` нужен ключ тестового кошелька; на форке
@@ -358,12 +359,19 @@ const pathWT = [A_WAGT, A_TAGT];
 const quoted = await router.getAmountsOut(SWAP_IN, pathWT);
 const minOut = (quoted[1] * 95n) / 100n;
 log(`котировка: 2 wAGT -> ${hre.ethers.formatUnits(quoted[1], 18)} tAGT, minOut=${hre.ethers.formatUnits(minOut, 18)}`);
-const [pr0, pr1] = await pair.getReserves();
-const sTx = await router.connect(trader).swapExactTokensForTokens(
-  SWAP_IN, minOut, pathWT, trader.address, Math.floor(Date.now() / 1000) + 1800);
-const sRc = await track('swap', sTx);
-const got = await tagt.balanceOf(trader.address);
-check(got >= minOut && got > 0, `swap: получено ${hre.ethers.formatUnits(got, 18)} tAGT, sepoliaTx=${sRc.hash.slice(0, 18)}…`);
+const [pr0, pr1] = await pair.getReserves();  const tBefore = await tagt.balanceOf(trader.address);
+  const sTx = await router.connect(trader).swapExactTokensForTokens(
+    SWAP_IN, minOut, pathWT, trader.address, Math.floor(Date.now() / 1000) + 1800);
+  const sRc = await track('swap', sTx);
+  // Публичные RPC балансируют чтение между нодами: баланс сразу после
+  // чека может вернуться из отстающей ноды. Ждём изменения, потом сверяем.
+  let got = await tagt.balanceOf(trader.address);
+  for (let i = 0; i < 30 && got === tBefore; i++) {
+    await sleep(2000);
+    got = await tagt.balanceOf(trader.address);
+  }
+  check(got > tBefore && (got - tBefore) >= minOut, `swap: получено ${hre.ethers.formatUnits(got - tBefore, 18)} tAGT, sepoliaTx=${sRc.hash.slice(0, 18)}…`);
+  got = got - tBefore;
 const [qr0, qr1] = await pair.getReserves();
 check(qr0 !== pr0 || qr1 !== pr1, 'резервы пары изменились после обмена');
 
@@ -435,13 +443,22 @@ const snapshot = { vault: vaultBal, supply: supplyAgt, releases: Object.keys(loa
 check(vaultBal === LOCK1 + LOCK2 - 3 && supplyAgt === LOCK1 + LOCK2 - 3,
   `сверка: vault=${vaultBal} AGT == supply=${supplyAgt} wAGT (40+5 выпуск, 3 сожжено)`);
 await node.stop();
-node = await startAgtNode(dataDir, port);
+node = null;
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try { node = await startAgtNode(dataDir, port); break; }
+  catch (e) {
+    log(`рестарт ноды: попытка ${attempt}/3 не удалась (${String(e).slice(0, 120)}), пауза…`);
+    if (attempt === 3) throw e;
+    await sleep(1500);
+  }
+}
 const vaultAfter = await agtBalance(node.origin, vault.address);
 const supplyAfter = Number((await wagt.totalSupply()) / E18);
 check(vaultAfter === snapshot.vault && supplyAfter === snapshot.supply,
   `после рестарта: vault=${vaultAfter}, supply=${supplyAfter} — сошлось с обеими сетями`);
 await node.stop();
 
+const FORK_MODE = hre.network.name === 'hardhat' && sepoliaNet.chainId === EXPECTED_CHAIN_ID;
 const gasUsed = totalGasUsed();
 const report = {
   network: FORK_MODE ? 'sepolia-fork' : 'sepolia', evmChainId: 11155111,
@@ -453,7 +470,7 @@ const report = {
   amounts: { lock1: LOCK1, lock2: LOCK2, swapInWagt: '2',
     swapOutTagt: hre.ethers.formatUnits(got, 18), minOutTagt: hre.ethers.formatUnits(minOut, 18),
     burnWagt: '3', releaseAgt: 3 },
-  checks: { unconfirmedDepositBlocked: true, replayBlockedOffchain: true,
+  checks: { swapOk: got >= minOut, unconfirmedDepositBlocked: true, replayBlockedOffchain: true,
     replayBlockedOnchain: replayReverted, restartFoundSentRelease: R1b.resumed === true,
     duplicateBurnRejected: R1c.duplicate === true,
     vaultAgt: vaultAfter, wagtSupply: supplyAfter,
@@ -461,7 +478,6 @@ const report = {
   gas: { priceWei: gasPrice.toString(), usedWei: gasLedger.map((g) => ({ op: g.op, hash: g.hash, gasUsed: g.gasUsed, gasPriceWei: g.gasPrice })),
     totalGas: gasUsed.toString() },
 };
-const FORK_MODE = hre.network.name === 'hardhat' && sepoliaNet.chainId === EXPECTED_CHAIN_ID;
 const reportName = hre.network.name === 'sepolia'
   ? 'cycle-report-sepolia.json'
   : (FORK_MODE ? 'cycle-report-sepolia-fork.json' : `cycle-report-${hre.network.name}.json`);

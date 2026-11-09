@@ -1,5 +1,5 @@
 {
-  "network": "sepolia",
+  "network": "sepolia-fork",
   "evmChainId": 11155111,
   "uniswap": {
     "factory": "0xF62c03E08ada871A0bEb309762E260a7a6a880E6",
@@ -16,28 +16,28 @@
     "wagt": "0xF86C3014989c39b64690F9Fa6927794B27B2E026",
     "tagt": "0xb7FEa2835e5d227a7140E08d6BdD7779d46762e1",
     "bridge": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "trader": "0x11e374636C8a116b124A5FE00A22036294767f47"
+    "trader": "0x9952484650Ee6e717a4591Cc5e0E5A0b73CBB67D"
   },
   "agt": {
-    "user": "AGTb1a9c2fe399ef0e231119a628afde4e07ff91701",
-    "vault": "AGT39392a9d72dcc48276a3f695c4e683df06634c36",
-    "lockTx1": "f3738444023e4c052bc7af005fd719d1811c449425e508b6e550f7d1f3cbd5e6",
-    "lockTxUnconfirmed": "199279b2fc6b9a58c6d5989186ca62fa0b21f9275579f34412fc2884ac8f80a9",
-    "lockTx2": "bdb35ae76928b0d0a640e912dfafaa47cd039a2c55f9466abf386a1070b9a11c",
-    "releaseTx": "d859789ffff5725e1a528bf010673a4fb361d452a90a41015993f47d12938606"
+    "user": "AGT496a0b1f75c537a8cc3a9af54c30850024d64ea9",
+    "vault": "AGTb7e9ea852d228aa93e3242082b4237aa585901d3",
+    "lockTx1": "d9d972117986b25d14332dc75aeaa627c81c188f9ac6a5476a79ed4569620616",
+    "lockTxUnconfirmed": "459ce21584b209e5bf133a6848efec975b6e00a18daf3582bde39ee173f497f4",
+    "lockTx2": "232351d39d00f94bcbd3d01b0f704a2c6b6399a5e17157d94f677969ca3287f2",
+    "releaseTx": "7c0e7e16310a6eafa84a3195686adf1b4e4aef9e2a0cab4640d8b73e50f74c8a"
   },
   "sepoliaTx": {
-    "deploy WAGT": "0x56a004107a4ba5d81c791ea47321451e16d0be1441e9e7f55634b1bc102068b0",
-    "deploy TAGT": "0x24bbb4698396e7601688c76b9350c01ce477829f7f9b1e5c7036bc0ac2d83d57",
-    "fund trader": "0xb732adc0b4ff9f76b91971c09329a040fb1ceb90883160e57ce33a51c8153afe",
-    "mint": "0x18a212ca422dc77f476a4bd3e94a3379661b9b490e10981e42f5fd4255b10504",
-    "faucet tAGT": "0x3222b24ed9c60b159429d8274d1bf71b7460b329fdadb3be5e18816ca4b71b4e",
-    "approve wAGT": "0x07eacf485add971d721690a879ae79e2b5f0b3c19a2d3984d6a9d02a6de9b90e",
-    "approve tAGT": "0x2b44bad0da694714fa526608b01a636a0e97c3bb5eca5f1a396e99d3f51251c2",
-    "addLiquidity": "0xdc4c121715a14b30ca988cd1a730003bf82952f7913d74323d471093ae1fa29b",
-    "trader approve": "0x91ccdae8935aafc75f6ba3a90d19303fec436ed20f072ebbdb254cf5fa62c7f1",
-    "swap": "0x58b3156d86aee51a0eb14521baab13cd7f0e1d14f0f6cc6f3e9d7c5351481c3a",
-    "burn": "0x1c54206413aa676659214af1100d3467cb10b32537a31103fa1f4c1bc7b597df"
+    "deploy WAGT": "0xbbc56d42fd9650d68506d0903df52522b58da42102ca97a6b9686663c7511229",
+    "deploy TAGT": "0xdb5ea4784e67b262eacf3f9173421e3718c58cb7a6648bdf389737b50d82bdf9",
+    "fund trader": "0x54c5f1bb130d4b927bcf9ddeba0150bb276d943f814190f6f0887fde910002ce",
+    "mint": "0xfe1300fcccea70a6a198e97fdbf5723321b78c128ca898bb1434e24f3db435d3",
+    "faucet tAGT": "0xa5cb814937177a3b31d1844a060efa914e4d3963e4408e82d2be0554ce173904",
+    "approve wAGT": "0xb8d98c8bca9f9678e6dd8cf01113292bcd0282df4b6d1d426f5c60545f8ae7d4",
+    "approve tAGT": "0xa2270ce8c7dc2f5963d9a035af3d5dd80aff512c0109891e24f1abc88be9880e",
+    "addLiquidity": "0x8b4490cdea4c9934164affe08a67079f897c5b1b43af2c217fc43f0f592b783b",
+    "trader approve": "0x089353635c27f0bdf9b7296d6be3886ca0f766ec4a047758d204c0410d9348c9",
+    "swap": "0x1dabf96ebfe17984e4eafa6fae7b99d2c33215c92ef843577f6dc41cd7a9c905",
+    "burn": "0x8cccddee565f33136b0b9a3318c3d5dbaa81380009b3288f71b4b7758276f715"
   },
   "amounts": {
     "lock1": 40,
@@ -49,6 +49,7 @@
     "releaseAgt": 3
   },
   "checks": {
+    "swapOk": true,
     "unconfirmedDepositBlocked": true,
     "replayBlockedOffchain": true,
     "replayBlockedOnchain": true,
@@ -59,77 +60,77 @@
     "backingInvariant": true
   },
   "gas": {
-    "priceWei": "1000000017",
+    "priceWei": "1000000018",
     "usedWei": [
       {
         "op": "deploy WAGT",
-        "hash": "0x56a004107a4ba5d81c791ea47321451e16d0be1441e9e7f55634b1bc102068b0",
+        "hash": "0xbbc56d42fd9650d68506d0903df52522b58da42102ca97a6b9686663c7511229",
         "gasUsed": "1309698",
-        "gasPriceWei": "1000000017"
+        "gasPriceWei": "1000000018"
       },
       {
         "op": "deploy TAGT",
-        "hash": "0x24bbb4698396e7601688c76b9350c01ce477829f7f9b1e5c7036bc0ac2d83d57",
+        "hash": "0xdb5ea4784e67b262eacf3f9173421e3718c58cb7a6648bdf389737b50d82bdf9",
         "gasUsed": "942025",
-        "gasPriceWei": "1000000015"
+        "gasPriceWei": "1000000016"
       },
       {
         "op": "fund trader",
-        "hash": "0xb732adc0b4ff9f76b91971c09329a040fb1ceb90883160e57ce33a51c8153afe",
+        "hash": "0x54c5f1bb130d4b927bcf9ddeba0150bb276d943f814190f6f0887fde910002ce",
         "gasUsed": "21000",
-        "gasPriceWei": "1000000014"
+        "gasPriceWei": "1000000015"
       },
       {
         "op": "mint",
-        "hash": "0xd860f6cf9f2752e0c4ccccdf405016632f05c4349af32217551eff04aa03386c",
+        "hash": "0x23d9c4260bab3c8116cc1efa99489890cbb3b7e67d626e7fe06693d2d07a13da",
         "gasUsed": "99173",
-        "gasPriceWei": "1000000013"
+        "gasPriceWei": "1000000014"
       },
       {
         "op": "faucet tAGT",
-        "hash": "0x3222b24ed9c60b159429d8274d1bf71b7460b329fdadb3be5e18816ca4b71b4e",
+        "hash": "0xa5cb814937177a3b31d1844a060efa914e4d3963e4408e82d2be0554ce173904",
         "gasUsed": "68981",
-        "gasPriceWei": "1000000011"
+        "gasPriceWei": "1000000012"
       },
       {
         "op": "approve wAGT",
-        "hash": "0x07eacf485add971d721690a879ae79e2b5f0b3c19a2d3984d6a9d02a6de9b90e",
+        "hash": "0xb8d98c8bca9f9678e6dd8cf01113292bcd0282df4b6d1d426f5c60545f8ae7d4",
+        "gasUsed": "46964",
+        "gasPriceWei": "1000000011"
+      },
+      {
+        "op": "approve tAGT",
+        "hash": "0xa2270ce8c7dc2f5963d9a035af3d5dd80aff512c0109891e24f1abc88be9880e",
         "gasUsed": "46964",
         "gasPriceWei": "1000000010"
       },
       {
-        "op": "approve tAGT",
-        "hash": "0x2b44bad0da694714fa526608b01a636a0e97c3bb5eca5f1a396e99d3f51251c2",
-        "gasUsed": "46964",
+        "op": "addLiquidity",
+        "hash": "0x8b4490cdea4c9934164affe08a67079f897c5b1b43af2c217fc43f0f592b783b",
+        "gasUsed": "2690976",
         "gasPriceWei": "1000000009"
       },
       {
-        "op": "addLiquidity",
-        "hash": "0xdc4c121715a14b30ca988cd1a730003bf82952f7913d74323d471093ae1fa29b",
-        "gasUsed": "2690976",
-        "gasPriceWei": "1000000008"
-      },
-      {
         "op": "mint",
-        "hash": "0x18a212ca422dc77f476a4bd3e94a3379661b9b490e10981e42f5fd4255b10504",
+        "hash": "0xfe1300fcccea70a6a198e97fdbf5723321b78c128ca898bb1434e24f3db435d3",
         "gasUsed": "82061",
         "gasPriceWei": "1000000008"
       },
       {
         "op": "trader approve",
-        "hash": "0x91ccdae8935aafc75f6ba3a90d19303fec436ed20f072ebbdb254cf5fa62c7f1",
+        "hash": "0x089353635c27f0bdf9b7296d6be3886ca0f766ec4a047758d204c0410d9348c9",
         "gasUsed": "46952",
         "gasPriceWei": "1000000008"
       },
       {
         "op": "swap",
-        "hash": "0x58b3156d86aee51a0eb14521baab13cd7f0e1d14f0f6cc6f3e9d7c5351481c3a",
+        "hash": "0x1dabf96ebfe17984e4eafa6fae7b99d2c33215c92ef843577f6dc41cd7a9c905",
         "gasUsed": "151122",
         "gasPriceWei": "1000000008"
       },
       {
         "op": "burn",
-        "hash": "0x1c54206413aa676659214af1100d3467cb10b32537a31103fa1f4c1bc7b597df",
+        "hash": "0x8cccddee565f33136b0b9a3318c3d5dbaa81380009b3288f71b4b7758276f715",
         "gasUsed": "33515",
         "gasPriceWei": "1000000008"
       }

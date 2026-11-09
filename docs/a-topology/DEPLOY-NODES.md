@@ -142,6 +142,44 @@ node commission-payout.mjs http://127.0.0.1:9335   # существующий с
 Для произвольных сумм — `treasury-payout.mjs` как образец (build/sign/submit +
 ончейн-верификация по txid). Реестр получателей и сумм утверждает владелец.
 
+## Пилот A3/A4: включение на одной ноде
+
+Контуры включаются по отдельности env. Выбери одну ноду (рекомендую node2) **после**
+проверки A2; перед включением сверь tip (`/life` → `tipHash`) с остальными узлами.
+На остальных нодах пилотные переменные оставить пустыми. Требуется Node.js 24
+(node:sqlite) и постоянный локальный `AGT_DATA_DIR`.
+
+Env выбранной ноды (`/etc/agentcoin/pilot.env`, права 600, подключить в unit):
+```bash
+AGT_PILOT_FAUCET_FUND=AGT…        # адрес выделенного фонда крана (ключ в wallets.json ЭТОЙ ноды;
+                                   # адрес ОТЛИЧЕН от фонда старого крана и фонда выплат)
+AGT_PILOT_REVOKED_FILE=/opt/agentcoin/data-vps/pilot-revoked.json   # JSON-массив, напр. [] (обновлять атомарно)
+AGT_PILOT_PAYOUT_FUND=AGT…        # адрес отдельного фонда выплат (ключ в закрытом контуре ЭТОЙ ноды)
+AGT_PILOT_PAYOUT_REGISTRY=/opt/agentcoin/data-vps/pilot-registry.json # абсолютный путь, JSON-массив
+# AGT_ADMIN_TOKEN уже обязателен (выплаты и восстановление — только по нему)
+```
+Запись реестра (`period` — дата понедельника UTC; суммы целые, 1 AGT = 1e9):
+`{"operatorId":"node2-operator","period":"2026-11-09","address":"AGT…","amountMinor":1000000000}`
+
+Прокси: наружу публиковать ТОЛЬКО `/faucet/pilot/challenge` и `/faucet/pilot/claim`;
+`/pilot/*` — только 127.0.0.1 (пример nginx: `location /pilot/ { deny all; }` +
+отдельный `listen 127.0.0.1` для операторских вызовов).
+
+Команды оператора (с сервера выбранной ноды; `request.json` — утверждённая запись):
+```bash
+jq '. + {execute:false}' request.json | curl --fail-with-body -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' --data-binary @- "$AGT_PILOT_LOCAL_URL/pilot/payout"
+# после eligible — тот же запрос с execute:true (повтор вернёт тот же txid)
+curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @- "$AGT_PILOT_LOCAL_URL/pilot/reconcile" <<< '{}'   # после рестарта/сбоя
+curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" "$AGT_PILOT_LOCAL_URL/pilot/status"  # контуры, счётчики
+```
+Восстановление/перенос: `pilot-payments.sqlite` лежит рядом с данными ноды — бэкапить
+согласованным SQLite backup или после остановки службы; при переносе остановить старый
+экземпляр ДО запуска нового. `recorded` с причиной = платёж зарезервирован, требует разбора.
+Остановка новых заявок: убрать пилотные env + рестарт; сохранить журнал, реестр и txid.
+Стенд API: `node tools/stand/stand-a5.mjs` (23/23: кран, лимиты, выплаты, рестарт, fail-closed).
+
 ## Что остаётся за владельцем (заблокировано без него)
 
 - Upstream `agentcoin.work`: к какому физическому узлу вести, кто оператор.

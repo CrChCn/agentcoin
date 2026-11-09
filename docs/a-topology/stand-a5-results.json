@@ -1,0 +1,123 @@
+{
+ "startedAt": "2026-11-09T11:27:41.212Z",
+ "steps": [
+  {
+   "name": "t0 контуры включены",
+   "ok": true,
+   "detail": "{\"faucet\":0,\"payouts\":0}"
+  },
+  {
+   "name": "t0 /pilot/* без токена → закрыто (403)",
+   "ok": true,
+   "detail": "403/403"
+  },
+  {
+   "name": "t0 faucet публичен (ответ без токена, не 403)",
+   "ok": true,
+   "detail": "status=404"
+  },
+  {
+   "name": "t1 паспорт агента в локальном реестре",
+   "ok": true,
+   "detail": "{\"ok\":true,\"passport\":{\"payload\":{\"version\":1,\"network\":\"AGENTCOIN\",\"agentId\":\"agt-agent:801bffb36284ccea6d5acb0358bc93d"
+  },
+  {
+   "name": "t2 claim → pending txid",
+   "ok": true,
+   "detail": "txid=96c33f7220ec58b5 err="
+  },
+  {
+   "name": "t2.2 баланс +0.5 после блока",
+   "ok": true,
+   "detail": "bal=0.5"
+  },
+  {
+   "name": "t2.3 повтор → agent_cap_reached",
+   "ok": true,
+   "detail": "agent_cap_reached"
+  },
+  {
+   "name": "t3 отозванный адрес → passport_revoked",
+   "ok": true,
+   "detail": "passport_revoked"
+  },
+  {
+   "name": "t3.2 после снятия отзыва — pending",
+   "ok": true,
+   "detail": "5970a69a806f"
+  },
+  {
+   "name": "t4 сутки: 8 принято (=5.0 с учётом t2–t3), 9-й → daily_exhausted",
+   "ok": true,
+   "detail": "ok=8 last=daily_exhausted"
+  },
+  {
+   "name": "t4.2 ончейн ровно 10 выплат крана",
+   "ok": true,
+   "detail": "cnt=10"
+  },
+  {
+   "name": "t5 dry-run eligible",
+   "ok": true,
+   "detail": "{\"ok\":true,\"eligible\":true,\"amountMinor\":10000000000}"
+  },
+  {
+   "name": "t5.2 execute → pending txid",
+   "ok": true,
+   "detail": "txid=615ca4c33f3de160"
+  },
+  {
+   "name": "t5.3 повтор → тот же txid",
+   "ok": true,
+   "detail": "615ca4c33f3de160"
+  },
+  {
+   "name": "t5.4 смена суммы → payout_conflict",
+   "ok": true,
+   "detail": "payout_conflict"
+  },
+  {
+   "name": "t5.5 вне реестра → not_in_registry",
+   "ok": true,
+   "detail": "not_in_registry"
+  },
+  {
+   "name": "t5.6 второй оператор 6 AGT → pending",
+   "ok": true,
+   "detail": "fc396a6992df7b9f"
+  },
+  {
+   "name": "t5.7 16+10>20 → over_weekly_budget",
+   "ok": true,
+   "detail": "over_weekly_budget"
+  },
+  {
+   "name": "t5.8 reconcile → обе confirmed",
+   "ok": true,
+   "detail": "[{\"key\":\"node2-operator|2026-11-09\",\"action\":\"confirmed\",\"txid\":\"615ca4c33f3de160d0d41dddac0bd0767706f79871c7bcbee6a50684ac00fa80\"},{\"key\":\"node2-operator-2|202"
+  },
+  {
+   "name": "t5.9 баланс op1 = 10",
+   "ok": true,
+   "detail": "bal=10"
+  },
+  {
+   "name": "t6 рестарт: журнал на месте, новых отправок нет",
+   "ok": true,
+   "detail": "pending=0 payouts=[]"
+  },
+  {
+   "name": "t6.2 счётчики журнала пережили рестарт",
+   "ok": true,
+   "detail": "{\"faucet\":10,\"payouts\":2}"
+  },
+  {
+   "name": "t7 faucet==payout fund → оба контура выключены",
+   "ok": true,
+   "detail": "faucet_fund_is_payout_fund"
+  }
+ ],
+ "finishedAt": "2026-11-09T11:27:52.615Z",
+ "passed": 23,
+ "failed": 0
+}

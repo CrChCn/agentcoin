@@ -11,6 +11,8 @@
      POST /mine                 — {miner} → блок, награда
      GET  /validate             — проверка цепи
      POST /peer/add, /sync-now  — P2P
+     POST /faucet/pilot/challenge, /faucet/pilot/claim — пилотный кран A3 (публично, только при AGT_PILOT_FAUCET_FUND)
+     POST /pilot/payout, /pilot/reconcile + GET /pilot/status — выплаты A4 и восстановление (строго x-admin-token)
      GET  /security/status      — статус Security Controller
      GET  /security/banlist     — ban-лист + registryHash (тампер-эвиденц)
      GET  /security/attacks     — журнал атак
@@ -58,6 +60,7 @@ import { assessTrust } from './ds.mjs';
 import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
+import { createPilot } from './pilot.mjs';
 import { Cabinet } from './cabinet.mjs';
 import { PinAuth } from './pin-auth.mjs';
 import { AgentIdentityRegistry } from './agent-identity.mjs';
@@ -273,6 +276,12 @@ const monitorTargets = process.env.AGT_MONITOR_TARGETS_FILE
 const networkNodes = createNodeMonitor({ targets: monitorTargets, selfHealth: cheapHealth });
 
 const hub = new WsHub();
+// Пилот A3/A4: кран и выплаты включаются ОТДЕЛЬНО env (см. pilot.mjs).
+// Без env контуры выключены; /pilot/* — строго по AGT_ADMIN_TOKEN.
+const pilot = createPilot({ dataDir: DATA_DIR, bc, loadWallets,
+  announce: (tx) => setImmediate(() => { gossipTx(tx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx }); }),
+  identity: { find: (a) => identityRegistry.findByAddress(a), verify: (cert) => identityRegistry.verifyPassport(cert) },
+  isBanned: (a) => bc.security.isBanned(a) });
 // быстрый приём WS-блока в цепь: тот же набор правил, что сетевой append
 function applyBlockFast(chain, blk) {
   chain.chain.push(blk);
@@ -382,7 +391,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message', '/faucet/pilot/challenge', '/faucet/pilot/claim']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs); /faucet/pilot/* — публичный пилотный кран (включается только AGT_PILOT_FAUCET_FUND)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -1584,6 +1593,42 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return d;
   }
   function saveFaucet(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FAUCET_FILE, JSON.stringify(f, null, 2)); }
+  // --- Пилот A3 (кран, публичные маршруты агента) и A4 (выплаты, только admin-токен) ---
+  const pilotAdmin = () => {
+    if (!process.env.AGT_ADMIN_TOKEN) { json(res, 503, { error: 'pilot_admin_token_not_configured' }); return false; }
+    if (req.headers['x-admin-token'] !== process.env.AGT_ADMIN_TOKEN) { json(res, 401, { error: 'admin_token_required' }); return false; }
+    return true;
+  };
+  const pilotCode = (r) => r.ok ? 200 : ({ pilot_faucet_disabled: 503, pilot_payout_disabled: 503, pilot_disabled: 503,
+    pilot_admin_token_not_configured: 503, bad_params: 400, bad_address: 400, passport_not_found: 404,
+    challenge_unknown_or_expired: 404, payout_conflict: 409, per_op_over_limit: 409, over_weekly_budget: 409,
+    not_in_registry: 403, fund_tx_rejected: 502, fund_insufficient: 409 }[r.error] || 403);
+  if (p === '/faucet/pilot/challenge' && req.method === 'POST') {
+    const { address } = await body(req).catch(() => ({}));
+    const r = pilot.faucetChallenge(address);
+    return json(res, pilotCode(r), r);
+  }
+  if (p === '/faucet/pilot/claim' && req.method === 'POST') {
+    const { challengeId, signature } = await body(req).catch(() => ({}));
+    const r = pilot.faucetClaim(challengeId, signature);
+    return json(res, pilotCode(r), r);
+  }
+  if (p === '/pilot/payout' && req.method === 'POST') {
+    if (!pilotAdmin()) return;
+    const input = await body(req).catch(() => ({}));
+    const r = pilot.payoutRequest(input, input && input.execute === true);
+    return json(res, pilotCode(r), r);
+  }
+  if (p === '/pilot/reconcile' && req.method === 'POST') {
+    if (!pilotAdmin()) return;
+    await body(req).catch(() => ({}));
+    const r = pilot.reconcile();
+    return json(res, pilotCode(r), r);
+  }
+  if (p === '/pilot/status' && req.method === 'GET') {
+    if (!pilotAdmin()) return;
+    return json(res, 200, pilot.status());
+  }
   if (p === '/faucet/drip' && req.method === 'POST') {
     const { address } = await body(req);
     if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });

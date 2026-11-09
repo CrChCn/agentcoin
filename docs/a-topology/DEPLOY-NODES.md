@@ -25,6 +25,14 @@
   POST `/faucet/pilot/challenge` + POST `/faucet/pilot/claim`; `/pilot/*` — deny.
 - Предложение: пилот — на **node2** (SEED, в ростере responding/fresh). node1 —
   только после появления в ростере и mesh; node3 — резерв.
+
+### Свежий срез 2026-11-09 ~15:43 UTC (AGT-A3-PREFLIGHT, второй проход)
+
+- Upstream `https://agentcoin.work/life` → `blocks 38487`, `tip 00ec1999…`, age 43с, `chainValid true` (цепь идёт: 38327 в 12:56 → 38487 в 15:43, ~63с/блок).
+- Ростер (`checkedAt 15:43:31Z`): «Эта нода» + node2 + node3 — все responding/fresh, тот же tip, behindObserved=0.
+- node1 direct `/life` → 38487, тот же tip, age 43с, fresh, chainValid — в ростере НЕТ (блокер mesh/pilot для node1 не снят).
+- node2 — кандидат подтверждён повторно (в ростере responding/fresh). Но это наблюдение upstream, а не прямое обращение к node2 (прямой URL — заглушка 403).
+- Фактический upstream (куда edge направляет API): по конфигурации прокси не установлен — Caddy отвечает за статику (`Server: Caddy` на HTML-fallback), API-JSON идёт без `Server` (сама нода), ростер называет хост «Эта нода». Совпавший tip подтверждает синхронизацию, но НЕ доказывает, какой физический узел обслуживает `agentcoin.work`. Пункт **blocked**: нужны (а) конфиг обратного прокси `agentcoin.work` (Caddyfile/nginx: какой backend у `/api/*` и `/life`), (б) `systemctl cat agt-node` + `AGT_DATA_DIR` с того хоста, (в) заявление оператора, какой физический сервер — upstream.
 Upstream: API `agentcoin.work` обслуживает сама нода за этим именем
 (доказательство: прямые `/api/v1/life` и `/api/v1/network/nodes` с «Эта нода»);
 какой физический сервер — подтверждает оператор (ниже).
@@ -193,20 +201,41 @@ curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" -H 'Content-Type: application/json
   --data-binary @- "$AGT_PILOT_LOCAL_URL/pilot/reconcile" <<< '{}'   # после рестарта/сбоя
 curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" "$AGT_PILOT_LOCAL_URL/pilot/status"  # контуры, счётчики
 ```
-Резервная копия (на выбранной ноде, пилотный журнал ведёт и подписывает ТОЛЬКО она):
+Точный путь журнала: `AGT_DATA_DIR` службы (`Environment=AGT_DATA_DIR=/opt/agentcoin/data-vps` в unit из `scripts/deploy-vps.sh`) + `pilot-payments.sqlite` (открывается `withDb` на операцию и закрывается — висячих блокировок нет). Итого: `/opt/agentcoin/data-vps/pilot-payments.sqlite` (НЕ `data-agtx/` — там только `admin-token.txt`). Фактический dataDir подтвердить выводом `systemctl cat agt-node` на выбранной ноде до работ (пока — по скрипту деплоя, сверено с кодом).
+Резервная копия (на выбранной ноде, пилотный журнал ведёт и подписывает ТОЛЬКО она).
+Сценарий 1 — первый запуск (базы ещё нет): служба создаёт `pilot-payments.sqlite` при первом вызове контура (`CREATE TABLE IF NOT EXISTS` в `withDb`); проверять: файл появился, `GET /pilot/status` (loopback) → 200 со счётчиками. Отдельный бэкап пустого журнала не нужен.
+Сценарий 2 — база есть (порядок строгий, архив проверить ДО перезапуска):
 ```bash
 sudo systemctl stop agt-node
-sudo tar -czf /root/agt-pilot-$(date +%F).tgz -C /opt/agentcoin data-vps/wallets.json data-vps/pilot-revoked.json data-vps/pilot-registry.json data-agtx/pilot-payments.sqlite
+sudo tar -czf /root/agt-pilot-$(date +%F).tgz -C /opt/agentcoin data-vps/wallets.json data-vps/pilot-revoked.json data-vps/pilot-registry.json data-vps/pilot-payments.sqlite
+sudo tar -tzf /root/agt-pilot-$(date +%F).tgz   # архив содержит все 4 файла — только потом дальше
 sudo systemctl start agt-node
+sleep 8; curl -s http://127.0.0.1:9335/life | jq '{blocks, chainValid}'
 ```
-Проверка пилота через фактический прокси (снаружи):
+Целостность копии (на выгруженном файле, службой не держится): открыть через `node:sqlite` и выполнить `PRAGMA integrity_check` → `ok`. Процедура проверена локально реальным кодом `pilot.mjs`: `node tools/stand/verify-pilot-backup.mjs` → 13/13 (создание базы первым запуском, claim→pending, копия→integrity ok→tar→снос→восстановление→тот же challenge и reconcile→pending с тем же txid).
+Проверка маршрутов через фактический прокси (снаружи — только безопасные запросы, без токена, состояние не меняют).
+Факт 2026-11-09 ~15:42–15:43 UTC по `https://agentcoin.work`:
+- `GET /pilot/status` → `200`, `Content-Type: text/html; charset=utf-8`, `Server: Caddy`, тело — HTML-лендинг. Это попадание в fallback сайта, НЕ ответ ноды: явного отказа прокси нет, маршрут к ноде не проброшен.
+- `POST /faucet/pilot/challenge` с `{}` и с `{"address":"AGTX"}` → `405`, пустое тело (статика края). `POST /faucet/pilot/claim`, `POST /pilot/payout`, `POST /pilot/reconcile` с `{}` → `405`. POST-405 не проверяет защиту GET — см. GET выше.
+- Проверка с админ-токеном — ТОЛЬКО loopback на самой ноде (пример ниже); по публичному URL токен не передавать и не проверять.
+Текущее состояние: пилотные маршруты к ноде НЕ проброшены — `/pilot/*` закрыт по умолчанию, кран снаружи недоступен (ожидаемо до запуска).
+Ожидаемое после настройки (край публикует ТОЛЬКО два POST, остальное deny):
+| Запрос (снаружи, без токена) | Ожидаемо | Почему |
+|---|---|---|
+| `POST /faucet/pilot/challenge` `{}` | `400 bad_params` | контур включён, валидация тела до создания — записи нет |
+| `POST /faucet/pilot/challenge` `{"address":"AGTX"}` | `400 bad_address` | формат до паспорта/лимитов, записи нет |
+| `POST /faucet/pilot/claim` `{}` / мусор | `400 bad_params` | строгий формат id/подписи |
+| `POST /faucet/pilot/claim` чужая/неверная подпись | `403 bad_signature` (тело `{"error":"bad_signature"}`) | challenge НЕ гасится |
+| контур выключен (нет `AGT_PILOT_FAUCET_FUND`) | `503 pilot_faucet_disabled` / `503 pilot_payout_disabled` | до любых проверок тела |
+| `GET /pilot/status`, `POST /pilot/payout`, `POST /pilot/reconcile` | отказ края (4xx) — НЕ JSON ноды | `/pilot/*` наружу не публиковать |
+Команды (снаружи — без токена; с токеном — только loopback выбранной ноды):
 ```bash
-curl -s -X POST https://<pilot-host>/faucet/pilot/challenge -H 'Content-Type: application/json' -d '{"address":"AGT…"}'  # 200, без токена
-curl -s -X POST https://<pilot-host>/pilot/status -H 'Content-Type: application/json' -d '{}'                      # 403 без токена
-curl -s -H "x-admin-token: $AGT_ADMIN_TOKEN" https://<pilot-host>/pilot/status                                  # 200 с токеном (если прокси пускает)
+curl -sS -D- -o /dev/null https://<pilot-host>/pilot/status            # снаружи: ждём НЕ-JSON (HTML fallback или отказ края), фиксируем Content-Type
+curl -sS -X POST https://<pilot-host>/faucet/pilot/challenge -H 'Content-Type: application/json' -d '{}'   # снаружи: 400 bad_params, без токена
+curl -sS -H "x-admin-token: $AGT_ADMIN_TOKEN" http://127.0.0.1:9335/pilot/status   # ТОЛЬКО loopback: 200, контуры и счётчики
 ```
 `/pilot/*` наружу не публиковать (deny на прокси; операторские вызовы — только loopback).
-Восстановление/перенос: при переносе остановить старый экземпляр ДО запуска нового.
+Восстановление/перенос и откат (строгий порядок): 1) закрыть публичные маршруты крана на прокси (deny); 2) остановить службу; 3) восстановить файлы из архива (проверить `tar -tzf` и `integrity_check`); 4) убрать пилотные env для отключения (рестарт); 5) журнал (`pilot-payments.sqlite`), реестр и txid сохранить — сверка по ним продолжается вручную (`recorded` с причиной = платёж зарезервирован исходной подписью). При переносе остановить старый экземпляр ДО запуска нового.
 `recorded` с причиной = платёж зарезервирован исходной подписью, требует разбора/сверки.
 Остановка пилота и откат конфигурации: убрать пилотные env + рестарт; журнал
 (`pilot-payments.sqlite`), реестр и txid сохранить — сверка по ним продолжается вручную.

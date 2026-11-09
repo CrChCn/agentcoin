@@ -111,7 +111,7 @@ const sink = await mkWallet('acc-sink');
 const oper = await mkWallet('acc-operator');
 await mineTo(origin, user.address);
 await mineTo(origin, oper.address);
-const agtBal = async (a) => { for (let i = 0; i < 5; i++) { const b = await jpost(origin, '/balance', { address: a }); const v = Number(b.body.balanceMGNT ?? b.body.balance); if (Number.isFinite(v)) return v; await sleep(400); } throw new Error('balance unreadable for ' + a); };
+const agtBal = async (a) => { for (let i = 0; i < 15; i++) { const b = await jpost(origin, '/balance', { address: a }); const v = Number(b.body.balanceMGNT ?? b.body.balance); if (Number.isFinite(v)) return v; await sleep(400); } throw new Error('balance unreadable for ' + a); };
 function signAgtTx(fromW, to, amount, memo) {
   const tx = { from: fromW.address, fromPub: fromW.pub, to, amount,
     nonce: Date.now() + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo };
@@ -289,7 +289,7 @@ check(await revertedWith(wagt.connect(stranger).pause(), 'not_pauser'), 'A3 по
   check(rBig.recovered.some((r) => r.startsWith(depBig + ':limit-refused-mint_limit_exceeded')) && supA === supB,
     'L5 попытка 41 через ресинк: mint НЕТ (supply не изменился)');
   check(loadHalt().agt2evm?.reason === 'mint_limit_exceeded', 'L5b превышение лимита mint — halt направления');
-  { const l = loadLedger(); l[depBig].state = 'void-reviewed'; saveLedger(l); }
+  { const l = loadLedger(); delete l[depBig]; saveLedger(l); } // синтетика теста: удалена, в резерв не попадает
   resetHalt('agt2evm', 'разбор L5: сверхлимитная заявка отклонена, журнал помечен');
   const bBig = '0x' + 'dd'.repeat(32);
   { const rl = loadRLedger(); rl[bBig] = { burnBlock: 1, amount: LIMITS.maxReleasePerOp + 1, agtRecipient: user.address, state: 'intent', releaseTxid: null }; saveRLedger(rl); }
@@ -300,7 +300,7 @@ check(await revertedWith(wagt.connect(stranger).pause(), 'not_pauser'), 'A3 по
   check(rRel.recovered.some((r) => r.includes(':limit-refused-release_limit_exceeded')) && uA === uB,
     'L6 попытка 11 через ресинк: выплата НЕ создана (баланс не изменился)');
   check(loadHalt().evm2agt?.reason === 'release_limit_exceeded', 'L6b превышение лимита release — halt направления');
-  { const rl = loadRLedger(); rl[bBig].state = 'void-reviewed'; saveRLedger(rl); }
+  { const rl = loadRLedger(); delete rl[bBig]; saveRLedger(rl); } // синтетика теста: удалена, в резерв не попадает
   resetHalt('evm2agt', 'разбор L6: сверхлимитная выплата отклонена, журнал помечен');
   check(!F.interface.hasFunction('setMintLimit') && !F.interface.hasFunction('mintLimit') && !F.interface.hasFunction('maxMint') &&
     !F.interface.hasFunction('setReleaseLimit'), 'L7 лимитов НЕТ в контракте (ABI): действуют только в релейере');

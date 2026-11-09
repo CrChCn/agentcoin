@@ -98,7 +98,7 @@ const user = await mkWallet('v2-user');
 const vault = await mkWallet('v2-vault');
 const sink = await mkWallet('v2-sink');
 await mineTo(origin, user.address);
-const agtBal = async (a) => { for (let i = 0; i < 5; i++) { const b = await jpost(origin, '/balance', { address: a }); const v = Number(b.body.balanceMGNT ?? b.body.balance); if (Number.isFinite(v)) return v; await sleep(400); } throw new Error('balance unreadable for ' + a); };
+const agtBal = async (a) => { for (let i = 0; i < 15; i++) { const b = await jpost(origin, '/balance', { address: a }); const v = Number(b.body.balanceMGNT ?? b.body.balance); if (Number.isFinite(v)) return v; await sleep(400); } throw new Error('balance unreadable for ' + a); };
 function signAgtTx(fromW, to, amount, memo) {
   const tx = { from: fromW.address, fromPub: fromW.pub, to, amount,
     nonce: Date.now() + Math.floor(Math.random() * 999), ts: Math.floor(Date.now() / 1000), memo };
@@ -291,7 +291,7 @@ check(gateMint(LIMITS.maxMintPerOp + 1).ok === false && gateMint(LIMITS.maxMintP
   L.bigHalt = loadHalt().agt2evm?.reason === 'mint_limit_exceeded';
   check(L.bigRefused && supAfter === supBefore, 'L4 попытка 41 через ресинк: mint НЕТ (supply не изменился)');
   check(L.bigHalt, 'L5 превышение лимита — halt направления (mint_limit_exceeded)');
-  { const l = loadLedger(); l[dep].state = 'void-reviewed'; saveLedger(l); }
+  { const l = loadLedger(); delete l[dep]; saveLedger(l); } // синтетика теста: удалена, в резерв не попадает
   { const h = loadHalt(); h.agt2evm = null; saveHalt(h); }
   check(loadHalt().agt2evm === null, 'L6 halt по лимиту снят вручную после разбора');
 }

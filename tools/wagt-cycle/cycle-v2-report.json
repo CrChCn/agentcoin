@@ -39,11 +39,11 @@
   "haltLog": {
     "agt2evm": {
       "reason": "supply_vault_mismatch",
-      "at": "2026-11-09T18:08:16.456Z"
+      "at": "2026-11-09T22:48:20.736Z"
     },
     "evm2agt": {
       "reason": "supply_vault_mismatch",
-      "at": "2026-11-09T18:08:16.456Z"
+      "at": "2026-11-09T22:48:20.736Z"
     }
   }
 }

@@ -8,7 +8,8 @@
     "cycle": "hardhat run scripts/cycle.mjs",
     "cycle:v2": "hardhat run scripts/cycle-v2.mjs",
     "cycle:sepolia": "hardhat run --network sepolia scripts/cycle-sepolia.mjs",
-    "cycle:sepolia-fork": "hardhat run --config hardhat.fork.cjs scripts/cycle-sepolia.mjs"
+    "cycle:sepolia-fork": "hardhat run --config hardhat.fork.cjs scripts/cycle-sepolia.mjs",
+    "accept:v2": "hardhat run scripts/accept-v2-mainnet.mjs"
   },
   "devDependencies": {
     "hardhat": "^2.22.0",

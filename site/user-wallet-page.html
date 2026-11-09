@@ -76,6 +76,12 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
   <button id="importWallet" class="secondary" onclick="document.getElementById('certFile').click()">Импортировать кошелёк</button>
 </div>
 <button id="disableAutologin" class="secondary" data-i18n="login.disableAutologin">Отключить автологин</button>
+<div class="row" style="margin-top:12px">
+<label for="pinInput" data-i18n="login.pin">PIN (4–6 цифр)</label>
+<input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<button id="pinLogin" data-i18n="login.pinSubmit">Войти по PIN</button>
+</div>
+<div id="pinHint" class="status" role="status" aria-live="polite"></div>
 <div id="loginHint" class="status" role="status" aria-live="polite">
 </div>
 </section>
@@ -87,6 +93,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="tabHistory" data-i18n="tab.history">История</button>
 <button id="tabContacts" data-i18n="tab.contacts">Контакты</button>
 <button id="tabFees" data-i18n="tab.fees">Комиссии</button>
+<button id="tabSecurity" data-i18n="tab.security">Безопасность</button>
 </nav>
 <section id="paneOverview">
 <div class="kv">
@@ -257,6 +264,19 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <div id="treasuryBox">
 </div>
 </section>
+<section id="paneSecurity" class="hidden">
+<h2 data-i18n="sec.title">Безопасность</h2>
+<p><span id="pinStatePill" class="pill off" data-i18n="sec.pinOff">PIN выключен</span></p>
+<label for="pinNew" data-i18n="sec.pinNew">Новый PIN (4–6 цифр)</label>
+<input id="pinNew" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<label for="pinRepeat" data-i18n="sec.pinRepeat">Повтори PIN</label>
+<input id="pinRepeat" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<div class="row">
+<button id="pinSave" data-i18n="sec.pinSave">Сохранить PIN</button>
+<button id="pinDisable" class="secondary" data-i18n="sec.pinDisable">Отключить PIN</button>
+</div>
+<div id="secMessage" class="status" role="status" aria-live="polite"></div>
+</section>
 <button id="logout" class="secondary" data-i18n="login.logout">Выйти</button>
 <div id="message" class="status" role="status" aria-live="polite">
 </div>
@@ -285,6 +305,10 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Войти",
     "login.logout": "Выйти",
+    "login.pin": "PIN (4–6 цифр)",
+    "login.pinSubmit": "Войти по PIN",
+    "login.pinFirstPassport": "Сначала войди по паспорту и настрой PIN в разделе «Безопасность».",
+    "login.pinOk": "Вход по PIN выполнен.",
     "login.autologin": "Локальный вход на этой машине",
     "login.disableAutologin": "Отключить автологин",
     "login.hint": "Вход подтверждается паспортной подписью.",
@@ -379,6 +403,17 @@ const I18N={
     "tab.history": "История",
     "tab.contacts": "Контакты",
     "tab.fees": "Комиссии",
+    "tab.security": "Безопасность",
+    "sec.title": "Безопасность",
+    "sec.pinOn": "PIN включён",
+    "sec.pinOff": "PIN выключен",
+    "sec.pinNew": "Новый PIN (4–6 цифр)",
+    "sec.pinRepeat": "Повтори PIN",
+    "sec.pinSave": "Сохранить PIN",
+    "sec.pinDisable": "Отключить PIN",
+    "sec.pinMismatch": "PIN не совпадают — повтори ввод.",
+    "sec.pinSaved": "PIN сохранён (scrypt-хеш на сервере).",
+    "sec.pinDisabled": "PIN отключён.",
     "overview.aliceTitle": "Запросить оплату у Алисы",
     "overview.aliceText": "Создай счёт и передай его файлом или QR.",
     "overview.aliceButton": "Создать счёт для Алисы",
@@ -408,6 +443,10 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Sign in",
     "login.logout": "Sign out",
+    "login.pin": "PIN (4–6 digits)",
+    "login.pinSubmit": "Sign in with PIN",
+    "login.pinFirstPassport": "Sign in with your passport first and set a PIN in “Security”.",
+    "login.pinOk": "Signed in with PIN.",
     "login.autologin": "Local sign-in on this machine",
     "login.disableAutologin": "Disable autologin",
     "login.hint": "Passport signature confirms this session.",
@@ -502,6 +541,17 @@ const I18N={
     "tab.history": "History",
     "tab.contacts": "Contacts",
     "tab.fees": "Fees",
+    "tab.security": "Security",
+    "sec.title": "Security",
+    "sec.pinOn": "PIN enabled",
+    "sec.pinOff": "PIN disabled",
+    "sec.pinNew": "New PIN (4–6 digits)",
+    "sec.pinRepeat": "Repeat PIN",
+    "sec.pinSave": "Save PIN",
+    "sec.pinDisable": "Disable PIN",
+    "sec.pinMismatch": "PINs do not match.",
+    "sec.pinSaved": "PIN saved (scrypt hash on server).",
+    "sec.pinDisabled": "PIN disabled.",
     "overview.aliceTitle": "Request payment from Alice",
     "overview.aliceText": "Create an invoice and share it as a file or QR.",
     "overview.aliceButton": "Create Alice invoice",
@@ -531,6 +581,10 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Connexion",
     "login.logout": "Déconnexion",
+    "login.pin": "PIN (4–6 chiffres)",
+    "login.pinSubmit": "Se connecter avec PIN",
+    "login.pinFirstPassport": "Connectez-vous d’abord avec le passeport, puis définissez un PIN dans « Sécurité ».",
+    "login.pinOk": "Connecté avec PIN.",
     "login.autologin": "Connexion locale sur cette machine",
     "login.disableAutologin": "Désactiver la connexion auto",
     "login.hint": "La signature du passeport confirme cette session.",
@@ -625,6 +679,17 @@ const I18N={
     "tab.history": "Historique",
     "tab.contacts": "Contacts",
     "tab.fees": "Frais",
+    "tab.security": "Sécurité",
+    "sec.title": "Sécurité",
+    "sec.pinOn": "PIN activé",
+    "sec.pinOff": "PIN désactivé",
+    "sec.pinNew": "Nouveau PIN (4–6 chiffres)",
+    "sec.pinRepeat": "Répéter le PIN",
+    "sec.pinSave": "Enregistrer le PIN",
+    "sec.pinDisable": "Désactiver le PIN",
+    "sec.pinMismatch": "Les PIN ne correspondent pas.",
+    "sec.pinSaved": "PIN enregistré (hash scrypt sur le serveur).",
+    "sec.pinDisabled": "PIN désactivé.",
     "overview.aliceTitle": "Demander un paiement à Alice",
     "overview.aliceText": "Créez une facture et partagez-la en fichier ou QR.",
     "overview.aliceButton": "Créer une facture pour Alice",
@@ -654,6 +719,10 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Entrar",
     "login.logout": "Salir",
+    "login.pin": "PIN (4–6 dígitos)",
+    "login.pinSubmit": "Entrar con PIN",
+    "login.pinFirstPassport": "Entra primero con el pasaporte y configura un PIN en «Seguridad».",
+    "login.pinOk": "Sesión iniciada con PIN.",
     "login.autologin": "Acceso local en este equipo",
     "login.disableAutologin": "Desactivar acceso automático",
     "login.hint": "La firma del pasaporte confirma la sesión.",
@@ -748,6 +817,17 @@ const I18N={
     "tab.history": "Historial",
     "tab.contacts": "Contactos",
     "tab.fees": "Comisiones",
+    "tab.security": "Seguridad",
+    "sec.title": "Seguridad",
+    "sec.pinOn": "PIN activado",
+    "sec.pinOff": "PIN desactivado",
+    "sec.pinNew": "Nuevo PIN (4–6 dígitos)",
+    "sec.pinRepeat": "Repite el PIN",
+    "sec.pinSave": "Guardar PIN",
+    "sec.pinDisable": "Desactivar PIN",
+    "sec.pinMismatch": "Los PIN no coinciden.",
+    "sec.pinSaved": "PIN guardado (hash scrypt en el servidor).",
+    "sec.pinDisabled": "PIN desactivado.",
     "overview.aliceTitle": "Solicitar pago a Alicia",
     "overview.aliceText": "Crea una factura y compártela como archivo o QR.",
     "overview.aliceButton": "Crear factura para Alicia",
@@ -777,6 +857,10 @@ const I18N={
     "login.signature": "Signatur (128 Hex)",
     "login.submit": "Anmelden",
     "login.logout": "Abmelden",
+    "login.pin": "PIN (4–6 Ziffern)",
+    "login.pinSubmit": "Mit PIN anmelden",
+    "login.pinFirstPassport": "Melde dich zuerst mit dem Pass an und richte eine PIN unter „Sicherheit“ ein.",
+    "login.pinOk": "Mit PIN angemeldet.",
     "login.autologin": "Lokale Anmeldung auf diesem Gerät",
     "login.disableAutologin": "Autologin deaktivieren",
     "login.hint": "Die Pass-Signatur bestätigt diese Sitzung.",
@@ -871,6 +955,17 @@ const I18N={
     "tab.history": "Verlauf",
     "tab.contacts": "Kontakte",
     "tab.fees": "Gebühren",
+    "tab.security": "Sicherheit",
+    "sec.title": "Sicherheit",
+    "sec.pinOn": "PIN aktiviert",
+    "sec.pinOff": "PIN deaktiviert",
+    "sec.pinNew": "Neue PIN (4–6 Ziffern)",
+    "sec.pinRepeat": "PIN wiederholen",
+    "sec.pinSave": "PIN speichern",
+    "sec.pinDisable": "PIN deaktivieren",
+    "sec.pinMismatch": "PINs stimmen nicht überein.",
+    "sec.pinSaved": "PIN gespeichert (scrypt-Hash auf dem Server).",
+    "sec.pinDisabled": "PIN deaktiviert.",
     "overview.aliceTitle": "Zahlung von Alice anfordern",
     "overview.aliceText": "Erstelle eine Rechnung und teile sie als Datei oder QR.",
     "overview.aliceButton": "Rechnung für Alice erstellen",
@@ -905,7 +1000,7 @@ async function getJSON(path){return (await api(path)).json}
 function noSecrets(v){if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error(SECRET);noSecrets(x)}}}
 function loadContacts(){try{const v=JSON.parse(localStorage.getItem(CONTACT_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.label==='string'&&typeof x.address==='string'):[]}catch{return[]}}
 function persistContacts(){localStorage.setItem(CONTACT_KEY,JSON.stringify(contacts.slice(0,200)))}
-function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
+function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
 function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off')}
 async function checkNetwork(){const info=await getJSON('/info');const network=info.chainId||info.network;if(network!=='AGENTCOIN'||!/^[a-f0-9]{64}$/i.test(info.genesisHash||''))throw Error('Cannot verify network and genesis.');if(nodeInfo&&nodeInfo.genesisHash!==info.genesisHash)throw Error('Genesis changed; sign out and reconnect.');nodeInfo={network,genesisHash:info.genesisHash};return nodeInfo}
 function fileText(file,max=65536){if(!file||file.size>max)throw Error('File is missing or too large.');return file.text()}
@@ -918,13 +1013,13 @@ function buttons(container,current,callback){container.replaceChildren();for(con
 function renderUnits(){if($('unitButtons'))buttons($('unitButtons'),balanceUnit,u=>{balanceUnit=u;renderUnits();renderBalance()})}
 function renderSendUnits(){if($('sendUnitButtons'))buttons($('sendUnitButtons'),sendUnit,u=>{sendUnit=u;renderSendUnits();invalidateSend();$('unitHint').textContent='1 '+u+' = '+(u==='AGT'?'1 AGT':u==='mAGT'?'0.000001 AGT':'0.000000001 AGT')})}
 function renderInvoiceUnits(){if($('invUnitButtons'))buttons($('invUnitButtons'),invoiceUnit,u=>{invoiceUnit=u;renderInvoiceUnits();invoiceData=null;$('downloadInvoice').disabled=true;$('showInvoiceQR').disabled=true})}
-const PANES=['Overview','Send','Receive','History','Contacts','Fees'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders()}
+const PANES=['Overview','Send','Receive','History','Contacts','Fees','Security'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders();if(n==='Security')refreshPinState().catch(()=>{})}
 for(const p of PANES)$('tab'+p).onclick=()=>showTab(p);
-async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();$('identity').textContent=(state.passport&&state.passport.handle?state.passport.handle+' · ':'')+address;$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{})}
+async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();$('identity').textContent=(state.passport&&state.passport.handle?state.passport.handle+' · ':'')+address;$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{});refreshPinState().catch(()=>{})}
 async function refreshSession(){if(!address||!token)return;await loadWallet()}
 async function challengeFlow(){if(!address)throw Error(tr('err.noAddr'));const askedAddress=address;await checkNetwork();const r=(await api('/cabinet/challenge',{address})).json;if(address!==askedAddress)throw Error('Address changed; challenge discarded.');if(!r.ok||!r.challenge)throw Error(r.error||'invalid_challenge');challengeReply=r;$('challengeJson').value=JSON.stringify(r,null,2);$('signBox').classList.remove('hidden');const command='node src/cli.mjs sign-challenge /path/profile.json /path/challenge-'+(r.challengeId||'request')+'.json';$('challengeCommand').textContent=command;addCopyButton($('challengeCommand'),command);saveFile('agentcoin-challenge-'+(r.challengeId||'request')+'.json',r);$('loginHint').textContent=tr('login.challengeOk')}
 async function loginFlow(){if(!challengeReply)throw Error('Get a challenge first.');const loginAddress=address,signedChallenge=challengeReply,sig=$('signature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const r=(await api('/cabinet/login',{address:loginAddress,mode:'challenge',nonce:signedChallenge.nonce,challengeId:signedChallenge.challengeId,signature:sig})).json;if(address!==loginAddress||challengeReply!==signedChallenge)throw Error('Address changed; login response discarded.');if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);challengeReply=null;$('signature').value='';await loadWallet();setMessage(tr('login.loggedIn'))}
-async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;challengeReply=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
+async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;challengeReply=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
 async function autologin(){const askedAddress=address;if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname))throw Error('Autologin is available only on loopback.');if(localStorage.getItem('agtx:autologin')==='disabled')throw Error('Autologin is disabled.');const r=(await api('/cabinet/autologin',{address:address||undefined},{headers:{'x-cabinet-autologin':'local'}})).json;if(address!==askedAddress)throw Error('Address changed; autologin response discarded.');if(!r.token||!r.address)throw Error(r.error||'autologin_response_invalid');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);address=r.address;localStorage.setItem(ADDR_KEY,address);updateAddressUI();await loadWallet();setMessage(tr('login.loggedIn'))}
 function disableAutologin(){localStorage.setItem('agtx:autologin','disabled');setMessage('Autologin disabled on this browser.')}
 function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
@@ -996,7 +1091,15 @@ function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=pa
 async function loadTreasury(){try{const r=await getJSON('/treasury/state'),box=$('treasuryBox');box.replaceChildren();const table=document.createElement('table');const p=r.policy;if(!p){box.textContent='Treasury policy is not active.';return}for(const [k,v] of Object.entries(p)){const tr=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=Array.isArray(v)?v.join(', '):String(v);tr.append(a,b);table.append(tr)}box.append(table)}catch(e){$('treasuryBox').textContent=tr('err.api')+e.message}}
 async function importPassport(){const f=$('certFile').files[0];if(!f)throw Error('Select a public passport JSON.');const j=JSON.parse(await fileText(f,4096));noSecrets(j);const passport=j.passport||j;await api('/identity/import',{passport});if(passport.address)setAddress(passport.address);setMessage('Public passport imported.')}
 function restoreSession(){address=localStorage.getItem(ADDR_KEY)||'';token=sessionStorage.getItem(TOKEN_KEY)||'';if(token&&address)loadWallet().catch(()=>logoutFlow())}
-function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){setMessage(e.message,true)}};$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
+function setPinHint(t,err=false){const el=$('pinHint');if(!el)return;el.textContent=t||'';el.classList.toggle('error',err)}
+function setSecMessage(t,err=false){const el=$('secMessage');if(!el)return;el.textContent=t||'';el.classList.toggle('error',err)}
+function clearPinInputs(){for(const id of ['pinInput','pinNew','pinRepeat']){const el=$(id);if(el)el.value=''}setPinHint('');setSecMessage('')}
+function pinErrText(e){return (e&&e.body&&e.body.hint)?(e.body.hint+' ('+e.body.error+')'):(e&&e.message?e.message:String(e))}
+async function refreshPinState(){const pill=$('pinStatePill');if(!pill)return;if(!address){pill.className='pill off';pill.textContent=tr('sec.pinOff');return}try{const r=(await api('/cabinet/pin/status',{address})).json;const on=!!(r.ok&&r.pinSet);pill.className='pill '+(on?'on':'off');pill.textContent=tr(on?'sec.pinOn':'sec.pinOff')}catch(e){pill.className='pill off';pill.textContent=tr('sec.pinOff')}}
+async function pinLoginFlow(){if(!address)throw Error(tr('login.noAddr'));const pin=$('pinInput').value.trim();let st=null;try{st=(await api('/cabinet/pin/status',{address})).json}catch{}if(st&&st.ok&&!st.pinSet)throw Error(tr('login.pinFirstPassport'));const r=(await api('/cabinet/pin/login',{address,pin})).json;if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);$('pinInput').value='';await loadWallet();setMessage(tr('login.pinOk'))}
+async function savePinFlow(){const a=$('pinNew').value.trim(),b=$('pinRepeat').value.trim();if(a!==b)throw Error(tr('sec.pinMismatch'));const r=(await api('/cabinet/pin/set',{address,token,pin:a})).json;if(!(r.ok&&r.pinSet))throw Error((r&&(r.hint||r.error))||'pin_save_failed');$('pinNew').value='';$('pinRepeat').value='';await refreshPinState();setSecMessage(tr('sec.pinSaved'))}
+async function disablePinFlow(){const r=(await api('/cabinet/pin/disable',{address,token})).json;if(!(r.ok&&!r.pinSet))throw Error((r&&(r.hint||r.error))||'pin_disable_failed');await refreshPinState();setSecMessage(tr('sec.pinDisabled'))}
+function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('pinLogin').onclick=()=>pinLoginFlow().catch(e=>setPinHint(pinErrText(e),true));$('pinSave').onclick=()=>savePinFlow().catch(e=>setSecMessage(pinErrText(e),true));$('pinDisable').onclick=()=>disablePinFlow().catch(e=>setSecMessage(pinErrText(e),true));$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){setMessage(e.message,true)}};$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
 </body>

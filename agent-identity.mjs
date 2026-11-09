@@ -298,4 +298,9 @@ export class AgentIdentityRegistry {
     const cert = typeof address === 'string' ? this._records.get(address) : null;
     return cert ? publicIdentity(cert) : null;
   }
+  // Read-only снимок реестра для аудита (/passport/count): публичная проекция,
+  // та же, что findByAddress — приватных полей наружу нет.
+  list() {
+    return [...this._records.values()].map(publicIdentity);
+  }
 }

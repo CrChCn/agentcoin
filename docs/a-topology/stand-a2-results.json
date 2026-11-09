@@ -1,0 +1,130 @@
+{
+ "startedAt": "2026-11-09T10:29:58.000Z",
+ "testIntervals": {
+  "WS_LOOP_MS": 5000,
+  "SYNC_ALL_MS": 10000
+ },
+ "prodIntervals": {
+  "WS_LOOP_MS": 45000,
+  "SYNC_ALL_MS": 90000
+ },
+ "steps": [
+  {
+   "name": "A2.0 один генезис",
+   "ok": true,
+   "detail": "00026d18205c7c87"
+  },
+  {
+   "name": "A2.1 WS-mesh собран (у каждой ≥2 пира)",
+   "ok": true,
+   "detail": "A:2 B:2 C:2"
+  },
+  {
+   "name": "A2.2 sanity: блок A разошёлся сам (без sync-now)",
+   "ok": true,
+   "detail": "h=2"
+  },
+  {
+   "name": "A2.3 разрыв A↔C",
+   "ok": true,
+   "detail": "A закрыл 1, C закрыл 0"
+  },
+  {
+   "name": "A2.4 прямая связь A↔C не восстановлена",
+   "ok": true,
+   "detail": "peers A:1 C:1 wsPeers A:1 C:1 redial:0"
+  },
+  {
+   "name": "A2.5 три блока дошли до B и до C (хеши совпали)",
+   "ok": true,
+   "detail": "h=2 C-via-B:да h=3 C-via-B:да h=4 C-via-B:да"
+  },
+  {
+   "name": "A2.6 путь по журналам: B←A, C←B, C↛A напрямую",
+   "ok": true,
+   "detail": "[{\"height\":2,\"bFromA\":1,\"cFromB\":1,\"cFromA\":0},{\"height\":3,\"bFromA\":1,\"cFromB\":1,\"cFromA\":0},{\"height\":4,\"bFromA\":1,\"cFromB\":1,\"cFromA\":0}]"
+  },
+  {
+   "name": "A2.7 связь восстановлена, синхронизация идёт",
+   "ok": true,
+   "detail": "tips equal: true"
+  }
+ ],
+ "transport": {
+  "AB": "A→B:WS-outbound",
+  "BA": "B→A:WS-outbound",
+  "BC": "B→C:inbound-принят",
+  "CB": "C→B:WS-outbound",
+  "AC": "A→C:inbound-принят",
+  "CA": "C→A:WS-outbound"
+ },
+ "blocks": [
+  {
+   "height": 2,
+   "minedAt": 1794220241955,
+   "hashA": "000185b84f7c133d35cfb1c8db7aedb2e8e811c9a9a7bb770f6a5eea6c121c4c",
+   "seenB": {
+    "at": 1794220241985,
+    "tip": "000185b84f7c133d35cfb1c8db7aedb2e8e811c9a9a7bb770f6a5eea6c121c4c"
+   },
+   "seenC": {
+    "at": 1794220241985,
+    "tip": "000185b84f7c133d35cfb1c8db7aedb2e8e811c9a9a7bb770f6a5eea6c121c4c"
+   }
+  },
+  {
+   "height": 3,
+   "minedAt": 1794220243452,
+   "hashA": "0001be980fe6ad363a429dfd787b42e40403a0829f8bd104b5daa46b41dd6034",
+   "seenB": {
+    "at": 1794220243534,
+    "tip": "0001be980fe6ad363a429dfd787b42e40403a0829f8bd104b5daa46b41dd6034"
+   },
+   "seenC": {
+    "at": 1794220243534,
+    "tip": "0001be980fe6ad363a429dfd787b42e40403a0829f8bd104b5daa46b41dd6034"
+   }
+  },
+  {
+   "height": 4,
+   "minedAt": 1794220243788,
+   "hashA": "0003c750824bba05d0f83322edbba8dd1a52a03e5640922513fefb9876ae49a2",
+   "seenB": {
+    "at": 1794220243805,
+    "tip": "0003c750824bba05d0f83322edbba8dd1a52a03e5640922513fefb9876ae49a2"
+   },
+   "seenC": {
+    "at": 1794220243805,
+    "tip": "0003c750824bba05d0f83322edbba8dd1a52a03e5640922513fefb9876ae49a2"
+   }
+  }
+ ],
+ "pathProof": [
+  {
+   "height": 2,
+   "bFromA": 1,
+   "cFromB": 1,
+   "cFromA": 0
+  },
+  {
+   "height": 3,
+   "bFromA": 1,
+   "cFromB": 1,
+   "cFromA": 0
+  },
+  {
+   "height": 4,
+   "bFromA": 1,
+   "cFromB": 1,
+   "cFromA": 0
+  }
+ ],
+ "finalHeights": [
+  5,
+  5,
+  5
+ ],
+ "finishedAt": "2026-11-09T10:30:46.960Z",
+ "passed": 8,
+ "failed": 0
+}

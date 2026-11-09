@@ -1,5 +1,47 @@
 # Выкладка рабочих нод A2 (пошагово для оператора, по одному серверу)
 
+## Статус узлов (публично установлено 2026-11-09, A1)
+
+| Узел | Статус | Роль в выкладке |
+|---|---|---|
+| `agentcoin.work` | **upstream НЕ определён** — какой физический узел обслуживает API, неизвестно | Проверка оператором (ниже); не трогать до подтверждения |
+| node1.agentcoin.work | **НЕ подтверждён** — нет в ростере опрашивающей ноды | **Не использовать как обязательный**; только проверки |
+| node2 (Hetzner fsn1) | Подтверждён (отвечает, тот же tip) | SEED — первый сервер |
+| node3 (DO fra1) | Подтверждён (отвечает, тот же tip) | Второй сервер, пиром к node2 |
+
+Проверка оператором для неподтверждённого (с любого сервера):
+`nslookup node1.agentcoin.work`, `curl -s https://node1.agentcoin.work/api/v1/life`,
+сверить `tipHash` с node2/node3; `curl -s https://agentcoin.work/api/v1/network/nodes`
+— какой узел отвечает как «Эта нода» и есть ли node1 в списке. До совпадения
+tip и появления в ростере node1 в mesh не включать.
+
+## Правила выкладки (каждый подтверждённый сервер)
+
+Порядок: сохранить конфигурацию → применить изменение → проверить службу,
+цепь, соединения и новые блоки → только потом следующий сервер.
+Пиринг, запуск крана и реальные выплаты — ОТДЕЛЬНЫЕ этапы: настройка связи
+не зависит от бюджета и включается раньше денежных шагов.
+
+Сохранение перед изменением (на сервере):
+```bash
+sudo tar -czf /root/agt-backup-$(date +%F).tgz -C /opt/agentcoin data-vps/peers.json data-vps/wallets.json data-agtx 2>/dev/null; ls -la /root/agt-backup-*
+```
+Проверка после изменения (на сервере):
+```bash
+systemctl is-active agt-node
+curl -s http://127.0.0.1:9335/life | jq '{blocks, tipHash, chainValid}'
+curl -s http://127.0.0.1:9335/ws/status | jq '{wsPeers}'
+```
+Откат (на сервере):
+```bash
+sudo systemctl stop agt-node
+sudo tar -xzf /root/agt-backup-<ДАТА>.tgz -C /opt/agentcoin
+sudo chown -R agt:agt /opt/agentcoin && sudo systemctl start agt-node
+sleep 10; curl -s http://127.0.0.1:9335/life | jq '{blocks, chainValid}'
+```
+
+## Порядок серверов
+
 Порядок важен: сначала seed без пиров, затем остальные — пиром к seed.
 Стандартный порт `9335`. Все команды — по SSH от root (Ubuntu/Debian).
 

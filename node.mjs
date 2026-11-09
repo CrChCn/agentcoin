@@ -40,7 +40,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
-import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
+import { addPeer, loadPeers, savePeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
@@ -862,7 +862,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // Охрана: если задан AGT_ADMIN_TOKEN — деструктивные POST требуют заголовок x-admin-token.
   // Без env-флага сеть продолжает работать как раньше (совместимость не ломаем).
   const REQUIRES_ADMIN = req.method === 'POST' &&
-    ['/security/unban', '/peer/add', '/peer/remove', '/treasury/propose', '/jail/ask', '/jail/answer', '/jail/release', '/jail/profile'].includes(p);
+    ['/security/unban', '/peer/add', '/peer/drop', '/peer/remove', '/treasury/propose', '/jail/ask', '/jail/answer', '/jail/release', '/jail/profile'].includes(p);
   if (REQUIRES_ADMIN && process.env.AGT_ADMIN_TOKEN) {
     const ok = req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN;
     if (!ok) return json(res, 401, { error: 'admin_token_required', hint: 'set x-admin-token header' });
@@ -2429,7 +2429,37 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/peer/add' && req.method === 'POST') {
     const { peer } = await body(req);
     if (!peer) return json(res, 400, { error: 'peer url required' });
+    // явное добавление = явное намерение звонить: снимаем drop-cooldown и мёртвые WS-записи
+    try {
+      const norm = String(peer).replace(/\/+$/, '');
+      wsCooldown.delete(norm); wsRetryClear(norm);
+      for (const ps of [...hub.peers]) {
+        const url = ps.connectedPeerUrl || ps.theirUrl;
+        if ((url === peer || url === norm) && (!ps.socket || ps.closed || ps.socket.destroyed)) { try { hub.peers.delete(ps); } catch {} }
+      }
+      if (hub.byTheir) for (const [k, ps] of [...hub.byTheir]) {
+        if ((k === peer || k === norm) && (!ps.socket || ps.closed || ps.socket.destroyed)) hub.byTheir.delete(k);
+      }
+    } catch {}
     return json(res, 200, { peers: addPeer(peer) });
+  }
+  // A2-стенд/оператор: разорвать связь с пиром без рестарта — убрать из peers.json
+  // и закрыть живые WS-сессии в обе стороны; cooldown не даёт ws-loop перезвонить,
+  // пока пира нет в списке. Gossip-списки от третьих нод могут вернуть URL в peers.json
+  // (это фиксируется тестом как восстановление связи).
+  if (p === '/peer/drop' && req.method === 'POST') {
+    const { peer } = await body(req);
+    if (!peer) return json(res, 400, { error: 'peer url required' });
+    const norm = String(peer).replace(/\/+$/, '');
+    const kept = loadPeers().filter(u => u !== peer && u !== norm);
+    savePeers(kept);
+    let closed = 0;
+    for (const ps of [...hub.peers]) {
+      const url = ps.connectedPeerUrl || ps.theirUrl;
+      if (url === peer || url === norm) { try { ps.close(); closed++; } catch {} try { hub.peers.delete(ps); } catch {} }
+    }
+    try { wsCooldown.set(norm, Date.now() + WS_COOLDOWN_MS); } catch {}
+    return json(res, 200, { dropped: norm, closedSessions: closed, peers: kept });
   }
   if (p === '/sync-now') {
     const logLines = await syncAll(bc);
@@ -2846,8 +2876,10 @@ async function wsConnectLoop() {
 // AGIP-23: рассинхрон циклов нод (±10с jitter) — synchronized retry-storm больше нет
 // AGIP-25: на задушенной машине (CPU 100%) интервал WS-циклы поднят 30с→45с,
 // джиттер ±10с→±15с — меньше синхронных всплесков между нодами.
+// AGT_WS_LOOP_MS: база цикла WS-дозвона (тест 5000, прод 45000) + джиттер ±15с (AGIP-23/25).
+const WS_LOOP_MS = Number(process.env.AGT_WS_LOOP_MS || 45_000);
 (function wsLoopStagger() {
-  setTimeout(() => { wsConnectLoop().catch(() => {}); wsLoopStagger(); }, 45_000 + Math.floor(Math.random() * 15_000));
+  setTimeout(() => { wsConnectLoop().catch(() => {}); wsLoopStagger(); }, WS_LOOP_MS + Math.floor(Math.random() * 15_000));
 })();
 console.log('[ws] ws-модуль инициализирован (server + outbound loop, AGIP-23 backoff+jitter+bootstrap-merge)');
 wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.message || e));
@@ -2857,7 +2889,9 @@ wsConnectLoop().catch((e) => console.log('[ws] loop crash:', e?.stack || e?.mess
 // потому что sync стартовал только по внешним событиям/ручному /sync-now.
 // Часовая сеть должна сама подтягивать тяжёлую цепь по таймеру.
 // AGIP-25: syncAll 60с→90с (CPU-щадящий ритм; форки всё равно ловятся WS-событиями)
-if (process.env.AGT_PEER_DISCOVERY !== '0') setInterval(() => { syncAll(bc).catch(() => {}); }, 90_000).unref();
+// AGT_SYNC_ALL_MS: период фонового HTTP-синка (тест 10000, прод 90000, AGIP-25).
+const SYNC_ALL_MS = Number(process.env.AGT_SYNC_ALL_MS || 90_000);
+if (process.env.AGT_PEER_DISCOVERY !== '0') setInterval(() => { syncAll(bc).catch(() => {}); }, SYNC_ALL_MS).unref();
 // AGIP-12: патруль карантина — раз в минуту синхронизируем базу злоумышленников с журналом атак
 setInterval(() => {
   try {
@@ -2869,7 +2903,7 @@ setInterval(() => {
     if (parsed) console.log(`[jail] анкет заполнено автоматически: ${parsed}`);
   } catch {}
 }, 60_000).unref();
-console.log('[sync] периодический syncAll: каждые 60с (AGIP-7)');
+console.log(`[sync] периодический syncAll: каждые ${SYNC_ALL_MS}мс (AGIP-7/25); ws-loop база ${WS_LOOP_MS}мс`);
 
 // === AGIP-10: налоговая инфраструктура ===
 // split-on-send при escrow-payout и DXE-заполнах, когда в паспорте агента есть tax-поле.

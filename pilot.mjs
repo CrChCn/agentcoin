@@ -95,10 +95,11 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
     try { const v = JSON.parse(fs.readFileSync(registryFile, 'utf8')); return Array.isArray(v) ? v : null; }
     catch { return null; }
   };
-  const chainTxids = () => {
+  // Раздельно: цепь (confirmed) и очередь (pending). Смешивание давало ложный
+  // confirmed для tx, видимой только в mempool, с потерей записи после рестарта.
+  const chainOnlyTxids = () => {
     const s = new Set();
     for (const b of (bc.chain || [])) for (const t of (b.txs || [])) if (t && t.txid) s.add(t.txid);
-    for (const t of (bc.mempool || [])) if (t && t.txid) s.add(t.txid);
     return s;
   };
   const fundWallet = (addr) => { const w = loadWallets()[addr]; return w && w.privKey ? w : null; };
@@ -228,27 +229,34 @@ export function createPilot({ dataDir, bc, loadWallets, announce, identity, isBa
   }
 
   // ---------- восстановление ----------
+  // confirmed — только если txid реально в цепи. Всё остальное открытое —
+  // повторная подача ИСХОДНОЙ подписанной транзакции (тот же txid):
+  // already_in_chain/duplicate_tx = уже видна → pending/confirmed,
+  // fund_tx_rejected = остаётся recorded с причиной на ручной разбор.
   function reconcile() {
     if (!faucetEnabled && !payoutEnabled) return { ok: false, error: 'pilot_disabled' };
     return withDb((q) => {
     const out = { faucet: [], payouts: [] };
-    const settle = (row, markConfirmed, ref, fund) => {
+    const chainSet = chainOnlyTxids();
+    const settle = (row, mark, ref, fund) => {
       let tx = null;
       try { tx = JSON.parse(row.tx_json); } catch { return { ...ref, action: 'recorded', reason: 'bad_tx_json' }; }
       // Фонд контура сменился после записи: чужую подпись не трогаем, только помечаем.
       if (tx && tx.from !== fund) return { ...ref, action: 'recorded', reason: 'fund_changed', note: 'from записи не совпадает с текущим фондом' };
-      if (row.txid && chainTxids().has(row.txid)) { markConfirmed(); return { ...ref, action: 'confirmed', txid: row.txid }; }
-      if (row.state === 'pending') {
-        submitTx(tx); // исходная подпись; already_in_chain/duplicate_tx = уже видна
-        if (chainTxids().has(tx.txid)) { markConfirmed(); return { ...ref, action: 'confirmed', txid: tx.txid }; }
-        return { ...ref, action: 'pending', txid: tx.txid, note: 'в mempool/ожидает блока' };
+      if (row.txid && chainSet.has(row.txid)) { mark('confirmed', row.txid, null); return { ...ref, action: 'confirmed', txid: row.txid }; }
+      const s = submitTx(tx);
+      if (s.ok) {
+        if (chainSet.has(tx.txid)) { mark('confirmed', tx.txid, null); return { ...ref, action: 'confirmed', txid: tx.txid }; }
+        mark('pending', tx.txid, null);
+        return { ...ref, action: 'pending', txid: tx.txid, ...(row.state === 'recorded' ? { note: 'повторно отправлено после восстановления' } : {}) };
       }
-      return { ...ref, action: 'recorded', reason: row.reason || 'needs_review' };
+      mark('recorded', tx.txid, s.reason);
+      return { ...ref, action: 'recorded', reason: s.reason || row.reason || 'needs_review' };
     };
     for (const row of q.openFaucet.all())
-      out.faucet.push(settle(row, () => q.setFaucet.run('confirmed', null, null, null, row.challenge_id), { challengeId: row.challenge_id }, faucetFund));
+      out.faucet.push(settle(row, (st, txid, reason) => q.setFaucet.run(st, reason, txid, row.tx_json, row.challenge_id), { challengeId: row.challenge_id }, faucetFund));
     for (const row of q.openPayouts.all())
-      out.payouts.push(settle(row, () => q.setPayout.run('confirmed', null, null, null, row.key), { key: row.key }, payoutFund));
+      out.payouts.push(settle(row, (st, txid, reason) => q.setPayout.run(st, reason, txid, row.tx_json, row.key), { key: row.key }, payoutFund));
     return { ok: true, ...out };
     });
   }

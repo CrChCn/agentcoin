@@ -148,6 +148,27 @@ async function main() {
       step('t2.2 баланс +0.5 после блока', bal === 0.5, `bal=${bal}`);
       const r2 = await faucetPay(agent);
       step('t2.3 повтор → agent_cap_reached', !r2.ok && r2.error === 'agent_cap_reached', r2.error);
+      // t2.5: pending в mempool → reconcile НЕ должен врать confirmed → снос mempool →
+      // рестарт → тот же txid восстанавливается исходной подписью → блок → confirmed
+      const w15 = createWallet('agent-1b'); await registerAgent(w15, 'agent-1b');
+      const r3 = await faucetPay(w15);
+      step('t2.5 claim без майнинга → pending', r3.ok && !!r3.txid, (r3.txid || '').slice(0, 16));
+      const rec0 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const still = (rec0.body.faucet || []).find(x => x.txid === r3.txid);
+      step('t2.5b reconcile до блока → pending (не confirmed)', still?.action === 'pending', still?.action);
+      stop(); await sleep(500);
+      try { fs.unlinkSync(path.join(dataDir, 'mempool.json')); } catch {}
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
+      const rec1 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const back = (rec1.body.faucet || []).find(x => x.txid === r3.txid);
+      step('t2.6 после потери mempool → тот же txid pending', back?.action === 'pending', `${back?.action} ${(back?.txid || '').slice(0, 16)}`);
+      await api('/mine', { method: 'POST', body: { miner: faucetF.address } });
+      const rec2 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const done = (rec2.body.faucet || []).find(x => x.txid === r3.txid);
+      const bal15 = Number((await api('/balance', { method: 'POST', body: { address: w15.address } })).body.balance);
+      step('t2.7 после блока → confirmed +0.5', done?.action === 'confirmed' && bal15 === 0.5, `${done?.action} bal=${bal15}`);
     }
 
     // t3: revoked
@@ -161,16 +182,16 @@ async function main() {
       step('t3.2 после снятия отзыва — pending', r2.ok, r2.error || r2.txid?.slice(0, 12));
     }
 
-    // t4: сутки (уже 2 выплаты по 0.5; добить до 5.0, 11-й лишний)
+    // t4: сутки (уже 3 выплаты по 0.5: t2, t2.5, t3; добить до 5.0, лишний → daily_exhausted)
     {
       const res = [];
-      for (let i = 3; i <= 11; i++) {
+      for (let i = 3; i <= 10; i++) {
         const w = createWallet('agent-' + i); await registerAgent(w, 'agent-' + i);
         res.push(await faucetPay(w));
       }
       const okN = res.filter(r => r.ok).length;
       const lastErr = res[res.length - 1].error;
-      step('t4 сутки: 8 принято (=5.0 с учётом t2–t3), 9-й → daily_exhausted', okN === 8 && lastErr === 'daily_exhausted', `ok=${okN} last=${lastErr}`);
+      step('t4 сутки: 7 принято (=5.0 с учётом t2–t3), 8-й → daily_exhausted', okN === 7 && lastErr === 'daily_exhausted', `ok=${okN} last=${lastErr}`);
       for (let i = 0; i < 3; i++) await api('/mine', { method: 'POST', body: { miner: faucetF.address } });
       const blocks = (await api('/blocks?from=0')).body.blocks || [];
       const cnt = blocks.flatMap(b => b.txs || []).filter(t => (t.memo || '').startsWith('pilot-faucet:')).length;
@@ -194,7 +215,20 @@ async function main() {
       step('t5.5 вне реестра → not_in_registry', unk.status === 403 && unk.body.error === 'not_in_registry', unk.body.error);
       const req2 = { operatorId: 'node2-operator-2', period: PERIOD, address: op2.address, amountMinor: 6_000_000_000 };
       const e2 = await api('/pilot/payout', { method: 'POST', body: { ...req2, execute: true } });
-      step('t5.6 второй оператор 6 AGT → pending', e2.status === 200 && !!e2.body.txid, (e2.body.txid || '').slice(0, 16));
+      const payTxid2 = e2.body.txid;
+      step('t5.6 второй оператор 6 AGT → pending', e2.status === 200 && !!payTxid2, (payTxid2 || '').slice(0, 16));
+      const rec0 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const still = (rec0.body.payouts || []).filter(x => x.action === 'pending');
+      step('t5.6b reconcile до блока → обе pending (не confirmed)', rec0.status === 200 && still.length === 2, still.map(x => (x.txid || '').slice(0, 8)).join(','));
+      // потеря неподтверждённого mempool + рестарт → те же txid восстанавливаются
+      stop(); await sleep(500);
+      try { fs.unlinkSync(path.join(dataDir, 'mempool.json')); } catch {}
+      await boot({ AGT_DATA_DIR: dataDir,
+        AGT_PILOT_FAUCET_FUND: faucetF.address, AGT_PILOT_PAYOUT_FUND: payoutF.address,
+        AGT_PILOT_REVOKED_FILE: revFile, AGT_PILOT_PAYOUT_REGISTRY: regFile });
+      const rec1 = await api('/pilot/reconcile', { method: 'POST', body: {} });
+      const back = (rec1.body.payouts || []).filter(x => x.action === 'pending').map(x => x.txid).sort();
+      step('t5.6c после потери mempool → те же txid pending', JSON.stringify(back) === JSON.stringify([payTxid, payTxid2].sort()), back.map(t => (t || '').slice(0, 8)).join(','));
       const req3 = { operatorId: 'node2-operator-3', period: PERIOD, address: op3.address, amountMinor: 10_000_000_000 };
       const d3 = await api('/pilot/payout', { method: 'POST', body: { ...req3, execute: false } });
       step('t5.7 16+10>20 → over_weekly_budget', d3.status === 409 && d3.body.error === 'over_weekly_budget', d3.body.error);

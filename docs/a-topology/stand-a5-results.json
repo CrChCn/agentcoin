@@ -1,5 +1,5 @@
 {
- "startedAt": "2026-11-09T11:41:42.426Z",
+ "startedAt": "2026-11-09T11:52:47.529Z",
  "steps": [
   {
    "name": "t0 контуры включены",
@@ -19,17 +19,17 @@
   {
    "name": "t1 паспорт агента в локальном реестре",
    "ok": true,
-   "detail": "{\"ok\":true,\"passport\":{\"payload\":{\"version\":1,\"network\":\"AGENTCOIN\",\"agentId\":\"agt-agent:dcdfb374c50bce817e513c8cf3cd07f"
+   "detail": "{\"ok\":true,\"passport\":{\"payload\":{\"version\":1,\"network\":\"AGENTCOIN\",\"agentId\":\"agt-agent:2f598526c1eba52d8ad2c46ff01ef1d"
   },
   {
    "name": "t2.0 challenge привязан к сети и аудитории",
    "ok": true,
-   "detail": "[\"agentcoin:faucet:v1\",\"AGENTCOIN\",\"agentcoin-node:63098\",\"AGT6a62aedbdb1da77bd47dfdc26b43"
+   "detail": "[\"agentcoin:faucet:v1\",\"AGENTCOIN\",\"agentcoin-node:64447\",\"AGT387cca6e7560116441a490509b84"
   },
   {
    "name": "t2 claim → pending txid",
    "ok": true,
-   "detail": "txid=5e7d98b506db4c2b err="
+   "detail": "txid=4cfa368c5ec5f89b err="
   },
   {
    "name": "t2.2 баланс +0.5 после блока",
@@ -42,6 +42,26 @@
    "detail": "agent_cap_reached"
   },
   {
+   "name": "t2.5 claim без майнинга → pending",
+   "ok": true,
+   "detail": "1aed697625dc5c0e"
+  },
+  {
+   "name": "t2.5b reconcile до блока → pending (не confirmed)",
+   "ok": true,
+   "detail": "pending"
+  },
+  {
+   "name": "t2.6 после потери mempool → тот же txid pending",
+   "ok": true,
+   "detail": "pending 1aed697625dc5c0e"
+  },
+  {
+   "name": "t2.7 после блока → confirmed +0.5",
+   "ok": true,
+   "detail": "confirmed bal=0.5"
+  },
+  {
    "name": "t3 отозванный адрес → passport_revoked",
    "ok": true,
    "detail": "passport_revoked"
@@ -49,12 +69,12 @@
   {
    "name": "t3.2 после снятия отзыва — pending",
    "ok": true,
-   "detail": "9a5d46a8fd91"
+   "detail": "8c8f7daeb3fd"
   },
   {
-   "name": "t4 сутки: 8 принято (=5.0 с учётом t2–t3), 9-й → daily_exhausted",
+   "name": "t4 сутки: 7 принято (=5.0 с учётом t2–t3), 8-й → daily_exhausted",
    "ok": true,
-   "detail": "ok=8 last=daily_exhausted"
+   "detail": "ok=7 last=daily_exhausted"
   },
   {
    "name": "t4.2 ончейн ровно 10 выплат крана",
@@ -69,12 +89,12 @@
   {
    "name": "t5.2 execute → pending txid",
    "ok": true,
-   "detail": "txid=76c2efed3dc3f125"
+   "detail": "txid=8fc97729c8d6dce7"
   },
   {
    "name": "t5.3 повтор → тот же txid",
    "ok": true,
-   "detail": "76c2efed3dc3f125"
+   "detail": "8fc97729c8d6dce7"
   },
   {
    "name": "t5.4 смена суммы → payout_conflict",
@@ -89,7 +109,17 @@
   {
    "name": "t5.6 второй оператор 6 AGT → pending",
    "ok": true,
-   "detail": "1dfdfbeea3316a54"
+   "detail": "bea60b10a90715f0"
+  },
+  {
+   "name": "t5.6b reconcile до блока → обе pending (не confirmed)",
+   "ok": true,
+   "detail": "8fc97729,bea60b10"
+  },
+  {
+   "name": "t5.6c после потери mempool → те же txid pending",
+   "ok": true,
+   "detail": "8fc97729,bea60b10"
   },
   {
    "name": "t5.7 16+10>20 → over_weekly_budget",
@@ -99,7 +129,7 @@
   {
    "name": "t5.8 reconcile → обе confirmed",
    "ok": true,
-   "detail": "[{\"key\":\"node2-operator|2026-11-09\",\"action\":\"confirmed\",\"txid\":\"76c2efed3dc3f125fbf4e917d14cbef758d0b5c6ca1b4648d9ec51878b18d49b\"},{\"key\":\"node2-operator-2|202"
+   "detail": "[{\"key\":\"node2-operator|2026-11-09\",\"action\":\"confirmed\",\"txid\":\"8fc97729c8d6dce7f48dce91670d56b711952aa2976e8265c471c6f9dbed94bd\"},{\"key\":\"node2-operator-2|202"
   },
   {
    "name": "t5.9 баланс op1 = 10",
@@ -119,7 +149,7 @@
   {
    "name": "t8 v2-порог: execute → pending",
    "ok": true,
-   "detail": "1493f42944ead053"
+   "detail": "e748744192c9ea52"
   },
   {
    "name": "t8.2 tx в mempool с digestVersion=2 и chainId",
@@ -137,7 +167,7 @@
    "detail": "faucet_fund_is_payout_fund"
   }
  ],
- "finishedAt": "2026-11-09T11:41:56.275Z",
- "passed": 27,
+ "finishedAt": "2026-11-09T11:53:11.575Z",
+ "passed": 33,
  "failed": 0
 }

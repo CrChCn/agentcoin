@@ -79,9 +79,13 @@ npm run cycle:sepolia       # фаза A без ключа; полный цик�
   выпускает, повтор deposit отклонён реестром и контрактом
   (`deposit_replayed`), повтор burn — ровно одна выплата, рестарт ноды —
   сверка с обеими сетями.
-- Нужно газа: deployer ~0.0037 ETH + 0.005 ETH на финансирование трейдера
-  (итого просить у крана **~0.01–0.02 SepoliaETH**). Краны:
+- Нужно газа (замер на форке, цена 1 gwei): deployer ~0.0053 ETH
+  (создание пары — самая дорогая операция, ~2.69M газа) + 0.005 ETH
+  трейдеру. С запасом просить у крана **~0.02 SepoliaETH**. Краны:
   https://sepoliafaucet.com , https://www.alchemy.com/faucets/ethereum-sepolia .
+  Без ключа/газа работает `npm run cycle:sepolia-fork` — полный цикл
+  против форка Sepolia (настоящий байткод Uniswap V2, отчёт
+  `cycle-report-sepolia-fork.json`).
   Если газа не хватает — скрипт останавливается (exit 2) с адресом
   кошелька и суммой дефицита.
 - Отчёт: `cycle-report-sepolia.json` (адреса, пара, все хеши Sepolia и

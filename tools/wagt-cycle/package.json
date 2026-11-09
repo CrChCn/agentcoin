@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "cycle": "hardhat run scripts/cycle.mjs",
-    "cycle:sepolia": "hardhat run --network sepolia scripts/cycle-sepolia.mjs"
+    "cycle:sepolia": "hardhat run --network sepolia scripts/cycle-sepolia.mjs",
+    "cycle:sepolia-fork": "hardhat run --config hardhat.fork.cjs scripts/cycle-sepolia.mjs"
   },
   "devDependencies": {
     "hardhat": "^2.22.0",

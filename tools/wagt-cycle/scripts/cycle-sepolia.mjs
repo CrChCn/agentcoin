@@ -102,7 +102,7 @@ const PLAN = [ // [операция, лимит газа, плательщик]
   ['mint#1', 100000, 'deployer'],
   ['mint#2', 100000, 'deployer'],
   ['approve x2 (LP)', 100000, 'deployer'],
-  ['addLiquidity', 450000, 'deployer'],
+  ['addLiquidity', 3000000, 'deployer'], // включает создание пары (замер форка: ~2.69M)
   ['approve (trader)', 50000, 'trader'],
   ['swap', 220000, 'trader'],
   ['burn', 70000, 'trader'],
@@ -112,8 +112,11 @@ const needTrader = PLAN.filter((p) => p[2] === 'trader').reduce((a, p) => a + Bi
 const buffer = (x) => (x * 3n) / 2n; // x1.5
 log(`gasPrice=${gasPrice} wei; оценка: deployer ~${fmtEth(buffer(needDeployer) * gasPrice)} ETH, trader ~${fmtEth(buffer(needTrader) * gasPrice)} ETH (с запасом x1.5)`);
 
+// На живой сети `sepolia` нужен ключ тестового кошелька; на форке
+// (`sepoliaFork`) используются funded-аккаунты Hardhat — ключ не нужен.
 const PRIV = (process.env.SEPOLIA_PRIVATE_KEY || '').trim();
-if (!PRIV) {
+const NEED_KEY = hre.network.name === 'sepolia';
+if (NEED_KEY && !PRIV) {
   log('\nФаза A пройдена. SEPOLIA_PRIVATE_KEY не задан — фаза B пропущена.');
   log('Для полного цикла: export SEPOLIA_PRIVATE_KEY=0x... (тестовый кошелёк!) и повтор.');
   process.exit(0);
@@ -123,6 +126,11 @@ if (!PRIV) {
 log('\n== Фаза B: полный цикл (тестовые средства) ==');
 const [deployer] = await hre.ethers.getSigners();
 if (!deployer) throw new Error('нет аккаунта: проверь SEPOLIA_PRIVATE_KEY');
+if (!NEED_KEY) {
+  // Форк: состояние балансов едет из Sepolia — выдаём тестовый газ локально.
+  await hre.network.provider.send('hardhat_setBalance',
+    [deployer.address, '0x8AC7230489E80000']); // 10 ETH
+}
 const depBal = await provider.getBalance(deployer.address);
 const needDepWei = buffer(needDeployer) * gasPrice;
 log(`deployer=${deployer.address} balance=${fmtEth(depBal)} ETH, нужно ~${fmtEth(needDepWei)} ETH`);
@@ -168,12 +176,14 @@ async function startAgtNode(dataDir, port) {
   child.kill('SIGKILL');
   throw new Error('agentcoin node not ready: ' + logs);
 }
+const DBG = !!process.env.WAGT_DEBUG;
 const jpost = async (origin, p, b) => {
   const r = await fetch(origin + p, { method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(b), signal: AbortSignal.timeout(15000) });
   let body = {};
   try { body = await r.json(); } catch {}
+  if (DBG) log(`  [dbg] POST ${p} -> ${r.status} ${JSON.stringify(body).slice(0, 220)}`);
   return { status: r.status, body };
 };
 const jget = async (origin, p) => {
@@ -187,6 +197,15 @@ async function mineTo(origin, miner, tries = 12) {
     await sleep(400);
   }
   throw new Error('mine failed');
+}
+// Майнить, пока tx не запечатана в цепь (убирает гонку mempool/блок).
+async function mineUntilProven(origin, miner, txid, tries = 15) {
+  for (let i = 0; i < tries; i++) {
+    const proof = await jget(origin, '/txproof/' + txid);
+    if (proof.status === 200) return proof.body;
+    await mineTo(origin, miner);
+  }
+  throw new Error('tx not sealed: ' + String(txid).slice(0, 16));
 }
 async function agtBalance(origin, address) {
   const b = await jpost(origin, '/balance', { address });
@@ -265,7 +284,7 @@ async function lockAgt(fromW, to, amount, depositId, { mine = true } = {}) {
   const sub = await jpost(origin, '/tx', tx);
   if (sub.status !== 200 && sub.status !== 201) throw new Error('lock submit failed');
   if (mine) {
-    await mineTo(origin, sink.address);
+    await mineUntilProven(origin, sink.address, tx.txid);
     for (let i = 0; i < LOCK_CONFS; i++) await mineTo(origin, sink.address);
   }
   const proof = await jget(origin, '/txproof/' + tx.txid);
@@ -292,8 +311,12 @@ const depU = 'seplock-' + Date.now().toString(16) + '-unconf';
 const LU = await lockAgt(user, vault.address, 1, depU, { mine: false });
 const MU = await relayMint(depU, LU.tx.txid, 1, deployer.address);
 check(MU.refused === true, 'выпуск по неподтверждённому депозиту отклонён');
-check((await wagt.totalSupply()) === BigInt(LOCK1) * E18, 'supply не изменился после отказа');
-await mineTo(origin, sink.address); // запечатать depU, чтобы не висел в мемпуле (вне цикла)
+check((await wagt.totalSupply()) === BigInt(LOCK1) * E18, 'supply не изменился после отказа');  await mineUntilProven(origin, sink.address, LU.tx.txid); // запечатать depU
+// Возврат тестового 1 AGT владельцу: след отказа не должен ломать инвариант vault==supply.
+const refTx = signAgtTx(vault.address, vault.pub, vault.privKey, user.address, 1, 'wagt-refund:unconfirmed-drill');
+check([200, 201].includes((await jpost(origin, '/tx', refTx)).status), 'возврат 1 AGT после drill отказа');
+await mineUntilProven(origin, sink.address, refTx.txid);
+check(await agtBalance(origin, vault.address) === LOCK1, 'vault снова ровно 40 AGT (след drill убран)');
 // Повтор deposit#1 — двойного выпуска нет (реестр + контракт).
 const M1dup = await relayMint(dep1, L1.tx.txid, LOCK1, deployer.address);
 check(M1dup.duplicate === true, 'релейер отклонил повтор deposit#1');
@@ -350,31 +373,54 @@ check(wBal === 3n * E18, `остаток трейдера ровно 3 wAGT (5-2
 const bTx = await wagt.connect(trader).burn(wBal, user.address);
 const bRc = await track('burn', bTx);
 const burnId = 'sepburn:' + bRc.hash;
+// Журнал с упреждающей записью: подписанная выплата сохраняется на диск
+// ДО отправки. Рестарт в любой точке после этого находит либо готовую
+// выплату в цепи (txproof → без повторной отправки), либо ту же
+// подписанную выплату для повторной отправки (тот же txid — цепь
+// отвергает дубликаты txid/nonce, двойной выплаты нет).
 async function relayRelease(burnIdArg, burnHash, agtTo, amountAgt) {
-  const ledger = loadLedger();
-  if (ledger[burnIdArg]?.released) return { duplicate: true, txid: ledger[burnIdArg].txid };
-  const tx = signAgtTx(vault.address, vault.pub, vault.privKey, agtTo, amountAgt,
-    `wagt-release:${burnHash}`, releaseNonce(burnHash));
+  let ledger = loadLedger();
+  const ex = ledger[burnIdArg];
+  if (ex?.released) return { duplicate: true, txid: ex.txid };
+  let tx = ex?.tx || null;
+  if (!tx) {
+    tx = signAgtTx(vault.address, vault.pub, vault.privKey, agtTo, amountAgt,
+      `wagt-release:${burnHash}`, releaseNonce(burnHash));
+    ledger[burnIdArg] = { released: false, txid: tx.txid, tx };
+    saveLedger(ledger); // упреждающая запись — до отправки в сеть
+  }
+  const keepTx = (released) => { // подписанную выплату храним всегда: рестарт переиспользует её же
+    const l = loadLedger();
+    l[burnIdArg] = { released, txid: tx.txid, tx };
+    saveLedger(l);
+  };
   const proof = await jget(origin, '/txproof/' + tx.txid);
-  if (proof.status === 200) { // уже отправлена (рестарт до записи отметки)
-    ledger[burnIdArg] = { released: true, txid: tx.txid, resumed: true };
-    saveLedger(ledger);
+  if (proof.status === 200) { // уже запечатана (рестарт после отправки, до отметки)
+    keepTx(true);
     return { duplicate: false, resumed: true, txid: tx.txid };
   }
   const sub = await jpost(origin, '/tx', tx);
-  if (sub.status !== 200 && sub.status !== 201) throw new Error('release submit failed');
-  await mineTo(origin, sink.address);
-  ledger[burnIdArg] = { released: true, txid: tx.txid };
-  saveLedger(ledger);
+  if (sub.status !== 200 && sub.status !== 201) {
+    // Возможно, выплата уже в мемпуле (отправлена до крэша, не запечатана).
+    const proof2 = await jget(origin, '/txproof/' + tx.txid);
+    if (proof2.status !== 200) throw new Error('release submit failed: ' +
+      JSON.stringify(sub.body).slice(0, 160));
+  }
+  await mineUntilProven(origin, sink.address, tx.txid);
+  keepTx(true);
   return { duplicate: false, txid: tx.txid };
 }
 const userBefore = await agtBalance(origin, user.address);
 const R1 = await relayRelease(burnId, bRc.hash, user.address, 3);
 check(!R1.duplicate && !R1.resumed, `release 3 AGT, txid=${R1.txid.slice(0, 16)}…`);
 check(await agtBalance(origin, user.address) === userBefore + 3, 'пользователь получил 3 AGT');
-// Drill: рестарт релейера до записи отметки — сносим in-memory след,
-// журнал на диске тоже откатываем, повтор должен найтись в цепи.
-saveLedger({}); // симуляция крэша до fsync отметки
+// Drill: рестарт релейера после отправки выплаты, но до записи отметки —
+// откатываем только флаг released (реальный крэш не может потерять
+// упреждающую запись, сделанную до отправки). Повтор обязан найти
+// выплату в цепи и не отправлять вторую.
+{ const l = loadLedger();
+  l[burnId] = { released: false, txid: l[burnId].txid, tx: l[burnId].tx };
+  saveLedger(l); } // симуляция крэша до отметки released
 const R1b = await relayRelease(burnId, bRc.hash, user.address, 3);
 check(R1b.resumed === true && R1b.txid === R1.txid, 'после рестарта найдена уже отправленная выплата, второй нет');
 check(await agtBalance(origin, user.address) === userBefore + 3, 'баланс не изменился: ровно одна выплата');
@@ -386,8 +432,8 @@ const vaultBal = await agtBalance(origin, vault.address);
 const supply = await wagt.totalSupply();
 const supplyAgt = Number(supply / E18);
 const snapshot = { vault: vaultBal, supply: supplyAgt, releases: Object.keys(loadLedger()).length };
-check(vaultBal === LOCK1 + 1 + LOCK2 - 3 && supplyAgt === LOCK1 + LOCK2,
-  `сверка: vault=${vaultBal} AGT (40+1 вне цикла+5-3), supply=${supplyAgt} wAGT`);
+check(vaultBal === LOCK1 + LOCK2 - 3 && supplyAgt === LOCK1 + LOCK2 - 3,
+  `сверка: vault=${vaultBal} AGT == supply=${supplyAgt} wAGT (40+5 выпуск, 3 сожжено)`);
 await node.stop();
 node = await startAgtNode(dataDir, port);
 const vaultAfter = await agtBalance(node.origin, vault.address);
@@ -398,7 +444,7 @@ await node.stop();
 
 const gasUsed = totalGasUsed();
 const report = {
-  network: 'sepolia', evmChainId: 11155111,
+  network: FORK_MODE ? 'sepolia-fork' : 'sepolia', evmChainId: 11155111,
   uniswap: { factory: V2_FACTORY, router02: V2_ROUTER02, pair: pairAddr, sources: SOURCES },
   contracts: { wagt: A_WAGT, tagt: A_TAGT, bridge: deployer.address, trader: trader.address },
   agt: { user: user.address, vault: vault.address,
@@ -415,9 +461,13 @@ const report = {
   gas: { priceWei: gasPrice.toString(), usedWei: gasLedger.map((g) => ({ op: g.op, hash: g.hash, gasUsed: g.gasUsed, gasPriceWei: g.gasPrice })),
     totalGas: gasUsed.toString() },
 };
-await fs.promises.writeFile(path.join(ROOT, 'tools', 'wagt-cycle', 'cycle-report-sepolia.json'),
+const FORK_MODE = hre.network.name === 'hardhat' && sepoliaNet.chainId === EXPECTED_CHAIN_ID;
+const reportName = hre.network.name === 'sepolia'
+  ? 'cycle-report-sepolia.json'
+  : (FORK_MODE ? 'cycle-report-sepolia-fork.json' : `cycle-report-${hre.network.name}.json`);
+await fs.promises.writeFile(path.join(ROOT, 'tools', 'wagt-cycle', reportName),
   JSON.stringify(report, null, 2));
-log('report: tools/wagt-cycle/cycle-report-sepolia.json');
+log('report: tools/wagt-cycle/' + reportName);
 if (fails.length) { console.error(`\nCYCLE-SEPOLIA: FAIL (${fails.length}): ${fails.join('; ')}`); process.exit(1); }
 log('\nCYCLE-SEPOLIA: OK — обмен в официальном пуле V2, возврат в цепи Agentcoin, повторы отклонены.');
 process.exitCode = 0;

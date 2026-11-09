@@ -57,6 +57,36 @@ npm run cycle      # полный цикл, exit 0 = все сверки сош�
 4. Решить, кто контролирует резерв (vault-мультисиг/контракт) и сколько
    средств выделить на ликвидность, — по итогам этого прототипа.
 
+## Сценарий Sepolia: обмен через официальный Uniswap V2
+
+ТЗ: `TZ-sepolia-uniswap.md`. Отдельный скрипт, локальный цикл не тронут.
+
+```sh
+cd tools/wagt-cycle
+npm install
+cp .env.example .env        # вписать SEPOLIA_PRIVATE_KEY тестового кошелька
+npm run cycle:sepolia       # фаза A без ключа; полный цикл с ключом
+```
+
+- Фаза A (без ключа): `chainId=11155111`, байткод по адресам Factory
+  `0xF62c…` и Router02 `0xeE56…`, `Router02.factory()==Factory`, оценка
+  газа (пол цены 1 gwei, запас x1.5).
+- Фаза B (с ключом): деплой WAGT (bridge=deployer) + TAGT → lock 40 AGT →
+  mint 40 wAGT → `addLiquidity(40/400)` через Router02 → lock 5 → mint 5 →
+  `getAmountsOut` + `swapExactTokensForTokens(2 wAGT, minOut −5%)` → burn 3 →
+  release 3 AGT с детерминированным nonce (повтор находится в цепи, а не
+  отправляется заново). Плюс проверки: неподтверждённый депозит не
+  выпускает, повтор deposit отклонён реестром и контрактом
+  (`deposit_replayed`), повтор burn — ровно одна выплата, рестарт ноды —
+  сверка с обеими сетями.
+- Нужно газа: deployer ~0.0037 ETH + 0.005 ETH на финансирование трейдера
+  (итого просить у крана **~0.01–0.02 SepoliaETH**). Краны:
+  https://sepoliafaucet.com , https://www.alchemy.com/faucets/ethereum-sepolia .
+  Если газа не хватает — скрипт останавливается (exit 2) с адресом
+  кошелька и суммой дефицита.
+- Отчёт: `cycle-report-sepolia.json` (адреса, пара, все хеши Sepolia и
+  txid AGT, суммы, газ по операциям, результаты проверок повторов).
+
 ## Инварианты цикла (проверяются скриптом)
 
 - `vault(AGT) == totalSupply(wAGT)` — полное обеспечение, до и после рестарта.

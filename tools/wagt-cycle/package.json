@@ -5,7 +5,8 @@
   "description": "Test AGT <-> wAGT cycle: isolated Agentcoin node + local EVM pool (Hardhat). Test funds only.",
   "type": "module",
   "scripts": {
-    "cycle": "hardhat run scripts/cycle.mjs"
+    "cycle": "hardhat run scripts/cycle.mjs",
+    "cycle:sepolia": "hardhat run --network sepolia scripts/cycle-sepolia.mjs"
   },
   "devDependencies": {
     "hardhat": "^2.22.0",

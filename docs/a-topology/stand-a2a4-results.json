@@ -1,0 +1,73 @@
+{
+ "startedAt": "2026-11-09T10:11:08.326Z",
+ "steps": [
+  {
+   "name": "A2.0 один генезис у трёх нод",
+   "ok": true,
+   "detail": "00026d18205c7c87"
+  },
+  {
+   "name": "A2.1 mesh: блоки A доставлены B и C",
+   "ok": true,
+   "detail": "A:h=3 B:h=3 C:h=3 sameTip=true"
+  },
+  {
+   "name": "A2.2 партиция: при потере C новые блоки A доставлены B",
+   "ok": true,
+   "detail": "A:h=5 B:h=5 sameTip=true"
+  },
+  {
+   "name": "A2.3 C действительно недоступен",
+   "ok": true,
+   "detail": "порт 63097 молчит"
+  },
+  {
+   "name": "A2.4 healing: C после рестарта догнал цепь",
+   "ok": true,
+   "detail": "h=5"
+  },
+  {
+   "name": "A3.1 кран: drip 0.5 новому адресу",
+   "ok": true,
+   "detail": "{\"dripped\":0.5,\"unit\":\"AGT\",\"to\":\"AGTcfe0a310fed9fdb1fc2b169cecf86e4d5f040ea1\",\"note\":\"раз"
+  },
+  {
+   "name": "A3.2 кран: повтор тому же адресу отклонён (24ч)",
+   "ok": true,
+   "detail": "{\"error\":\"already_dripped_24h\",\"nextInHours\":24}"
+  },
+  {
+   "name": "A3.3 кран: второй адрес обслужен",
+   "ok": true,
+   "detail": "dripped=0.5"
+  },
+  {
+   "name": "A3.4 кран: 0.5 ончейн после блока",
+   "ok": true,
+   "detail": "balance=0.5"
+  },
+  {
+   "name": "A4.1 выплаты 0.5/5/20 ончейн",
+   "ok": true,
+   "detail": "балансы=0.5/5/20"
+  },
+  {
+   "name": "A4.2 повтор тех же txid отклонён",
+   "ok": true,
+   "detail": "400:{\"ok\":false,\"reason\":\"already_in_chain\",\"txid\":\"51aaa87526fe | 400:{\"ok\":false,\"reason\":\"already_in_chain\",\"txid\":\"b848fe8fb076 | 400:{\"ok\":false,\"reason\":\"already_in_chain\",\"txid\":\"87fbe33546df"
+  },
+  {
+   "name": "A4.3 каждая выплата в цепи ровно 1 раз",
+   "ok": true,
+   "detail": "вхождений=1/1/1"
+  },
+  {
+   "name": "A2.5 финал: все три на одном tip",
+   "ok": true,
+   "detail": "h=11"
+  }
+ ],
+ "finishedAt": "2026-11-09T10:11:25.767Z",
+ "passed": 13,
+ "failed": 0
+}

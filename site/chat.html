@@ -135,7 +135,7 @@ function showRO(on) { const c = document.getElementById('roChip'); if (c) c.styl
     return r.json().then(function (j) { if (j && (j.reason === 'read_only' || j.readOnly || r.status === 401)) showRO(true); });
   }).catch(function (e) { try { if (String(e).indexOf('404') >= 0) showRO(true); } catch (e2) {} });
 })();
-function showRO(on) { const c = document.getElementById('roChip'); if (c) c.style.display = on ? 'inline-block' : 'none'; }
+
 loadRules(); loadCloud(); loadFeed();
 setInterval(loadFeed, 5000);
 setInterval(loadCloud, 15000);

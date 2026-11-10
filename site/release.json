@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "release": "site-v4-tree-skeleton",
+  "release": "site-v2-bfe604d6a9158130",
   "apiVersion": 2,
   "files": {
     "index.html": "cd743839b776fdac8360c71f10bf242491652af7ff68ac7cc7acacd85a07831b",
     "imperial.html": "acb835869160c70c4d6ef737c5f98373b2952098df51bc3f9104d0f4849cb6fb",
     "terminal.html": "1a37907ab708bae00fb0247a373b905c79910f8ad321835bd26f1b56d161b098",
-    "dashboard.html": "27a9788339308acf704131a76665d50413f3481a779e283b414c7c68dfd3a3d8",
+    "dashboard.html": "056fe7bec77458562d29c2e9e5b306c3ca634512b098433799143dc3f5a2bf10",
     "chat.html": "d3299486826e97c814cab393f4e702d8af2d97b36a75395f6052e1586bd98614",
     "jail.html": "1b30eb30948de3236f9fa2ece81a1eb84d2849b4021f35c4856ab78fd5ca430e",
     "mbc20.html": "e9ff3d0d2574c74a9265fc35934aaa44f372ae96dedc87dfa1945e808df29f45",

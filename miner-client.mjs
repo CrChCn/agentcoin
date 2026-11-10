@@ -13,7 +13,8 @@
      4) локальный PoW-поиск (слайс)
      5) /block/submit  → если tip убежал (stale) — забор отбой, retry
 
-   Запуск: node miner-client.mjs [nodeUrl=http://127.0.0.1:9335] [minerAddress?]
+   Запуск: node miner-client.mjs [nodeUrl=http://127.0.0.1:9335] [minerAddress?] [--once]
+   Флаг --once: выйти после первого принятого блока (демо/проверка без перемайна).
    Guard: data-miner/lock (PID) — вторая копия не стартует.
    Планировщик: AGTThinMiner2 (повторение), запускается как вторая машина.
    ============================================================ */
@@ -23,7 +24,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { computeBlockHash, hashMeetsDifficulty, validateBlockAgainstChain } from './core.mjs';
 
-const NODE_URL = process.argv[2] || 'http://127.0.0.1:9335';
+const ARGS = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const ONCE = process.argv.includes('--once');
+const NODE_URL = ARGS[0] || 'http://127.0.0.1:9335';
 const HEADERS_CHECK = 8;   // сколько последних заголовков проверяем
 const SLICE_MS = 1500;     // максимум на один PoW-слайс (не блокируем event loop)
 
@@ -78,7 +81,7 @@ async function createMinerWallet() {
   fs.writeFileSync(WALLET_FILE, JSON.stringify({ address: j.address, privKey: j.privKey, note: 'thin miner wallet (2nd machine)', createdAt: Date.now() }, null, 2));
   return j.address;
 }
-let MINER = process.argv[3] || ensureMinerWallet();
+let MINER = ARGS[1] || ensureMinerWallet();
 
 async function api(pathname, init) {
   const r = await fetch(NODE_URL + pathname, { headers: { 'Content-Type': 'application/json' }, ...init });
@@ -162,7 +165,10 @@ async function tick() {
   if (!found) { log(`slice ${nonces} нонсов без решения (diff ${tpl.header.difficultyBits})`); return; }
 
   const sub = await api('/block/submit', { method: 'POST', body: JSON.stringify({ miner: MINER, header: tpl.header, txs: tpl.txs, ms }) });
-  if (sub.body.accepted) log(`БЛОК ${sub.body.height} ПРИНЯТ (${String(sub.body.hash).slice(0, 12)}), ${nonces} нонсов, ${ms}ms`);
+  if (sub.body.accepted) {
+    log(`БЛОК ${sub.body.height} ПРИНЯТ (${String(sub.body.hash).slice(0, 12)}), ${nonces} нонсов, ${ms}ms`);
+    if (ONCE) { log('--once: выходим после первого блока'); process.exit(0); }
+  }
   else log(`submit отклонён: ${sub.body.reason}`);
 }
 

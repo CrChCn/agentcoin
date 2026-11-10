@@ -959,6 +959,20 @@ export function unitsOfAmount(amount) {
 // НЕ может быть адресом никакого ключа, поэтому навсегда несопровождаем тратами.
 export const ADDRESS_RE = /^AGT[0-9a-f]{40}$/;
 export function isCanonicalAddress(a) { return typeof a === 'string' && ADDRESS_RE.test(a); }
+// WHITELIST-GATE (AGIP-16 правило 3: переводы >LARGE_TX_LIMIT только верифицированным).
+// Opt-in через AGT_ENFORCE_WHITELIST=1; по умолчанию ВЫКЛЮЧЕН, т.к. whitelist сейчас
+// пуст и безусловное включение остановило бы все крупные переводы. Уровень intake/mempool:
+// валидация блоков НЕ меняется, частичное включение на части нод сеть не форкает.
+// Полный консенсус-гейт — только после верификации адресов + обновления всех нод + gov.
+export function whitelistEnforced() { return process.env.AGT_ENFORCE_WHITELIST === '1'; }
+export function whitelistTxAllowed(tx, whitelist) {
+  if (!whitelistEnforced()) return true;
+  if (!tx || typeof tx.amount !== 'number' || tx.amount <= LARGE_TX_LIMIT) return true;
+  // системные/эскроу-отправители — не канонические адреса, их решают другие гейты
+  if (typeof tx.from !== 'string' || !isCanonicalAddress(tx.from)) return true;
+  try { if (whitelist && typeof whitelist.isVerified === 'function' && whitelist.isVerified(tx.from)) return true; } catch {}
+  return false;
+}
 
 
 // Строгая валидация блока, продолжающего chain на высоте chain.length.
@@ -1243,6 +1257,7 @@ export class Blockchain {
     const out = [];
     for (const tx of this.mempool) {
       if (!tx || !verifyTxAny(tx, this.chain)) continue;
+      if (!whitelistTxAllowed(tx, this.whitelist)) continue; // флаг включили позже приёма
       const budget = (balances[tx.from] || 0) - (spentFrom[tx.from] || 0);
       if (tx.amount <= budget) { out.push(tx); spentFrom[tx.from] = (spentFrom[tx.from] || 0) + tx.amount; }
       // A reorg or competing pending spend can make this stale. Skip without
@@ -1260,7 +1275,7 @@ export class Blockchain {
     const known = this.knownChainTxids();
     for (const tx of this.mempool) {
       if (tx.txid && known.has(tx.txid)) continue;
-      if (verifyTxAny(tx, this.chain) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
+      if (verifyTxAny(tx, this.chain) && whitelistTxAllowed(tx, this.whitelist) && tx.amount <= (balances[tx.from] || 0) - (spent[tx.from] || 0)) {
         keep.push(tx); spent[tx.from] = (spent[tx.from] || 0) + tx.amount;
       }
     }
@@ -1425,6 +1440,7 @@ export class Blockchain {
     }
     // AGIP-4: tx из активной казны — обязательна вторая подпись (2-of-3),
     // до push в mempool; отклонение — «treasury_needs_2sig», без бан-эскалации
+    if (!whitelistTxAllowed(tx, this.whitelist)) return { ok: false, reason: 'needs_whitelist' };
     if (!verifySecondSig(tx, this.getTreasuryPolicy())) return { ok: false, reason: 'treasury_needs_2sig' };
     this.mempool.push(tx);
     this.saveMempool();

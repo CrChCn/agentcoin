@@ -240,3 +240,47 @@
 3. Sync live `wallet.html` (новее ветки на 154 строки) → в репо.
 4. 550 AGT демо-адреса + судьба крона казны при открытых внешних.
 5. `miner-client --once` живьём не отстрелян — только следующим демо.
+
+## 13. Реализация по итогам анализа (2026-11-10, ветка agt-mainnet-audit)
+
+### Уточнение к §12: whitelist — НЕ enforced
+Проверка кода (`node.mjs:1347`, `core.mjs`): «tx > 100 AGT только
+верифицированным» существует только как `note` в ответе
+`POST /whitelist/check`. Ни intake, ни валидация блоков его не проверяют —
+крупняк проходит свободно, whitelist пуст и ни на что не влияет.
+README это утверждал иначе — исправлено (§13 правка 4).
+
+### Что реализовано (в ветке, без записей в мейннет)
+1. **Whitelist-гейт opt-in** (`core.mjs`: `whitelistEnforced()`,
+   `whitelistTxAllowed()`, `LARGE_TX_LIMIT=100` уже был): при
+   `AGT_ENFORCE_WHITELIST=1` intake (`addTransaction`), `usableMempoolTxs`
+   и `refilterMempool` режут переводы >100 AGT от неверифицированных
+   (`reason: needs_whitelist`). Системные/эскроу-отправители (неканонические)
+   — мимо гейта, их решают другие гейты. Валидация блоков НЕ тронута:
+   частичное включение сеть не форкает. По умолчанию выключен.
+   Тест `test/whitelist-gate.mjs` — 6/6 зелёных (default-off проходит,
+   on режет, мелочь/верифицированный проходят, usableMempoolTxs чистит).
+2. **Gossip-фильтр loopback** (`sync.mjs`: `isLoopbackPeerUrl()`;
+   `node.mjs` onPeers): gossip-приём режет 127.0.0.1/localhost/::1 —
+   чужой loopback указывает на машину пира, а дайл бьёт в свои же порты.
+   Явный `/peer/add`/seeds/bootstrap — без изменений; стендам
+   `AGT_ALLOW_LOOPBACK_PEERS=1`. Тест `test/gossip-loopback.mjs` — 11/11.
+3. **Сторож сети** (`tools/net-watch.mjs`, только публичные GET):
+   высоты/tip/пиры/diff/мемпул по `AGT_WATCH_NODES`, алерты на лаг
+   (>AGT_LAG_ALERT=2), расхождение tip, мало пиров. Проверен живьём:
+   `NET-OK (tip 38939)`, peers 3/3, diff 8. Для cron, exit 2 = ALERT.
+4. **Sync wallet.html live→repo + доки**: `site/wallet.html` = живой
+   `4c05ac…` (PIN-модалка, estimate-хинты, orb-фикс, balanceMGNT-фолбэк;
+   секретов нет — один матч это guard против secret-полей). README:
+   внешний майнинг через blocktemplate/submit + `miner-client --once`;
+   whitelist-строка приведена к факту (advisory + opt-in).
+5. Регресс: `core-smoke`, `security-evidenced`, `sync-concurrency`,
+   `cabinet-cancel-unit` — все exit 0.
+
+### Осталось за владельцем (mainnet-решения, не код)
+- Включать ли `AGT_ENFORCE_WHITELIST=1` (сначала верифицировать казну/адреса,
+  rollout на 3 ноды, объявить через gov — иначе крупняк встанет).
+- `miner-client --once` живьём = ещё один mainnet-блок (нужно «да»).
+- Treasury policy null → нужен ли активный 2-of-3 (gov+tx).
+- Судьба 550 AGT демо-адреса; крон казны при открытых внешних.
+- Hetzner/DNS/DO-токен — вне кода.

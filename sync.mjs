@@ -81,6 +81,17 @@ function peerKey(u) {
   const host = m[1] === 'localhost' ? '127.0.0.1' : m[1];
   return `${host}:${m[2] || '80'}`;
 }
+// loopback-адрес, заявленный ЧУЖИМ пиром по gossip, указывает на ЕГО машину —
+// для нас он бесполезен (а 127.0.0.1:чужой_порт бьёт в наши же порты: self-dial).
+// Явное добавление (/peer/add, seeds, bootstrap) loopback разрешает всегда;
+// gossip-приём режет по умолчанию, для локальных стендов — AGT_ALLOW_LOOPBACK_PEERS=1.
+export function isLoopbackPeerUrl(u) {
+  const n = normalizePeerUrl(u); if (!n) return false;
+  try {
+    const h = new URL(n).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '::ffff:127.0.0.1' || h.endsWith('.localhost');
+  } catch { return false; }
+}
 export function isSelfPeerUrl(u) {
   const key = peerKey(u); if (!key) return false;
   for (const s of peerSelfSet()) if (peerKey(s) === key) return true;

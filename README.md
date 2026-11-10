@@ -88,7 +88,8 @@ curl -fsS --max-time 30 -H "x-admin-token: ${AGT_ADMIN_TOKEN:-}" "$LOCAL_NODE_UR
 
 **Цепь:** `GET /info` · `/life` · `/blocks?n=|from=` · `/headers?from=&limit=` · `/mempool` · `/forks` · `/peers/meta` · `/validate?strict=1`
 **Кошельки/tx:** `POST /wallet/create` · `POST /balance` · `POST /tx/sign` · `POST /tx`
-**Майнинг:** `POST /mine {miner}` · `POST /blocktemplate` · `POST /block/submit` · `POST /mine/l402`
+**Майнинг:** `POST /mine {miner}` (только loopback/админ) · `POST /blocktemplate` · `POST /block/submit` · `POST /mine/l402`
+**Внешний майнинг (без своей ноды):** `POST /blocktemplate {miner}` → PoW по `header` (sha256d, N нулевых бит) → `POST /block/submit {block}`. Готовый клиент: `node miner-client.mjs <nodeUrl> <minerAddress> [--once]` (тонкий: headers-контроль → template → PoW → строгий submit; `--once` — один блок и выход). При живой сложности 8 бит блок на ноутбуке — секунды; сложность подтянется ретаргетом сама, эмиссия делится со всеми майнерами.
 **Эскроу:** `POST /escrow/create|claim|payout|refund` · `GET /escrow/state`
 **Приватность:** `GET /priv/pubkeys` · `POST /priv/prove` · `POST /priv/verify`
 **Данные:** `POST /data/pay-ask|answer|confirm|refund`
@@ -120,7 +121,7 @@ Loopback-пример `127.0.0.1` работает только на компь�
 
 - Ed25519-подпись каждой tx; подделка → `spoof_signature_permaban`.
 - Security controller: strikes/permaban за double-spend, спуфинг, спам; реестр `data/security.json` с registryHash для аудита.
-- Whitelist: tx > 100 AGT требуют верификации.
+- Whitelist: переводы > 100 AGT помечаются в `POST /whitelist/check`; жёсткий гейт — opt-in `AGT_ENFORCE_WHITELIST=1` на ноде (intake/mempool, валидация блоков не меняется). По умолчанию выключен: whitelist пуст, безусловное включение остановило бы крупняк. Полное включение — после верификации адресов + rollout на все ноды + gov.
 - Эскроу: fund → claim → payout (двойная подпись), refund детерминирован из цепи; статус только из chain, без side-state.
 - WS-дедуп: дубликат пира = `101 → close(1008)` + cooldown, петель нет.
 

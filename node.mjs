@@ -40,7 +40,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
 } from './core.mjs';
-import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
+import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl, isLoopbackPeerUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
@@ -2743,7 +2743,8 @@ const hubMsgHandlers = {
   // ETAP1/FR-P2P-02: gossip peer-листов ≤50 адресов — пилы сети) сообщают друг другу про others
   onPeers: (list, peer) => {
     try {
-      const valid = [...new Set(list)].filter(u => typeof u === 'string' && /^https?:\/\//.test(u) && !u.includes(SELF_URL) && !peer.theirUrl?.includes(u)).slice(0, 50);
+      const allowLoop = process.env.AGT_ALLOW_LOOPBACK_PEERS === '1'; // локальные стенды
+      const valid = [...new Set(list)].filter(u => typeof u === 'string' && /^https?:\/\//.test(u) && !u.includes(SELF_URL) && !peer.theirUrl?.includes(u) && (allowLoop || !isLoopbackPeerUrl(u))).slice(0, 50);
       const have = loadPeers();
       let added = 0;
       for (const u of valid) if (!have.includes(u)) { addPeer(u); added++; }

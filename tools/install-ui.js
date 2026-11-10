@@ -4,7 +4,8 @@
     const manifest = document.createElement('link');
     manifest.rel = 'manifest'; manifest.href = '/app.webmanifest'; document.head.appendChild(manifest);
   }
-  if (window.isSecureContext && 'serviceWorker' in navigator) navigator.serviceWorker.register('/app-worker.js').catch(() => {});
+  // Регистрация service worker убрана: файла /app-worker.js нет, а catch-all Caddy
+  // отдавал на него index.html — каждая страница шумела MIME-ошибкой в консоли.
   let installPrompt = null;
   window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; });
   const select = document.getElementById('install-platform');

@@ -120,7 +120,7 @@ body>*{position:relative;z-index:1}
       </div>
     </div>
   </div>
-  <footer>AGENTCOIN · live-панель · источники: /api/v1/mempool · /blocks · /info · /balances · /jobs/state</footer>
+  <footer>AGENTCOIN · live-панель · источники: /mempool · /blocks · /info · /balances · /jobs/state</footer>
 </div>
 <script>
 'use strict';
@@ -172,14 +172,14 @@ function renderFeed(){
 
 /* --- поллеры --- */
 function pollFast(){
-  getJSON('/api/v1/mempool').then(function(mp){
+  getJSON('/mempool').then(function(mp){
     okApi();
     var txs = mp.txs || [];
     var fresh = txs.filter(function(t){ return t.txid && !lastTxIds[t.txid]; });
     txs.forEach(function(t){ if (t.txid) lastTxIds[t.txid] = true; });
     var ids = Object.keys(lastTxIds);
     if (ids.length > 500) lastTxIds = {};
-    set('mpCount', mp.count != null ? mp.count : txs.length);
+    set('mpCount', mp.count != null ? mp.count : (mp.size != null ? mp.size : txs.length));
     set('mpFees', mp.totalFeesAGT != null ? mp.totalFeesAGT : '—');
     if (feed.length === 0 && txs.length){
       txs.slice(0, 12).reverse().forEach(function(t){ feed.unshift({ type: 'tx', from: t.from, to: t.to, amount: t.amount, time: ts(t.timestamp) }); });

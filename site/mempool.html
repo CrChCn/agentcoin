@@ -202,9 +202,10 @@ function renderData(d){
 
 async function load(){
   try{
-    var r=await fetch('/api/v1/mempool',{cache:'no-store',signal:AbortSignal.timeout(7000)});
+    var r=await fetch('/mempool',{cache:'no-store',signal:AbortSignal.timeout(7000)});
     var d=await r.json();
     if(!r.ok) throw d.error||('HTTP '+r.status);
+    if(d&&d.count==null&&d.size!=null)d.count=d.size;
     hist.push(d.count||0);
     if(hist.length>HIST_LEN) hist.shift();
     renderData(d); renderChart();

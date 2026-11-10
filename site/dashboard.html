@@ -253,11 +253,14 @@ async function tick() {
     const info = await j('/info').catch(() => ({}));
     $('diff').textContent = info.difficultyBits ?? (l.difficultyBits ?? '—');
     $('reward').textContent = info.nextReward != null ? (info.nextReward + ' AGT') : (l.nextReward != null ? l.nextReward + ' AGT' : '—');
-    const mp = await j('/mempool'); const m = Array.isArray(mp) ? mp : (mp.txs || []);
-    $('mempool').textContent = m.length;
-    const mpT = $('mempoolTable').tBodies[0]; mpT.innerHTML = '';
-    m.slice(0, 8).forEach(t => mpT.insertAdjacentHTML('beforeend',
-      `<tr><td class="mono dim">${txt(t.from).slice(0,14)} → ${txt(t.to).slice(0,14)}</td><td>${txt(t.amount)}</td></tr>`));
+    // Мемпул отдельно: его падение не должно ронять блоки/ленту/баны/пиры ниже.
+    try {
+      const mp = await j('/mempool'); const m = Array.isArray(mp) ? mp : (mp.txs || []);
+      $('mempool').textContent = m.length;
+      const mpT = $('mempoolTable').tBodies[0]; mpT.innerHTML = '';
+      m.slice(0, 8).forEach(t => mpT.insertAdjacentHTML('beforeend',
+        `<tr><td class="mono dim">${txt(t.from).slice(0,14)} → ${txt(t.to).slice(0,14)}</td><td>${txt(t.amount)}</td></tr>`));
+    } catch { $('mempool').textContent = '—'; }
     try { const ws = await j('/ws/status'); $('wspeers').textContent = txt(ws.wsPeers); } catch { $('wspeers').textContent = '—'; }
     try {
       const bans = await j('/security/banlist');
@@ -281,12 +284,14 @@ async function tick() {
         bT.insertAdjacentHTML('beforeend', `<tr><td>${txt(b.height)}</td><td class="mono dim">${txt(b.hash || h.hash).slice(0,16)}</td><td>${(b.txs||[]).length}</td><td class="dim">${tsMs ? new Date(tsMs).toLocaleTimeString() : '—'}</td></tr>`);
       });
     } catch {}
-    const feed = await j('/community/feed');
-    const msgs = feed.messages || feed.feed || feed;
-    if (Array.isArray(msgs)) {
-      $('feed').innerHTML = msgs.slice(0, 30).reverse().map(m =>
-        `<div><span class="who">${esc(txt(m.handle || m.from || m.sender).slice(0, 20))}</span> <span class="dim">${esc(new Date(m.ts || m.time || Date.now()).toLocaleTimeString())}</span><br>${esc((txt(m.text || m.content || '')).slice(0, 400))}</div>`).join('');
-    }
+    try {
+      const feed = await j('/community/feed');
+      const msgs = feed.messages || feed.feed || feed;
+      if (Array.isArray(msgs)) {
+        $('feed').innerHTML = msgs.slice(0, 30).reverse().map(m =>
+          `<div><span class="who">${esc(txt(m.handle || m.from || m.sender).slice(0, 20))}</span> <span class="dim">${esc(new Date(m.ts || m.time || Date.now()).toLocaleTimeString())}</span><br>${esc((txt(m.text || m.content || '')).slice(0, 400))}</div>`).join('');
+      }
+    } catch {}
     try {
       const cl = await j('/cloud/stats');
       $('cloudRow').innerHTML = `<div class="kv"><b>Фонд, AGT</b><span>${esc(txt(cl.fundAGT ?? cl.fund))}</span></div>

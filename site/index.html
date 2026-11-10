@@ -111,7 +111,7 @@ document.getElementById('eJobs').textContent=s.paidJobs!=null?s.paidJobs:'—';
 document.getElementById('eTreasury2').textContent=s.treasury!=null?s.treasury:'—';
 }catch(e){}
 try{var lf=await jget('/life');if(lf&&lf.difficultyBits!=null)document.getElementById('sDiff').textContent=lf.difficultyBits;}catch(e){}
-try{var mp=await jget('/api/v1/mempool');var n=Array.isArray(mp)?mp.length:(mp&&mp.count!=null?mp.count:(mp&&mp.txs?mp.txs.length:null));if(n!=null)document.getElementById('sMempool').textContent=n;}catch(e){}
+try{var mp=await jget('/mempool');var n=Array.isArray(mp)?mp.length:(mp&&mp.count!=null?mp.count:(mp&&mp.size!=null?mp.size:(mp&&mp.txs?mp.txs.length:null)));if(n!=null)document.getElementById('sMempool').textContent=n;}catch(e){}
 loadFeed();loadMap();
 }
 function set(id,v){document.getElementById(id).textContent=v!=null?v:'—';}

@@ -96,3 +96,19 @@
   только по hostname через reverse-proxy — штатно).
 - Вывод: фактически работают ноутбук + node1; node2/node3 — резерв.
   Межмашинных держащихся P2P-сессий нет, синк — сессиями, форков нет.
+
+## 8. Серверная сторона (SSH agentcoin-deploy, ~12:40 UTC)
+
+- Все 3 сервера держат живую ноду на :9335: `/opt/agentcoin-node/src/node.mjs`
+  (на .160 — `/opt/agentcoin-staging/...`), рантайм node-v24 bundled.
+  systemd-юнит `agt-node` везде `inactive` — ноды запущены иным
+  супервизором (уточнить: pm2/screen/docker).
+- Все три: `peers:0`, `roster:[]`, `seed:3`, высота 38915, tip общий.
+  Постоянных межмашинных P2P-сессий нет нигде; синк — короткими сессиями.
+- `node2/node3.agentcoin.work` отдают `reserve node: dark` по HTTPS, но сами
+  ноды под ними живы и в цепи. «Тёмный резерв» — только веб-заглушка.
+- Серверные деревья — ТРЕТЬЯ копия кода (`/opt/agentcoin-node/src`),
+  не сверена с `agentcoin/` и `agentcoin-wt-wagt/`. Сверить обязательно.
+- Ключи: DO-токен работает (read); `agentcoin-deploy` SSH открывает все
+  3 сервера (root); `agentcoin-vps/ed25519` — denied везде; `pk1_/sk1_` —
+  не Cloud и не DNS Hetzner, не опознаны.

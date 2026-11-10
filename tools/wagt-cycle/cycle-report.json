@@ -9,17 +9,17 @@
     "trader": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
   },
   "agt": {
-    "user": "AGTe6ddbb56541f436fef09f9efb77862bc0d181d9b",
-    "vault": "AGT7f019ee03852861c64febc7d9bd01311dc0ba5cc",
-    "lockTx1": "f72bbf45e14388f5a41a5df9b45801d2ffd0da4d96839b3cd09b224720c46e0e",
-    "lockTx2": "47e3e41bcf487b2698f0fc93a6cf3c5bf4658c7eaafbb17b8836c262ffe141a0",
-    "releaseTx": "aa527ffa2f2d2ad8fff5860456fdb67d73a63e1c10123f1fd690a871a1ebf180"
+    "user": "AGTe5d11e5af99693bdf7898273d7834d700af2a93d",
+    "vault": "AGT8a1b56a9ed9c2171342d8071908153d6cfeb1429",
+    "lockTx1": "699bcb781ce4cd29d6290e85f52a6b326d13bf3c1dac511edfd2609f604ca990",
+    "lockTx2": "81ede64ca54be2cf36807ce7c9ccc9ac47de4610f6197cc71aab9a1431d69d57",
+    "releaseTx": "eff38fb5c61cec140f463ad796fb6929500219bacda3f5b28d64435796de28ae"
   },
   "evmTx": {
-    "mint1": "0xbf583cedbcab273c5ac048b5e6f60216e62b28cfacc3ecd8cb664fad22de5494",
-    "mint2": "0xba65d1dbbfddb8bfb28ef91132238142006653afde5c9f3c10a730c39a9ec7ba",
-    "swap": "0x9f2040b7e4efc0d1b36ca0af37b58a3c6dfeadb76eda0e9301b975cdaeecbd92",
-    "burn": "0x47e63bc45f4970caecc3ddb6921ebd9e1ff2f5e73ea0b87f27e6adaacc878b14"
+    "mint1": "0x9be99a42b3167fe541cb71cb95a977b315c13e3483d7e96253e52b155c32ac0a",
+    "mint2": "0x436f05ded121efa90cd584f2354b92effb115409944288620ca9a65a9f25a9bd",
+    "swap": "0xf997a2d933c938bdd8e2f0b8ee3f1cfcdead3387b42c859f7276445a2a93acb9",
+    "burn": "0x8db5159242d334e8ef4fb962a70a89041f07c0a251cd1ea0af12dbd1812db0a9"
   },
   "amounts": {
     "lock1": 40,
@@ -31,6 +31,13 @@
   "checks": {
     "replayBlockedOffchain": true,
     "replayBlockedOnchain": true,
+    "minAgtConf": 2,
+    "minEvmConf": 2,
+    "agtMissingRefused": true,
+    "agtGateBeforeThreshold": true,
+    "evmGateMatured": true,
+    "reorgHaltedRoute": true,
+    "haltResetRecovered": true,
     "reserveAfterRestart": 42,
     "wagtSupply": 42,
     "backingInvariant": true

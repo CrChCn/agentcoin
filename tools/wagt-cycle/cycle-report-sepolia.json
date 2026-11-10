@@ -1,0 +1,95 @@
+{
+  "network": "sepolia",
+  "evmChainId": 11155111,
+  "reconstructed": true,
+  "reconstructionNote": "Скрипт живого прогона исполнил весь цикл и зафиксировал сверку 42=42, но упал на финальном рестарте ноды до записи отчёта (исправлено retries). Данные восстановлены из цепи: Sepolia RPC (транзакции/квитанции/логи) + изолированная AGT-цепь из сохранившегося datadir. Swap-чек脚本 дал ложный FAIL из-за чтения баланса с отставшей ноды RPC; событие Transfer доказывает 18.99318950326237 tAGT.",
+  "faucet": {
+    "hash": "0x1d2977b9ebaca0776a9adb937062cfa04a241f160c7138a793ad7d59e12948ea",
+    "block": 12096557,
+    "amountEth": 0.05
+  },
+  "uniswap": {
+    "factory": "0xF62c03E08ada871A0bEb309762E260a7a6b8E6",
+    "router02": "0xeE567Fe1712Faf6149d80dA1E6934e354124Cf3",
+    "pair": "0x02778d388a9D397d9583524169506256d4179fDC",
+    "sources": [
+      "https://developers.uniswap.org/docs/protocols/v2/deployments",
+      "https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments",
+      "https://blog.ethereum.org/2023/11/30/goerli-lts-update",
+      "https://github.com/eth-clients/sepolia/blob/main/README.md"
+    ]
+  },
+  "contracts": {
+    "wagt": "0x64FEA6B5a6BE1CA8F8301Ad63b33356eA548b590",
+    "tagt": "0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50",
+    "bridge": "0x4C40d75dB7B4FFD8334bD2884dB96DE835e45280",
+    "trader": "0xD64e5F2C82328AE3885B982D0FDd82c572037e78"
+  },
+  "agt": {
+    "user": "AGTecbfc69a5060c628ac7b48bc69b1a6be22c1bf6e",
+    "vault": "AGT2a547a1769c24b4ae91ea200baf2a3ad4d61aabf",
+    "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+    "lockTx1": "155459346ae3e87241e6184ad20669b5a5421da4443f8fee263567bff20e72fb",
+    "lockTx1Block": 2,
+    "lockTxUnconfirmed": "6e29647273fea19ff08c1f238dc61a57c1496b3a86b8df58a7cac02c048f3b37",
+    "lockTxUnconfirmedBlock": 5,
+    "lockTxRefund": "a95f4d01796a8e8519237eb1282cf5aa53da2d76206079ea0709626882626d28",
+    "lockTxRefundBlock": 6,
+    "lockTx2": "463a8b861bfb107b39b5fe243f916a2abc8a0c79249a313ba1e5303755f7659a",
+    "lockTx2Block": 7,
+    "releaseTx": "b257a1027696554b9a3af65cd3039d3bafb60d39a9535d18c27c28cb80a4e950",
+    "releaseTxBlock": 10
+  },
+  "sepoliaTx": {
+    "deployWAGT": "0xac21ca749c703edfc0d3bd96cd4012b70cad8931dcfc178ae263510daa79c63b",
+    "deployTAGT": "0xfc2a2446b9f9cb99de68c741f97c2fca9768f85ae9c42d6a71f70b80e69fa117",
+    "fundTrader": "0xf6c27261bf0f0dc15cfb0ecee57b677c7cad52298de4014c3d310aeefc7c6ed9",
+    "mint1": "0xa5c803a180099086313b271f9883af40ec045626b8954b0ead093bcb6fa128c7",
+    "faucetTAGT": "0x0a491f32e1535de2904771c8202269c8456cb4a25e97988fcd8d308ff480bd27",
+    "approveWAGT": "0x7cad43f00fdda1e58ef0e2c58e768527c45da437049f4378fbc7fc5bca8e9b10",
+    "approveTAGT": "0xc43db694fee4cd23efbd688265250a0dfd7bca24e6e4b2a5fa92a1b20b3af49d",
+    "addLiquidity": "0x10f98f81e47077da8df883fe053a794a1700f726056685e643704aec596b5958",
+    "mint2": "0xee037ce03dea1b4df7d6eb4c274389c53bb1f18ea9f07cb046167e2634f60b3c",
+    "swap": "0x72f4e6aaf8eb98013170bef7b3d0607263adf8cc8a0c75e01e64d979fa26e26c",
+    "burn": "0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252622e7cb9af16"
+  },
+  "sepoliaBlocks": {
+    "deployWAGT": 12096563,
+    "deployTAGT": 12096564,
+    "fundTrader": 12096565,
+    "mint1": 12096566,
+    "faucetTAGT": 12096567,
+    "approveWAGT": 12096568,
+    "approveTAGT": 12096569,
+    "addLiquidity": 12096570,
+    "mint2": 12096585,
+    "swap": 12096587,
+    "burn": 12096589
+  },
+  "amounts": {
+    "lock1": 40,
+    "lock2": 5,
+    "swapInWagt": "2",
+    "swapOutTagt": "18.993189503262370814",
+    "minOutTagt": "18.043530028099252273",
+    "burnWagt": "3",
+    "releaseAgt": 3
+  },
+  "checks": {
+    "swapChainVerified": true,
+    "unconfirmedDepositBlocked": true,
+    "replayBlockedOffchain": true,
+    "replayBlockedOnchain": true,
+    "restartFoundSentRelease": true,
+    "duplicateBurnRejected": true,
+    "vaultAgt": 42,
+    "wagtSupply": 42,
+    "backingInvariant": true
+  },
+  "gas": {
+    "deployerFeesEth": 0.035792,
+    "traderFundingEth": 0.005,
+    "totalSpentEth": 0.0408,
+    "note": "deployer fees по квитанциям (все tx по 1 gwei кроме создания пары ~19.1M газа); остаток 0.0092 из 0.05 сходится копейка в копейку"
+  }
+}

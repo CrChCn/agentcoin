@@ -1,0 +1,84 @@
+
+> wagt-cycle@1.0.0 accept:v2
+> hardhat run scripts/accept-v2-mainnet.mjs
+
+== wAGT v2 accept: оба направления, реорги, резерв, пул ==
+Nothing to compile
+WAGTv2=0x5FbDB2315678afecb367f032d93F642f64180aa3
+  ok: A1 owner на месте
+  ok: A2 minter/pauser на месте
+  ok: A3 посторонний не ставит паузу; снимает только pauser, minter меняет только owner (полно — cycle-v2 O/P/R)
+  ok: L1 граница mint ok
+  ok: L2 over mint denied
+  ok: L3 граница release ok
+  ok: L4 over release denied
+  resync-mint[L-mint-over]: acc-Lbig-1a1c2f3fbc7:limit-refused-mint_limit_exceeded
+  ok: L5 попытка 41 через ресинк: mint НЕТ (supply не изменился)
+  ok: L5b превышение лимита mint — halt направления
+  halt[agt2evm] снят вручную (operator-reviewed): разбор L5: сверхлимитная заявка отклонена, журнал помечен
+  resync-release[L-rel-over]: 0xdddddddddd:limit-refused-release_limit_exceeded
+  ok: L6 попытка 11 через ресинк: выплата НЕ создана (баланс не изменился)
+  ok: L6b превышение лимита release — halt направления
+  halt[evm2agt] снят вручную (operator-reviewed): разбор L6: сверхлимитная выплата отклонена, журнал помечен
+  ok: L7 лимитов НЕТ в контракте (ABI): действуют только в релейере
+  Ma: intent записан, «сбой» до отправки mint-tx (lock feefd7cfd075637b53)
+  resync-mint[Ma]: acc-Ma-1a1c2f3fc39:minted-after-restart
+  ok: Ma после рестарта: mint исполнен ровно один раз
+  Mb: mint-tx 0xce65544614402cee в мемпуле (receipt null), «сбой»
+  resync-mint[Mb]: acc-Mb-1a1c2f405c5:mempool-mined-no-resend
+  ok: Mb после рестарта: висящая tx подтверждена как есть, второй отправки НЕТ
+  Mc: mint-tx 0x8e2c76cd60a64129 в блоке #5, «сбой» до записи
+  resync-mint[Mc]: acc-Mc-1a1c2f40758:already-minted
+  ok: Mc после рестарта: сверка нашла mint, повторного выпуска НЕТ
+  Md: intent на lock, которого нет в цепи (событие исчезло после подтверждения)
+  resync-mint[Md]: acc-Md-1a1c2f40956:lock-missing-needs-review
+  ok: Md: mint НЕТ, направление остановлено с причиной lock_event_vanished
+  halt[agt2evm] снят вручную (operator-reviewed): разбор Md: фантомный lock, затронутое направление проверено
+  ok: Md: halt снят только вручную после разбора
+  Ea: burn 0x68e17026764aa91e зрел, intent записан, «сбой» до выплаты
+  resync-release[Ea]: 0x68e1702676:released-once:1015d311a57df331e5
+  ok: Ea после рестарта: ровно одна выплата 1 AGT
+  Eb: выплата 163b9fdd6ca1787cdf в мемпуле AGT (без блока), «сбой»
+  resync-release[Eb]: 0xe74622cfc3:mempool-confirmed-no-double
+  ok: Eb после рестарта: висящая выплата подтверждена, второй выплаты НЕТ
+  Ec: выплата b94216484619b35a62 в блоке AGT, «сбой» до записи
+  resync-release[Ec]: 0x49e42f8e01:already-released-no-double
+  ok: Ec после рестарта: сверка нашла выплату, повтора НЕТ (баланс не изменился)
+  Ed: burn 0x3854ae94b558d394 был зрел (depth=2), реорг стёр событие
+  ok: Ed: исчезнувшее событие -> halt evm2agt с причиной burn_event_vanished
+  resync-release[Ed-blocked]: 0x3854ae94b5:blocked-burn_event_vanished
+  ok: Ed: пока halt стоит, новые выплаты направления отклоняются
+  halt[evm2agt] снят вручную (operator-reviewed): разбор Ed: реорг подтверждён, burn перевыпущен трейдером
+  resync-release[Ed-redo]: 0x3854ae94b5:released-once:6a5871d3c9b0a4e34c
+  ok: Ed: после сброса и нового burn выплата 1 AGT прошла
+  Ee: выплата не находится ни в цепи, ни в мемпуле (неоднозначный результат)
+  resync-release[Ee]: 0x86f7bf39e8:fate-unknown-halt
+  ok: Ee: судьба неизвестна -> новой выплаты НЕТ, направление остановлено
+  halt[evm2agt] снят вручную (operator-reviewed): разбор Ee: выплата-фантом списана, оператор перевыпустит вручную после сверки
+  D: открыты mint 2 (lock 35623ea125c4775cd9) + release 1 (burn 0xed067196d81afe13)
+  ok: D резерв с открытыми: vault=6-1(релиз)-1(сожжено без выплаты Ee) == supply=2+2 (ожидание сходится)
+  resync-mint[D-settle]: acc-Dopen-1a1c2f41483:minted-after-restart
+  resync-release[D-settle]: 0xed067196d8:released-once:e2f9058945b7120fc1
+  ok: D после доведения: vault=5 == supply=4, открытых нет
+  ok: E расхождение обнаружено: vault=4 vs supply=4
+  ok: E выдача остановлена: контракт на паузе + ворота обоих направлений закрыты
+  ok: E после докапитализации: vault=5 == supply=4
+  halt[agt2evm] снят вручную (operator): разбор E: leak 2f7a29fa88b8b3ec2a ключом хранителя, резерв пополнен 9c3195fb0e93c852c1
+  halt[evm2agt] снят вручную (operator): разбор E: leak 2f7a29fa88b8b3ec2a ключом хранителя, резерв пополнен 9c3195fb0e93c852c1
+  ok: E после возобновления: мост снова выпускает
+  F: пул 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 (wAGT/tAGT ~ Uniswap V2)
+  ok: F стартовый выпуск 40 укладывается в лимит mint (граница)
+  ok: F у кошелька ликвидности ОБА тестовых токена (40 wAGT + 400 tAGT), подписывает lp
+  ok: F пул: 40 wAGT / 400 tAGT
+  ok: F выпуск 5 для трейдера укладывается в лимит mint
+  ok: F продажа 2 wAGT -> 18.993189503262370814 tAGT (V2-формула, evmTx=0xf43d4ef114dcfa4c)
+  ok: F покупка 9.496594751631185407 tAGT -> wAGT (evmTx=0xf675142cf0d51c8d)
+  ok: F инвариант x*y=k держится после обеих сделок
+  ok: F после покупки/продажи у трейдера остался отдельный остаток wAGT для контрольного возврата
+  ok: F контрольный возврат укладывается в лимит release
+  resync-release[F]: 0xbe99669048:released-once:5733f46a6c93692d00
+  ok: F сжигание 9.018401932828770174 wAGT -> возврат 9 AGT
+  ok: F итоговая сверка: vault=42 == supply=41, открытых нет
+report: tools/wagt-cycle/accept-v2-report.json
+
+WAGT-ACCEPT: OK — оба направления, реорги, резерв, пул.

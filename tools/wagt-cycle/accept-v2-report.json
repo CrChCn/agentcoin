@@ -1,0 +1,316 @@
+{
+  "code": {
+    "standSha": "a843f06c70b26d9ddb6e2d566a4b5f83d2b5a5c3",
+    "contractSha": "374abf555ed4eb685aee97034348a12030e2bf12",
+    "contractFile": "tools/wagt-cycle/contracts/WAGTv2.sol"
+  },
+  "evmChainId": 31337,
+  "roles": "owner (назначен при деплое)/pauser/minter на местах; stranger denied; двухшаговая передача — полно в cycle-v2 O (O1-O12)",
+  "limits": {
+    "values": {
+      "maxMintPerOp": 40,
+      "maxReleasePerOp": 10
+    },
+    "scope": "relayer-only, no on-chain caps (ABI без лимитных функций)",
+    "overLimit": {
+      "mint": {
+        "ledgerAfter": {
+          "agtTxid": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "amount": 41,
+          "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+          "state": "needs-review",
+          "mintTx": null,
+          "pendingTx": null
+        },
+        "haltAfter": {
+          "reason": "mint_limit_exceeded",
+          "detail": "acc-Lbig-1a1c2f3fbc7: amount 41 > 40",
+          "by": "accept-stand",
+          "at": "2026-11-10T00:55:32.050Z"
+        },
+        "supplyDelta": "0"
+      },
+      "release": {
+        "rledgerAfter": {
+          "burnBlock": 1,
+          "amount": 11,
+          "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+          "state": "needs-review",
+          "releaseTxid": null
+        },
+        "haltAfter": {
+          "reason": "release_limit_exceeded",
+          "detail": "burn 0xdddddddddddddddd: amount 11 > 10",
+          "by": "accept-stand",
+          "at": "2026-11-10T00:55:32.121Z"
+        },
+        "userDelta": 0
+      }
+    }
+  },
+  "mintCrashes": {
+    "Ma": {
+      "lockTxid": "feefd7cfd075637b53f4300dd272c6c609bd88ed9fcc1139a6c3a40cc4026059",
+      "ledgerBefore": null,
+      "ledgerAfter": {
+        "agtTxid": "feefd7cfd075637b53f4300dd272c6c609bd88ed9fcc1139a6c3a40cc4026059",
+        "amount": 1,
+        "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "state": "minted",
+        "mintTx": "0x9acc395b5f88ee7048d626e4835a9a71d2f1a95b95199fbd5375d264a561edd8",
+        "pendingTx": null
+      },
+      "supplyDelta": "1000000000000000000"
+    },
+    "Mb": {
+      "lockTxid": "4691debc2bfd1e5e050f3581b6b65070b5952303ba4b4f60ee14283b72e1c4fe",
+      "mintTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12",
+      "wasInMempool": true,
+      "ledgerAfter": {
+        "agtTxid": "4691debc2bfd1e5e050f3581b6b65070b5952303ba4b4f60ee14283b72e1c4fe",
+        "amount": 1,
+        "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "state": "minted",
+        "mintTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12",
+        "pendingTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12"
+      },
+      "supplyDelta": "1000000000000000000"
+    },
+    "Mc": {
+      "lockTxid": "96d6715bf98a2429aa941c086f10a6610c8251fde1e2f534a7c221ee77b52c93",
+      "mintTx": "0x8e2c76cd60a641299daeee9c4829dcd5dff1c793d79439dbad3a27a4702ebe2e",
+      "block": 5,
+      "ledgerAfter": {
+        "agtTxid": "96d6715bf98a2429aa941c086f10a6610c8251fde1e2f534a7c221ee77b52c93",
+        "amount": 1,
+        "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "state": "minted",
+        "mintTx": "recovered-onchain",
+        "pendingTx": null
+      },
+      "supplyDelta": "0"
+    },
+    "Md": {
+      "ledgerAfter": {
+        "agtTxid": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "amount": 1,
+        "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        "state": "needs-review",
+        "mintTx": null,
+        "pendingTx": null
+      },
+      "haltAfter": {
+        "reason": "lock_event_vanished",
+        "detail": "acc-Md-1a1c2f40956: lock deadbeefdeadbeefde нет в цепи AGT",
+        "by": "accept-stand",
+        "at": "2026-11-10T00:55:35.552Z"
+      },
+      "supplyDelta": "0"
+    }
+  },
+  "releaseCrashes": {
+    "Ea": {
+      "burnTx": "0x68e17026764aa91e2e26da146d4133f2d2c0950402eff24eea970a792622029c",
+      "burnBlock": 7,
+      "rledgerAfter": {
+        "burnBlock": 7,
+        "amount": 1,
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+        "state": "confirmed",
+        "releaseTxid": "1015d311a57df331e57d9d01fb2237d4f3e91c9eb4fd3bbda62b30edc09f676b"
+      },
+      "userDelta": 1
+    },
+    "Eb": {
+      "burnTx": "0xe74622cfc3618990e0c9f6976f79d50e43f94c6dd6322b739b8faa7b2cc2fe4b",
+      "releaseTxid": "163b9fdd6ca1787cdf494254f0b0ee03f53370f04051a7c520c3fac5a568737e",
+      "wasInMempool": true,
+      "rledgerAfter": {
+        "burnBlock": 11,
+        "amount": 1,
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+        "state": "confirmed",
+        "releaseTxid": "163b9fdd6ca1787cdf494254f0b0ee03f53370f04051a7c520c3fac5a568737e"
+      },
+      "userDelta": 1
+    },
+    "Ec": {
+      "burnTx": "0x49e42f8e01c70228b6eed0b91664062d14ce9fa81b2ada03305295410638e11a",
+      "releaseTxid": "b94216484619b35a62cc00dad43e44eca2f84045db4a1a8be18a572fe1339ee5",
+      "rledgerAfter": {
+        "burnBlock": 15,
+        "amount": 1,
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+        "state": "confirmed",
+        "releaseTxid": "b94216484619b35a62cc00dad43e44eca2f84045db4a1a8be18a572fe1339ee5"
+      },
+      "userDelta": 0
+    },
+    "Ed": {
+      "burnTx": "0x3854ae94b558d394c3d79b07de456ff600f7629aef6fd5e9da982d2b939125e3",
+      "gateBefore": true,
+      "gateAfter": "burn_event_vanished",
+      "haltAfter": {
+        "reason": "burn_event_vanished",
+        "detail": "burn 0x3854ae94b558d394 нет в канонической цепи",
+        "by": "accept-stand",
+        "at": "2026-11-10T00:55:37.764Z"
+      },
+      "reburnTx": "0x3854ae94b558d394c3d79b07de456ff600f7629aef6fd5e9da982d2b939125e3",
+      "rledgerAfter": {
+        "burnBlock": 19,
+        "amount": 1,
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+        "state": "confirmed",
+        "releaseTxid": "6a5871d3c9b0a4e34c501f93f380ad5f0364efd76917f0c7730c3254d8385eb2"
+      }
+    },
+    "Ee": {
+      "burnTx": "0x86f7bf39e8fa6b0969972efd9ad02f5a4259e537089fdf52ff812636bdb9561d",
+      "rledgerAfter": {
+        "burnBlock": 23,
+        "amount": 1,
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
+        "state": "fate-unknown",
+        "releaseTxid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "haltAfter": {
+        "reason": "release_fate_unknown",
+        "detail": "burn 0x86f7bf39e8fa6b09: выплата eeeeeeeeeeeeeeeeee нигде не найдена",
+        "by": "accept-stand",
+        "at": "2026-11-10T00:55:38.346Z"
+      },
+      "userDelta": 0
+    }
+  },
+  "reserve": {
+    "open": {
+      "vault": 6,
+      "supply": 2,
+      "openMint": [
+        {
+          "depositId": "acc-Dopen-1a1c2f41483",
+          "agtTxid": "35623ea125c4775cd99ab9b600eb4e8628989cc789ccff3c614679ff84c1e5b7",
+          "amount": 2,
+          "state": "intent"
+        }
+      ],
+      "openRelease": [
+        {
+          "burnTx": "0xed067196d81afe13",
+          "amount": 1,
+          "state": "intent"
+        }
+      ],
+      "unreleasedBurns": [
+        {
+          "burnTx": "0x86f7bf39e8fa6b09",
+          "amount": 1,
+          "state": "void-reviewed"
+        }
+      ],
+      "expected": {
+        "vaultAfterSettle": 4,
+        "supplyAfterSettle": 4
+      },
+      "ok": true,
+      "reason": null
+    },
+    "settled": {
+      "vault": 5,
+      "supply": 4,
+      "openMint": [],
+      "openRelease": [],
+      "unreleasedBurns": [
+        {
+          "burnTx": "0x86f7bf39e8fa6b09",
+          "amount": 1,
+          "state": "void-reviewed"
+        }
+      ],
+      "expected": {
+        "vaultAfterSettle": 4,
+        "supplyAfterSettle": 4
+      },
+      "ok": true,
+      "reason": null
+    },
+    "divergence": {
+      "before": 5,
+      "after": {
+        "vault": 4,
+        "supply": 4,
+        "openMint": [],
+        "openRelease": [],
+        "unreleasedBurns": [
+          {
+            "burnTx": "0x86f7bf39e8fa6b09",
+            "amount": 1,
+            "state": "void-reviewed"
+          }
+        ],
+        "expected": {
+          "vaultAfterSettle": 3,
+          "supplyAfterSettle": 4
+        },
+        "ok": false,
+        "reason": "settlement_mismatch"
+      },
+      "leakTxid": "2f7a29fa88b8b3ec2aff1f451c2e74ca6ccea575da6ee3354b65c1f9bf021db7"
+    },
+    "haltLog": {
+      "agt2evm": {
+        "reason": "supply_vault_mismatch",
+        "detail": "vault=4 supply=4: необъяснённое расхождение",
+        "by": "operator",
+        "at": "2026-11-10T00:55:39.460Z"
+      },
+      "evm2agt": {
+        "reason": "supply_vault_mismatch",
+        "detail": "vault=4 supply=4: необъяснённое расхождение",
+        "by": "operator",
+        "at": "2026-11-10T00:55:39.464Z"
+      }
+    },
+    "final": {
+      "vault": 42,
+      "supply": 41,
+      "openMint": [],
+      "openRelease": [],
+      "unreleasedBurns": [
+        {
+          "burnTx": "0x86f7bf39e8fa6b09",
+          "amount": 1,
+          "state": "void-reviewed"
+        }
+      ],
+      "expected": {
+        "vaultAfterSettle": 41,
+        "supplyAfterSettle": 41
+      },
+      "ok": true,
+      "reason": null
+    }
+  },
+  "controlCycle": {
+    "pool": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "tagt": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "lockMintTx": "fda4941f187baf4dcf7029910fbf4f02995481054f8a47562c454e9257ffc816",
+    "sellTx": "0xf43d4ef114dcfa4c08f0544df610498b4d7a3685484b7f4f811deaa7662a61e4",
+    "sellOut": "18993189503262370814",
+    "buyTx": "0xf675142cf0d51c8da30037e37294afb8109602d9374d384fc2c3f7574093186c",
+    "burnTx": "0xbe996690485698306d4438991012a42f46b20d4afae0a2fb7c6eb7404a896476",
+    "releaseTxid": "5733f46a6c93692d0097e90dd469bdb365620044a49b3d3abee108c55ca7b811",
+    "returnedAGT": 9
+  },
+  "priorExchange": {
+    "network": "sepolia",
+    "uniswap": "official V2",
+    "wagt": "0x64FEA6B5a6BE1CA8f8301Ad63b33356eA548b590",
+    "tagt": "0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50",
+    "pair": "0x02778d388a9D397d9583524169506256d4179fDC",
+    "swapSell2wAGT": "0x72f4e6aaf8eb98013170bef7b3d0607263adf8cc8a0c75e01e64d979fa26e26c",
+    "burn3wAGT": "0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252e2cb7af16",
+    "note": "exchange Sepolia - proof of prior exchange; new local WAGT v2 run - controlCycle"
+  }
+}

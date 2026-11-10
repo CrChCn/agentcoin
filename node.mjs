@@ -414,6 +414,7 @@ const SITE_PAGE_CONTENT_TYPE = (page) =>
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
   : page.endsWith('.png') ? 'image/png'
   : page.endsWith('.md') ? 'text/markdown; charset=utf-8'
+  : page.endsWith('.json') ? 'application/json; charset=utf-8'
   : page.endsWith('.zip') ? 'application/zip'
   : 'text/html; charset=utf-8';
 function serveSitePage(res, page) {
@@ -2618,6 +2619,8 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/manifest.webmanifest' && req.method === 'GET') return serveSitePage(res, 'manifest.webmanifest');
   if (p === '/apple-icon.png' && req.method === 'GET') return serveSitePage(res, 'apple-icon.png');
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
+  // Дерево империи: каноническая навигация, из checkout (не release-список, см. выше). 
+  if (p === '/tree.json' && req.method === 'GET') return serveSitePage(res, 'tree.json');
   if (p === '/buffy' || p === '/buffy.html') { serveSitePage(res, 'buffy.html'); return; }
   if (p === '/buffy-ops' || p === '/buffy-ops.html') { serveSitePage(res, 'buffy-ops.html'); return; }
   if (p === '/imperial' || p === '/imperial.html') {

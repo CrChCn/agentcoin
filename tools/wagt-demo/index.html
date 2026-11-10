@@ -95,6 +95,16 @@
         <li>Возврат (burn 3 wAGT): <a class="mono" href="https://sepolia.etherscan.io/tx/0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252622e7cb9af16">0x6a50e5cd…2e7cb9af16</a> (блок 12096589)</li>
       </ul>
     </div>
+
+    <div class="card">
+      <span class="badge chain">публичная тестовая сеть</span><span class="net">только чтение · кошелёк не нужен · транзакция не отправляется</span>
+      <div><b>Живая котировка (не сделка): продажа 2 wAGT</b></div>
+      <div>Выход: <span class="amt" id="live-out">17.268890760796809396 tAGT</span></div>
+      <div class="k" id="live-block">блок 12103142 (снимок, сверен чтением Router02.getAmountsOut и пересчётом по резервам 42 / 381.006810496737629186 того же блока — сошлось точно)</div>
+      <div class="k">Пара <span class="mono">0x02778d388a9D397d9583524169506256d4179fDC</span>, Router02 <span class="mono">0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3</span>. Отличается от 18,99 совершённой сделки: резервы изменились той самой сделкой. Котировка живёт один блок.</div>
+      <div class="row"><button class="action primary" id="live-refresh">Обновить котировку</button></div>
+      <div class="k" id="live-msg"></div>
+    </div>
   </section>
 </main>
   <section id="tab-liq" style="display:none">
@@ -117,6 +127,31 @@
     <h2>Проверка трёх сценариев</h2>
     <div id="liq-scen"></div>
 
+    <h2>Два сценария пула wAGT/WETH (партнёру)</h2>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">сеть: нет · комиссия сети не включена · стартовая цена 0,0005 WETH за wAGT — допущение, стороны выбирают сами</span>
+      <div><b>A · Пилот: 40 wAGT + 0,02 WETH</b></div>
+      <div>Проект: 40 wAGT в пул + <b>40 AGT</b> в резерв моста (1:1). Партнёр: <b>0,02 WETH</b>.</div>
+      <div>Продажа 2 wAGT → <span class="amt">0.000949659475163118 WETH</span> (откл. 5,03%, комиссия пула 0,006 wAGT, цена после 0,000454).</div>
+      <div>Покупка за 0,001 WETH → <span class="amt">1.899318950326237081 wAGT</span>.</div>
+    </div>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">сеть: нет · комиссия сети не включена</span>
+      <div><b>B · Рабочий: 283 wAGT + 0,1415 WETH</b></div>
+      <div>Проект: 283 wAGT в пул + <b>283 AGT</b> в резерв моста (1:1). Партнёр: <b>0,1415 WETH</b>.</div>
+      <div>Продажа 2 wAGT → <span class="amt">0.000990024351389853 WETH</span> (откл. 1,00%, цена после 0,000493).</div>
+      <div>Покупка за 0,001 WETH → <span class="amt">1.980048702779707642 wAGT</span>.</div>
+    </div>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div><b>Условия для партнёра (вариант для обсуждения)</b></div>
+      <ul class="links">
+        <li>Газ: каждую транзакцию оплачивает её отправитель. Создание пула и первый депозит — по договорённости (вариант: проект); approve — каждый свой; вывод — выводящий. Газ — в ETH, плательщика фиксируют до запуска.</li>
+        <li>LP-токены: в V2 их получает вносящий автоматически. Держатель — по согласованию (мультисиг сторон или сплит пропорционально вкладам); вывод ликвидности — только по совместному решению. Без этого пул не создаётся.</li>
+        <li>Стартовая цена wAGT (здесь 0,0005 WETH) — параметр: стороны выбирают и фиксируют до создания пула.</li>
+      </ul>
+    </div>
+
     <h2>Карточка для партнёра (вариант для обсуждения)</h2>
     <div class="card">
       <span class="badge sim">локальная симуляция</span><span class="net">реального пула нет · переводов нет</span>
@@ -137,5 +172,6 @@
 </main>
 <script type="module" src="./ui.js"></script>
 <script type="module" src="./liq.js"></script>
+<script type="module" src="./live.js"></script>
 </body>
 </html>

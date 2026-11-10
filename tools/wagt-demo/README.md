@@ -39,6 +39,10 @@ node tools/wagt-demo/quote.test.mjs   # математика vs контроль
 - `liquidity.test.mjs` — сверка трёх сценариев, покупки/продажи, резервов и
   отказов, exit 0.
 - `liq.js` — вкладка «Ликвидность» (калькулятор, сценарии, карточка партнёру).
+- `weth-scenarios.test.mjs` — два сценария пула wAGT/WETH для партнёра, exit 0.
+- `live.js` + `live-quote.test.mjs` — живая котировка из пула Sepolia только
+  чтением (`Router02.getAmountsOut`, без кошелька и подписей): снимок блока
+  12103142 + кнопка «Обновить» (прямой eth_call из браузера).
 - `site/` — копия для хостинга предпросмотра (`public/` + `worker.js` +
   `manifest.json`); предпросмотр (preview):
   https://site-1bd656b3193d4ca78813e5003f58b529.freebuff.page

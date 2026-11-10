@@ -97,15 +97,44 @@ export function requiredReserves(tWagtWei, tolBps) {
   return { exactWei: exact, wholeWagtWei: whole };
 }
 
-// Резервы USDC (минимальные единицы, округление вверх — консервативно) под
-// целые X wAGT-wei при цене price {num, den}.
-export function usdcForWagt(xWagtWei, price) {
-  return (xWagtWei * price.num * U + price.den * W - 1n) / (price.den * W);
+// WETH — 18 знаков, как wAGT: те же parse/format, что для wAGT.
+export function parseWeth(str) {
+  return parseWagt(str);
 }
 
-// Номинал сделки в USDC-wei: tWagtWei × цена (округление вниз).
+export function formatWeth(wei) {
+  return formatWagt(wei);
+}
+
+// Резервы второго токена (минимальные единицы, округление вверх —
+// консервативно) под целые X wAGT-wei при цене price {num, den} и outDec
+// знаков второго токена (6 = USDC, 18 = WETH).
+export function usdcForWagt(xWagtWei, price) {
+  return pairedReserves(xWagtWei, price, 6);
+}
+
+export function wethForWagt(xWagtWei, price) {
+  return pairedReserves(xWagtWei, price, 18);
+}
+
+function pairedReserves(xWagtWei, price, outDec) {
+  const D = 10n ** BigInt(outDec);
+  return (xWagtWei * price.num * D + price.den * W - 1n) / (price.den * W);
+}
+
+// Номинал сделки во втором токене: tWagtWei × цена (округление вниз).
+// outDec: 6 = USDC, 18 = WETH.
 export function nominalUsdc(tWagtWei, price) {
-  return (tWagtWei * price.num * U) / (price.den * W);
+  return nominalOut(tWagtWei, price, 6);
+}
+
+export function nominalWeth(tWagtWei, price) {
+  return nominalOut(tWagtWei, price, 18);
+}
+
+function nominalOut(tWagtWei, price, outDec) {
+  const D = 10n ** BigInt(outDec);
+  return (tWagtWei * price.num * D) / (price.den * W);
 }
 
 // Отклонение в базисных пунктах от номинала: (nominal-out)*10000/nominal.

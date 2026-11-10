@@ -731,6 +731,11 @@ async function tick() {
     set('cTreasury', fmt(treasury.balance));
     set('cTreasuryMeta', treasury.policy.treasury + ' · AGIP-4 passed · баланс на блоке ' + fmt(treasury.blocks));
     markFresh('cTreasury', 'fresh');
+  } else if (!treasury) {
+    // jget вернул null: /treasury/state недоступен — это НЕ то же самое, что пустая политика.
+    set('cTreasury', 'недоступно');
+    set('cTreasuryMeta', '/treasury/state не отвечает — казна не проверена, данные не подменяются');
+    markFresh('cTreasury', 'off');
   } else {
     set('cTreasury', 'нет подтверждения');
     set('cTreasuryMeta', 'в проверенной цепи нет активной политики фонда');

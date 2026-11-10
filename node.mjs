@@ -2602,7 +2602,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
 
   // --- AGIP-6 (шаг 16): лэндинг для агентов/людей + джобборд-страница ---
-  if (p === '/index' || p === '/index.html' || p === '/') {
+  if (p === '/index' || p === '/index.html') {
     serveSitePage(res, 'index.html');
   }
   // Имперский сайт: живые счётчики, график высоты, лента деяний (AGIP-9/10)
@@ -2628,11 +2628,11 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   }
 
   if (p === '/') {
-    // Браузер на корне → сразу визуальный пульт (друзья по tailnet видят панель, не JSON);
+    // Браузер на корне → сразу Империя (главная страница сети);
     // API-клиенты (майнеры/агенты, Accept */*) продолжают получать сам-описание как раньше.
     if ((req.headers.accept || '').includes('text/html')) {
-      res.writeHead(302, { Location: '/index' });
-      return res.end();
+      serveSitePage(res, 'imperial.html');
+      return;
     }
     return json(res, 200, {
     name: 'AGENTCOIN node', chainId: networkChainId(), ticker: TICKER, maxSupply: MAX_SUPPLY,

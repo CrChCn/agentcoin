@@ -220,7 +220,7 @@ body>*{position:relative;z-index:1}
 <div class="row2">
   <div class="panel">
     <h2 data-i18n="block.live.title">⚜ Живая лента — блоки и транзакции</h2>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источники: /api/v1/blocks, /api/v1/mempool</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источник: /blocks</div>
     <div class="feed" id="liveFeed" style="max-height:230px"></div>
   </div>
   <div class="panel">
@@ -491,7 +491,7 @@ function drawNodeMap(aliveNodes) {
     d += '<text x="' + x.toFixed(0) + '" y="' + (y + 3).toFixed(0) + '" text-anchor="middle" fill="#0a0d12" font-size="8">' + (n.blocks) + '</text>';
   });
   links.innerHTML = l; dots.innerHTML = d;
-  document.getElementById('mapTip').textContent = aliveNodes.length + ' нод · высота ' + (aliveNodes[0] ? aliveNodes[0].blocks : '—');
+  document.getElementById('mapTip').textContent = aliveNodes.length + ' нод · высота ' + (aliveNodes[0] && Number.isFinite(+aliveNodes[0].blocks) && +aliveNodes[0].blocks > 0 ? +aliveNodes[0].blocks - 1 : '—');
 }
 
 /* ============ ЧЕЛЛЕНДЖ: опрос всех нод параллельно (fix: параллельный, не последовательный) ============ */
@@ -652,7 +652,8 @@ async function tick() {
   identity.textContent = 'chainId: ' + info.chainId + ' · РАБОЧАЯ СЕТЬ · genesis: ' + info.genesisHash;
   set('eGen', info.genesisHash);
   set('cBlocks', Number.isSafeInteger(info.blocks) && info.blocks >= 0 ? info.blocks : '—');
-  set('netPill', 'блоков ' + fmt(info.blocks) + ' · tip высота ' + fmt(info.blocks > 0 ? info.blocks - 1 : 0));
+  var tipH0 = (Number.isSafeInteger(info.blocks) && info.blocks > 0) ? info.blocks - 1 : '—';
+  set('netPill', 'высота ' + tipH0);
   if (!Number.isSafeInteger(info.blocks) || info.blocks < 0) apiErrors.set('/info', 'Высота отсутствует или некорректна');
   var capabilities = await jget('/capabilities');
   if (capabilities && Array.isArray(capabilities.get)) availableReads = new Set(capabilities.get);
@@ -697,8 +698,8 @@ async function tick() {
     for (var i = 0; nodes && i < nodes.length; i++) {
       var n = nodes[i];
       if (n && n.reachable) {
-        var status = n.chainValid === false ? 'ошибка цепи' : n.behindObserved > 0 ? 'ниже наблюдаемой на ' + n.behindObserved : n.overloaded ? 'перегрузка' : n.tipAgeSec > 300 ? 'давно нет блока' : 'отвечает';
-        rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + esc(n.blocks) + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td>' + esc(status) + '</td><td>' + (n.chainValid == null ? 'не проверено' : n.chainValid ? 'цепь OK' : 'цепь!') + '</td></tr>';
+        var status = n.chainValid === false ? 'ошибка цепи' : n.behindObserved > 0 ? 'ниже наблюдаемой на ' + n.behindObserved : n.overloaded ? 'перегрузка' : n.tipAgeSec > 600 ? 'давно нет блока' : 'отвечает';
+        rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + esc(Number.isFinite(+n.blocks) && +n.blocks > 0 ? +n.blocks - 1 : n.blocks) + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td>' + esc(status) + '</td><td>' + (n.chainValid == null ? 'не проверено' : n.chainValid ? 'цепь OK' : 'цепь!') + '</td></tr>';
       } else if (n) rows += '<tr><td class="mono">' + esc(n.name) + '</td><td colspan="4"><span class="bad">нет ответа · причина не установлена</span></td></tr>';
     }
     document.getElementById('nodesTb').innerHTML = rows || '<tr><td class="dimt">' + (nodes ? 'API вернул пустой список нод.' : 'Данные нод недоступны.') + '</td></tr>';
@@ -719,7 +720,7 @@ async function tick() {
     document.getElementById('cHalving').textContent = 'до халвинга: ' + fmt(info.halvingIn) + ' бл.';
     var h1 = 1 - info.halvingIn / 210000;
     document.getElementById('bHalving').style.width = (h1 * 100).toFixed(1) + '%';
-    if (life) document.getElementById('netPill').textContent = 'блоков ' + info.blocks + ' · tip высота ' + (info.blocks > 0 ? info.blocks - 1 : 0) + ' · возраст ' + (life.tipAgeSec != null ? life.tipAgeSec + 's' : '—');
+    if (life) document.getElementById('netPill').textContent = 'высота ' + tipH0 + ' · возраст ' + (life.tipAgeSec != null ? life.tipAgeSec + 's' : '—');
     marq(info, Object.assign({}, cache || {}, { treasury: treasury && treasury.balance }));
   }
   if (treasury && treasury.policy && Number.isFinite(treasury.balance)) {
@@ -875,12 +876,10 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   if (!c) return;
   async function pool(){
     try {
-      const r = await fetch("/api/v1/mempool", { cache: "no-store", signal: AbortSignal.timeout(7000) });
+      const r = await fetch("/info", { cache: "no-store", signal: AbortSignal.timeout(7000) });
       const d = await r.json();
       if (!r.ok) return;
-      c.textContent = d.count;
-      const f = document.getElementById("cMempoolFees");
-      if (f) f.textContent = "комиссии: " + (Number(d.totalFeesAGT)||0).toLocaleString("en-US",{maximumFractionDigits:9}) + " AGT";
+      if (d && Number.isFinite(Number(d.mempool))) c.textContent = d.mempool;
     } catch(e){}
   }
   pool(); setInterval(pool, 10000);
@@ -901,12 +900,9 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   /* — Живая лента: последние 10 событий (блоки + свежие tx мемпула) — */
   async function liveFeed() {
     try {
-      const d = await jget('/api/v1/blocks?n=8');
+      const d = await jget('/blocks?n=8');
       const b = Array.isArray(d.blocks) ? d.blocks : [];
-      const mp = jget('/api/v1/mempool').catch(() => null);
       const events = b.map(x => ({ ev: 'block', h: x.height, t: x.header && x.header.timestamp, n: Array.isArray(x.txs) ? x.txs.length : 0, sum: Array.isArray(x.txs) ? x.txs.reduce((s, tx) => s + (Number(tx.amount) || 0), 0) : 0 }));
-      const mm = await mp;
-      if (mm && Array.isArray(mm.txs)) mm.txs.slice(0, 3).forEach(tx => events.unshift({ ev: 'mempool', h: 0, t: tx.ts, from: tx.from, to: tx.to, n: Number(tx.amount) || 0 }));
       const feed = $('liveFeed');
       if (!feed) return;
       feed.innerHTML = events.slice(0, 10).map(ev => {
@@ -918,16 +914,15 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   liveFeed(); setInterval(liveFeed, 5000);
 
   /* — Казино: джекпот казны — */
-  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ }
-  })();
+  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ })();
 
   /* — Гов: последние 3 предложения — */
   (function govW() {
-    jget('/api/v1/gov/state').then(gs => {
+    jget('/gov/state').then(gs => {
       if (!$('infGov')) return;
-      const pr = gs && (gs.proposals || gs.props || gs.items);
+      const pr = gs && gs.proposals;
       if (!Array.isArray(pr) || !pr.length) { $('infGov').textContent = 'предложений пока нет — вынеси первое на /gov'; return; }
-      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.votes && (p.votes.yes != null ? p.votes.yes : p.yes) || p.yes) + '/no ' + (p.votes && (p.votes.no != null ? p.votes.no : p.no) || p.no) + '</div>').join('');
+      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.yes || 0) + '/no ' + (p.no || 0) + '</div>').join('');
     }).catch(() => { if ($('infGov')) $('infGov').textContent = 'источник недоступен'; });
   })();
 

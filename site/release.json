@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "release": "site-v2-5852f9fe60955b8d",
+  "release": "site-v2-2cc65ace0c7a81a1",
   "apiVersion": 2,
   "files": {
     "index.html": "acd4225867cb9e49f3aedd4c845011527ee1d1d5ca1f006d0743471b3208c45b",
-    "imperial.html": "cde6342079def8c1d78124ff154527344d9ede6fa69ecbc6c3f3358b2ba39c7b",
+    "imperial.html": "033563c0fd5fe19a9b6c2aacdac5b36c76c6afa13323af3fbe41ab6b8b0ef7ce",
     "terminal.html": "6c4311873c042b2dea558f6530698b5e64a1fbe344a69e0810be2796ae4a29af",
     "dashboard.html": "457e31c0e8fa64e39fbb663000e5bcae7a86f91220ab4a89aab8c93ca8473897",
     "chat.html": "d3299486826e97c814cab393f4e702d8af2d97b36a75395f6052e1586bd98614",

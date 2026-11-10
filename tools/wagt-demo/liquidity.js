@@ -57,6 +57,18 @@ export function v2out(amountIn, reserveIn, reserveOut) {
   return { out, fee: amountIn - (amountIn * FEE_NUM) / FEE_DEN };
 }
 
+// Вход Uniswap V2 за точный выход (getAmountIn роутера): целочисленное
+// деление вниз + 1 (округление ВВЕРХ, как в контракте). Бросает, если выход
+// больше или равен резерву выхода. Состояние пула не трогает.
+export function v2in(amountOut, reserveIn, reserveOut) {
+  if (amountOut <= 0n) throw new Error('Сумма должна быть больше нуля.');
+  if (reserveIn <= 0n || reserveOut <= 0n) throw new Error('Резервы пула должны быть больше нуля.');
+  if (amountOut >= reserveOut) throw new Error('Выход превышает резерв пула.');
+  const numerator = reserveIn * amountOut * FEE_DEN;
+  const denominator = (reserveOut - amountOut) * FEE_NUM;
+  return numerator / denominator + 1n;
+}
+
 // Десятичная строка num/den с dp знаками, без Number.
 // fmtDiv — вниз (для гарантий), fmtDivRounded — до ближайшего (для показа).
 export function fmtDiv(num, den, dp) {
@@ -150,6 +162,21 @@ export function deviationBpsRounded(out, nominal) {
   if (nominal <= 0n) throw new Error('Внутренняя ошибка номинала.');
   if (out >= nominal) return 0n;
   return ((nominal - out) * 10000n + nominal / 2n) / nominal;
+}
+
+// Отклонение переплаты от номинала в б.п.: (payment-nominal)*10000/nominal.
+// deviationBpsUp — вверх (для проверки допусков покупки), ...Rounded —
+// до ближайшего (для показа).
+export function deviationBpsUp(payment, nominal) {
+  if (nominal <= 0n) throw new Error('Внутренняя ошибка номинала.');
+  if (payment <= nominal) return 0n;
+  return ((payment - nominal) * 10000n + nominal - 1n) / nominal;
+}
+
+export function deviationBpsUpRounded(payment, nominal) {
+  if (nominal <= 0n) throw new Error('Внутренняя ошибка номинала.');
+  if (payment <= nominal) return 0n;
+  return ((payment - nominal) * 10000n + nominal / 2n) / nominal;
 }
 
 export function formatWagt(wei) {

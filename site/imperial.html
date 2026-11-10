@@ -45,6 +45,9 @@
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
   @media (max-width: 950px){ .row2, .row3 { grid-template-columns: 1fr; } }
+  /* Широкие таблицы скроллятся внутри панели, а не растягивают страницу:
+     грид-элементы по умолчанию не сжимаются ниже min-content. */
+  @media (max-width: 950px){ .row2 > *, .row3 > * { min-width: 0; } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
   td, th { padding: 5px 7px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
@@ -199,7 +202,7 @@ body>*{position:relative;z-index:1}
   </div>
   <div class="panel">
     <h2>⚜ Держатели нод — статус</h2>
-    <table><thead><tr><th>нода</th><th>высота</th><th>tip</th><th>жизнь</th><th>lashes</th></tr></thead><tbody id="nodesTb"></tbody></table>
+    <div style="overflow-x:auto"><table><thead><tr><th>нода</th><th>высота</th><th>tip</th><th>жизнь</th><th>lashes</th></tr></thead><tbody id="nodesTb"></tbody></table></div>
     <div class="foot">Полная нода проверяет цепь по правилам сети. Ограничения адресов — локальные решения оператора, а не ончейн-доказательства атак.</div>
   </div>
 </div>
@@ -214,7 +217,7 @@ body>*{position:relative;z-index:1}
     <h2>⚜ Экономика империи</h2>
     <div id="econBox" class="dimt">чтение балансов…</div>
     <div style="margin-top:8px">
-      <table><tbody id="econTb"></tbody></table>
+      <div style="overflow-x:auto"><table><tbody id="econTb"></tbody></table></div>
     </div>
   </div>
 </div>
@@ -264,7 +267,7 @@ body>*{position:relative;z-index:1}
 <div class="row3">
   <div class="panel" id="governance">
     <h2>⚜ Говернанс — предложения и голоса</h2>
-    <table><thead><tr><th>ref</th><th>предложение</th><th>голоса</th><th>итог</th></tr></thead><tbody id="govTb"></tbody></table>
+    <div style="overflow-x:auto"><table><thead><tr><th>ref</th><th>предложение</th><th>голоса</th><th>итог</th></tr></thead><tbody id="govTb"></tbody></table></div>
     <div class="foot" style="margin-top:6px">Рабочая сеть показывает только фактическое состояние; публикация предложения и голосование отключены.</div>
   </div>
   <div class="panel">

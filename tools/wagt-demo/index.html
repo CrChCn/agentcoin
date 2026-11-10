@@ -24,8 +24,8 @@
   button.action { flex: 1 1 100px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #22304a; color: var(--txt); font-size: 15px; cursor: pointer; }
   button.primary { background: var(--acc); border-color: var(--acc); color: #06121f; font-weight: 700; }
   button.ghost { background: transparent; }
-  input#amount { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #0c1220; color: var(--txt); font-size: 17px; margin-top: 6px; }
-  #error { display: none; background: #3a1620; border: 1px solid var(--bad); color: #ffc9c9; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  input#amount, input#liq-price, input#liq-trade, input#liq-tol { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #0c1220; color: var(--txt); font-size: 17px; margin-top: 6px; }
+  #error, #liq-error { display: none; background: #3a1620; border: 1px solid var(--bad); color: #ffc9c9; border-radius: 10px; padding: 10px; margin: 10px 0; }
   #preview { display: none; border-color: var(--acc); }
   .muted { color: var(--mut); }
   a { color: var(--acc); overflow-wrap: anywhere; word-break: break-all; }
@@ -43,6 +43,7 @@
   <div class="tabs">
     <button id="btn-sim" class="active">Симулятор</button>
     <button id="btn-sepolia">Обмен на Sepolia</button>
+    <button id="btn-liq">Ликвидность</button>
   </div>
 
   <section id="tab-sim">
@@ -96,6 +97,45 @@
     </div>
   </section>
 </main>
+  <section id="tab-liq" style="display:none">
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">расчёт в браузере · комиссия сети не включена</span>
+      <div><b>Калькулятор ликвидности wAGT/USDC</b></div>
+      <div class="k">Сколько внести в пул, чтобы сделка заданного размера прошла в допуске. Отклонение считается от номинала (сделка × стартовая цена); комиссия пула 0,3% входит в допуск, комиссия сети — нет.</div>
+      <div><label for="liq-price"><b>Стартовая цена (USDC за wAGT)</b></label></div>
+      <input id="liq-price" inputmode="decimal" value="1" autocomplete="off">
+      <div><label for="liq-trade"><b>Размер сделки (wAGT)</b></label></div>
+      <input id="liq-trade" inputmode="decimal" value="2" autocomplete="off">
+      <div><label for="liq-tol"><b>Допустимое отклонение (%)</b></label></div>
+      <input id="liq-tol" inputmode="decimal" value="1" autocomplete="off">
+      <div class="row"><button class="action primary" id="liq-go">Рассчитать</button></div>
+    </div>
+
+    <div id="liq-error" role="alert" style="display:none"></div>
+    <div class="card" id="liq-result" style="display:none"></div>
+
+    <h2>Проверка трёх сценариев</h2>
+    <div id="liq-scen"></div>
+
+    <h2>Карточка для партнёра (вариант для обсуждения)</h2>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">реального пула нет · переводов нет</span>
+      <div><b>Кто что вносит</b></div>
+      <ul class="links">
+        <li>AGT в резерв моста вносит <b>проект</b>; wAGT выпускается только под заблокированные AGT (обратный выкуп — через burn).</li>
+        <li>wAGT в пул вносит <b>проект</b> (обеспеченные, из того же выпуска).</li>
+        <li>USDC в пул вносит <b>партнёр</b>. Бюджет проекта — 0 USDC.</li>
+      </ul>
+      <div><b>LP-токены и вывод</b></div>
+      <ul class="links">
+        <li>Доли LP-токенов и право вывода ликвидности стороны <b>согласуют до запуска</b> (вариант: пропорционально вкладам, вывод — только по совместному решению).</li>
+        <li>Без согласованных долей и порядка вывода пул не создаётся.</li>
+      </ul>
+      <div class="k">Это вариант для обсуждения, не оферта. Все цифры выше — локальный расчёт по формуле Uniswap V2; комиссия сети считается отдельно.</div>
+    </div>
+  </section>
+</main>
 <script type="module" src="./ui.js"></script>
+<script type="module" src="./liq.js"></script>
 </body>
 </html>

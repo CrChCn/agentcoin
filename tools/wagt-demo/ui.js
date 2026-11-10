@@ -117,7 +117,7 @@ function reset() {
 }
 
 function switchTab(name) {
-  for (const t of ['sim', 'sepolia']) {
+  for (const t of ['sim', 'sepolia', 'liq']) {
     $('tab-' + t).style.display = t === name ? 'block' : 'none';
     $('btn-' + t).classList.toggle('active', t === name);
   }
@@ -126,6 +126,7 @@ function switchTab(name) {
 window.addEventListener('DOMContentLoaded', () => {
   $('btn-sim').onclick = () => switchTab('sim');
   $('btn-sepolia').onclick = () => switchTab('sepolia');
+  $('btn-liq').onclick = () => switchTab('liq');
   $('buy').onclick = () => preview('buy');
   $('sell').onclick = () => preview('sell');
   $('reset').onclick = reset;

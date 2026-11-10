@@ -5,7 +5,7 @@
 ## AGT-DEX-DEMO: страница тестовой торговли
 
 - Ветка: `agt-dex-demo` от `5baed870cac434cc4b4de26718a9c901f9926655`
-  (SHA приёмки AGT-DEX-NEXT); HEAD сдачи: `HEAD-AGT-DEX-DEMO` (подставить SHA коммита сдачи при вставке).
+  (SHA приёмки AGT-DEX-NEXT); HEAD сдачи: `9bcf1b45d669c2520c97c6e00b3905c50e449c19` (код страницы; текст сдачи может быть новее — код тот же).
 - PR: открыть из ветки `agt-dex-demo` в main (у исполнителя только `git push`,
   кнопку PR нажимает владелец; suggested title: «AGT-DEX-DEMO: страница
   тестовой торговли wAGT/tAGT»).

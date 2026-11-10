@@ -83,7 +83,7 @@ if (!process.env.AGT_ADMIN_TOKEN) {
 }
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
-const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
+const SELF_URL = (process.env.AGT_SELF_URL || process.env.AGT_PUBLIC_URL || `http://127.0.0.1:${Number(process.argv[2]) || 9333}`);
 // AGIP-8: sync.mjs должен знать собственный адрес ноды, иначе самоссылка из
 // bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
 setSelfUrl(SELF_URL);

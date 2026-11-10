@@ -531,6 +531,11 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
 
   // --- мемпул: публичное состояние очереди транзакций ---
   // (потолочные поля НЕ возвращает: wallet/token/seed/private-поля tx отсутствуют по правилам /tx)
+  // Дерево империи ведёт людей на /mempool: браузер получает витрину, API остаётся API
+  // (тот же приём, что на / — HTML по Accept: text/html, JSON иначе).
+  if (p === '/mempool' && req.method === 'GET' && String(req.headers.accept || '').includes('text/html') && !url.searchParams.has('full')) {
+    return serveSitePage(res, 'mempool.html');
+  }
   if (p === '/mempool') {
     // MEMPOOL-FULL (контракт 6272239263): ограниченный read-only full-tx snapshot.
     // ?full=1 → { version:1, size:<total>, complete:true, txs:[ПОЛНЫЕ публичные signed tx],
@@ -2539,7 +2544,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       const shTop = Object.entries(sh.miners || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([m, n]) => m.slice(0, 13) + ' ' + n + ' ' + '█'.repeat(Math.max(1, Math.round(24 * n / (sh.window || 1))))).join('<br>');
       const aliveNodes = ['9335', '9341', '9342', '9336'].length; // кластер
       const catalog = cloud.stats() || {};
-      const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>AGENTCOIN — поверка сети</title>
+      const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><script src="/panel.js" defer></script><meta http-equiv="refresh" content="30"><title>AGENTCOIN — поверка сети</title>
 <style>body{font-family:Segoe UI,system-ui;background:#0e1117;color:#e6e6e6;max-width:900px;margin:30px auto;padding:0 16px}
 h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px} .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 16px} .num{font-size:1.7em;font-weight:700;color:#58a6ff} .lbl{font-size:.85em;color:#8b949e} a{color:#58a6ff} .ok{color:#3fb950} .warn{color:#d29922}</style></head><body>
 <h1>🟠 AGENTCOIN — публичная витрина</h1>
@@ -2610,6 +2615,17 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/panel.js' && req.method === 'GET') return serveSitePage(res, 'panel.js');
   if (p === '/agent' || p === '/agent.html') return serveSitePage(res, 'agent.html');
   if (p === '/mine' || p === '/mine.html') return serveSitePage(res, 'mine.html');
+  // site-tree: все узлы дерева обслуживаются нодой напрямую (не только Caddy-статикой).
+  if (p === '/create-wallet' || p === '/create-wallet.html') return serveSitePage(res, 'create-wallet.html');
+  if (p === '/operator-cabinet' || p === '/operator-cabinet.html') return serveSitePage(res, 'operator-cabinet.html');
+  if (p === '/gov' || p === '/gov.html') return serveSitePage(res, 'gov.html');
+  if (p === '/baptism' || p === '/baptism.html') return serveSitePage(res, 'baptism.html');
+  if (p === '/network' || p === '/network.html') return serveSitePage(res, 'network.html');
+  if (p === '/live' || p === '/live.html') return serveSitePage(res, 'live.html');
+  if (p === '/compute' || p === '/compute.html') return serveSitePage(res, 'compute.html');
+  if (p === '/memory' || p === '/memory.html') return serveSitePage(res, 'memory.html');
+  if (p === '/docs' || p === '/docs.html') return serveSitePage(res, 'docs.html');
+  if (p === '/mempool.html') return serveSitePage(res, 'mempool.html');
   if (req.method === 'GET' && !p.includes('..') && PUB_STATIC_RE.test(p)) return serveSitePage(res, p.slice(1));
   // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не
   // из release-списка (добавление в SITE_RELEASE_FILES ломало бы старые активные

@@ -8,12 +8,15 @@
 :root{--bg:#0b0d10;--card:#14181d;--line:#232a31;--fg:#e6edf3;--dim:#8b98a5;--acc:#f0b429;--ok:#2ea043}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
-header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+header{display:flex;gap:10px 16px;align-items:center;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line)}
+nav{display:flex;align-items:center;flex-wrap:wrap;gap:4px 0}
 header h1{font-size:17px;margin:0;color:var(--acc)}
 nav a{color:var(--dim);text-decoration:none;margin-right:14px}
 nav a:hover{color:var(--fg)}
 main{max-width:820px;margin:28px auto;padding:0 20px;display:grid;gap:18px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:0}
+main>*{min-width:0}
+.grid>*{min-width:0}
 h2{margin:0 0 12px;font-size:15px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
 label{display:block;font-size:13px;color:var(--dim);margin:10px 0 6px}
 input{width:100%;padding:11px 12px;border-radius:8px;border:1px solid var(--line);background:#0e1216;color:var(--fg);font-family:ui-monospace,monospace;font-size:13px}

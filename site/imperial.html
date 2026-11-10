@@ -19,7 +19,8 @@
   :root { --bg:#07090d; --panel:#10161f; --panel2:#161d28; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#39d98a; --bad:#ff5c7a; --blue:#5aa2ff; }
   * { box-sizing: border-box; margin: 0; }
   body { background: radial-gradient(1400px 700px at 50% -8%, #1c2636 0%, var(--bg) 55%); color: var(--txt); font: 15px/1.5 'Segoe UI', system-ui, sans-serif; padding: 24px 22px 40px; }
-  h1 { font-size: 34px; letter-spacing: .07em; display: flex; align-items: center; gap: 14px; }
+  h1 { font-size: 34px; letter-spacing: .07em; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  @media (max-width: 560px) { h1 { font-size: 26px; letter-spacing: .04em; } }
   h1 .laurel { color: var(--gold); font-size: 27px; }
   .agt-coin{display:inline-block;border-radius:50%;vertical-align:middle;flex:none}
   h1 .agt-coin{width:36px;height:36px}
@@ -182,7 +183,7 @@ body>*{position:relative;z-index:1}
       <div class="mlab" id="eGenH">закреплённый хеш рабочей цепи</div>
     </div>
   </div>
-  <table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table>
+  <div style="overflow-x:auto"><table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table></div>
 </div>
 
 <!-- ======== КАРТА НОД + ТАБЛИЦА ======== -->
@@ -305,8 +306,8 @@ body>*{position:relative;z-index:1}
     </div>
     <div style="flex:1;min-width:280px">
       <div class="dimt" style="font-size:11px;margin-bottom:4px">ГОЛОС (ref любого предложения выше) — кошелёк подставится автоматически</div>
-      <div style="display:flex;gap:6px">
-        <input id="govRef2" placeholder="ref" style="flex:1;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input id="govRef2" placeholder="ref" style="flex:1 1 120px;min-width:0;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
         <select id="govChoice2" style="background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px">
           <option value="yes">yes</option><option value="no">no</option><option value="abstain">abstain</option>
         </select>

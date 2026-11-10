@@ -36,6 +36,8 @@
 /* network-canvas: контент поверх фона */
 body>*{position:relative;z-index:1}
 #network-canvas~*{}
+  /* Мобильный вид: широкие таблицы скроллятся внутри себя, а не растягивают страницу */
+  @media (max-width: 720px) { table { display: block; width: 100%; overflow-x: auto; } }
 </style>
 </head>
 <body>
@@ -56,7 +58,7 @@ body>*{position:relative;z-index:1}
 <div class="grid">
   <div class="panel" id="pNodes">
     <h2>Ноды сети</h2>
-    <table id="nodesTable"><thead><tr><th>Нода</th><th>Блок</th><th>Tip</th><th>Состояние</th></tr></thead><tbody></tbody></table>
+    <div style="overflow-x:auto"><table id="nodesTable"><thead><tr><th>Нода</th><th>Блок</th><th>Tip</th><th>Состояние</th></tr></thead><tbody></tbody></table></div>
   </div>
 
   <div class="panel">

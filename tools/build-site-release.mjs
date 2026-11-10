@@ -16,7 +16,12 @@ const file=path.join(root,'site','release.json');
 let previous;try{previous=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}
 let release=releaseIndex>=0?args[releaseIndex+1]:previous?.release||'agent-cabinet-v1-20261018';
 if(!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(release||''))throw Error('invalid_release_name');
-const panel=Buffer.from(['imperial-panel.js','install-ui.js','profile-memory.js','cabinet-helper.js'].map(file=>fs.readFileSync(path.join(root,'tools',file),'utf8').trimEnd()).join('\n')+'\n');
+// Дерево империи вшивается в панель из site/tree.json — единый источник правды без
+// копирования вручную. Нужно потому, что статика фронта отдаёт index.html на любой
+// неизвестный путь: /tree.json может не дойти до ноды, а навигация обязана работать.
+const treeJson=JSON.stringify(JSON.parse(fs.readFileSync(path.join(root,'site','tree.json'),'utf8')));
+const panelText=['imperial-panel.js','install-ui.js','profile-memory.js','cabinet-helper.js'].map(file=>fs.readFileSync(path.join(root,'tools',file),'utf8').trimEnd()).join('\n')+'\n';
+const panel=Buffer.from(panelText.replace(/\/\*AGT_TREE\*\/[\s\S]*?\/\*AGT_TREE_END\*\//,()=>'/*AGT_TREE*/'+treeJson+'/*AGT_TREE_END*/'));
 const panelPath=path.join(root,'site','panel.js');
 if(check){if(!fs.existsSync(panelPath)||!fs.readFileSync(panelPath).equals(panel))throw Error('site_panel_outdated_run_build_site_release');}
 else fs.writeFileSync(panelPath,panel);

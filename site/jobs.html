@@ -31,6 +31,8 @@
 /* network-canvas: контент поверх фона */
 body>*{position:relative;z-index:1}
 #network-canvas~*{}
+  /* Мобильный вид: широкие таблицы скроллятся внутри себя, а не растягивают страницу */
+  @media (max-width: 720px) { table { display: block; width: 100%; overflow-x: auto; } }
 </style>
 </head>
 <body>

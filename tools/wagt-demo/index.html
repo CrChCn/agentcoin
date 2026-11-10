@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentcoin · тестовая торговля</title>
+<style>
+  :root { --bg: #0f1420; --card: #182032; --line: #2a3445; --txt: #e8edf5; --mut: #93a0b8; --acc: #4da3ff; --ok: #3ecf8e; --bad: #ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 600px; margin: 0 auto; padding: 16px 12px 48px; }
+  h1 { font-size: 22px; margin: 8px 0 2px; }
+  .sub { color: var(--mut); margin: 0 0 12px; font-size: 14px; }
+  .tabs { display: flex; gap: 8px; margin: 12px 0; }
+  .tabs button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--txt); font-size: 15px; cursor: pointer; }
+  .tabs button.active { border-color: var(--acc); background: #1d2c47; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 20px; margin-right: 6px; }
+  .badge.sim { background: #12324a; color: #7fd4ff; border: 1px solid #1f5a82; }
+  .badge.chain { background: #123f2a; color: #7fe6a8; border: 1px solid #1f7049; }
+  .net { font-size: 12px; color: var(--mut); }
+  .amt { font-variant-numeric: tabular-nums; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; overflow-wrap: anywhere; word-break: break-all; }
+  .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button.action { flex: 1 1 100px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #22304a; color: var(--txt); font-size: 15px; cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #06121f; font-weight: 700; }
+  button.ghost { background: transparent; }
+  input#amount { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #0c1220; color: var(--txt); font-size: 17px; margin-top: 6px; }
+  #error { display: none; background: #3a1620; border: 1px solid var(--bad); color: #ffc9c9; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  #preview { display: none; border-color: var(--acc); }
+  .muted { color: var(--mut); }
+  a { color: var(--acc); overflow-wrap: anywhere; word-break: break-all; }
+  .k { color: var(--mut); font-size: 13px; }
+  ul.links { padding-left: 18px; margin: 6px 0; }
+  ul.links li { margin: 4px 0; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agentcoin · тестовая торговля</h1>
+  <p class="sub">Учебная страница: симулятор пула wAGT/tAGT и подтверждённый обмен на Sepolia. Кошелёк не нужен, транзакции не отправляются. Бюджет — 0 USDC, торговля в основной сети отложена.</p>
+
+  <div class="tabs">
+    <button id="btn-sim" class="active">Симулятор</button>
+    <button id="btn-sepolia">Обмен на Sepolia</button>
+  </div>
+
+  <section id="tab-sim">
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">расчёт в браузере · сеть: нет (формула Uniswap V2, комиссия 0,3%)</span>
+      <div class="k">Резервы пула</div>
+      <div class="amt" id="poolW">—</div>
+      <div class="amt" id="poolT">—</div>
+      <div class="k" id="poolPrice">—</div>
+    </div>
+
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div class="k">Учебный баланс</div>
+      <div class="amt" id="balW">—</div>
+      <div class="amt" id="balT">—</div>
+    </div>
+
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div><label for="amount"><b>Сумма сделки</b></label></div>
+      <input id="amount" inputmode="decimal" placeholder="например, 2" autocomplete="off">
+      <div class="row">
+        <button class="action" id="buy">Купить wAGT</button>
+        <button class="action" id="sell">Продать wAGT</button>
+        <button class="action" id="reset">Сбросить</button>
+      </div>
+    </div>
+
+    <div id="error" role="alert"></div>
+    <div class="card" id="preview"></div>
+
+    <h2>История операций</h2>
+    <div id="history"></div>
+  </section>
+
+  <section id="tab-sepolia" style="display:none">
+    <div class="card">
+      <span class="badge chain">публичная тестовая сеть</span><span class="net">сеть: Sepolia · данные уже опубликованы, повтора не требуется</span>
+      <div><b>Фактический обмен: 2 wAGT → 18.993189503262370814 tAGT</b></div>
+      <div class="amt">Отдано: 2.000000000000000000 wAGT</div>
+      <div class="amt">Получено: 18.993189503262370814 tAGT</div>
+      <div class="k">Пул на момент сделки: 40 wAGT / 400 tAGT, официальный Uniswap V2 Router02. Где видно суммы: страница транзакции → «Tokens Transferred» (2 wAGT в пул, 18.993… tAGT из пула), те же остатки — на странице пула.</div>
+      <ul class="links">
+        <li>Транзакция обмена: <a class="mono" href="https://sepolia.etherscan.io/tx/0x72f4e6aaf8eb98013170bef7b3d0607263adf8cc8a0c75e01e64d979fa26e26c">0x72f4e6aa…9fa26e26c</a> (блок 12096587)</li>
+        <li>Пул wAGT/tAGT: <a class="mono" href="https://sepolia.etherscan.io/address/0x02778d388a9D397d9583524169506256d4179fDC">0x02778d388a9D397d9583524169506256d4179fDC</a></li>
+        <li>Токен wAGT: <a class="mono" href="https://sepolia.etherscan.io/token/0x64FEA6B5a6BE1CA8F8301Ad63b33356eA548b590">0x64FEA6B5a6BE1CA8F8301Ad63b33356eA548b590</a></li>
+        <li>Токен tAGT: <a class="mono" href="https://sepolia.etherscan.io/token/0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50">0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50</a></li>
+        <li>Возврат (burn 3 wAGT): <a class="mono" href="https://sepolia.etherscan.io/tx/0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252622e7cb9af16">0x6a50e5cd…2e7cb9af16</a> (блок 12096589)</li>
+      </ul>
+    </div>
+  </section>
+</main>
+<script type="module" src="./ui.js"></script>
+</body>
+</html>

@@ -38,6 +38,9 @@ body>*{position:relative;z-index:1}
 #network-canvas~*{}
   /* Мобильный вид: широкие таблицы скроллятся внутри себя, а не растягивают страницу */
   @media (max-width: 720px) { table { display: block; width: 100%; overflow-x: auto; } }
+  /* h1 — flex, поэтому длинная пометка о виде с удалённой ноды не переносилась
+     и растягивала страницу на 76px. Разрешаем перенос и сжатие элемента. */
+  @media (max-width: 720px) { h1 { flex-wrap: wrap; } h1 .pill { min-width: 0; white-space: normal; } }
 </style>
 </head>
 <body>

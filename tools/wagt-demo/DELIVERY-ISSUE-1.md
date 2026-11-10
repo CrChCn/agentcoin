@@ -50,7 +50,7 @@ wAGT/tAGT 40/400, формула Uniswap V2, комиссия 0,3%) и «Обм�
 
 ## AGT-DEX-LIQUIDITY: калькулятор ликвидности wAGT/USDC
 
-- Ветка: `agt-dex-liquidity` (от `agt-dex-demo`); HEAD сдачи: указать SHA при вставке.
+- Ветка: `agt-dex-liquidity` (от `agt-dex-demo`); HEAD сдачи: `6374fce` (код; текст сдачи тот же).
 - Предпросмотр тот же (обновлён): https://site-1bd656b3193d4ca78813e5003f58b529.freebuff.page — вкладка «Ликвидность».
 
 ### Что добавлено

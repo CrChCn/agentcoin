@@ -15,7 +15,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const outIndex = args.indexOf('--out');
 const outPath = path.join(root, outIndex >= 0 ? args[outIndex + 1] : 'caddy-routes.conf');
-const SITE_ROOT = '/srv/agentcoin-empire/current/site'; // прод-корень статики (см. шапку конфига)
+// Прод-корень статики: релиз лежит плоско в current (проверено на сервере 2026-11-10),
+// подкаталога site/ там нет — иначе все маршруты отдали бы 404.
+const SITE_ROOT = '/srv/agentcoin-empire/current';
 const tree = JSON.parse(fs.readFileSync(path.join(root, 'site', 'tree.json'), 'utf8'));
 
 const lines = [];
@@ -24,6 +26,8 @@ lines.push('# Источник правды: site/tree.json. Не править
 lines.push('#');
 lines.push('# Как применять: вставить блоки ниже ВНУТРЬ существующего site-блока agentcoin.work');
 lines.push('# ПЕРЕД wildcard-прокси /api/* и перед catch-all (try_files … /index.html).');
+lines.push('# Уже существующие в конфиге handle (/wallet, /agent, /stats, /mempool, /docs) НЕ дублируй:');
+lines.push('# Caddy исполняет первое совпадение, и старый handle перебьёт новый маршрут.');
 lines.push('# Порядок важен: Caddy исполняет route по первому совпадению.');
 lines.push('#');
 lines.push(`# Корень статики ниже — ${SITE_ROOT}. Если на сервере другой путь, поменяй root во всех блоках.`);

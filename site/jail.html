@@ -30,6 +30,7 @@
   .badge.med { color: var(--gold2); border-color: var(--gold); }
   .lvl-low { color: var(--ok); } .lvl-medium { color: var(--gold2); } .lvl-high { color: var(--bad); }
   details summary { cursor: pointer; color: var(--dim); }
+@media(max-width:720px){table{display:block;overflow-x:auto;max-width:100%}}
 </style>
 </head>
 <body>
@@ -76,7 +77,7 @@
 <details>
   <summary>Имперский карантин (AGIP-12, прежний блок — продолжаем вести)</summary>
   <div class="panel" style="margin-top:8px">
-    <div class="row"><b id="jqTotal">—</b>&nbsp;<span class="dimt">в базе карантin (dosье/опрос — node1.operator)</span></div>
+    <div class="row"><b id="jqTotal">—</b>&nbsp;<span class="dimt">в базе карантина (досье/опрос — node1.operator)</span></div>
     <div id="jailLegacy" class="dimt" style="font-size:12px;margin-top:6px"></div>
   </div>
 </details>
@@ -118,6 +119,13 @@ async function load() {
   let st;
   try { st = await (await fetch(API + '/state', { cache: 'no-store' })).json(); }
   catch (e) { document.getElementById('stGuard').textContent = 'offline'; return; }
+  // Нода может ответить ошибкой (403/404/пустой JSON) — раньше это роняло весь load()
+  // на st.status.detector и страница навсегда оставалась на «загрузка…».
+  if (!st || !st.status || !st.status.detector || !st.status.guard || !Array.isArray(st.cases)) {
+    document.getElementById('stGuard').textContent = 'нет данных';
+    document.getElementById('stDetector').textContent = '—';
+    return;
+  }
   lastState = st;
   document.getElementById('stDetector').textContent = st.status.detector.running ? 'Active' : 'Down';
   document.getElementById('stDetector').className = st.status.detector.running ? '' : 'bad';

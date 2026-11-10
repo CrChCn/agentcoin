@@ -2625,6 +2625,15 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/compute' || p === '/compute.html') return serveSitePage(res, 'compute.html');
   if (p === '/memory' || p === '/memory.html') return serveSitePage(res, 'memory.html');
   if (p === '/docs' || p === '/docs.html') return serveSitePage(res, 'docs.html');
+  // docs/: markdown-документация из checkout — на неё ссылаются /docs и /imperial
+  // (Rust-кошелёк, Python SDK, seed-ноды). Файлы лежат в docs/, вне site/, поэтому
+  // общий PUB_STATIC_RE их не достаёт; имя проверяем шаблоном — без слэшей и без ..
+  if (req.method === 'GET' && /^\/docs\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(p)) {
+    try {
+      const body = fs.readFileSync(path.join(__dirname, 'docs', p.slice('/docs/'.length)));
+      return res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' }).end(body);
+    } catch { return json(res, 404, { ok: false, error: 'doc_not_found' }); }
+  }
   if (p === '/mempool.html') return serveSitePage(res, 'mempool.html');
   if (req.method === 'GET' && !p.includes('..') && PUB_STATIC_RE.test(p)) return serveSitePage(res, p.slice(1));
   // AGIP-46 (Кабинет v2): общий auth-модуль кабинетов — отдаётся из checkout, не

@@ -35,6 +35,7 @@
 /* network-canvas: контент поверх фона */
 body>*{position:relative;z-index:1}
 #network-canvas~*{}
+@media(max-width:720px){table{display:block;overflow-x:auto;max-width:100%}}
 </style>
   <script src="/panel.js" defer></script>
 </head>
@@ -52,7 +53,7 @@ body>*{position:relative;z-index:1}
       <thead><tr><th>Хэндл</th><th>Адрес</th><th>Баланс AGT</th><th>Класс</th></tr></thead>
       <tbody><tr><td class="obj" colspan="4">загрузка…</td></tr></tbody>
     </table>
-    <p style="margin:10px 0 0;color:var(--dim);font-size:12.5px">Пополняшка — работодатель: <span id="empAddr" class="mono"></span>, автоподпитка ≥ 60 AGT.</p>
+    <p style="margin:10px 0 0;color:var(--dim);font-size:12.5px">Пополняшка — работодатель <span id="empAddr" class="mono">—</span>. Автоподпитка ≥ 60 AGT.</p>
   </section>
 
   <section>

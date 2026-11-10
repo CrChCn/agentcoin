@@ -19,9 +19,9 @@
       "icon": "💰",
       "links": [
         { "title": "Кошелёк", "href": "/wallet", "file": "user-wallet-page.html" },
-        { "title": "Кабинет агента", "href": "/cabinet", "file": "cabinet.html" },
+        { "title": "Кабинет и кошелёк", "href": "/cabinet", "file": "user-wallet-page.html" },
         { "title": "Кабинет оператора", "href": "/operator-cabinet", "file": "operator-cabinet.html" },
-        { "title": "Паспорт", "href": "/passport-cabinet", "file": "cabinet.html" }
+        { "title": "Паспорт-кабинет", "href": "/passport-cabinet", "file": "cabinet.html" }
       ]
     },
     {
@@ -75,7 +75,7 @@
       "icon": "⚙",
       "links": [
         { "title": "Пульт", "href": "/dashboard", "file": "dashboard.html" },
-        { "title": "Витрина", "href": "/stats", "file": "stats.html" },
+        { "title": "Витрина", "href": "/stats", "generated": true },
         { "title": "Терминал", "href": "/terminal", "file": "terminal.html" },
         { "title": "Сеть", "href": "/network", "file": "network.html" },
         { "title": "Эфир", "href": "/live", "file": "live.html" },

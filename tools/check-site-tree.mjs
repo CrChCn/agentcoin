@@ -3,6 +3,8 @@
 // Проверяет: JSON валиден; разделы/ссылки уникальны; каждый file лежит в site/;
 // каждый href обслуживается нодой (p === 'href' в node.mjs) или входит в allowlist
 // живых адресов (проверены вручную: / отдаёт imperial, /agent редиректит на /agent/).
+// Узел с "generated": true собирается кодом ноды (/stats), файл ему не нужен, но
+// адрес обязан быть в node.mjs — иначе страница не существует вовсе.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +33,9 @@ for (const sec of tree.sections || []) {
     if (typeof link?.href !== 'string' || !link.href.startsWith('/')) fail(`section ${sec.id}: bad href ${link?.href}`);
     if (seenHref.has(link.href)) fail(`duplicate href: ${link.href}`);
     seenHref.add(link.href);
-    if (typeof link?.file !== 'string' || !fs.existsSync(path.join(root, 'site', link.file))) {
+    if (link?.generated === true) {
+      if (typeof link.file === 'string') fail(`section ${sec.id}: generated node must not declare file: ${link.href}`);
+    } else if (typeof link?.file !== 'string' || !fs.existsSync(path.join(root, 'site', link.file))) {
       fail(`section ${sec.id}: file missing in site/: ${link?.file}`);
     }
     // Обслуживается нодой напрямую, Caddy-статикой (site/<имя>.html без расширения)

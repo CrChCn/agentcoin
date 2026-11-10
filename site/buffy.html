@@ -198,14 +198,14 @@ async function netRefresh(){
                          : '<span class="pill off">stale: снимок '+Math.round(snap[2]/60)+' мин (>'+snap[3]+' с TTL)</span>')
       : '<span class="dimt">нет данных снимка</span>';
     el.innerHTML =
-      '<table>'+
+      '<div style="overflow-x:auto"><table>'+
       '<tr><th>высота / tipHash</th><td class="mono">'+(st.blocks!=null?st.blocks:'—')+' · '+escHTML(String(st.tipHash||'—').slice(0,14))+'…</td></tr>'+
       '<tr><th>genesis</th><td class="mono '+(genOk?'ok':'bad')+'">'+escHTML(String(st.genesisHash||'—').slice(0,16))+'… '+(genOk?'✓ совпадает с пином':'✗ MISMATCH')+'</td></tr>'+
       '<tr><th>пиры</th><td><b>'+pc+'</b> (in '+inb+' / out '+outb+') · seed '+seed+'</td></tr>'+
       '<tr><th>eclipse</th><td>'+(subnetsOk?'<span class="ok">≥2 разных /24 ✓</span>':'<span class="bad">все пиры одной /24 — eclipseWarn</span>')+'</td></tr>'+
       '<tr><th>свежесть цепи</th><td>'+(st.fresh?'<span class="ok">fresh ✓</span>':'<span class="bad">stale</span>')+' · tipAge '+(st.tipAgeSec!=null?st.tipAgeSec:'—')+' с</td></tr>'+
       '<tr><th>снимок passports/CloudLedger</th><td>'+stalePill+'</td></tr>'+
-      '</table>';
+      '</table></div>';
     document.getElementById('netPanel').style.display='block';
     return;
   }

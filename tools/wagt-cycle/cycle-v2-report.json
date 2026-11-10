@@ -2,7 +2,7 @@
   "evmChainId": 31337,
   "contract": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   "code": {
-    "standSha": "98c2f3b39e554ff06375fa45a185a556277edec2",
+    "standSha": "a843f06c70b26d9ddb6e2d566a4b5f83d2b5a5c3",
     "contractSha": "374abf555ed4eb685aee97034348a12030e2bf12",
     "contractFile": "tools/wagt-cycle/contracts/WAGTv2.sol"
   },
@@ -59,11 +59,11 @@
   "haltLog": {
     "agt2evm": {
       "reason": "supply_vault_mismatch",
-      "at": "2026-11-09T23:54:33.046Z"
+      "at": "2026-11-10T00:55:11.056Z"
     },
     "evm2agt": {
       "reason": "supply_vault_mismatch",
-      "at": "2026-11-09T23:54:33.046Z"
+      "at": "2026-11-10T00:55:11.056Z"
     }
   }
 }

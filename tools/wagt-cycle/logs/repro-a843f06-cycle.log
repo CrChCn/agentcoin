@@ -1,0 +1,59 @@
+
+> wagt-cycle@1.0.0 cycle:v2
+> hardhat run scripts/cycle-v2.mjs
+
+Compiled 9 Solidity files successfully (evm target: paris).
+== wAGT v2 stand: pause / rotation / restart / reserve ==
+Nothing to compile
+WAGTv2=0x5FbDB2315678afecb367f032d93F642f64180aa3 owner(desig)=0x15d34AAf… deployer=0xf39Fd6e5… minter=0x70997970… pauser=0x3C44CdDd…
+  ok: O1 владелец назначен при развёртывании (owner_=назначенный адрес, не деплоер)
+  ok: O2 передачи в ожидании нет
+  ok: O3 деплоер без owner_ менять minter не может (not_owner)
+  ok: O4 посторонний менять pauser не может (not_owner)
+  ok: O5 передача на нулевой адрес отклонена (zero_owner)
+  ok: O6 шаг 1: pendingOwner назначен, права ещё у старого
+  ok: O7 чужой accept отклонён (not_pending_owner)
+  ok: O8 шаг 2: владелец сменился, ожидание очищено
+  ok: O9 старый владелец потерял права (not_owner)
+  ok: O10 новый владелец управляет pauser
+  ok: O11 владение возвращено операционному owner для остальных секций
+  ok: O12 после возврата посторонний снова без прав (not_owner)
+  ok: P0 до паузы: mint 5 wAGT прошёл
+  ok: P1 посторонний не может остановить мост (not_pauser)
+  ok: P2 даже owner без роли pauser остановить не может (not_pauser)
+  ok: P3 pauser остановил мост (paused=true)
+  ok: P4 во время паузы mint заблокирован (bridge_paused) — заявка ждёт снятия
+  ok: P5 во время паузы burn заблокирован (bridge_paused)
+  ok: P6 выпущенные до паузы балансы не заморожены (transfer работает)
+  ok: P7 посторонний не может снять паузу (not_pauser)
+  ok: P8 pauser снял паузу
+  ok: P9 отложенная заявка исполнена после снятия паузы (6 wAGT)
+  ok: R1 посторонний не может сменить minter (not_owner)
+  ok: R2 посторонний не может выпустить токены (not_minter)
+  ok: R3 owner сменил minter (событие MinterChanged)
+  ok: R4 старый ключ ПОТЕРЯЛ право выпуска (not_minter)
+  ok: R5 новый minter выпускает (баланс 7 wAGT)
+  ok: R6 owner сменил pauser (ротация дежурного)
+  S1: intent записан, «сбой» до отправки mint-tx
+  resync[S1]: v2-depS1-1a1c2f39ffa:minted-after-restart
+  ok: S1 после рестарта: намерение найдено в файле, mint исполнен один раз
+  S2: mint-tx в блоке, «сбой» до записи результата
+  resync[S2]: v2-depS2-1a1c2f3a7e9:already-minted
+  ok: S2 после рестарта: on-chain сверка нашла mint, повторного выпуска НЕТ (supply не изменился)
+  ok: S3 halt направления пережил рестарт (прочитан из файла, новые операции стоят)
+  ok: S4 halt снят только вручную после разбора
+  ok: L1 стартовый выпуск сценария (5) укладывается в лимит
+  ok: L2 граница: ровно 40 — разрешено
+  ok: L3 41 — отказ (mint_limit_exceeded)
+  resync[L]: v2-depLbig-1a1c2f3a8fb:limit-refused-mint_limit_exceeded
+  ok: L4 попытка 41 через ресинк: mint НЕТ (supply не изменился)
+  ok: L5 превышение лимита — halt направления (mint_limit_exceeded)
+  ok: L6 halt по лимиту снят вручную после разбора
+  ok: L7 лимитов НЕТ в контракте (ABI): действуют только в релейере
+  ok: V1 резерв сошёлся: vault=10 AGT == supply=10, открытых нет
+  ok: V2 расхождение обнаружено: vault=9 vs supply=10 (supply_vault_mismatch)
+  ok: V3 необъяснённое расхождение: выдача остановлена в ОБОИХ направлениях, причина в журнале halt
+  halt-журнал: {"agt2evm":{"reason":"supply_vault_mismatch","at":"2026-11-10T00:55:11.056Z"},"evm2agt":{"reason":"supply_vault_mismatch","at":"2026-11-10T00:55:11.056Z"}}
+report: tools/wagt-cycle/cycle-v2-report.json
+
+WAGT-V2: OK — пауза, ротация, рестарт, сверка резерва.

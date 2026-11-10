@@ -1,6 +1,6 @@
 {
   "code": {
-    "standSha": "98c2f3b39e554ff06375fa45a185a556277edec2",
+    "standSha": "a843f06c70b26d9ddb6e2d566a4b5f83d2b5a5c3",
     "contractSha": "374abf555ed4eb685aee97034348a12030e2bf12",
     "contractFile": "tools/wagt-cycle/contracts/WAGTv2.sol"
   },
@@ -24,9 +24,9 @@
         },
         "haltAfter": {
           "reason": "mint_limit_exceeded",
-          "detail": "acc-Lbig-1a1c2bca514: amount 41 > 40",
+          "detail": "acc-Lbig-1a1c2f3fbc7: amount 41 > 40",
           "by": "accept-stand",
-          "at": "2026-11-09T23:55:05.388Z"
+          "at": "2026-11-10T00:55:32.050Z"
         },
         "supplyDelta": "0"
       },
@@ -34,7 +34,7 @@
         "rledgerAfter": {
           "burnBlock": 1,
           "amount": 11,
-          "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+          "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
           "state": "needs-review",
           "releaseTxid": null
         },
@@ -42,7 +42,7 @@
           "reason": "release_limit_exceeded",
           "detail": "burn 0xdddddddddddddddd: amount 11 > 10",
           "by": "accept-stand",
-          "at": "2026-11-09T23:55:05.482Z"
+          "at": "2026-11-10T00:55:32.121Z"
         },
         "userDelta": 0
       }
@@ -50,38 +50,38 @@
   },
   "mintCrashes": {
     "Ma": {
-      "lockTxid": "a49e8e719c7316a52f522f36af4131555416df4f207f84c88f6f7664dae0a15a",
+      "lockTxid": "feefd7cfd075637b53f4300dd272c6c609bd88ed9fcc1139a6c3a40cc4026059",
       "ledgerBefore": null,
       "ledgerAfter": {
-        "agtTxid": "a49e8e719c7316a52f522f36af4131555416df4f207f84c88f6f7664dae0a15a",
+        "agtTxid": "feefd7cfd075637b53f4300dd272c6c609bd88ed9fcc1139a6c3a40cc4026059",
         "amount": 1,
         "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
         "state": "minted",
-        "mintTx": "0x24f9aac925585c9fa24f7bdb4803e5c4fa84a2954cf734c892a1116d62644815",
+        "mintTx": "0x9acc395b5f88ee7048d626e4835a9a71d2f1a95b95199fbd5375d264a561edd8",
         "pendingTx": null
       },
       "supplyDelta": "1000000000000000000"
     },
     "Mb": {
-      "lockTxid": "9c818b2d5bfd8d603179403b42c4eda9d5b785cf90aa7944ab48374dc4e8548d",
-      "mintTx": "0x4879895a5d9024d34d2dba8fa12503005601f3053be38a918aceb003adf4fed5",
+      "lockTxid": "4691debc2bfd1e5e050f3581b6b65070b5952303ba4b4f60ee14283b72e1c4fe",
+      "mintTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12",
       "wasInMempool": true,
       "ledgerAfter": {
-        "agtTxid": "9c818b2d5bfd8d603179403b42c4eda9d5b785cf90aa7944ab48374dc4e8548d",
+        "agtTxid": "4691debc2bfd1e5e050f3581b6b65070b5952303ba4b4f60ee14283b72e1c4fe",
         "amount": 1,
         "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
         "state": "minted",
-        "mintTx": "0x4879895a5d9024d34d2dba8fa12503005601f3053be38a918aceb003adf4fed5",
-        "pendingTx": "0x4879895a5d9024d34d2dba8fa12503005601f3053be38a918aceb003adf4fed5"
+        "mintTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12",
+        "pendingTx": "0xce65544614402cee0488f3eac7e3168c4c9dd1b138fea62f9c84963f19c26b12"
       },
       "supplyDelta": "1000000000000000000"
     },
     "Mc": {
-      "lockTxid": "edff8c3af3aee11b841e6fd155dd1752818291e0366d3a9b6256afd0eb386dce",
-      "mintTx": "0x9859e409f6a889d099ddf47db975dad4f7a67263ecaf6b94f228abd71b466e8a",
+      "lockTxid": "96d6715bf98a2429aa941c086f10a6610c8251fde1e2f534a7c221ee77b52c93",
+      "mintTx": "0x8e2c76cd60a641299daeee9c4829dcd5dff1c793d79439dbad3a27a4702ebe2e",
       "block": 5,
       "ledgerAfter": {
-        "agtTxid": "edff8c3af3aee11b841e6fd155dd1752818291e0366d3a9b6256afd0eb386dce",
+        "agtTxid": "96d6715bf98a2429aa941c086f10a6610c8251fde1e2f534a7c221ee77b52c93",
         "amount": 1,
         "to": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
         "state": "minted",
@@ -101,84 +101,84 @@
       },
       "haltAfter": {
         "reason": "lock_event_vanished",
-        "detail": "acc-Md-1a1c2bcae34: lock deadbeefdeadbeefde нет в цепи AGT",
+        "detail": "acc-Md-1a1c2f40956: lock deadbeefdeadbeefde нет в цепи AGT",
         "by": "accept-stand",
-        "at": "2026-11-09T23:55:07.735Z"
+        "at": "2026-11-10T00:55:35.552Z"
       },
       "supplyDelta": "0"
     }
   },
   "releaseCrashes": {
     "Ea": {
-      "burnTx": "0xc4f2a9c5456e052ee74dfb5cc9491fbb3bb297008e4b265d8229862a4722d039",
+      "burnTx": "0x68e17026764aa91e2e26da146d4133f2d2c0950402eff24eea970a792622029c",
       "burnBlock": 7,
       "rledgerAfter": {
         "burnBlock": 7,
         "amount": 1,
-        "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
         "state": "confirmed",
-        "releaseTxid": "7940bd2cc5588df934d5d4252afa3c69466ab2face34a891f3f80d740fef4bcd"
+        "releaseTxid": "1015d311a57df331e57d9d01fb2237d4f3e91c9eb4fd3bbda62b30edc09f676b"
       },
       "userDelta": 1
     },
     "Eb": {
-      "burnTx": "0x257a830e9cedfcd2b93c3198f39bc6aed64ec63c59b9e5a2d54997d04635980a",
-      "releaseTxid": "5024c8d7881eea56d23ced09d3ad687262f1a24352d7dca8a1960bf71a59262b",
+      "burnTx": "0xe74622cfc3618990e0c9f6976f79d50e43f94c6dd6322b739b8faa7b2cc2fe4b",
+      "releaseTxid": "163b9fdd6ca1787cdf494254f0b0ee03f53370f04051a7c520c3fac5a568737e",
       "wasInMempool": true,
       "rledgerAfter": {
         "burnBlock": 11,
         "amount": 1,
-        "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
         "state": "confirmed",
-        "releaseTxid": "5024c8d7881eea56d23ced09d3ad687262f1a24352d7dca8a1960bf71a59262b"
+        "releaseTxid": "163b9fdd6ca1787cdf494254f0b0ee03f53370f04051a7c520c3fac5a568737e"
       },
       "userDelta": 1
     },
     "Ec": {
-      "burnTx": "0xe39d8d35919abadc76e5815455819f18e0107a1e5d35b264d05fe0963c4c3c70",
-      "releaseTxid": "4c9bd024ed61114cf9275a17f86e1923d2c6372759623ae1a97aff674aadbae6",
+      "burnTx": "0x49e42f8e01c70228b6eed0b91664062d14ce9fa81b2ada03305295410638e11a",
+      "releaseTxid": "b94216484619b35a62cc00dad43e44eca2f84045db4a1a8be18a572fe1339ee5",
       "rledgerAfter": {
         "burnBlock": 15,
         "amount": 1,
-        "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
         "state": "confirmed",
-        "releaseTxid": "4c9bd024ed61114cf9275a17f86e1923d2c6372759623ae1a97aff674aadbae6"
+        "releaseTxid": "b94216484619b35a62cc00dad43e44eca2f84045db4a1a8be18a572fe1339ee5"
       },
       "userDelta": 0
     },
     "Ed": {
-      "burnTx": "0xc1fdd9207ff88f6e9a30f3c2ddb63200d51e343587648d1ce5cefb11f6ef2590",
+      "burnTx": "0x3854ae94b558d394c3d79b07de456ff600f7629aef6fd5e9da982d2b939125e3",
       "gateBefore": true,
       "gateAfter": "burn_event_vanished",
       "haltAfter": {
         "reason": "burn_event_vanished",
-        "detail": "burn 0xc1fdd9207ff88f6e нет в канонической цепи",
+        "detail": "burn 0x3854ae94b558d394 нет в канонической цепи",
         "by": "accept-stand",
-        "at": "2026-11-09T23:55:11.442Z"
+        "at": "2026-11-10T00:55:37.764Z"
       },
-      "reburnTx": "0xc1fdd9207ff88f6e9a30f3c2ddb63200d51e343587648d1ce5cefb11f6ef2590",
+      "reburnTx": "0x3854ae94b558d394c3d79b07de456ff600f7629aef6fd5e9da982d2b939125e3",
       "rledgerAfter": {
         "burnBlock": 19,
         "amount": 1,
-        "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
         "state": "confirmed",
-        "releaseTxid": "447858c8c5396d99d2d2a7b1c09dd9b060c5fc0a2c74346df5d3579d219e8cf1"
+        "releaseTxid": "6a5871d3c9b0a4e34c501f93f380ad5f0364efd76917f0c7730c3254d8385eb2"
       }
     },
     "Ee": {
-      "burnTx": "0x87c9f920c66899b5281408c0fc4cb17589b36b8f136aa1eb9536038f1c9690fe",
+      "burnTx": "0x86f7bf39e8fa6b0969972efd9ad02f5a4259e537089fdf52ff812636bdb9561d",
       "rledgerAfter": {
         "burnBlock": 23,
         "amount": 1,
-        "agtRecipient": "AGT0539932631b6b2b267fa69f873347593a0ecd612",
+        "agtRecipient": "AGTd750cea6906905d255d6c47275dfe84981a6b8df",
         "state": "fate-unknown",
         "releaseTxid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
       },
       "haltAfter": {
         "reason": "release_fate_unknown",
-        "detail": "burn 0x87c9f920c66899b5: выплата eeeeeeeeeeeeeeeeee нигде не найдена",
+        "detail": "burn 0x86f7bf39e8fa6b09: выплата eeeeeeeeeeeeeeeeee нигде не найдена",
         "by": "accept-stand",
-        "at": "2026-11-09T23:55:12.762Z"
+        "at": "2026-11-10T00:55:38.346Z"
       },
       "userDelta": 0
     }
@@ -189,22 +189,22 @@
       "supply": 2,
       "openMint": [
         {
-          "depositId": "acc-Dopen-1a1c2bcc21c",
-          "agtTxid": "76049538503c4a2ab8f5dd675cb363b5d3a71a6964d8465e6a86cb833b06a97e",
+          "depositId": "acc-Dopen-1a1c2f41483",
+          "agtTxid": "35623ea125c4775cd99ab9b600eb4e8628989cc789ccff3c614679ff84c1e5b7",
           "amount": 2,
           "state": "intent"
         }
       ],
       "openRelease": [
         {
-          "burnTx": "0x6ba5a74c6f16e2a3",
+          "burnTx": "0xed067196d81afe13",
           "amount": 1,
           "state": "intent"
         }
       ],
       "unreleasedBurns": [
         {
-          "burnTx": "0x87c9f920c66899b5",
+          "burnTx": "0x86f7bf39e8fa6b09",
           "amount": 1,
           "state": "void-reviewed"
         }
@@ -223,7 +223,7 @@
       "openRelease": [],
       "unreleasedBurns": [
         {
-          "burnTx": "0x87c9f920c66899b5",
+          "burnTx": "0x86f7bf39e8fa6b09",
           "amount": 1,
           "state": "void-reviewed"
         }
@@ -244,7 +244,7 @@
         "openRelease": [],
         "unreleasedBurns": [
           {
-            "burnTx": "0x87c9f920c66899b5",
+            "burnTx": "0x86f7bf39e8fa6b09",
             "amount": 1,
             "state": "void-reviewed"
           }
@@ -256,20 +256,20 @@
         "ok": false,
         "reason": "settlement_mismatch"
       },
-      "leakTxid": "9106d8e48cc40a0d8db632403c944ccf290814fb4eb1744a68398d849ce0ff92"
+      "leakTxid": "2f7a29fa88b8b3ec2aff1f451c2e74ca6ccea575da6ee3354b65c1f9bf021db7"
     },
     "haltLog": {
       "agt2evm": {
         "reason": "supply_vault_mismatch",
         "detail": "vault=4 supply=4: необъяснённое расхождение",
         "by": "operator",
-        "at": "2026-11-09T23:55:14.576Z"
+        "at": "2026-11-10T00:55:39.460Z"
       },
       "evm2agt": {
         "reason": "supply_vault_mismatch",
         "detail": "vault=4 supply=4: необъяснённое расхождение",
         "by": "operator",
-        "at": "2026-11-09T23:55:14.581Z"
+        "at": "2026-11-10T00:55:39.464Z"
       }
     },
     "final": {
@@ -279,7 +279,7 @@
       "openRelease": [],
       "unreleasedBurns": [
         {
-          "burnTx": "0x87c9f920c66899b5",
+          "burnTx": "0x86f7bf39e8fa6b09",
           "amount": 1,
           "state": "void-reviewed"
         }
@@ -295,12 +295,12 @@
   "controlCycle": {
     "pool": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
     "tagt": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "lockMintTx": "3d489fc1a92ef9b71f0b4ca0af75b1ab536906faa71db0d147e419e05ff2b16d",
+    "lockMintTx": "fda4941f187baf4dcf7029910fbf4f02995481054f8a47562c454e9257ffc816",
     "sellTx": "0xf43d4ef114dcfa4c08f0544df610498b4d7a3685484b7f4f811deaa7662a61e4",
     "sellOut": "18993189503262370814",
     "buyTx": "0xf675142cf0d51c8da30037e37294afb8109602d9374d384fc2c3f7574093186c",
-    "burnTx": "0x237527d1be9c12788d872859671c65269264d055d197213d0946716b1e6deb02",
-    "releaseTxid": "0657300fa11f576545eb5273bd7b7eee1ecfc6d71dad5ba668058d41c1fd7fb1",
+    "burnTx": "0xbe996690485698306d4438991012a42f46b20d4afae0a2fb7c6eb7404a896476",
+    "releaseTxid": "5733f46a6c93692d0097e90dd469bdb365620044a49b3d3abee108c55ca7b811",
     "returnedAGT": 9
   },
   "priorExchange": {

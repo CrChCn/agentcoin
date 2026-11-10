@@ -1,8 +1,9 @@
 # Сдача AGT-DEX-PARTNER (готовый текст для PR / issue)
 
-Ветка: `agt-dex-partner`. HEAD сдачи:
-`5612e08216bbec458419ff74babc89f0ee2b24a1`
-(продолжение `agt-dex-weth-quote` от `d9b0d83`).
+Ветка: `agt-dex-partner` (продолжение `agt-dex-weth-quote` от `d9b0d83`).
+Замороженное содержимое сдачи — коммит
+`5612e08216bbec458419ff74babc89f0ee2b24a1` (расчёты, карточка, план);
+этот текст — тем же файлом в ветке (тип ветки = всё содержимое).
 
 ## Что внутри
 
@@ -26,7 +27,7 @@
 ## Воспроизведение
 
 ```sh
-git checkout 5612e08216bbec458419ff74babc89f0ee2b24a1
+git checkout agt-dex-partner   # или 5612e08216bbec458419ff74babc89f0ee2b24a1
 node tools/wagt-demo/partner-scenarios.test.mjs  # exit 0
 node tools/wagt-demo/liquidity.test.mjs          # exit 0 (регрессия)
 node tools/wagt-demo/quote.test.mjs              # exit 0 (регрессия)

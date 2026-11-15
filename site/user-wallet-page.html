@@ -379,6 +379,8 @@ const I18N={
     "send.title": "Отправить AGT",
     "send.needLogin": "Сначала войди в кабинет.",
     "send.to": "Получатель",
+    "qs.lowBal": "На адресе подписи {a} всего {b} AGT — не хватает на {c} AGT.{h}",
+    "qs.useOther": " Деньги есть на втором адресе этого ключа ({o}) — войди через «Войти в этот» под ним.",
     "qs.signer": "Подписывает адрес:",
     "qs.noSigner": "ключ не найден — войди ключом",
     "qs.addrRequired": "Сначала войди ключом и выбери адрес — отправка без входа запрещена.",
@@ -553,6 +555,8 @@ const I18N={
     "send.title": "Send AGT",
     "send.needLogin": "Sign in first.",
     "send.to": "Recipient",
+    "qs.lowBal": "Signing address {a} holds only {b} AGT — need {c} AGT.{h}",
+    "qs.useOther": " Funds sit on this key's other address ({o}) — sign in under it.",
     "qs.signer": "Signing address:",
     "qs.noSigner": "no key found — sign in with a key",
     "qs.addrRequired": "Sign in with a key and pick an address first — sending without sign-in is blocked.",
@@ -727,6 +731,8 @@ const I18N={
     "send.title": "Envoyer AGT",
     "send.needLogin": "Connectez-vous d’abord.",
     "send.to": "Destinataire",
+    "qs.lowBal": "L'adresse signataire {a} ne détient que {b} AGT — il faut {c} AGT.{h}",
+    "qs.useOther": " Les fonds sont sur l'autre adresse de cette clé ({o}) — connectez-vous dessous.",
     "qs.signer": "Adresse signataire :",
     "qs.noSigner": "aucune clé — connectez-vous avec une clé",
     "qs.addrRequired": "Connectez-vous avec une clé et choisissez une adresse.",
@@ -901,6 +907,8 @@ const I18N={
     "send.title": "Enviar AGT",
     "send.needLogin": "Inicia sesión primero.",
     "send.to": "Destinatario",
+    "qs.lowBal": "La dirección firmante {a} solo tiene {b} AGT — se necesitan {c} AGT.{h}",
+    "qs.useOther": " Los fondos están en la otra dirección de esta clave ({o}) — entra debajo de ella.",
     "qs.signer": "Dirección firmante:",
     "qs.noSigner": "sin clave — inicia sesión con una clave",
     "qs.addrRequired": "Inicia sesión con una clave y elige una dirección primero.",
@@ -1075,6 +1083,8 @@ const I18N={
     "send.title": "AGT senden",
     "send.needLogin": "Bitte zuerst anmelden.",
     "send.to": "Empfänger",
+    "qs.lowBal": "Die signierende Adresse {a} hat nur {b} AGT — benötigt werden {c} AGT.{h}",
+    "qs.useOther": " Das Guthaben liegt auf der anderen Adresse dieses Schlüssels ({o}) — dort anmelden.",
     "qs.signer": "Signierende Adresse:",
     "qs.noSigner": "kein Schlüssel — mit Schlüssel anmelden",
     "qs.addrRequired": "Erst mit Schlüssel anmelden und Adresse wählen — Senden ohne Anmeldung ist blockiert.",
@@ -1363,6 +1373,23 @@ async function quickSendSubmit(){
   }
   if(address&&rec.addr!==address){qsStatus('Ключ не от текущего адреса: войди ключом выше под '+address+', затем повтори.',true);return}
   if(!address){qsStatus(tr('qs.addrRequired'),true);return}
+  try{
+    var bj=(await api('/balance',{address:rec.addr})).json;
+    var bav=(bj&&typeof bj.balance==='number')?bj.balance:0;
+    if(!(bav>=amount)){
+      var hint='';
+      try{
+        if(typeof pendingKey!=='undefined'&&pendingKey){
+          var other=(rec.addr===pendingKey.addrRaw)?pendingKey.addrPem:((rec.addr===pendingKey.addrPem)?pendingKey.addrRaw:null);
+          if(other){var oj=(await api('/balance',{address:other})).json;var ob=oj&&oj.balance;
+            if(typeof ob==='number'&&ob>=amount)hint=tr('qs.useOther').split('{o}').join(other);}
+        }
+      }catch(e){}
+      qsStatus(tr('qs.lowBal').split('{a}').join(rec.addr).split('{b}').join(String(bav)).split('{c}').join(String(amount)).split('{h}').join(hint),true);
+      try{updateQsSigner().catch(()=>{})}catch(e){}
+      return;
+    }
+  }catch(e){}
   updateQsSigner().catch(()=>{});
   qsStatus('Подписываем локально (ключ не покидает вкладку)…');
   let out;

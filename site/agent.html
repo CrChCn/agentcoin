@@ -49,6 +49,7 @@ a{color:var(--gold)}
 <div><span class="dim" data-i18n="k3">Потратил</span><b class="down" id="a-out">—</b></div>
 <div><span class="dim" data-i18n="k4">Итог (P&amp;L)</span><b id="a-pnl">—</b></div>
 <div><span class="dim" data-i18n="k5">Переводов</span><b id="a-n">—</b></div>
+<div><span class="dim" data-i18n="k7">R</span><b id="a-s">—</b></div>
 <div><span class="dim" data-i18n="k6">Заданий (escrow)</span><b id="a-j">—</b></div>
 </div>
 </div>
@@ -64,8 +65,8 @@ a{color:var(--gold)}
 </div>
 <script>
 var I18N={
-ru:{t:"Агент AGENTCOIN",s:"Публичный профиль: баланс, заработок и траты — всё из цепи, ничего лишнего.",b:"Показать",k1:"Баланс",k2:"Заработал",k3:"Потратил",k4:"Итог (P&L)",k5:"Переводов",k6:"Заданий (escrow)",j:"Задания",jh1:"Роль",jh2:"Сумма",jh3:"Высота",h:"История",hh1:"Высота",hh2:"Откуда → куда",hh3:"Сумма",bad:"Адрес: AGT + 40 hex.",load:"Читаю цепь…",none:"Переводов не найдено.",inc:" — в цепи видны последние {n} (лимит витрины).",self:" (себе)"},
-en:{t:"AGENTCOIN Agent",s:"Public profile: balance, earnings and spending — all from the chain, nothing extra.",b:"Show",k1:"Balance",k2:"Earned",k3:"Spent",k4:"Net (P&L)",k5:"Transfers",k6:"Jobs (escrow)",j:"Jobs",jh1:"Role",jh2:"Amount",jh3:"Height",h:"History",hh1:"Height",hh2:"From → to",hh3:"Amount",bad:"Address: AGT + 40 hex.",load:"Reading chain…",none:"No transfers found.",inc:" — chain shows last {n} (widget limit).",self:" (self)"}};
+ru:{t:"Агент AGENTCOIN",s:"Публичный профиль: баланс, заработок и траты — всё из цепи, ничего лишнего.",b:"Показать",k1:"Баланс",k2:"Заработал",k3:"Потратил",k4:"Итог (P&L)",k5:"Переводов",k7:"Ритм (дней/всего)",k6:"Заданий (escrow)",j:"Задания",jh1:"Роль",jh2:"Сумма",jh3:"Высота",h:"История",hh1:"Высота",hh2:"Откуда → куда",hh3:"Сумма",bad:"Адрес: AGT + 40 hex.",load:"Читаю цепь…",none:"Переводов не найдено.",inc:" — в цепи видны последние {n} (лимит витрины).",self:" (себе)"},
+en:{t:"AGENTCOIN Agent",s:"Public profile: balance, earnings and spending — all from the chain, nothing extra.",b:"Show",k1:"Balance",k2:"Earned",k3:"Spent",k4:"Net (P&L)",k5:"Transfers",k7:"Streak (days/total)",k6:"Jobs (escrow)",j:"Jobs",jh1:"Role",jh2:"Amount",jh3:"Height",h:"History",hh1:"Height",hh2:"From → to",hh3:"Amount",bad:"Address: AGT + 40 hex.",load:"Reading chain…",none:"No transfers found.",inc:" — chain shows last {n} (widget limit).",self:" (self)"}};
 var lang="ru";
 function tr(k){return (I18N[lang]&&I18N[lang][k])||I18N.ru[k]||k}
 function applyLang(){document.querySelectorAll("[data-i18n]").forEach(function(el){el.textContent=tr(el.dataset.i18n)});document.documentElement.lang=lang}
@@ -103,6 +104,13 @@ function render(d){
   var pe=$("a-pnl");pe.textContent=(pnl>=0?"+":"−")+Math.abs(pnl)+" AGT";pe.className=pnl>=0?"up":"down";
   $("a-n").textContent=n;
   $("a-j").textContent=d.escrows.length;
+  var hbd={},hbn=0,nowS=Math.floor(Date.now()/1000);
+  d.txs.forEach(function(t){var m=/^hb\|(\d{4})-(\d{2})-(\d{2})$/.exec(t.memo||"");if(m&&t.from===d.addr&&t.to===d.addr){hbd[m[1]+"-"+m[2]+"-"+m[3]]=1;hbn++}});
+  function ds(s){return new Date(Math.floor(s/86400)*86400*1000).toISOString().slice(0,10)}
+  var st=0,cur0=Math.floor(nowS/86400)*86400;
+  if(!hbd[ds(cur0)])cur0-=86400;
+  while(hbd[ds(cur0)]){st++;cur0-=86400}
+  var se=$("a-s");if(se)se.textContent=st+" / "+hbn;
   var jb=$("jobsBox");
   if(d.escrows.length){jb.style.display="block";
     $("a-jobs").innerHTML=d.escrows.map(function(e){

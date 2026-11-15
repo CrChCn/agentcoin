@@ -159,6 +159,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <label for="qsMemo" data-i18n="send.memo">Назначение (memo, до 120 символов)</label>
 <input id="qsMemo" maxlength="120" autocomplete="off" placeholder="что оплачиваем (необязательно)">
 <p class="dim" style="font-size:12.5px">Комиссия сети: <b>0 AGT</b> (на разгоне без сборов; вводится решением сети). Отправка — после отметки подтверждения.</p>
+<p class="dim" style="font-size:13px"><span data-i18n="qs.signer">Подписывает адрес:</span> <code id="qsSigner">\u2014</code> <span id="qsSignerBal" class="dim"></span></p>
 <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
 <input id="qsConfirm" type="checkbox">
 <span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
@@ -378,6 +379,10 @@ const I18N={
     "send.title": "Отправить AGT",
     "send.needLogin": "Сначала войди в кабинет.",
     "send.to": "Получатель",
+    "qs.signer": "Подписывает адрес:",
+    "qs.noSigner": "ключ не найден — войди ключом",
+    "qs.addrRequired": "Сначала войди ключом и выбери адрес — отправка без входа запрещена.",
+    "login.mainFunded": "основной",
     "send.amount": "Сумма",
     "send.memo": "Публичное назначение (до 120 символов)",
     "send.estimate": "Рассчитать комиссию",
@@ -548,6 +553,10 @@ const I18N={
     "send.title": "Send AGT",
     "send.needLogin": "Sign in first.",
     "send.to": "Recipient",
+    "qs.signer": "Signing address:",
+    "qs.noSigner": "no key found — sign in with a key",
+    "qs.addrRequired": "Sign in with a key and pick an address first — sending without sign-in is blocked.",
+    "login.mainFunded": "primary",
     "send.amount": "Amount",
     "send.memo": "Public memo (up to 120 characters)",
     "send.estimate": "Estimate fees",
@@ -718,6 +727,10 @@ const I18N={
     "send.title": "Envoyer AGT",
     "send.needLogin": "Connectez-vous d’abord.",
     "send.to": "Destinataire",
+    "qs.signer": "Adresse signataire :",
+    "qs.noSigner": "aucune clé — connectez-vous avec une clé",
+    "qs.addrRequired": "Connectez-vous avec une clé et choisissez une adresse.",
+    "login.mainFunded": "principal",
     "send.amount": "Montant",
     "send.memo": "Mémo public (120 caractères max.)",
     "send.estimate": "Estimer les frais",
@@ -888,6 +901,10 @@ const I18N={
     "send.title": "Enviar AGT",
     "send.needLogin": "Inicia sesión primero.",
     "send.to": "Destinatario",
+    "qs.signer": "Dirección firmante:",
+    "qs.noSigner": "sin clave — inicia sesión con una clave",
+    "qs.addrRequired": "Inicia sesión con una clave y elige una dirección primero.",
+    "login.mainFunded": "principal",
     "send.amount": "Importe",
     "send.memo": "Memo público (máximo 120 caracteres)",
     "send.estimate": "Calcular comisión",
@@ -1058,6 +1075,10 @@ const I18N={
     "send.title": "AGT senden",
     "send.needLogin": "Bitte zuerst anmelden.",
     "send.to": "Empfänger",
+    "qs.signer": "Signierende Adresse:",
+    "qs.noSigner": "kein Schlüssel — mit Schlüssel anmelden",
+    "qs.addrRequired": "Erst mit Schlüssel anmelden und Adresse wählen — Senden ohne Anmeldung ist blockiert.",
+    "login.mainFunded": "primär",
     "send.amount": "Betrag",
     "send.memo": "Öffentliche Memo (max. 120 Zeichen)",
     "send.estimate": "Gebühr berechnen",
@@ -1201,7 +1222,7 @@ async function getJSON(path){return (await api(path)).json}
 function noSecrets(v){if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error(SECRET);noSecrets(x)}}}
 function loadContacts(){try{const v=JSON.parse(localStorage.getItem(CONTACT_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.label==='string'&&typeof x.address==='string'):[]}catch{return[]}}
 function persistContacts(){localStorage.setItem(CONTACT_KEY,JSON.stringify(contacts.slice(0,200)))}
-function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
+function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI();try{window.updateQsSigner&&window.updateQsSigner()}catch(e){}}updateAddressUI()}
 function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off');const lt=$('logoutTop');if(lt)lt.classList.toggle('hidden',!token)}
 async function checkNetwork(){const info=await getJSON('/info');const network=info.chainId||info.network;if(network!=='AGENTCOIN'||!/^[a-f0-9]{64}$/i.test(info.genesisHash||''))throw Error('Cannot verify network and genesis.');if(nodeInfo&&nodeInfo.genesisHash!==info.genesisHash)throw Error('Genesis changed; sign out and reconnect.');nodeInfo={network,genesisHash:info.genesisHash};return nodeInfo}
 function fileText(file,max=65536){if(!file||file.size>max)throw Error('File is missing or too large.');return file.text()}
@@ -1220,7 +1241,7 @@ async function loadWallet(){if(!address||!token)return;const askedAddress=addres
 async function refreshSession(){if(!address||!token)return;await loadWallet()}
 async function challengeFlow(){if(!address)throw Error(tr('err.noAddr'));const askedAddress=address;await checkNetwork();const r=(await api('/cabinet/challenge',{address})).json;if(address!==askedAddress)throw Error('Address changed; challenge discarded.');if(!r.ok||!r.challenge)throw Error(r.error||'invalid_challenge');challengeReply=r;$('challengeJson').value=JSON.stringify(r,null,2);$('signBox').classList.remove('hidden');const command='node src/cli.mjs sign-challenge /path/profile.json /path/challenge-'+(r.challengeId||'request')+'.json';$('challengeCommand').textContent=command;addCopyButton($('challengeCommand'),command);saveFile('agentcoin-challenge-'+(r.challengeId||'request')+'.json',r);$('loginHint').textContent=tr('login.challengeOk')}
 async function loginFlow(){if(!challengeReply)throw Error('Get a challenge first.');const loginAddress=address,signedChallenge=challengeReply,sig=$('signature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const r=(await api('/cabinet/login',{address:loginAddress,mode:'challenge',nonce:signedChallenge.nonce,challengeId:signedChallenge.challengeId,signature:sig})).json;if(address!==loginAddress||challengeReply!==signedChallenge)throw Error('Address changed; login response discarded.');if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);challengeReply=null;$('signature').value='';await loadWallet();setMessage(tr('login.loggedIn'))}
-async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;pendingKey=null;challengeReply=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
+async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;pendingKey=null;challengeReply=null;try{window.updateQsSigner&&window.updateQsSigner()}catch(e){};clearPinInputs();$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
 async function autologin(){const askedAddress=address;if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname))throw Error('Autologin is available only on loopback.');if(localStorage.getItem('agtx:autologin')==='disabled')throw Error('Autologin is disabled.');const r=(await api('/cabinet/autologin',{address:address||undefined},{headers:{'x-cabinet-autologin':'local'}})).json;if(address!==askedAddress)throw Error('Address changed; autologin response discarded.');if(!r.token||!r.address)throw Error(r.error||'autologin_response_invalid');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);address=r.address;localStorage.setItem(ADDR_KEY,address);updateAddressUI();await loadWallet();setMessage(tr('login.loggedIn'))}
 function disableAutologin(){localStorage.setItem('agtx:autologin','disabled');setMessage('Autologin disabled on this browser.')}
 function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
@@ -1319,6 +1340,14 @@ function qsKeyFor(){
   if(savedKeys.length>1)throw new Error('Локальных ключей несколько. Войди ключом выше — подставится нужный; либо оставь один ключ (кнопка «Стереть локальные ключи», затем сохрани нужный заново).');
   return null;
 }
+async function updateQsSigner(){
+  var el=$('qsSigner'),bal=$('qsSignerBal');if(!el)return;
+  var rec=null;try{rec=qsKeyFor()}catch(e){rec=null}
+  if(!rec||!rec.addr){el.textContent='\u2014';if(bal)bal.textContent='('+tr('qs.noSigner')+')';return}
+  el.textContent=rec.addr;
+  if(bal){bal.textContent='\u2026';try{var j=(await api('/balance',{address:rec.addr})).json;var v=j&&j.balance;bal.textContent=(v==null?'':' \u00b7 '+v+' AGT')}catch(e){bal.textContent=''}}
+}
+window.updateQsSigner=updateQsSigner;
 async function quickSendSubmit(){
   const to=$('qsTo').value.trim(), rawAmount=$('qsAmount').value.trim(), memo=$('qsMemo').value.trim();
   if(!/^AGT[0-9a-f]{40}$/.test(to)){qsStatus('Адрес получателя: AGT + 40 hex-символов.',true);return}
@@ -1333,6 +1362,8 @@ async function quickSendSubmit(){
     return;
   }
   if(address&&rec.addr!==address){qsStatus('Ключ не от текущего адреса: войди ключом выше под '+address+', затем повтори.',true);return}
+  if(!address){qsStatus(tr('qs.addrRequired'),true);return}
+  updateQsSigner().catch(()=>{});
   qsStatus('Подписываем локально (ключ не покидает вкладку)…');
   let out;
   try{out=await sendRawTx({privKeyHex:rec.k,from:rec.addr,fromPubHex:rec.fromPubHex,to,amount,memo})}catch(e){qsStatus('Ошибка подписи: '+e.message,true);return}
@@ -1348,6 +1379,7 @@ const sb=$('qsSend');if(sb)sb.onclick=()=>quickSendSubmit().catch(e=>qsStatus('�
 const fb=$('qsForget');if(fb)fb.onclick=()=>{const saved=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));saved.forEach(k=>localStorage.removeItem(k));qsStatus('Локальные ключи стёрты из браузера ('+saved.length+' шт.).')};
 const pw=$('passportWarn');if(pw)pw.classList.remove('hidden');
 const qb=document.getElementById('topSendBtn');if(qb)qb.onclick=()=>{try{showTab('Send')}catch(e){document.getElementById('paneSend').classList.remove('hidden');document.getElementById('paneOverview').classList.add('hidden')}};
+updateQsSigner().catch(()=>{});
 })();
 function invoiceUri(){return 'agentcoin:'+address+'?amount='+encodeURIComponent(invoiceData.amountAGT)+'&memo='+encodeURIComponent(invoiceData.memo)}
 function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=parseAmount($('invAmount').value,invoiceUnit),memo=$('invMemo').value;if(memo.length>120)throw Error('Memo too long.');invoiceData={schema:'agentcoin.payment-request.v1',network:nodeInfo?.network||'AGENTCOIN',genesisHash:nodeInfo?.genesisHash||null,address,amountAGT:amount,memo,createdAt:new Date().toISOString()};$('invSummary').textContent=JSON.stringify(invoiceData);$('downloadInvoice').disabled=false;$('showInvoiceQR').disabled=false;drawQR($('qrInvoice'),invoiceUri())}
@@ -1385,19 +1417,27 @@ async function pemAddrOf(privBytes){
   return {pem:pem, address:'AGT'+hx.slice(0,32)+chk};
 }
 async function dualBalance(addr,elId){
-  var el=$(elId);if(!el)return;
+  var el=$(elId);if(!el)return null;
   try{
     var j=(await api('/balance',{address:addr})).json;
     var v=(j&&(j.balance!=null?j.balance:(j.balanceMGNT!=null?j.balanceMGNT:null)));
     el.textContent=(v==null?'?':String(v))+' AGT';
-  }catch(e){el.textContent='?';}
+    return (typeof v==='number'?v:null);
+  }catch(e){el.textContent='?';return null}
 }
 async function renderDual(pub,addrRaw,pemInfo){
   $('dualRaw').textContent=addrRaw;
   $('dualPem').textContent=pemInfo.address;
   $('dualRawBal').textContent='…';$('dualPemBal').textContent='…';
   $('dualBox').classList.remove('hidden');
-  await Promise.all([dualBalance(addrRaw,'dualRawBal'),dualBalance(pemInfo.address,'dualPemBal')]);
+  var rs=await Promise.all([dualBalance(addrRaw,'dualRawBal'),dualBalance(pemInfo.address,'dualPemBal')]);
+  try{
+    var rEl=$('dualRawBal'),pEl=$('dualPemBal');
+    var rF=(typeof rs[0]==='number'&&rs[0]>0),pF=(typeof rs[1]==='number'&&rs[1]>0);
+    if(rEl)rEl.style.fontWeight='';if(pEl)pEl.style.fontWeight='';
+    if(rF&&!pF&&rEl){rEl.textContent+=' \u2022 '+tr('login.mainFunded');rEl.style.fontWeight='700'}
+    else if(pF&&!rF&&pEl){pEl.textContent+=' \u2022 '+tr('login.mainFunded');pEl.style.fontWeight='700'}
+  }catch(e){}
 }
 async function keyLoginTo(addr,pubForm,privBytes){
   await checkNetwork();
@@ -1413,7 +1453,7 @@ async function keyLoginTo(addr,pubForm,privBytes){
   if(!r.token)throw Error('login_token_missing');
   token=r.token;sessionStorage.setItem(TOKEN_KEY,token);
   await loadWallet();setMessage(tr('login.keyOk'));
-  setKeyHint('');
+  setKeyHint('');try{window.updateQsSigner&&window.updateQsSigner()}catch(e){}
 }
 async function keyLoginFlow(){
   pendingKey=null;

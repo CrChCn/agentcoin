@@ -88,7 +88,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <input id="keyInput" autocomplete="off" spellcheck="false" placeholder="64 hex или 24 слова">
 <button id="keyLogin" data-i18n="login.keySubmit">Войти ключом</button>
 </div>
-<div class="hint" data-i18n="login.keyHow">Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Дальше — задай PIN во вкладке «Безопасность».</div>
+<div class="hint" data-i18n="login.keyHow">Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Хеш перевода (txid) — не ключ: он публичный, по нему зайдёт кто угодно, денег туда не клади. Дальше — задай PIN во вкладке «Безопасность».</div>
 <div id="keyHint" class="status" role="status" aria-live="polite"></div>
 <div id="dualBox" class="hidden">
 <div class="hint" data-i18n="login.dualTitle">Два адреса этого ключа</div>
@@ -355,7 +355,7 @@ const I18N={
     "login.noAddr": "Сначала укажи адрес.",
     "login.key": "Ключ или 24 слова (остаётся в этом браузере)",
     "login.keySubmit": "Войти ключом",
-    "login.keyHow": "Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Дальше — задай PIN во вкладке «Безопасность».",
+    "login.keyHow": "Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Хеш перевода (txid) — не ключ: он публичный, по нему зайдёт кто угодно, денег туда не клади. Дальше — задай PIN во вкладке «Безопасность».",
     "login.keyOk": "Вход ключом выполнен.",
     "login.noAddrKey": "Сначала сохрани адрес выше — или вставь ключ/слова и выбери один из двух адресов ниже.",
     "login.noLocalKey": "В этом браузере нет сохранённого ключа для адреса — вставь приватный hex или 24 слова.",
@@ -531,7 +531,7 @@ const I18N={
     "login.noAddr": "Enter an address first.",
     "login.key": "Key or 24 words (stays in this browser)",
     "login.keySubmit": "Sign in with key",
-    "login.keyHow": "First sign-in without a passport: use the key saved by /create-wallet in this browser, or paste private hex / 24 words. Then set a PIN under “Security”. ",
+    "login.keyHow": "First sign-in without a passport: use the key saved by /create-wallet in this browser, or paste private hex / 24 words. A transfer hash (txid) is not a key: it is public, anyone can open it, never fund such addresses. Then set a PIN under “Security”. ",
     "login.keyOk": "Signed in with key.",
     "login.noAddrKey": "Save the address above first — or paste the key/words and pick one of the two addresses below.",
     "login.noLocalKey": "No saved key for this address in this browser — paste private hex or 24 words.",
@@ -707,7 +707,7 @@ const I18N={
     "login.noAddr": "Saisissez d’abord une adresse.",
     "login.key": "Clé ou 24 mots (reste dans ce navigateur)",
     "login.keySubmit": "Se connecter avec la clé",
-    "login.keyHow": "Première connexion sans passeport : clé enregistrée par /create-wallet, ou collez hex privé / 24 mots. Ensuite définissez un PIN sous « Sécurité ».",
+    "login.keyHow": "Première connexion sans passeport : clé enregistrée par /create-wallet, ou collez hex privé / 24 mots. Un hash de transfert (txid) n'est pas une clé : il est public, n'importe qui peut l'ouvrir, n'y déposez jamais de fonds. Ensuite définissez un PIN sous « Sécurité ».",
     "login.keyOk": "Connecté avec la clé.",
     "login.noAddrKey": "Enregistrez d’abord l’adresse ci-dessus — ou collez clé/mots puis choisissez une des deux adresses ci-dessous.",
     "login.noLocalKey": "Aucune clé enregistrée pour cette adresse — collez hex privé ou 24 mots.",
@@ -883,7 +883,7 @@ const I18N={
     "login.noAddr": "Indica primero una dirección.",
     "login.key": "Clave o 24 palabras (queda en este navegador)",
     "login.keySubmit": "Entrar con clave",
-    "login.keyHow": "Primer acceso sin pasaporte: clave guardada por /create-wallet, o pega hex privado / 24 palabras. Luego define un PIN en «Seguridad».",
+    "login.keyHow": "Primer acceso sin pasaporte: clave guardada por /create-wallet, o pega hex privado / 24 palabras. Un hash de transferencia (txid) no es una clave: es público, cualquiera puede abrirlo, nunca deposites fondos ahí. Luego define un PIN en «Seguridad».",
     "login.keyOk": "Sesión iniciada con clave.",
     "login.noAddrKey": "Guarda primero la dirección, o pega clave/palabras y elige una de las dos direcciones.",
     "login.noLocalKey": "Sin clave guardada para esta dirección — pega hex privado o 24 palabras.",
@@ -1059,7 +1059,7 @@ const I18N={
     "login.noAddr": "Gib zuerst eine Adresse ein.",
     "login.key": "Schlüssel oder 24 Wörter (bleibt in diesem Browser)",
     "login.keySubmit": "Mit Schlüssel anmelden",
-    "login.keyHow": "Erste Anmeldung ohne Pass: Schlüssel aus /create-wallet oder Hex/24 Wörter einfügen. Danach PIN unter „Sicherheit“ setzen.",
+    "login.keyHow": "Erste Anmeldung ohne Pass: Schlüssel aus /create-wallet oder Hex/24 Wörter einfügen. Ein Transfer-Hash (txid) ist kein Schlüssel: er ist öffentlich, jeder kann ihn öffnen, lege dort niemals Geld ab. Danach PIN unter „Sicherheit“ setzen.",
     "login.keyOk": "Mit Schlüssel angemeldet.",
     "login.noAddrKey": "Speichere zuerst die Adresse — oder füge Schlüssel/Wörter ein und wähle eine der beiden Adressen.",
     "login.noLocalKey": "Kein gespeicherter Schlüssel für diese Adresse — füge privates Hex oder 24 Wörter ein.",

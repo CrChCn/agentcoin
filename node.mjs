@@ -39,6 +39,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
+  addressFromPub, isRawPubHex, addressFromRawPub,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
@@ -1082,6 +1083,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     }
     const tx = { ...rec.data.tx, signature };
     if (sig2 != null) { tx.sig2 = sig2; tx.sig2Pub = sig2Pub; }
+    // Диагностика казначейских submit'ов (только адреса/хеши — без ключей и подписей).
+    // Нужна, пока выясняется расхождение /cabinet/op-submit и /tx на валидной паре sig2.
+    try {
+      const tpolDbg = bc.getTreasuryPolicy ? bc.getTreasuryPolicy() : null;
+      if (tpolDbg && tpolDbg.treasury && tx.from === tpolDbg.treasury) {
+        let sig2Addr = null;
+        try { sig2Addr = sig2Pub ? (isRawPubHex(sig2Pub) ? addressFromRawPub(sig2Pub) : addressFromPub(sig2Pub)) : null; } catch {}
+        console.log('[op-submit][treasury] op=' + opId + ' txid=' + String(tx.txid).slice(0, 16)
+          + ' digestMatch=' + (txDigest(tx) === tx.txid) + ' sig2Addr=' + sig2Addr
+          + ' inPolicy=' + !!((tpolDbg.signers || []).includes(sig2Addr))
+          + ' sig2EqFromPub=' + (sig2Pub === tx.fromPub));
+      }
+    } catch {}
     if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 409, r);

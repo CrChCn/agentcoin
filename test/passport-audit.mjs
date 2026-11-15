@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizePassports, localPassportIssuanceMetadata } from '../passport-audit.mjs';
+import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from '../passport-audit.mjs';
 
 test('legacy records stay unknown; aggregate exposes neither credentials nor identifiers', () => {
   const records = [
@@ -45,6 +45,28 @@ test('future local issuance metadata is separately counted without inventing ori
   assert.deepEqual(result.issuance, { localNodeDeclared: 1, unknown: 3 });
   assert.equal(result.provenance.unknown, 4);
   assert.equal(result.independentExternalAgents, null);
+});
+
+test('mergePassportSources counts the union and keeps both source counts', () => {
+  const identity = [
+    { payload: { address: 'AGT1' }, certificate: {} },
+    { payload: { address: 'AGT2' }, certificate: {} },
+    { payload: { address: 'AGT2' }, certificate: {} },
+    { payload: {} },
+  ];
+  const cabinet = [
+    { address: 'AGT2', hash: 'h2' },
+    { address: 'AGT3', hash: 'h3' },
+    { address: 'AGT3', hash: 'h3' },
+  ];
+  const merged = mergePassportSources({ identity, cabinet });
+  assert.equal(merged.count, 3);
+  assert.deepEqual(merged.sources, { identity: 4, cabinet: 3 });
+  assert.deepEqual(merged.diff, { identityOnly: 1, cabinetOnly: 1, common: 1 });
+  const audit = summarizePassports(merged.auditRecords);
+  assert.equal(audit.count, 3);
+  assert.equal(audit.uniqueAddresses, 3);
+  assert.throws(() => mergePassportSources({ identity: {}, cabinet: [] }), /passport_sources_must_be_arrays/);
 });
 
 test('malformed records are visible and registry corruption is never silently zero', () => {

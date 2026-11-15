@@ -14,6 +14,8 @@ export default function Mbc20() {
   const [addr, setAddr] = useState('');
   const [bal, setBal] = useState(null);
   const [err, setErr] = useState('');
+  const [showTest, setShowTest] = useState(false);
+  const visTokens = showTest ? tokens : tokens.filter((x) => !String(x.symbol || x.sym || '').toLowerCase().startsWith('test'));
   const [dep, setDep] = useState({ sym: '', name: '', supply: '' });
   const [depRes, setDepRes] = useState('');
 
@@ -48,10 +50,10 @@ export default function Mbc20() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-extrabold text-[#e8b923]">MBC-20 {RU ? 'Биржа' : 'Exchange'}</h1>
-      <Card title={RU ? 'Токены' : 'Tokens'} right={<Stale show={tk.stale} t={t} />}>
-        {tokens.length === 0 ? <div className="text-[#5c6672]">—</div> : (
+      <Card title={RU ? 'Токены' : 'Tokens'} right={<span className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-[#8b93a1]"><input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />{RU ? 'тестовые' : 'test'}</label><Stale show={tk.stale} t={t} /></span>}>
+        {visTokens.length === 0 ? <div className="text-[#5c6672]">—</div> : (
           <ul className="space-y-1 font-mono text-sm">
-            {tokens.map((x, i) => <li key={i}>{x.symbol || x.sym} · {x.name || ''} · {fmt(x.supply ?? x.totalSupply)}</li>)}
+            {visTokens.map((x, i) => <li key={i}>{x.symbol || x.sym} · {x.name || ''} · {fmt(x.supply ?? x.totalSupply)}</li>)}
           </ul>
         )}
       </Card>

@@ -146,13 +146,23 @@ test('wallet page DOM: WALLET-ALL-ORIGINS — честная кнопка вне
   assert.ok(html.includes('id="downloadChallenge"'), 'есть «Скачать запрос JSON» для передачи Skill-у');
   assert.ok(!/Access-Control-Allow-Origin/.test(html), 'никаких CORS-попустительств на странице');
   // handler: вне loopback кнопка ведёт к challenge/download, а не к тупиковому отказу
-  const idx = html.indexOf("'autologinNow', async");
-  assert.ok(idx > 0, 'обработчик autologinNow присутствует');
-  const body = html.slice(idx, html.indexOf("$('downloadChallenge')", idx)) ;
+  // (страница назначает обработчики через .onclick= — проверяем этот стиль).
+  assert.ok(html.includes("$('autologinNow').onclick"), 'обработчик autologinNow присутствует');
+  const idx = html.indexOf('async function autologin()');
+  assert.ok(idx > 0, 'autologin определён');
+  const end = html.indexOf('function disableAutologin', idx);
+  const body = html.slice(idx, end > 0 ? end : idx + 2000);
   assert.ok(/location\.hostname/.test(body), 'обработчик различает loopback');
-  assert.ok(/cabinet\/challenge/.test(body) && /savePublic\('agentcoin-challenge\.json'/.test(body),
-    'вне loopback handler запускает честный ручной путь challenge→файл, а не только отказ');
-  assert.ok(/sign-challenge/.test(body) || /sign-challenge/.test(html), 'упомянут Skill-подписант');
+  assert.ok(/cabinet\/autologin/.test(body), 'на loopback — честный автовход ноды');
+  assert.ok(/sign-challenge/.test(html), 'упомянут Skill-подписант');
+});
+
+test('wallet page inline scripts parse (регрессия: одна запятая гасила всю страницу)', async () => {
+  const html = await fs.readFile(path.join(root, 'site', 'user-wallet-page.html'), 'utf8');
+  const blocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+    .map(m => m[1]).filter(s => s.trim());
+  assert.ok(blocks.length > 0, 'есть инлайн-скрипты');
+  for (const [i, src] of blocks.entries()) new vm.Script(src, { filename: `user-wallet-page.html:inline-${i}` });
 });
 
 // ---------- HTTP-акцептанс на изолированной ноде ----------
@@ -179,7 +189,7 @@ test('wallet page, session-scoped history, estimate and signed op flow', { timeo
     const page = await fetch(origin + '/wallet', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(page.status, 200);
     const html = await page.text();
-    for (const marker of ['Кошелёк AGENTCOIN', 'Алисы', 'Бобу', 'effectiveFrom', '/cabinet/op-request', '/cabinet/wallet/history']) {
+    for (const marker of ['Кошелёк AGENTCOIN', 'Алисы', 'Бобу', '/treasury/state', '/cabinet/op-request', '/cabinet/wallet/history']) {
       assert.ok(html.includes(marker), 'маркер: ' + marker);
     }
     assert.ok(!/<input[^>]*type=["']?password/i.test(html), 'страница не запрашивает пароль');

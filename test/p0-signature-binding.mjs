@@ -13,7 +13,7 @@ import path from 'node:path';
 import {
   createWallet, signTransaction, verifyTransaction, verifyTxAny,
   validateBlockAgainstChain, expectedDifficultyBits,
-  Blockchain,
+  Blockchain, isRawPubHex, addressFromRawPub, txDigest, verifySecondSig,
 } from '../core.mjs';
 
 const results = [];
@@ -148,6 +148,59 @@ function totalStrikesCheck(_st) { /* визуальный контроль, не
   ok('P0-2 victim A not banned', !bc5.security.isBanned(A.address));
   const banList = bc5.security.state?.() ?? null;
   void banList;
+}
+
+// --- RAW-PUB: браузерная схема (сырой hex fromPub + адрес от сырых байт) ---
+{
+  const { generateKeyPairSync, sign } = await import('node:crypto');
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const raw = Buffer.from(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32)).toString('hex');
+  const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const addr = addressFromRawPub(raw);
+  const tx = { from: addr, fromPub: raw, to: B.address, amount: 1, nonce: 21, ts: 1, memo: 'raw-ok' };
+  tx.signature = sign(null, Buffer.from(txDigest(tx), 'hex'), privPem).toString('hex');
+  ok('RAW verifyTransaction accepts raw-pub tx bound to raw-scheme address', verifyTransaction(tx) === true);
+  ok('RAW verifyTxAny accepts raw-pub tx', verifyTxAny(tx, []) === true);
+  // чужой сырой ключ под чужой raw-адрес — мимо (привязка внутри схемы)
+  const { publicKey: pk2, privateKey: sk2 } = generateKeyPairSync('ed25519');
+  const raw2 = Buffer.from(pk2.export({ type: 'spki', format: 'der' }).subarray(-32)).toString('hex');
+  const spoof = { ...tx, fromPub: raw2 };
+  spoof.signature = sign(null, Buffer.from(txDigest(spoof), 'hex'), sk2.export({ type: 'pkcs8', format: 'pem' })).toString('hex');
+  ok('RAW verifyTransaction rejects foreign raw-pub tx', verifyTransaction(spoof) === false);
+  // сырой fromPub + PEM-адрес того же ключа — мимо (схемы не смешиваются)
+  const { addressFromPub } = await import('../core.mjs');
+  const pemOfRaw = publicKey.export({ type: 'spki', format: 'pem' });
+  const mixed = { ...tx, from: addressFromPub(pemOfRaw) };
+  ok('RAW verifyTransaction rejects raw-pub against PEM-scheme address', verifyTransaction(mixed) === false);
+  // мусор вместо ключа — мимо без исключений
+  ok('RAW verifyTransaction rejects garbage fromPub', verifyTransaction({ ...tx, fromPub: 'zz' }) === false);
+  ok('isRawPubHex gates 64-hex only', isRawPubHex(raw) === true && isRawPubHex(pemOfRaw) === false && isRawPubHex(null) === false);
+}
+
+// --- RAW-SIG2: вторая подпись казны сырым ключом подписанта из политики ---
+{
+  const { generateKeyPairSync, sign } = await import('node:crypto');
+  const core = await import('../core.mjs');
+  const mk = () => {
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+    const raw = Buffer.from(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32)).toString('hex');
+    return { raw, priv: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
+  };
+  const T = mk(), S2 = mk(), OUT = mk();
+  const tAddr = core.addressFromRawPub(T.raw);
+  const s2Addr = core.addressFromRawPub(S2.raw);
+  const policy = { treasury: tAddr, signers: [s2Addr], requires: 2 };
+  const tx = { from: tAddr, fromPub: T.raw, to: core.addressFromRawPub(OUT.raw), amount: 7, nonce: 31, ts: 1, memo: '' };
+  tx.signature = sign(null, Buffer.from(core.txDigest(tx), 'hex'), T.priv).toString('hex');
+  tx.sig2 = sign(null, Buffer.from(core.txDigest(tx), 'hex'), S2.priv).toString('hex');
+  tx.sig2Pub = S2.raw;
+  ok('RAW-SIG2 verifySecondSig accepts raw second-signer from policy', verifySecondSig(tx, policy) === true);
+  ok('RAW-SIG2 full tx verifies (primary raw + raw sig2)', verifyTransaction(tx) === true);
+  const bad = { ...tx, sig2Pub: OUT.raw };
+  ok('RAW-SIG2 rejects second-signer outside policy', verifySecondSig(bad, policy) === false);
+  const dup = { ...tx, sig2Pub: T.raw };
+  dup.sig2 = sign(null, Buffer.from(core.txDigest(dup), 'hex'), T.priv).toString('hex');
+  ok('RAW-SIG2 rejects double-use of treasury key as sig2', verifySecondSig(dup, policy) === false);
 }
 
 const fails = results.filter(r => !r.ok);

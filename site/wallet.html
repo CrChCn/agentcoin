@@ -142,6 +142,7 @@ footer.f{max-width:980px;margin:0 auto 30px;padding:0 18px;color:var(--mut);font
 }
 kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px}
 </style>
+  <script src="/panel.js?v=20261111B" defer></script>
 </head>
 <body>
 
@@ -179,6 +180,12 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       <div class="addr mono" id="addrShow">—</div>
       <button class="btn" id="btnCopy">⧉ <span data-i="copy">Скопировать</span></button>
     </div>
+    <div class="hint mono" id="idLine" style="margin-top:8px">—</div>
+    <div class="addr-row" style="margin-top:8px">
+      <input id="handleInput" class="mono" placeholder="handle · например ivan-123" autocomplete="off" style="flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;color:var(--txt);font-size:12.5px;outline:none">
+      <button class="btn" id="btnHandle"><span data-i="handleCheck">Проверить имя</span></button>
+    </div>
+    <div class="hint" id="handleMsg"></div>
   </section>
 
   <section class="panel" id="panelSecurity">
@@ -195,6 +202,10 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       <div><div class="lbl" data-i="phone">Привязать телефон</div><div class="st" id="phoneSt" data-i="phoneSt">Для SMS-входа</div></div>
       <div class="toggle" id="tgPhone" role="switch" aria-checked="false" tabindex="0"></div>
     </div>
+    <div class="switch">
+      <div><div class="lbl" data-i="wordsTitle">📜 12 слов (мастер-доступ)</div><div class="st" data-i="wordsSt">Восстанавливают ключ на любом устройстве. Сайт их никогда не видит и не хранит — показать слова можно только там, где живёт ключ.</div></div>
+    </div>
+    <div class="hint mono" style="margin:2px 0 4px;word-break:break-all" data-i="wordsCmd">echo '{"password":"ВАШ_ПАРОЛЬ"}' | node agt-skill/agent-profile.mjs words profile.json</div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn red" id="btnLogoutAll">⚠ <span data-i="logoutAll">Выйти везде</span></button>
       <span class="hint" id="secMsg"></span>
@@ -240,10 +251,16 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
 
     <div class="tabpane hidden" id="panePin">
       <div class="field">
+        <label data-i="pinAddr">Адрес кошелька (AGT…)</label>
+        <input id="pinAddr" class="mono" placeholder="AGT…" autocomplete="off">
+      </div>
+      <div class="field">
         <label data-i="pinEnter">Введите PIN (4–6 цифр)</label>
         <input class="pin-input" id="pinInput" inputmode="numeric" maxlength="6" autocomplete="off">
       </div>
       <button class="btn gold" id="pinLogin" data-i="pinLogin">Войти по PIN</button>
+      <div class="hint" data-i="pinFirst">PIN можно задать только после первого входа паспортом: «Файл» → подпись → в разделе «Безопасность» включите PIN.</div>
+      <div class="hint" data-i="pinRoam">PIN задаётся один раз после входа паспортом («Файл» → подпись → «Безопасность»), а дальше работает с любого устройства. В поле адреса вводите только чистый адрес AGT… — без имён и стрелок.</div>
       <div class="hint" id="pinMsg"></div>
     </div>
 
@@ -256,6 +273,7 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" id="fileChallenge" data-i="fileChallenge">1. Получить challenge</button>
+        <button class="btn" id="fileChallengeDl" disabled>⤓ challenge.txt</button>
         <button class="btn gold" id="fileLogin" data-i="fileLogin">2. Войти (подпись)</button>
       </div>
       <div class="field"><label data-i="fileCmd">Команда для локальной подписи</label>
@@ -281,14 +299,29 @@ kbd{background:#1a2230;border:1px solid var(--line);border-radius:6px;padding:1p
   </div>
 </div>
 
+<!-- ============ МОДАЛ PIN ============ -->
+<div class="overlay hidden" id="pinSetOverlay" role="dialog" aria-modal="true">
+  <div class="modal modal-wrap">
+    <button class="close-x" id="pinSetClose">✕</button>
+    <h3 data-i="pinSetTitle">Задать PIN</h3>
+    <div class="sub" data-i="pinSetSub">PIN проверяется на сервере (scrypt) и привязан к IP-сессии. Он не заменяет подпись: перевод всё равно подписывается ключом паспорта.</div>
+    <div class="field"><label data-i="pinNew">PIN (4–6 цифр)</label><input class="pin-input" id="pinNew" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="field"><label data-i="pinRepeat">Повторите PIN</label><input class="pin-input" id="pinNew2" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <button class="btn gold" id="pinSave" data-i="pinSave">Сохранить PIN</button>
+    <div class="hint" id="pinSetMsg"></div>
+  </div>
+</div>
+
 <!-- ============ МОДАЛ ОТПРАВКИ ============ -->
 <div class="overlay hidden" id="sendOverlay" role="dialog" aria-modal="true">
   <div class="modal modal-wrap">
     <button class="close-x" id="sendClose">✕</button>
     <h3 data-i="sendTitle">Отправить AGT</h3>
+    <div class="hint" id="sendBal"></div>
     <div class="field"><label data-i="to">Получатель (адрес AGT…)</label><input id="sendTo" class="mono" placeholder="AGT…"></div>
     <div class="field"><label data-i="amount">Сумма (AGT)</label><input id="sendAmt" inputmode="decimal" placeholder="1.000000000"></div>
     <div class="field"><label data-i="memo">Мемо (до 120 символов)</label><input id="sendMemo" maxlength="120"></div>
+    <div class="hint" id="sendEst"></div>
     <button class="btn" id="sendPrepare" data-i="sendPrepare">1. Подготовить</button>
     <div class="field"><label data-i="sendCmd">Команда подписи (CLI)</label><textarea id="sendCmd" rows="2" class="mono" readonly></textarea></div>
     <div class="field"><label data-i="sendSig">Подпись (hex128)</label><input id="sendSig" class="mono" maxlength="128"></div>
@@ -338,8 +371,8 @@ ru:{logo:'AGENTCOIN WALLET',logout:'Выйти',heroSub:'Самостоятел�
  historyTitle:'История операций',hWhen:'Когда',hKind:'Тип',hSum:'Сумма',
  errNoFile:'Сначала выберите паспорт JSON.',errNoChallenge:'Сначала получите challenge.',errNoSig:'Введите подпись (hex128).',errNoAddr:'Введите получателя.',errNoAmt:'Введите сумму.',
  filePassportOk:'Паспорт распознан. Выполните команду подписи в CLI и вставьте подпись.',fileLogged:'Вход выполнен.',pinLogged:'Вход по PIN выполнен.',faceLogged:'Вход по биометрии выполнен.',
- faceNa:'Биометрия не поддерживается в этом браузере.',faceNeedReg:'Ваш Face ID ещё не зарегистрирован. Нажмите переключатель в «Безопасность».',faceRegOk:'Face ID зарегистрирован для этого агента.',
- smsHint:'SMS-шлюз не подключён (нет ключей). Используйте Face ID, PIN или файл.',phoneBindOff:'SMS-привязка отключена: шлюз не настроен.',pinErr:'PIN должен быть 4–6 цифр.',pinSetOk:'PIN сохранён (scrypt-хеш на сервере).',pinDisableOk:'PIN отключён.',errLoginFirst:'Сначала войдите PIN/файлом, затем регистрируйте биометрию.',errNoPhone:'Номер в формате E.164 (+…).',smsSent:'Код отправлен (если шлюз настроен).', fileChallengeOk:'Challenge выпущен (TTL 5 мин).',
+ faceNa:'Биометрия не поддерживается в этом браузере.',faceNeedReg:'Ваш Face ID ещё не зарегистрирован. Нажмите переключатель в «Безопасность».',faceRegOk:'Face ID зарегистрирован для этого агента.',handleCheck:'Проверить имя',handleOk:'имя подтверждено',handleBad:'имя не найдено',handleTaken:'имя занято другим адресом',handleFmt:'handle: 3–20 символов a-z 0-9 _ -',wordsTitle:'📜 12 слов (мастер-доступ)',wordsSt:'Восстанавливают ключ на любом устройстве. Сайт их никогда не видит и не хранит — показать слова можно только там, где живёт ключ.',wordsCmd:'echo \'{"password":"ВАШ_ПАРОЛЬ"}\' | node agt-skill/agent-profile.mjs words profile.json',pinRoam:'PIN задаётся один раз после входа паспортом («Файл» → подпись → «Безопасность»), а дальше работает с любого устройства. В поле адреса вводите только чистый адрес AGT… — без имён и стрелок.',
+ smsHint:'SMS-шлюз не подключён (нет ключей). Используйте Face ID, PIN или файл.',phoneBindOff:'SMS-привязка отключена: шлюз не настроен.',pinErr:'PIN должен быть 4–6 цифр.',pinAddr:'Адрес кошелька (AGT…)',pinFirst:'PIN можно задать только после первого входа паспортом: «Файл» → подпись → в разделе «Безопасность» включите PIN.',pinNeedAddr:'Введите адрес кошелька — PIN привязан к адресу.',pinSetTitle:'Задать PIN',pinSetSub:'PIN проверяется на сервере (scrypt) и привязан к IP-сессии. Он не заменяет подпись: перевод всё равно подписывается ключом паспорта.',pinNew:'PIN (4–6 цифр)',pinRepeat:'Повторите PIN',pinSave:'Сохранить PIN',pinMismatch:'PIN-коды не совпадают.',pinSaved:'PIN сохранён. Вход по PIN теперь доступен.',est:'Смета',estArrive:'получит',estFee:'комиссия',pinSetOk:'PIN сохранён (scrypt-хеш на сервере).',pinDisableOk:'PIN отключён.',errLoginFirst:'Сначала войдите PIN/файлом, затем регистрируйте биометрию.',errNoPhone:'Номер в формате E.164 (+…).',smsSent:'Код отправлен (если шлюз настроен).', fileChallengeOk:'Challenge выпущен (TTL 5 мин).',
  net:'Сеть',block:'Блок',sessionOn:'Активна',sessionOff:'Нет сессии',sessLine:'JWT привязан к IP; смена IP инвалидирует сессию.',jwtNone:'— JWT не выдан —',
  copied:'Скопировано в буфер.',sendOk:'Транзакция принята в мемпул · txid ',sendMempool:'Транзакция в мемпуле',sendConfirmed:'Транзакция подтверждена',sent:'отправка',recv:'получение'},
 en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet · keys never leave the profile',
@@ -356,8 +389,8 @@ en:{logo:'AGENTCOIN WALLET',logout:'Log out',heroSub:'Self-custody AGT wallet ·
  historyTitle:'Operation history',hWhen:'When',hKind:'Kind',hSum:'Amount',
  errNoFile:'Choose a passport JSON first.',errNoChallenge:'Get the challenge first.',errNoSig:'Enter the signature (hex128).',errNoAddr:'Enter the recipient.',errNoAmt:'Enter the amount.',
  filePassportOk:'Passport recognised. Run the signing command in CLI and paste the signature.',fileLogged:'Signed in.',pinLogged:'Signed in with PIN.',faceLogged:'Signed in with biometrics.',
- faceNa:'Biometry is not supported in this browser.',faceNeedReg:'Your Face ID is not registered yet. Toggle it in “Security”.',faceRegOk:'Face ID registered for this agent.',
- smsHint:'SMS gateway is not configured (no keys). Use Face ID, PIN or file.',phoneBindOff:'SMS link disabled: gateway not configured.',pinErr:'PIN must be 4–6 digits.',pinSetOk:'PIN saved (scrypt hash on the server).',pinDisableOk:'PIN disabled.',errLoginFirst:'Sign in with PIN/file first, then register biometry.',errNoPhone:'Phone in E.164 format (+…).',smsSent:'Code sent (if gateway set).',fileChallengeOk:'Challenge issued (TTL 5 min).',
+ faceNa:'Biometry is not supported in this browser.',faceNeedReg:'Your Face ID is not registered yet. Toggle it in “Security”.',faceRegOk:'Face ID registered for this agent.',handleCheck:'Verify handle',handleOk:'handle verified',handleBad:'handle not found',handleTaken:'handle belongs to another address',handleFmt:'handle: 3–20 chars a-z 0-9 _ -',wordsTitle:'📜 12 words (master access)',wordsSt:'They restore the key on any device. This site never sees or stores them — words can be revealed only where the key lives.',wordsCmd:'echo \'{"password":"YOUR_PASSWORD"}\' | node agt-skill/agent-profile.mjs words profile.json',pinRoam:'Set the PIN once after a passport sign-in (“File” → signature → “Security”), then it works from any device. Type only the bare AGT… address here — no handles or arrows.',
+ smsHint:'SMS gateway is not configured (no keys). Use Face ID, PIN or file.',phoneBindOff:'SMS link disabled: gateway not configured.',pinErr:'PIN must be 4–6 digits.',pinAddr:'Wallet address (AGT…)',pinFirst:'A PIN can be set only after the first passport sign-in: “File” → signature → enable PIN under “Security”.',pinNeedAddr:'Enter the wallet address — the PIN is bound to an address.',pinSetTitle:'Set a PIN',pinSetSub:'The PIN is verified server-side (scrypt) and bound to the IP session. It does not replace the signature: transfers are still signed by the passport key.',pinNew:'PIN (4–6 digits)',pinRepeat:'Repeat PIN',pinSave:'Save PIN',pinMismatch:'PINs do not match.',pinSaved:'PIN saved. PIN sign-in is now available.',est:'Estimate',estArrive:'recipient gets',estFee:'fee',pinSetOk:'PIN saved (scrypt hash on the server).',pinDisableOk:'PIN disabled.',errLoginFirst:'Sign in with PIN/file first, then register biometry.',errNoPhone:'Phone in E.164 format (+…).',smsSent:'Code sent (if gateway set).',fileChallengeOk:'Challenge issued (TTL 5 min).',
  net:'Network',block:'Block',sessionOn:'Active',sessionOff:'No session',sessLine:'JWT is bound to IP; an IP change invalidates it.',jwtNone:'— no JWT —',
  copied:'Copied.',sendOk:'Transaction accepted to mempool · txid ',sendMempool:'Transaction in mempool',sendConfirmed:'Transaction confirmed',sent:'send',recv:'receive'}
 };
@@ -388,7 +421,9 @@ function proj(p,t){ // вращение Y(X)
  return {x,y,z}}
 function drawOrb(ts){
  const w=orb.clientWidth,h=orb.clientHeight,cx=w/2,cy=h/2;
- const R=Math.min(w,h)*0.24*curScale + Math.sin(ts*0.0021)*4*curScale;
+ if(!w||!h){requestAnimationFrame(drawOrb);return}
+ // До раскладки/в скрытой вкладке размеры нулевые — радиус уходил в минус и createRadialGradient падал.
+ const R=Math.max(2,Math.min(w,h)*0.24*curScale + Math.sin(ts*0.0021)*4*curScale);
  octx.clearRect(0,0,w,h);
  // свечение
  const g=octx.createRadialGradient(cx,cy,R*0.1,cx,cy,R*2.1);
@@ -423,17 +458,55 @@ orb.onpointermove=e=>{if(!drag)return;rotA=drag.a+(e.clientX-drag.x)*0.005;rotB=
 orb.onpointerup=orb.onpointerleave=()=>drag=null;
 // пульс от баланса
 function setOrbScale(){$('scaleNote').classList.toggle('hidden',balMgnt===null);}
+const AGT_WORDS=["abandon","ability","able","about","above","absent","absorb","abstract","absurd","abuse","access","accident","account","accuse","achieve","acid","acoustic","acquire","across","act","action","actor","actress","actual","adapt","add","addict","address","adjust","admit","adult","advance","advice","aerobic","affair","afford","afraid","again","age","agent","agree","ahead","aim","air","airport","aisle","alarm","album","alcohol","alert","alien","all","alley","allow","almost","alone","alpha","already","also","alter","always","amateur","amazing","among","amount","amused","analyst","anchor","ancient","anger","angle","angry","animal","ankle","announce","annual","another","answer","antenna","antique","anxiety","any","apart","apology","appear","apple","approve","april","arch","arctic","area","arena","argue","arm","armed","armor","army","around","arrange","arrest","arrive","arrow","art","artefact","artist","artwork","ask","aspect","assault","asset","assist","assume","asthma","athlete","atom","attack","attend","attitude","attract","auction","audit","august","aunt","author","auto","autumn","average","avocado","avoid","awake","aware","away","awesome","awful","awkward","axis","baby","bachelor","bacon","badge","bag","balance","balcony","ball","bamboo","banana","banner","bar","barely","bargain","barrel","base","basic","basket","battle","beach","bean","beauty","because","become","beef","before","begin","behave","behind","believe","below","belt","bench","benefit","best","betray","better","between","beyond","bicycle","bid","bike","bind","biology","bird","birth","bitter","black","blade","blame","blanket","blast","bleak","bless","blind","blood","blossom","blouse","blue","blur","blush","board","boat","body","boil","bomb","bone","bonus","book","boost","border","boring","borrow","boss","bottom","bounce","box","boy","bracket","brain","brand","brass","brave","bread","breeze","brick","bridge","brief","bright","bring","brisk","broccoli","broken","bronze","broom","brother","brown","brush","bubble","buddy","budget","buffalo","build","bulb","bulk","bullet","bundle","bunker","burden","burger","burst","bus","business","busy","butter","buyer","buzz","cabbage","cabin","cable","cactus","cage","cake","call","calm","camera","camp","can","canal","cancel","candy","cannon","canoe","canvas","canyon","capable","capital","captain","car","carbon","card","cargo","carpet","carry","cart","case","cash","casino","castle","casual","cat","catalog","catch","category","cattle","caught","cause","caution","cave","ceiling","celery","cement","census","century","cereal","certain","chair","chalk","champion","change","chaos","chapter","charge","chase","chat","cheap","check","cheese","chef","cherry","chest","chicken","chief","child","chimney","choice","choose","chronic","chuckle","chunk","churn","cigar","cinnamon","circle","citizen","city","civil","claim","clap","clarify","claw","clay","clean","clerk","clever","click","client","cliff","climb","clinic","clip","clock","clog","close","cloth","cloud","clown","club","clump","cluster","clutch","coach","coast","coconut","code","coffee","coil","coin","collect","color","column","combine","come","comfort","comic","common","company","concert","conduct","confirm","congress","connect","consider","control","convince","cook","cool","copper","copy","coral","core","corn","correct","cost","cotton","couch","country","couple","course","cousin","cover","coyote","crack","cradle","craft","cram","crane","crash","crater","crawl","crazy","cream","credit","creek","crew","cricket","crime","crisp","critic","crop","cross","crouch","crowd","crucial","cruel","cruise","crumble","crunch","crush","cry","crystal","cube","culture","cup","cupboard","curious","current","curtain","curve","cushion","custom","cute","cycle","dad","damage","damp","dance","danger","daring","dash","daughter","dawn","day","deal","debate","debris","decade","december","decide","decline","decorate","decrease","deer","defense","define","defy","degree","delay","deliver","demand","demise","denial","dentist","deny","depart","depend","deposit","depth","deputy","derive","describe","desert","design","desk","despair","destroy","detail","detect","develop","device","devote","diagram","dial","diamond","diary","dice","diesel","diet","differ","digital","dignity","dilemma","dinner","dinosaur","direct","dirt","disagree","discover","disease","dish","dismiss","disorder","display","distance","divert","divide","divorce","dizzy","doctor","document","dog","doll","dolphin","domain","donate","donkey","donor","door","dose","double","dove","draft","dragon","drama","drastic","draw","dream","dress","drift","drill","drink","drip","drive","drop","drum","dry","duck","dumb","dune","during","dust","dutch","duty","dwarf","dynamic","eager","eagle","early","earn","earth","easily","east","easy","echo","ecology","economy","edge","edit","educate","effort","egg","eight","either","elbow","elder","electric","elegant","element","elephant","elevator","elite","else","embark","embody","embrace","emerge","emotion","employ","empower","empty","enable","enact","end","endless","endorse","enemy","energy","enforce","engage","engine","enhance","enjoy","enlist","enough","enrich","enroll","ensure","enter","entire","entry","envelope","episode","equal","equip","era","erase","erode","erosion","error","erupt","escape","essay","essence","estate","eternal","ethics","evidence","evil","evoke","evolve","exact","example","excess","exchange","excite","exclude","excuse","execute","exercise","exhaust","exhibit","exile","exist","exit","exotic","expand","expect","expire","explain","expose","express","extend","extra","eye","eyebrow","fabric","face","faculty","fade","faint","faith","fall","false","fame","family","famous","fan","fancy","fantasy","farm","fashion","fat","fatal","father","fatigue","fault","favorite","feature","february","federal","fee","feed","feel","female","fence","festival","fetch","fever","few","fiber","fiction","field","figure","file","film","filter","final","find","fine","finger","finish","fire","firm","first","fiscal","fish","fit","fitness","fix","flag","flame","flash","flat","flavor","flee","flight","flip","float","flock","floor","flower","fluid","flush","fly","foam","focus","fog","foil","fold","follow","food","foot","force","forest","forget","fork","fortune","forum","forward","fossil","foster","found","fox","fragile","frame","frequent","fresh","friend","fringe","frog","front","frost","frown","frozen","fruit","fuel","fun","funny","furnace","fury","future","gadget","gain","galaxy","gallery","game","gap","garage","garbage","garden","garlic","garment","gas","gasp","gate","gather","gauge","gaze","general","genius","genre","gentle","genuine","gesture","ghost","giant","gift","giggle","ginger","giraffe","girl","give","glad","glance","glare","glass","glide","glimpse","globe","gloom","glory","glove","glow","glue","goat","goddess","gold","good","goose","gorilla","gospel","gossip","govern","gown","grab","grace","grain","grant","grape","grass","gravity","great","green","grid","grief","grit","grocery","group","grow","grunt","guard","guess","guide","guilt","guitar","gun","gym","habit","hair","half","hammer","hamster","hand","happy","harbor","hard","harsh","harvest","hat","have","hawk","hazard","head","health","heart","heavy","hedgehog","height","hello","helmet","help","hen","hero","hidden","high","hill","hint","hip","hire","history","hobby","hockey","hold","hole","holiday","hollow","home","honey","hood","hope","horn","horror","horse","hospital","host","hotel","hour","hover","hub","huge","human","humble","humor","hundred","hungry","hunt","hurdle","hurry","hurt","husband","hybrid","ice","icon","idea","identify","idle","ignore","ill","illegal","illness","image","imitate","immense","immune","impact","impose","improve","impulse","inch","include","income","increase","index","indicate","indoor","industry","infant","inflict","inform","inhale","inherit","initial","inject","injury","inmate","inner","innocent","input","inquiry","insane","insect","inside","inspire","install","intact","interest","into","invest","invite","involve","iron","island","isolate","issue","item","ivory","jacket","jaguar","jar","jazz","jealous","jeans","jelly","jewel","job","join","joke","journey","joy","judge","juice","jump","jungle","junior","junk","just","kangaroo","keen","keep","ketchup","key","kick","kid","kidney","kind","kingdom","kiss","kit","kitchen","kite","kitten","kiwi","knee","knife","knock","know","lab","label","labor","ladder","lady","lake","lamp","language","laptop","large","later","latin","laugh","laundry","lava","law","lawn","lawsuit","layer","lazy","leader","leaf","learn","leave","lecture","left","leg","legal","legend","leisure","lemon","lend","length","lens","leopard","lesson","letter","level","liar","liberty","library","license","life","lift","light","like","limb","limit","link","lion","liquid","list","little","live","lizard","load","loan","lobster","local","lock","logic","lonely","long","loop","lottery","loud","lounge","love","loyal","lucky","luggage","lumber","lunar","lunch","luxury","lyrics","machine","mad","magic","magnet","maid","mail","main","major","make","mammal","man","manage","mandate","mango","mansion","manual","maple","marble","march","margin","marine","market","marriage","mask","mass","master","match","material","math","matrix","matter","maximum","maze","meadow","mean","measure","meat","mechanic","medal","media","melody","melt","member","memory","mention","menu","mercy","merge","merit","merry","mesh","message","metal","method","middle","midnight","milk","million","mimic","mind","minimum","minor","minute","miracle","mirror","misery","miss","mistake","mix","mixed","mixture","mobile","model","modify","mom","moment","monitor","monkey","monster","month","moon","moral","more","morning","mosquito","mother","motion","motor","mountain","mouse","move","movie","much","muffin","mule","multiply","muscle","museum","mushroom","music","must","mutual","myself","mystery","myth","naive","name","napkin","narrow","nasty","nation","nature","near","neck","need","negative","neglect","neither","nephew","nerve","nest","net","network","neutral","never","news","next","nice","night","noble","noise","nominee","noodle","normal","north","nose","notable","note","nothing","notice","novel","now","nuclear","number","nurse","nut","oak","obey","object","oblige","obscure","observe","obtain","obvious","occur","ocean","october","odor","off","offer","office","often","oil","okay","old","olive","olympic","omit","once","one","onion","online","only","open","opera","opinion","oppose","option","orange","orbit","orchard","order","ordinary","organ","orient","original","orphan","ostrich","other","outdoor","outer","output","outside","oval","oven","over","own","owner","oxygen","oyster","ozone","pact","paddle","page","pair","palace","palm","panda","panel","panic","panther","paper","parade","parent","park","parrot","party","pass","patch","path","patient","patrol","pattern","pause","pave","payment","peace","peanut","pear","peasant","pelican","pen","penalty","pencil","people","pepper","perfect","permit","person","pet","phone","photo","phrase","physical","piano","picnic","picture","piece","pig","pigeon","pill","pilot","pink","pioneer","pipe","pistol","pitch","pizza","place","planet","plastic","plate","play","please","pledge","pluck","plug","plunge","poem","poet","point","polar","pole","police","pond","pony","pool","popular","portion","position","possible","post","potato","pottery","poverty","powder","power","practice","praise","predict","prefer","prepare","present","pretty","prevent","price","pride","primary","print","priority","prison","private","prize","problem","process","produce","profit","program","project","promote","proof","property","prosper","protect","proud","provide","public","pudding","pull","pulp","pulse","pumpkin","punch","pupil","puppy","purchase","purity","purpose","purse","push","put","puzzle","pyramid","quality","quantum","quarter","question","quick","quit","quiz","quote","rabbit","raccoon","race","rack","radar","radio","rail","rain","raise","rally","ramp","ranch","random","range","rapid","rare","rate","rather","raven","raw","razor","ready","real","reason","rebel","rebuild","recall","receive","recipe","record","recycle","reduce","reflect","reform","refuse","region","regret","regular","reject","relax","release","relief","rely","remain","remember","remind","remove","render","renew","rent","reopen","repair","repeat","replace","report","require","rescue","resemble","resist","resource","response","result","retire","retreat","return","reunion","reveal","review","reward","rhythm","rib","ribbon","rice","rich","ride","ridge","rifle","right","rigid","ring","riot","ripple","risk","ritual","rival","river","road","roast","robot","robust","rocket","romance","roof","rookie","room","rose","rotate","rough","round","route","royal","rubber","rude","rug","rule","run","runway","rural","sad","saddle","sadness","safe","sail","salad","salmon","salon","salt","salute","same","sample","sand","satisfy","satoshi","sauce","sausage","save","say","scale","scan","scare","scatter","scene","scheme","school","science","scissors","scorpion","scout","scrap","screen","script","scrub","sea","search","season","seat","second","secret","section","security","seed","seek","segment","select","sell","seminar","senior","sense","sentence","series","service","session","settle","setup","seven","shadow","shaft","shallow","share","shed","shell","sheriff","shield","shift","shine","ship","shiver","shock","shoe","shoot","shop","short","shoulder","shove","shrimp","shrug","shuffle","shy","sibling","sick","side","siege","sight","sign","silent","silk","silly","silver","similar","simple","since","sing","siren","sister","situate","six","size","skate","sketch","ski","skill","skin","skirt","skull","slab","slam","sleep","slender","slice","slide","slight","slim","slogan","slot","slow","slush","small","smart","smile","smoke","smooth","snack","snake","snap","sniff","snow","soap","soccer","social","sock","soda","soft","solar","soldier","solid","solution","solve","someone","song","soon","sorry","sort","soul","sound","soup","source","south","space","spare","spatial","spawn","speak","special","speed","spell","spend","sphere","spice","spider","spike","spin","spirit","split","spoil","sponsor","spoon","sport","spot","spray","spread","spring","spy","square","squeeze","squirrel","stable","stadium","staff","stage","stairs","stamp","stand","start","state","stay","steak","steel","stem","step","stereo","stick","still","sting","stock","stomach","stone","stool","story","stove","strategy","street","strike","strong","struggle","student","stuff","stumble","style","subject","submit","subway","success","such","sudden","suffer","sugar","suggest","suit","summer","sun","sunny","sunset","super","supply","supreme","sure","surface","surge","surprise","surround","survey","suspect","sustain","swallow","swamp","swap","swarm","swear","sweet","swift","swim","swing","switch","sword","symbol","symptom","syrup","system","table","tackle","tag","tail","talent","talk","tank","tape","target","task","taste","tattoo","taxi","teach","team","tell","ten","tenant","tennis","tent","term","test","text","thank","that","theme","then","theory","there","they","thing","this","thought","three","thrive","throw","thumb","thunder","ticket","tide","tiger","tilt","timber","time","tiny","tip","tired","tissue","title","toast","tobacco","today","toddler","toe","together","toilet","token","tomato","tomorrow","tone","tongue","tonight","tool","tooth","top","topic","topple","torch","tornado","tortoise","toss","total","tourist","toward","tower","town","toy","track","trade","traffic","tragic","train","transfer","trap","trash","travel","tray","treat","tree","trend","trial","tribe","trick","trigger","trim","trip","trophy","trouble","truck","true","truly","trumpet","trust","truth","try","tube","tuition","tumble","tuna","tunnel","turkey","turn","turtle","twelve","twenty","twice","twin","twist","two","type","typical","ugly","umbrella","unable","unaware","uncle","uncover","under","undo","unfair","unfold","unhappy","uniform","unique","unit","universe","unknown","unlock","until","unusual","unveil","update","upgrade","uphold","upon","upper","upset","urban","urge","usage","use","used","useful","useless","usual","utility","vacant","vacuum","vague","valid","valley","valve","van","vanish","vapor","various","vast","vault","vehicle","velvet","vendor","venture","venue","verb","verify","version","very","vessel","veteran","viable","vibrant","vicious","victory","video","view","village","vintage","violin","virtual","virus","visa","visit","visual","vital","vivid","vocal","voice","void","volcano","volume","vote","voyage","wage","wagon","wait","walk","wall","walnut","want","warfare","warm","warrior","wash","wasp","waste","water","wave","way","wealth","weapon","wear","weasel","weather","web","wedding","weekend","weird","welcome","west","wet","whale","what","wheat","wheel","when","where","whip","whisper","wide","width","wife","wild","will","win","window","wine","wing","wink","winner","winter","wire","wisdom","wise","wish","witness","wolf","woman","wonder","wood","wool","word","work","world","worry","worth","wrap","wreck","wrestle","wrist","write","wrong","yard","year","yellow","you","young","youth","zebra","zero","zone","zoo"];
+/* ---------------- identity: petname + handle ---------------- */
+async function agtPetname(address){
+  const data=new TextEncoder().encode('agentcoin-petname-v1:'+address);
+  const d=new Uint8Array(await crypto.subtle.digest('SHA-256',data));
+  let bits='';for(let i=0;i<5;i++)bits+=d[i].toString(2).padStart(8,'0');
+  bits=bits.slice(0,33);
+  const out=[];for(let i=0;i<3;i++)out.push(AGT_WORDS[parseInt(bits.slice(i*11,i*11+11),2)]);
+  return out.join('-');
+}
+function agtShort(address){return address.slice(0,8)+'…'+address.slice(-4)}
+async function renderIdentity(){
+  const line=$('idLine');
+  if(!/^AGT[0-9a-f]{40}$/.test(addr||'')){line.textContent='—';line.dataset.base='';return}
+  try{
+    const base=await agtPetname(addr)+' · '+agtShort(addr);
+    line.dataset.base=base;
+    const stored=localStorage.getItem('agtHandle:'+addr);
+    line.textContent=base;
+    if(stored)verifyHandle(stored,true);
+  }catch(e){line.dataset.base=agtShort(addr);line.textContent=line.dataset.base}
+}
+async function verifyHandle(h,quiet){
+  h=(h||'').trim().toLowerCase();
+  if(!/^[a-z0-9_-]{3,20}$/.test(h)){if(!quiet)$('handleMsg').textContent='⚠ '+t('handleFmt');return}
+  const r=await API.get('/whoami/'+encodeURIComponent(h));
+  if(r.status===200&&r.json&&r.json.address===addr){
+    try{localStorage.setItem('agtHandle:'+addr,h)}catch(e){}
+    const line=$('idLine');
+    line.textContent=h+'@agt · '+(line.dataset.base||'');
+    $('handleInput').value=h;
+    if(!quiet)$('handleMsg').textContent='✓ '+h+'@agt · '+t('handleOk');
+  }else if(!quiet){
+    $('handleMsg').textContent='⚠ '+(r.json&&r.json.address?t('handleTaken'):t('handleBad'));
+  }
+}
 /* ---------------- состояние ---------------- */
 let jwt=null,addr=null,passportData=null,pendOp=null,pendChallenge=null;
 const HEX128=/^[0-9a-fA-F]{128}$/;
-function showAuth(){$('authOverlay').classList.remove('hidden')}
+function showAuth(){$('authOverlay').classList.remove('hidden');try{const la=localStorage.getItem('agtLastAddr');if(la&&!$('pinAddr').value)$('pinAddr').value=la}catch(e){}}
 function hideAuth(){$('authOverlay').classList.add('hidden')}
 function afterLogin(){
   hideAuth();
   $('cab').classList.remove('hidden');
   $('btnLogout').classList.remove('hidden');
-  $('addrShow').textContent=addr;$('recvAddr').textContent=addr;
-  $('secMsg').textContent='';refreshAuthState();updateSess();
+  $('addrShow').textContent=addr;$('recvAddr').textContent=addr;renderIdentity();
+  try{localStorage.setItem('agtLastAddr',addr)}catch(e){}
+  $('pinAddr').value=addr;
+  $('secMsg').textContent='';refreshAuthState();updateSess();loadBal();
 }
 function updateSess(){
   $('sessLine').textContent = (jwt?'JWT · ':t('sessLine'));
@@ -459,13 +532,17 @@ function renderBal(){
   tgt=Math.max(0.55,Math.min(1.9,0.6+Math.log10(n+1)*0.28));
   setOrbScale();
 }
-async function loadBal(){if(!addr)return;try{const r=await API.post('/balance',{address:addr});if(r.json&&r.json.balanceMGNT!=null){balanceMGNT=String(r.json.balanceMGNT);renderBal();}}catch(e){}}
+async function loadBal(){if(!addr)return;try{const r=await API.post('/balance',{address:addr});const j=r.json||{};
+ // Сервер отдаёт AGT числом; старые сборки — balanceMGNT. Принимаем оба, без округления вниз.
+ const mg=j.balanceMGNT!=null?String(j.balanceMGNT):(j.balance!=null?String(Math.round(Number(j.balance)*1e9)):null);
+ if(mg!=null&&/^\d+$/.test(mg)){balanceMGNT=mg;renderBal();}
+}catch(e){}}
 /* ---------------- Войти: вкладки ---------------- */ let curTab='face';
  function pick(name){curTab=name;for(const p of ['face','pin','file','sms']){$('pane'+p[0].toUpperCase()+p.slice(1)).classList.toggle('hidden',p!==name);document.querySelector('.tabs [data-tab="'+p+'"]').classList.toggle('on',p===name)}}
  window._walletPick=pick;
 for(const b of document.querySelectorAll('.tabs button'))b.onclick=()=>window._walletPick(b.dataset.tab);
 $('authClose').onclick=hideAuth;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideAuth();$('sendOverlay').classList.add('hidden');$('recvOverlay').classList.add('hidden')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideAuth();$('sendOverlay').classList.add('hidden');$('recvOverlay').classList.add('hidden');$('pinSetOverlay').classList.add('hidden')}});
 
 /* ---- Face ID (WebAuthn) ---- */
 const webauthnOK=!!(window.PublicKeyCredential&&navigator.credentials);
@@ -500,7 +577,7 @@ async function webauthnFlow(mode){ // mode: 'login' | 'register'
       clientDataJSON:b64en(cred.response.clientDataJSON),
       authenticatorData:b64en(cred.response.authenticatorData),
       signature:b64en(cred.response.signature)});
-    if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('faceMsg').textContent=t('faceLogged')}
+    if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin();$('faceMsg').textContent=t('faceLogged')}
     else $('faceMsg').textContent=(r.json.error||'login_failed');
   }
  }catch(e){$('faceMsg').textContent='⚠ '+(e.name==='NotAllowedError'?'отменено пользователем':(e.message||'error'))}
@@ -511,11 +588,13 @@ $('faceLogin').onclick=()=>webauthnFlow('login');
 /* ---- PIN ---- */
 $('pinLogin').onclick=async()=>{
  const pin=$('pinInput').value.trim();
+ const address=$('pinAddr').value.trim();
+ if(!/^AGT[0-9a-f]{40}$/.test(address)){$('pinMsg').textContent=t('pinNeedAddr');return}
  if(!/^\d{4,6}$/.test(pin)){$('pinMsg').textContent=t('pinErr');return}
  $('pinMsg').textContent='…';
- const r=await API.post('/auth/pin/login',{pin});
- if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);afterLogin();$('pinMsg').textContent=t('pinLogged')}
- else $('pinMsg').textContent='⚠ '+(r.json.error||r.json.message||'PIN не совпадает');
+ const r=await API.post('/auth/pin/login',{pin,address});
+ if(r.status<300&&r.json.ok){addr=r.json.sub;jwt=r.json.walletJwt;localStorage.setItem('agtWalletJwt',jwt);if(r.json.cabinetToken)sessionStorage.setItem('agtCabToken',r.json.cabinetToken);afterLogin();$('pinMsg').textContent=t('pinLogged')}
+ else $('pinMsg').textContent='⚠ '+(r.json.error==='pin_not_set'?'PIN для этого адреса не задан':(r.json.error||r.json.message||'PIN не совпадает'));
 };
 /* ---- Файл (паспорт JSON) ---- */
 $('dropZone').onclick=()=>$('passportFile').click();
@@ -539,9 +618,14 @@ $('fileChallenge').onclick=async()=>{
  const r=await API.post('/auth/file/challenge',{address:passportData.address});
  if(r.status<300&&r.json.ok&&r.json.nonce){pendChallenge=r.json;
   const cid=r.json.challengeId;
-  $('fileCmd').value='node src/cli.mjs sign-challenge profile.json --challenge '+JSON.stringify(r.json.nonce);
+  $('fileCmd').value='node tools/sign-op.mjs sign-text challenge.txt profile.json';
+  window._challengeTxt=r.json.nonce;$('fileChallengeDl').disabled=false;
   $('fileMsg').textContent=t('fileChallengeOk')+' · '+r.json.nonce.slice(0,24)+'…';
  }else $('fileMsg').textContent='⚠ '+(r.json.error||'challenge_failed');
+};
+$('fileChallengeDl').onclick=()=>{
+ if(!window._challengeTxt)return;
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([window._challengeTxt],{type:'text/plain'}));a.download='challenge.txt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 };
 $('fileLogin').onclick=async()=>{
  if(!passportData){$('fileMsg').textContent=t('errNoFile');return}
@@ -566,7 +650,7 @@ $('smsSend').onclick=async()=>{
 $('smsVerify').onclick=async()=>$('smsMsg').textContent='⚠ '+t('smsHint');
 
 /* ---------------- Кнопки орбит ---------------- */
-$('chipSend').onclick=()=>{if(!addr||!jwt){showAuth();return}$('sendOverlay').classList.remove('hidden')};
+$('chipSend').onclick=()=>{if(!addr||!jwt){showAuth();return}$('sendBal').textContent=(balanceMGNT!==null?fmtMgnt(balanceMGNT)+' AGT':'баланс загружается…');$('sendOverlay').classList.remove('hidden')};
 $('chipRecv').onclick=()=>{ if(!addr||!jwt){showAuth();return} $('recvAddr').textContent=addr;$('recvUri').textContent='agentcoin:'+addr;onRecvAmt();$('recvOverlay').classList.remove('hidden')};
 $('recvAmtAsk').oninput=onRecvAmt;
 function onRecvAmt(){const a=$('recvAmtAsk').value.trim();$('recvUriFull').textContent='agentcoin:'+addr+(a?'?amount='+encodeURIComponent(a):'')}
@@ -574,33 +658,43 @@ $('recvCopy').onclick=()=>navigator.clipboard.writeText($('recvUriFull').textCon
 $('chipHist').onclick=async()=>{ if(!addr||!jwt){showAuth();return}
  $('panelHistory').classList.remove('hidden');$('panelHistory').scrollIntoView({behavior:'smooth'});
  const r=await API.post('/cabinet/wallet/history',{address:addr,token:cabToken()});
- const rows=(r.json&&r.json.items)||[]; const tb=$('histTable').querySelector('tbody');tb.innerHTML='';
+ const tb=$('histTable').querySelector('tbody');tb.innerHTML='';
+ if(!r.json||r.status>=400){tb.innerHTML='<tr><td colspan="4" class="hint">⚠ '+(r.json&&r.json.error||'session')+' — войдите заново</td></tr>';return}
+ const rows=[...(r.json.mempoolRows||[]),...(r.json.rows||[])];
  if(!rows.length)tb.innerHTML='<tr><td colspan="4" class="hint">—</td></tr>';
- for(const h of rows.slice(0,20)){
+ for(const h of rows.slice(0,25)){
+   const when=h.ts?new Date(h.ts*1000):null;
+   const kind=h.status==='mempool'?'mempool':(h.dir==='in'?t('recv'):(h.dir==='self'?'self':t('sent')));
+   const sign=h.dir==='in'?'+':(h.dir==='self'?'':'−');
    const tr=document.createElement('tr');
-   tr.innerHTML='<td>'+new Date(h.time||Date.now()).toLocaleString(LANG==='ru'?'ru':'en')+'</td><td>'+(h.kind==='in'?t('recv'):t('sent'))+'</td><td class="mono">'+(h.amount||h.value||'')+'</td><td class="mono">'+(h.txid||'').slice(0,16)+'…</td>';
+   tr.innerHTML='<td>'+(when?when.toLocaleString(LANG==='ru'?'ru':'en'):'—')+'</td><td>'+kind+'</td><td class="mono">'+sign+(h.amountAGT!=null?h.amountAGT:(h.amount||'') )+'</td><td class="mono" title="'+String(h.txid||'')+'">'+String(h.txid||'').slice(0,16)+'…</td>';
    tb.append(tr);}
 };
 function cabToken(){return sessionStorage.getItem('agtCabToken')||null}
 /* ---------------- Отправить ---------------- */
 $('sendClose').onclick=()=>$('sendOverlay').classList.add('hidden');
 $('sendPrepare').onclick=async()=>{
- pendOp=null;if(!$('sendTo').value.trim()){$('sendMsg').textContent=t('errNoAddr');return}
+ pendOp=null;$('sendEst').textContent='';if(!$('sendTo').value.trim()){$('sendMsg').textContent=t('errNoAddr');return}
  if(!/^(\d+)(\.\d{1,9})?$/.test($('sendAmt').value.trim())||Number($('sendAmt').value)<=0){$('sendMsg').textContent=t('errNoAmt');return}
+ if(!cabToken()){$('sendMsg').textContent='⚠ нет кабинет-сессии: войдите паспортом или PIN заново';return}
+ const to=$('sendTo').value.trim(),amount=Number($('sendAmt').value);
  $('sendMsg').textContent='…';
- const r=await API.post('/cabinet/op-request',{address:addr,token:cabToken(),op:{kind:'send',to:$('sendTo').value.trim(),amount:Number($('sendAmt').value),memo:$('sendMemo').value}});
+ const est=await API.post('/cabinet/wallet/estimate',{address:addr,token:cabToken(),to,amount});
+ if(est.json&&est.json.ok)$('sendEst').innerHTML='<span class="ok">'+t('est')+':</span> '+t('estArrive')+' <b>'+est.json.arrival+' AGT</b> · '+t('estFee')+' '+((est.json.fees||[]).reduce((s,f)=>s+Number(f.amount||0),0))+' AGT · баланс '+est.json.balanceAGT+' AGT';
+ else if(est.json&&est.json.error)$('sendEst').textContent='⚠ '+est.json.error;
+ const r=await API.post('/cabinet/op-request',{address:addr,token:cabToken(),op:{kind:'send',to,amount,memo:$('sendMemo').value}});
  if(r.json&&r.json.opId&&r.json.payload&&r.json.payload.txidHex){
    pendOp={opId:r.json.opId,txidHex:r.json.payload.txidHex};
-   $('sendCmd').value='node src/cli.mjs sign-op profile.json --op-id '+r.json.opId+' --txid '+r.json.payload.txidHex;
-   $('sendMsg').textContent=t('fileCmd')+' ok';
- } else $('sendMsg').textContent='⚠ '+(r.json.error||'op_request_failed');
+   $('sendCmd').value='node tools/sign-op.mjs sign profile.json --txid '+r.json.payload.txidHex;
+   $('sendMsg').textContent='Заявка создана. Подпишите txid ключом паспорта и вставьте подпись.';
+ } else $('sendMsg').textContent='⚠ '+(r.json.error||'op_request_failed')+(r.json.hint?' — '+r.json.hint:'');
 };
 $('sendSubmit').onclick=async()=>{
  const sig=$('sendSig').value.trim();if(!HEX128.test(sig)){$('sendMsg').textContent=t('errNoSig');return}
  if(!pendOp){$('sendMsg').textContent=t('errNoChallenge');return}
  $('sendMsg').textContent='…';
  const r=await API.post('/cabinet/op-submit',{opId:pendOp.opId,signature:sig});
- if(r.status<300&&r.json&&r.json.accepted){$('sendMsg').innerHTML='<span class="ok">'+t('sendOk')+pendOp.txidHex+'</span>';loadBal()}
+ if(r.status<300&&r.json&&r.json.accepted){$('sendMsg').innerHTML='<span class="ok">'+t('sendOk')+pendOp.txidHex+'</span> · в мемпуле: '+r.json.mempool+', подтверждение после блока';loadBal();if(!$('panelHistory').classList.contains('hidden'))$('chipHist').click();}
  else $('sendMsg').textContent='⚠ '+(r.json.error||'rejected');
 };
 /* ---------------- Выйти ---------------- */
@@ -616,6 +710,7 @@ async function logout(){
 $('btnLogout').onclick=logout;
 $('btnLogoutAll').onclick=async()=>{if(jwt){await API.post('/auth/logout-all',{},jwt)}logout()};
 $('btnCopy').onclick=()=>{navigator.clipboard.writeText(addr).then(()=>$('secMsg').textContent=t('copied'))};
+$('btnHandle').onclick=()=>verifyHandle($('handleInput').value,false);
 
 /* ---------------- Безопасность: переключатели ---------------- */
 async function refreshAuthState(){
@@ -631,12 +726,18 @@ function setTg(id,v){const el=$(id);el.classList.toggle('on',!!v);el.setAttribut
 $('tgPin').addEventListener('click',async()=>{
  if(!addr||!jwt)return;
  if($('tgPin').dataset.on==='true'){const r=await API.post('/auth/pin/disable',{},jwt);refreshAuthState();$('secMsg').textContent=(r.json&&r.json.ok)?t('pinDisableOk'):'⚠';return}
- const pin=prompt(t('pinEnter'));if(!pin)return;
- if(!/^\d{4,6}$/.test(pin)){$('secMsg').textContent=t('pinErr');return}
- const r=await API.post('/auth/pin/set',{pin},jwt);
- if(r.status<300&&r.json.ok){$('secMsg').textContent=t('pinSetOk');refreshAuthState()}
- else $('secMsg').textContent='⚠ '+(r.json.error||'pin_set_failed');
+ $('pinSetMsg').textContent='';$('pinNew').value='';$('pinNew2').value='';$('pinSetOverlay').classList.remove('hidden');$('pinNew').focus();
 });
+$('pinSetClose').onclick=()=>$('pinSetOverlay').classList.add('hidden');
+$('pinSave').onclick=async()=>{
+ const p1=$('pinNew').value.trim(),p2=$('pinNew2').value.trim();
+ if(!/^\d{4,6}$/.test(p1)){$('pinSetMsg').textContent=t('pinErr');return}
+ if(p1!==p2){$('pinSetMsg').textContent=t('pinMismatch');return}
+ $('pinSetMsg').textContent='…';
+ const r=await API.post('/auth/pin/set',{pin:p1},jwt);
+ if(r.status<300&&r.json.ok){$('pinSetOverlay').classList.add('hidden');$('secMsg').textContent=t('pinSaved');refreshAuthState()}
+ else $('pinSetMsg').textContent='⚠ '+(r.json.error||'pin_set_failed');
+};
 /* Face ID вкл/выкл */
 $('tgFace').onclick=()=>{
  if(!addr||!jwt){showAuth();return}

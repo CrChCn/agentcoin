@@ -222,6 +222,11 @@ export async function createEncryptedBackup({ profilePath = DEFAULT_PROFILE_PATH
   return backup;
 }
 
+export async function revealMnemonic({ profilePath = DEFAULT_PROFILE_PATH, password } = {}) {
+  const secret = await decryptEnvelope(await readEnvelope(profilePath), password);
+  return { address: secret.address, mnemonic: secret.mnemonic };
+}
+
 export async function restoreProfile({ profilePath = DEFAULT_PROFILE_PATH, password, backup, backupPath, backupPassword = password, mnemonic, mnemonicPassphrase = '', label = 'agent', network } = {}) {
   if (mnemonic !== undefined) {
     if (backup !== undefined || backupPath !== undefined) fail('choose_backup_or_mnemonic');
@@ -264,10 +269,21 @@ async function stdinJSON() {
 }
 export async function runProfileCLI(args = process.argv.slice(2)) {
   const [command, profilePath = DEFAULT_PROFILE_PATH, extraPath, ...rest] = args;
-  if (rest.length || !['create', 'info', 'public', 'backup', 'restore', 'sign-challenge'].includes(command) ||
+  if (rest.length || !['create', 'info', 'public', 'backup', 'restore', 'sign-challenge', 'petname', 'words'].includes(command) ||
       (extraPath && !['backup', 'restore'].includes(command))) fail('usage_agent_profile_command_profile_path_optional_backup_path');
   let result;
   if (command === 'public') result = await exportPublicProfile(profilePath);
+  else if (command === 'petname') {
+    const { addressPetname, formatIdentity } = await import('../address-petname.mjs');
+    const pub = await exportPublicProfile(profilePath);
+    result = { address: pub.address, petname: addressPetname(pub.address),
+      display: formatIdentity({ handle: pub.label, address: pub.address }) };
+  }
+  else if (command === 'words') {
+    const input = await stdinJSON();
+    process.stderr.write('WARNING: never share these words. Anyone with them owns the address.\n');
+    result = await revealMnemonic({ profilePath, password: input.password });
+  }
   else {
     const input = await stdinJSON();
     if (command === 'create') result = await createProfile({ ...input, profilePath });

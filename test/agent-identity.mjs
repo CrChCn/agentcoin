@@ -8,7 +8,9 @@ import { createWallet } from '../core.mjs';
 import {
   AgentIdentityRegistry, agentIdentityId, canonicalAgentChallenge,
   canonicalAgentPassport, createAgentChallenge, issuerFingerprint, validateAgentChallenge,
+  isRawAgentPubHex, rawAgentPubToPem, addressFromRawAgentPub, bindPubToAddress,
 } from '../agent-identity.mjs';
+import { pubFromPriv, addressFromPubHex } from '../site/js/agt-tx.mjs';
 
 const epoch = 1_800_000_000_000;
 function fixture(options = {}) {
@@ -170,6 +172,53 @@ test('registry survives restart, preserves uniqueness, and returns detached publ
   } finally { f.close(); }
 });
 
+test('raw key support: browser scheme address matches agt-tx, differs from PEM scheme', () => {
+  // Фиксированный синтетический вектор (нулевой баланс, только для тестов).
+  const priv = 'bcba52b43442c9edfb5b0e94146a38d10f03751cb0bce55ceef42aa9f94b97cb';
+  const raw = pubFromPriv(priv);
+  assert.equal(isRawAgentPubHex(raw), true);
+  assert.equal(isRawAgentPubHex(raw.toUpperCase()), true);
+  assert.equal(addressFromRawAgentPub(raw), addressFromPubHex(raw));
+  assert.equal(addressFromRawAgentPub(raw), 'AGT0f2a987fe04ad033cf18a9aff5d633ec523e536e');
+  // Случайный ключ: сошлось с браузерной формулой, разошлось с паспортной.
+  const { publicKey } = crypto.generateKeyPairSync('ed25519');
+  const raw2 = Buffer.from(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32)).toString('hex');
+  assert.equal(addressFromRawAgentPub(raw2), addressFromPubHex(raw2));
+  const pem = rawAgentPubToPem(raw2);
+  assert.ok(pem.startsWith('-----BEGIN PUBLIC KEY-----'));
+  // Мусор отвергается кодом invalid_public_key, а не молча.
+  for (const bad of [null, '', 'zz', '00'.repeat(31), '00'.repeat(33), pem]) {
+    assert.equal(isRawAgentPubHex(bad), false);
+    assert.throws(() => addressFromRawAgentPub(bad), /invalid_public_key/);
+    assert.throws(() => rawAgentPubToPem(bad), /invalid_public_key/);
+  }
+});
+
+test('bindPubToAddress: binds within scheme, rejects cross-scheme and garbage', () => {
+  const priv = 'bcba52b43442c9edfb5b0e94146a38d10f03751cb0bce55ceef42aa9f94b97cb';
+  const raw = pubFromPriv(priv);
+  const pem = rawAgentPubToPem(raw);
+  const addrRaw = addressFromRawAgentPub(raw);
+  // сырой к сырому адресу; PEM к PEM-адресу проверяется путём canonicalAgentPublicKey
+  assert.equal(bindPubToAddress(addrRaw, raw), raw);
+  assert.equal(bindPubToAddress(addrRaw, raw.toUpperCase()), raw);
+  // чужой адрес, мусор, кросс-схема — null
+  assert.equal(bindPubToAddress('AGT' + '00'.repeat(20), raw), null);
+  assert.equal(bindPubToAddress(addrRaw, 'zz'), null);
+  assert.equal(bindPubToAddress(addrRaw, null), null);
+  assert.equal(bindPubToAddress(addrRaw, pem), null); // PEM не вяжется к raw-адресу
+  assert.equal(bindPubToAddress('not-an-address', raw), null);
+});
+
+test('raw key round-trip: rebuilt PEM verifies signatures of the same key', () => {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const raw = Buffer.from(publicKey.export({ type: 'spki', format: 'der' }).subarray(-32)).toString('hex');
+  const msg = Buffer.from('AGT-IDENTITY-V1\nprobe', 'utf8');
+  const sig = crypto.sign(null, msg, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  assert.equal(crypto.verify(null, msg, rawAgentPubToPem(raw), sig), true);
+  assert.equal(crypto.verify(null, Buffer.from('other', 'utf8'), rawAgentPubToPem(raw), sig), false);
+});
+
 test('malformed and oversized requests do not create passports', () => {
   const f = fixture();
   try {
@@ -183,4 +232,26 @@ test('malformed and oversized requests do not create passports', () => {
     assert.equal(fs.existsSync(path.join(f.dir, 'agent-identities.json')), false);
     assert.equal(f.registry.importPassport({ payload: 'x'.repeat(5000), issuerPub: w.pub, signature: '0'.repeat(128) }).ok, false);
   } finally { f.close(); }
+});
+
+test('challenge validation tolerates keyOnly flag and raw-hex pub (TOFU/key-login)', () => {
+  const w = createWallet();
+  const base = createAgentChallenge({ action: 'login', network: 'AGENTCOIN', audience: 'a',
+    issuerFingerprint: issuerFingerprint(w.pub), address: w.address, pub: w.pub }, { now: epoch });
+  const opts = { now: epoch, network: 'AGENTCOIN' };
+  assert.equal(validateAgentChallenge({ ...base }, opts).address, w.address);
+  assert.equal(validateAgentChallenge({ ...base, keyOnly: true }, opts).address, w.address);
+  assert.equal(validateAgentChallenge({ ...base, keyOnly: false }, opts).address, w.address);
+  assert.throws(() => validateAgentChallenge({ ...base, keyOnly: 'yes' }, opts), /invalid_challenge_status/);
+  // сырой hex-ключ: привязка внутри браузерной схемы
+  const raw = pubFromPriv('bcba52b43442c9edfb5b0e94146a38d10f03751cb0bce55ceef42aa9f94b97cb');
+  const addrRaw = addressFromPubHex(raw);
+  const rawBase = { ...base, address: addrRaw, pub: raw, keyOnly: true };
+  rawBase.message = canonicalAgentChallenge(rawBase);
+  assert.equal(validateAgentChallenge(rawBase, opts).address, addrRaw);
+  // кросс-схема отвергается (message собираем вручную — канонизатор закрыт на mismatch)
+  const bad = { ...rawBase, address: w.address };
+  bad.message = 'AGT-IDENTITY-V1\n' + JSON.stringify([1, 'login', 'AGENTCOIN',
+    base.issuerFingerprint, 'a', w.address, raw, '', base.challengeId, base.nonce, base.issuedAt, base.expiresAt]);
+  assert.throws(() => validateAgentChallenge(bad, opts), /address_public_key_mismatch/);
 });

@@ -5,11 +5,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentcoin Wallet</title>
-<script src="/panel.js" defer></script>
+<script src="/panel.js?v=20261111B" defer></script>
 <script src="/wallet-format.js"></script>
 <style>
 :root{color-scheme:dark;--bg:#080d15;--panel:#101a28;--line:#2b3a4f;--gold:#e5c878;--dim:#a2b3c8;--txt:#edf2fa;--ok:#3fb950;--bad:#ff7777}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:28px 18px}h1{font-size:clamp(28px,5vw,44px);margin:8px 0}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px}.dim,small{color:var(--dim)}a{color:var(--gold)}label{display:block;margin:12px 0 5px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}input,select,textarea{background:#080f1b;color:var(--txt);max-width:100%}input:not([type=checkbox]):not([type=radio]),textarea{width:100%}textarea{min-height:72px;font-family:ui-monospace,monospace;font-size:12px}button{background:var(--gold);color:#111a28;cursor:pointer;margin:6px 6px 0 0}button.secondary{background:transparent;color:var(--gold)}button:disabled{opacity:.45;cursor:not-allowed}main>header,.row,.unitsel,.tabs,.kv{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.hidden{display:none!important}.mono{font-family:ui-monospace,monospace;word-break:break-all}.address{word-break:break-all;font-family:ui-monospace,monospace}.status{min-height:24px;color:var(--gold);white-space:pre-wrap;margin-top:8px}.balance{font-size:clamp(30px,5vw,44px);margin:8px 0}.unitsel button{margin:0}.unitsel .active,.tabs .active{background:#fff3;color:var(--gold);border-color:var(--gold)}.tabs button{background:transparent;color:var(--dim)}.pill{border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--dim)}.pill.on{color:var(--ok)}.pill.off{color:var(--bad)}.hint,.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#252016;border-radius:0 8px 8px 0;margin:8px 0}.hint{font-size:13px}.cmd{background:#080f1b;border:1px solid var(--line);padding:12px;border-radius:8px;word-break:break-all}.error{color:var(--bad)}table{width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{text-align:left;vertical-align:top;padding:7px;border-bottom:1px solid var(--line)}canvas.qr{background:white;border-radius:8px;padding:8px}.lang button{margin:0;padding:5px 9px}.lang [aria-pressed=true]{background:var(--gold);color:#111}progress{width:100%}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:28px 18px}h1{font-size:clamp(28px,5vw,44px);margin:8px 0}h2{font-size:20px;margin:0 0 12px}h3{font-size:16px}.dim,small{color:var(--dim)}a{color:var(--gold)}label{display:block;margin:12px 0 5px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px}input,select,textarea{background:#080f1b;color:var(--txt);max-width:100%}input:not([type=checkbox]):not([type=radio]),textarea{width:100%}textarea{min-height:72px;font-family:ui-monospace,monospace;font-size:12px}button{background:var(--gold);color:#111a28;cursor:pointer;margin:6px 6px 0 0}button.secondary{background:transparent;color:var(--gold)}button:disabled{opacity:.45;cursor:not-allowed}main>header,.row,.unitsel,.tabs,.kv{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.hidden{display:none!important}.mono{font-family:ui-monospace,monospace;word-break:break-all}.address{word-break:break-all;font-family:ui-monospace,monospace}.status{min-height:24px;color:var(--gold);white-space:pre-wrap;margin-top:8px}.balance{font-size:clamp(30px,5vw,44px);margin:8px 0;overflow-wrap:anywhere}.agt-coin{display:inline-block;border-radius:50%;vertical-align:middle;flex:none}.title-coin{width:32px;height:32px;margin-right:4px}.balance .agt-coin{width:28px;height:28px;vertical-align:-5px;margin-right:8px}.unitsel button{margin:0}.unitsel .active,.tabs .active{background:#fff3;color:var(--gold);border-color:var(--gold)}.tabs button{background:transparent;color:var(--dim)}.pill{border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--dim)}.pill.on{color:var(--ok)}.pill.off{color:var(--bad)}.hint,.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#252016;border-radius:0 8px 8px 0;margin:8px 0}.hint{font-size:13px}.cmd{background:#080f1b;border:1px solid var(--line);padding:12px;border-radius:8px;word-break:break-all}.error{color:var(--bad)}table{width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{text-align:left;vertical-align:top;padding:7px;border-bottom:1px solid var(--line)}canvas.qr{background:white;border-radius:8px;padding:8px}.lang button{margin:0;padding:5px 9px}.lang [aria-pressed=true]{background:var(--gold);color:#111}progress{width:100%}
 @media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px}}
 a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14px;border-radius:8px;font-weight:600}
 </style>
@@ -20,12 +20,18 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <main>
 <header class="spread">
 <div>
+<div style="display:flex;align-items:center;gap:12px">
+<img class="agt-coin title-coin" src="/assets/tokens/agt.png" alt="" width="32" height="32" draggable="false" onerror="this.style.display='none'">
+<div>
 <div class="dim">AGENTCOIN / WALLET</div>
 <h1 data-i18n="title">Кошелёк AGENTCOIN</h1>
+</div>
+</div>
 <p class="dim" data-i18n="subtitle">Самостоятельное управление AGT: ключи остаются в локальном профиле.</p>
 </div>
 <div class="row">
 <span id="sessionPill" class="pill off" data-i18n="session.off">Не вошёл</span>
+<button id="logoutTop" class="secondary hidden" data-i18n="login.logout">Выйти</button>
 <a href="/mbc20" data-i18n="nav.trade">Торговать → Биржа</a>
 <div class="lang" role="group" aria-label="Language">
 <button data-lang="ru" aria-pressed="true">RU</button>
@@ -71,6 +77,26 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
   <button id="importWallet" class="secondary" onclick="document.getElementById('certFile').click()">Импортировать кошелёк</button>
 </div>
 <button id="disableAutologin" class="secondary" data-i18n="login.disableAutologin">Отключить автологин</button>
+<div class="row" style="margin-top:12px">
+<label for="pinInput" data-i18n="login.pin">PIN (4–6 цифр)</label>
+<input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<button id="pinLogin" data-i18n="login.pinSubmit">Войти по PIN</button>
+</div>
+<div id="pinHint" class="status" role="status" aria-live="polite"></div>
+<div class="row" style="margin-top:12px">
+<label for="keyInput" data-i18n="login.key">Ключ или 24 слова (остаётся в этом браузере)</label>
+<input id="keyInput" autocomplete="off" spellcheck="false" placeholder="64 hex или 24 слова">
+<button id="keyLogin" data-i18n="login.keySubmit">Войти ключом</button>
+</div>
+<div class="hint" data-i18n="login.keyHow">Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Дальше — задай PIN во вкладке «Безопасность».</div>
+<div id="keyHint" class="status" role="status" aria-live="polite"></div>
+<div id="dualBox" class="hidden">
+<div class="hint" data-i18n="login.dualTitle">Два адреса этого ключа</div>
+<div class="hint" data-i18n="login.dualHow">Один ключ — два счёта: браузерный и паспортный (старые JSON). Балансы ниже — входи в нужный.</div>
+<div class="row" style="margin-top:8px"><span data-i18n="login.browserAddr">Браузерный (create-wallet)</span><code id="dualRaw">—</code><span id="dualRawBal">…</span><button id="dualRawGo" data-i18n="login.enterThis">Войти в этот</button></div>
+<div class="row" style="margin-top:8px"><span data-i18n="login.passportAddr">Паспортный (старый JSON)</span><code id="dualPem">—</code><span id="dualPemBal">…</span><button id="dualPemGo" data-i18n="login.enterThis">Войти в этот</button></div>
+</div>
+<p class="hint" data-i18n="login.pinHow">PIN задаётся один раз после входа паспортом (вкладка «Безопасность»), дальше работает с любого устройства. Вверху должен быть сохранён чистый адрес AGT + 40 hex.</p>
 <div id="loginHint" class="status" role="status" aria-live="polite">
 </div>
 </section>
@@ -82,13 +108,14 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="tabHistory" data-i18n="tab.history">История</button>
 <button id="tabContacts" data-i18n="tab.contacts">Контакты</button>
 <button id="tabFees" data-i18n="tab.fees">Комиссии</button>
+<button id="tabSecurity" data-i18n="tab.security">Безопасность</button>
 </nav>
 <section id="paneOverview">
 <div class="kv">
 <h2 data-i18n="balance.title">Баланс</h2>
 <button id="refreshWallet" class="secondary" data-i18n="balance.refresh">Обновить</button>
 </div>
-<p id="balancePrimary" class="balance">—</p>
+<p class="balance"><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="28" height="28" draggable="false" onerror="this.style.display='none'"><span id="balancePrimary">—</span></p>
 <div id="unitButtons" class="unitsel">
 </div>
 <p id="balanceAll" class="dim">
@@ -123,15 +150,15 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="topSendBtn" style="float:right;padding:11px 20px;font-weight:700">QR · Отправить AGT</button>
 <p class="notice" data-i18n="send.notice">Сверь реквизиты. Страница готовит операцию, подпись создаётся локально.</p>
 <section class="panel" id="quickSend">
-<h3>Быстрый перевод (как в Bitcoin Core)</h3>
-<p class="dim" style="font-size:13px">Заполни адрес, сумму и memo — кнопка подписывает локально и отправляет в сеть одним кликом.</p>
+<h3>Быстрый перевод в один клик</h3>
+<p class="dim" style="font-size:13px">Заполни адрес, сумму и memo — кнопка подписывает локально и отправляет в сеть одним кликом. Работает с ключом входа (память) или сохранённым локальным ключом — паспорт не нужен.</p>
 <label for="qsTo" data-i18n="send.to">Получатель</label>
 <input id="qsTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
 <label for="qsAmount" data-i18n="send.amount">Сумма (AGT)</label>
 <input id="qsAmount" inputmode="decimal" placeholder="0">
 <label for="qsMemo" data-i18n="send.memo">Назначение (memo, до 120 символов)</label>
 <input id="qsMemo" maxlength="120" autocomplete="off" placeholder="что оплачиваем (необязательно)">
-<p class="dim" style="font-size:12.5px">Комиссия сети: <b>0 AGT</b> (протокол без сборов). Отправка — после отметки подтверждения.</p>
+<p class="dim" style="font-size:12.5px">Комиссия сети: <b>0 AGT</b> (на разгоне без сборов; вводится решением сети). Отправка — после отметки подтверждения.</p>
 <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
 <input id="qsConfirm" type="checkbox">
 <span data-i18n="send.confirm">Я сверил получателя, сумму и комиссию</span>
@@ -142,7 +169,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <a href="/create-wallet" class="gold">Создать локальный кошелёк (WASM)</a>
 </div>
 <div id="qsStatus" class="status" role="status" aria-live="polite"></div>
-<div id="passportWarn" class="hint hidden">Паспорт в кабинете не найден (passport_pub_missing). Это не ошибка кода: для маршрута через кабинет нужен публичный паспорт (Skill enroll). Быстрый перевод работает без паспорта — только с локальным ключом из /create-wallet (кнопка выше).</div>
+<div id="passportWarn" class="hint hidden">Паспорт в кабинете не найден (passport_pub_missing). Кабинетный маршрут — для паспортных сессий (Skill enroll) либо с явным ключом. Быстрый перевод работает и без паспорта: войди ключом выше либо используй локальный ключ из /create-wallet.</div>
 </section>
 <label for="sendTo" data-i18n="send.to">Получатель</label>
 <input id="sendTo" list="contactList" autocomplete="off" placeholder="AGT + 40 hex">
@@ -160,7 +187,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <label>
 <input type="radio" name="sendRoute" value="direct" checked> <span data-i18n="send.direct">Напрямую</span>
 </label>
-<label>
+<label class="hidden">
 <input type="radio" name="sendRoute" value="gateway"> <span data-i18n="send.gateway">Через шлюз (пока только смета)</span>
 </label>
 <button id="estimateBtn" class="secondary" data-i18n="send.estimate">Рассчитать комиссию</button>
@@ -185,6 +212,19 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <label for="opSignature" data-i18n="send.signature">Signature (128 hex)</label>
 <textarea id="opSignature" placeholder="128 hex">
 </textarea>
+<button id="opSignKey" class="secondary">Подписать ключом входа</button>
+<label for="sig2" data-i18n="send.sig2">Вторая подпись (только казна 2-of-3)</label>
+<textarea id="sig2" placeholder="256 hex" spellcheck="false">
+</textarea>
+<label for="sig2Pub" data-i18n="send.sig2Pub">Ключ второго подписанта (PEM или 64 hex)</label>
+<textarea id="sig2Pub" placeholder="-----BEGIN PUBLIC KEY----- …" spellcheck="false">
+</textarea>
+<p class="hint" data-i18n="send.sig2How">Расход казны требует подписи второго подписанта из политики: вставь сюда его подпись над тем же txid и его публичный ключ. Обычным адресам это не нужно.</p>
+<div class="row" style="margin-top:8px">
+<input id="sig2Key" autocomplete="off" spellcheck="false" style="min-width:260px" placeholder="64 hex или 24 слова второго подписанта">
+<button id="sig2SignBtn" class="secondary" data-i18n="send.sig2Sign">Подписать вторым ключом</button>
+</div>
+<div id="sig2Hint" class="status" role="status" aria-live="polite"></div>
 <button id="opSubmit" data-i18n="send.submit">Отправить подписанную операцию</button>
 <div id="opStatus" role="status">
 </div>
@@ -240,8 +280,14 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <h2 data-i18n="contacts.title">Контакты</h2>
 <div id="contactsList">
 </div>
+<div class="row" style="margin-top:8px">
+<input id="contactName" autocomplete="off" maxlength="64" style="max-width:180px">
+<input id="contactAddr" autocomplete="off" spellcheck="false" style="min-width:280px">
+<button id="contactResolve" class="secondary" data-i18n="contacts.resolve">Найти по имени</button>
 <button id="addContact" data-i18n="contacts.add">Добавить</button>
-<button id="seedDemo" class="secondary" data-i18n="contacts.seedDemo">Добавить Алису и Боба</button>
+</div>
+<div id="contactsHint" class="status" role="status" aria-live="polite"></div>
+<button id="seedDemo" class="secondary hidden" data-i18n="contacts.seedDemo">Добавить Алису и Боба</button>
 <button id="exportContacts" class="secondary" data-i18n="contacts.export">Экспорт JSON</button>
 <label for="importContacts" data-i18n="contacts.import">Импорт JSON</label>
 <input id="importContacts" type="file" accept="application/json,.json">
@@ -251,6 +297,22 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <p class="dim" data-i18n="fees.note">Комиссии показываются по фактической смете ноды.</p>
 <div id="treasuryBox">
 </div>
+</section>
+<section id="paneSecurity" class="hidden">
+<h2 data-i18n="sec.title">Безопасность</h2>
+<p><span id="pinStatePill" class="pill off" data-i18n="sec.pinOff">PIN выключен</span></p>
+<label for="pinNew" data-i18n="sec.pinNew">Новый PIN (4–6 цифр)</label>
+<input id="pinNew" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<label for="pinRepeat" data-i18n="sec.pinRepeat">Повтори PIN</label>
+<input id="pinRepeat" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+<div class="row">
+<button id="pinSave" data-i18n="sec.pinSave">Сохранить PIN</button>
+<button id="pinDisable" class="secondary" data-i18n="sec.pinDisable">Отключить PIN</button>
+</div>
+<div id="secMessage" class="status" role="status" aria-live="polite"></div>
+<h3 data-i18n="sec.wordsTitle">📜 12 слов (мастер-доступ)</h3>
+<p class="dim" data-i18n="sec.wordsText">Восстанавливают ключ на любом устройстве. Сайт их никогда не видит и не хранит — показать слова можно только там, где живёт ключ.</p>
+<p class="mono" data-i18n="sec.wordsCmd">echo '{"password":"ВАШ_ПАРОЛЬ"}' | node agt-skill/agent-profile.mjs words profile.json</p>
 </section>
 <button id="logout" class="secondary" data-i18n="login.logout">Выйти</button>
 <div id="message" class="status" role="status" aria-live="polite">
@@ -280,10 +342,30 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Войти",
     "login.logout": "Выйти",
+    "login.pin": "PIN (4–6 цифр)",
+    "login.pinSubmit": "Войти по PIN",
+    "login.pinFirstPassport": "Сначала войди по паспорту и настрой PIN в разделе «Безопасность».",
+    "login.pinOk": "Вход по PIN выполнен.",
+    "login.noAddrPin": "Сначала сохрани адрес выше: «Мой AGT-адрес» → «Сохранить адрес». Только чистый адрес AGT + 40 hex — без имён.",
+    "login.pinHow": "PIN задаётся один раз после входа ключом или паспортом (вкладка «Безопасность»), дальше работает с любого устройства. Вверху должен быть сохранён чистый адрес AGT + 40 hex.",
     "login.autologin": "Локальный вход на этой машине",
     "login.disableAutologin": "Отключить автологин",
     "login.hint": "Вход подтверждается паспортной подписью.",
     "login.noAddr": "Сначала укажи адрес.",
+    "login.key": "Ключ или 24 слова (остаётся в этом браузере)",
+    "login.keySubmit": "Войти ключом",
+    "login.keyHow": "Первый вход без паспорта: ключом, сохранённым /create-wallet в этом браузере, либо вставь приватный hex или 24 слова. Дальше — задай PIN во вкладке «Безопасность».",
+    "login.keyOk": "Вход ключом выполнен.",
+    "login.noAddrKey": "Сначала сохрани адрес выше — или вставь ключ/слова и выбери один из двух адресов ниже.",
+    "login.noLocalKey": "В этом браузере нет сохранённого ключа для адреса — вставь приватный hex или 24 слова.",
+    "login.keyMismatch": "Ключ от другого адреса — проверь ввод или смени сохранённый адрес.",
+    "login.keyBad": "Ключ не распознан: нужен hex (64) или ровно 24 слова.",
+    "login.dualTitle": "Два адреса этого ключа",
+    "login.dualHow": "Один ключ — два счёта: браузерный и паспортный (старые JSON). Балансы ниже — входи в нужный.",
+    "login.browserAddr": "Браузерный (create-wallet)",
+    "login.passportAddr": "Паспортный (старый JSON)",
+    "login.enterThis": "Войти в этот",
+    "login.dualMismatch": "Сохранённый адрес не принадлежит этому ключу. Нажми «Войти в этот» под нужным — он сохранится.",
     "login.needPassport": "Публичный паспорт не найден.",
     "login.challengeOk": "Challenge готов: скачай JSON и подпиши локально.",
     "login.loggedIn": "Вход выполнен.",
@@ -304,6 +386,14 @@ const I18N={
     "send.sign": "Запрос для подписи",
     "send.signature": "Signature (128 hex)",
     "send.submit": "Отправить подписанную операцию",
+    "send.sig2Sign": "Подписать вторым ключом",
+    "send.sig2Ok": "Вторая подпись готова — проверяй и отправляй.",
+    "send.sig2NotPolicy": "Этот ключ не входит в политику казны.",
+    "send.sig2Stale": "Вторая подпись от другой заявки — нажми «Подписать вторым ключом» заново под текущий запрос.",
+    "send.sig2Diff": "Второй подписант — НЕ ты: нужен ключ из политики (подписант казны), твой собственный ключ здесь не примут.",
+    "send.sig2": "Вторая подпись (только казна 2-of-3)",
+    "send.sig2Pub": "Ключ второго подписанта (PEM или 64 hex)",
+    "send.sig2How": "Расход казны требует подписи второго подписанта из политики: вставь сюда его подпись над тем же txid и его публичный ключ. Обычным адресам это не нужно.",
     "send.submitOk": "Принято в mempool",
     "send.submitRejected": "Нода отклонила операцию",
     "send.statusChecking": "Проверяю статус исходной операции…",
@@ -337,6 +427,11 @@ const I18N={
     "history.note": "Системные категории отмечены отдельно; данные загружаются с сервера.",
     "contacts.title": "Контакты",
     "contacts.add": "Добавить",
+    "contacts.resolve": "Найти по имени",
+    "contacts.namePh": "Имя",
+    "contacts.addrPh": "AGT-адрес или handle",
+    "contacts.saved": "Контакт сохранён.",
+    "contacts.bad": "Нужно имя и адрес AGT + 40 hex (или handle).",
     "contacts.seedDemo": "Добавить Алису и Боба",
     "contacts.export": "Экспорт JSON",
     "contacts.import": "Импорт JSON",
@@ -374,6 +469,20 @@ const I18N={
     "tab.history": "История",
     "tab.contacts": "Контакты",
     "tab.fees": "Комиссии",
+    "tab.security": "Безопасность",
+    "sec.title": "Безопасность",
+    "sec.pinOn": "PIN включён",
+    "sec.pinOff": "PIN выключен",
+    "sec.pinNew": "Новый PIN (4–6 цифр)",
+    "sec.pinRepeat": "Повтори PIN",
+    "sec.pinSave": "Сохранить PIN",
+    "sec.pinDisable": "Отключить PIN",
+    "sec.pinMismatch": "PIN не совпадают — повтори ввод.",
+    "sec.pinSaved": "PIN сохранён (scrypt-хеш на сервере).",
+    "sec.pinDisabled": "PIN отключён.",
+    "sec.wordsTitle": "📜 12 слов (мастер-доступ)",
+    "sec.wordsText": "Восстанавливают ключ на любом устройстве. Сайт их никогда не видит и не хранит — показать слова можно только там, где живёт ключ.",
+    "sec.wordsCmd": "echo '{\"password\":\"ВАШ_ПАРОЛЬ\"}' | node agt-skill/agent-profile.mjs words profile.json",
     "overview.aliceTitle": "Запросить оплату у Алисы",
     "overview.aliceText": "Создай счёт и передай его файлом или QR.",
     "overview.aliceButton": "Создать счёт для Алисы",
@@ -403,10 +512,30 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Sign in",
     "login.logout": "Sign out",
+    "login.pin": "PIN (4–6 digits)",
+    "login.pinSubmit": "Sign in with PIN",
+    "login.pinFirstPassport": "Sign in with your passport first and set a PIN in “Security”.",
+    "login.pinOk": "Signed in with PIN.",
+    "login.noAddrPin": "Save your address above first: “My AGT address” → “Save address”. Bare AGT + 40 hex only — no handles.",
+    "login.pinHow": "Set the PIN once after a key or passport sign-in (“Security” tab), then it works from any device. A bare AGT + 40 hex address must be saved above.",
     "login.autologin": "Local sign-in on this machine",
     "login.disableAutologin": "Disable autologin",
     "login.hint": "Passport signature confirms this session.",
     "login.noAddr": "Enter an address first.",
+    "login.key": "Key or 24 words (stays in this browser)",
+    "login.keySubmit": "Sign in with key",
+    "login.keyHow": "First sign-in without a passport: use the key saved by /create-wallet in this browser, or paste private hex / 24 words. Then set a PIN under “Security”. ",
+    "login.keyOk": "Signed in with key.",
+    "login.noAddrKey": "Save the address above first — or paste the key/words and pick one of the two addresses below.",
+    "login.noLocalKey": "No saved key for this address in this browser — paste private hex or 24 words.",
+    "login.keyMismatch": "Key belongs to another address — check input or change the saved address.",
+    "login.keyBad": "Key not recognised: 64 hex or exactly 24 words needed.",
+    "login.dualTitle": "Two addresses of this key",
+    "login.dualHow": "One key, two accounts: browser and passport (old JSON). Balances below — sign in to the one you need.",
+    "login.browserAddr": "Browser (/create-wallet)",
+    "login.passportAddr": "Passport (old JSON)",
+    "login.enterThis": "Sign in here",
+    "login.dualMismatch": "The saved address does not belong to this key. Press “Sign in here” under the right one — it will be saved.",
     "login.needPassport": "Public passport not found.",
     "login.challengeOk": "Challenge ready: download JSON and sign locally.",
     "login.loggedIn": "Signed in.",
@@ -427,6 +556,14 @@ const I18N={
     "send.sign": "Request to sign",
     "send.signature": "Signature (128 hex)",
     "send.submit": "Submit signed operation",
+    "send.sig2Sign": "Sign with second key",
+    "send.sig2Ok": "Second signature ready — review and submit.",
+    "send.sig2NotPolicy": "This key is not in the treasury policy.",
+    "send.sig2Stale": "Second signature is for a different request — press “Sign with second key” again for the current one.",
+    "send.sig2Diff": "The second signer is NOT you: a policy signer key is required, your own key will be rejected here.",
+    "send.sig2": "Second signature (treasury 2-of-3 only)",
+    "send.sig2Pub": "Second signer key (PEM or 64 hex)",
+    "send.sig2How": "Treasury spends need a second policy signer: paste their signature over the same txid and their public key. Not needed for ordinary addresses.",
     "send.submitOk": "Accepted into mempool",
     "send.submitRejected": "Node rejected the operation",
     "send.statusChecking": "Checking the original operation…",
@@ -460,6 +597,11 @@ const I18N={
     "history.note": "System categories are labeled; entries come from the node.",
     "contacts.title": "Contacts",
     "contacts.add": "Add",
+    "contacts.resolve": "Find by name",
+    "contacts.namePh": "Name",
+    "contacts.addrPh": "AGT address or handle",
+    "contacts.saved": "Contact saved.",
+    "contacts.bad": "Need a name and an AGT + 40 hex address (or handle).",
     "contacts.seedDemo": "Add Alice and Bob",
     "contacts.export": "Export JSON",
     "contacts.import": "Import JSON",
@@ -497,6 +639,20 @@ const I18N={
     "tab.history": "History",
     "tab.contacts": "Contacts",
     "tab.fees": "Fees",
+    "tab.security": "Security",
+    "sec.title": "Security",
+    "sec.pinOn": "PIN enabled",
+    "sec.pinOff": "PIN disabled",
+    "sec.pinNew": "New PIN (4–6 digits)",
+    "sec.pinRepeat": "Repeat PIN",
+    "sec.pinSave": "Save PIN",
+    "sec.pinDisable": "Disable PIN",
+    "sec.pinMismatch": "PINs do not match.",
+    "sec.pinSaved": "PIN saved (scrypt hash on server).",
+    "sec.pinDisabled": "PIN disabled.",
+    "sec.wordsTitle": "📜 12 words (master access)",
+    "sec.wordsText": "They restore the key on any device. This site never sees or stores them — words can be revealed only where the key lives.",
+    "sec.wordsCmd": "echo '{\"password\":\"YOUR_PASSWORD\"}' | node agt-skill/agent-profile.mjs words profile.json",
     "overview.aliceTitle": "Request payment from Alice",
     "overview.aliceText": "Create an invoice and share it as a file or QR.",
     "overview.aliceButton": "Create Alice invoice",
@@ -526,10 +682,30 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Connexion",
     "login.logout": "Déconnexion",
+    "login.pin": "PIN (4–6 chiffres)",
+    "login.pinSubmit": "Se connecter avec PIN",
+    "login.pinFirstPassport": "Connectez-vous d’abord avec le passeport, puis définissez un PIN dans « Sécurité ».",
+    "login.pinOk": "Connecté avec PIN.",
+    "login.noAddrPin": "Enregistrez d’abord l’adresse ci-dessus. Adresse AGT + 40 hex uniquement.",
+    "login.pinHow": "Le PIN se définit une fois après connexion par clé ou passeport (onglet « Sécurité »), puis fonctionne partout.",
     "login.autologin": "Connexion locale sur cette machine",
     "login.disableAutologin": "Désactiver la connexion auto",
     "login.hint": "La signature du passeport confirme cette session.",
     "login.noAddr": "Saisissez d’abord une adresse.",
+    "login.key": "Clé ou 24 mots (reste dans ce navigateur)",
+    "login.keySubmit": "Se connecter avec la clé",
+    "login.keyHow": "Première connexion sans passeport : clé enregistrée par /create-wallet, ou collez hex privé / 24 mots. Ensuite définissez un PIN sous « Sécurité ».",
+    "login.keyOk": "Connecté avec la clé.",
+    "login.noAddrKey": "Enregistrez d’abord l’adresse ci-dessus — ou collez clé/mots puis choisissez une des deux adresses ci-dessous.",
+    "login.noLocalKey": "Aucune clé enregistrée pour cette adresse — collez hex privé ou 24 mots.",
+    "login.keyMismatch": "Clé d’une autre adresse.",
+    "login.keyBad": "Clé non reconnue : 64 hex ou 24 mots exactement.",
+    "login.dualTitle": "Deux adresses de cette clé",
+    "login.dualHow": "Une clé, deux comptes : navigateur et passeport (ancien JSON). Soldes ci-dessous — connectez-vous à celui qu’il faut.",
+    "login.browserAddr": "Navigateur (/create-wallet)",
+    "login.passportAddr": "Passeport (ancien JSON)",
+    "login.enterThis": "Se connecter",
+    "login.dualMismatch": "L’adresse enregistrée n’appartient pas à cette clé. Cliquez « Se connecter » sous la bonne — elle sera enregistrée.",
     "login.needPassport": "Passeport public introuvable.",
     "login.challengeOk": "Challenge prêt : téléchargez le JSON et signez localement.",
     "login.loggedIn": "Connecté.",
@@ -550,6 +726,14 @@ const I18N={
     "send.sign": "Demande à signer",
     "send.signature": "Signature (128 hex)",
     "send.submit": "Envoyer l’opération signée",
+    "send.sig2Sign": "Signer avec la 2e clé",
+    "send.sig2Ok": "Seconde signature prête — vérifiez et envoyez.",
+    "send.sig2NotPolicy": "Cette clé n’est pas dans la politique du trésor.",
+    "send.sig2Stale": "Seconde signature d’une autre demande — resignez avec la deuxième clé pour la demande actuelle.",
+    "send.sig2Diff": "Le second signataire, ce n’est PAS vous : il faut une clé de la politique, votre propre clé sera refusée.",
+    "send.sig2": "Seconde signature (trésor 2-sur-3 uniquement)",
+    "send.sig2Pub": "Clé du second signataire (PEM ou 64 hex)",
+    "send.sig2How": "Les dépenses du trésor exigent un second signataire : collez sa signature sur le même txid et sa clé publique. Inutile pour les adresses ordinaires.",
     "send.submitOk": "Acceptée dans le mempool",
     "send.submitRejected": "Opération refusée par le nœud",
     "send.statusChecking": "Vérification de l’opération initiale…",
@@ -583,6 +767,11 @@ const I18N={
     "history.note": "Les catégories système sont indiquées ; les données viennent du nœud.",
     "contacts.title": "Contacts",
     "contacts.add": "Ajouter",
+    "contacts.resolve": "Trouver par nom",
+    "contacts.namePh": "Nom",
+    "contacts.addrPh": "Adresse AGT ou handle",
+    "contacts.saved": "Contact enregistré.",
+    "contacts.bad": "Nom et adresse AGT + 40 hex (ou handle) requis.",
     "contacts.seedDemo": "Ajouter Alice et Bob",
     "contacts.export": "Exporter JSON",
     "contacts.import": "Importer JSON",
@@ -620,6 +809,20 @@ const I18N={
     "tab.history": "Historique",
     "tab.contacts": "Contacts",
     "tab.fees": "Frais",
+    "tab.security": "Sécurité",
+    "sec.title": "Sécurité",
+    "sec.pinOn": "PIN activé",
+    "sec.pinOff": "PIN désactivé",
+    "sec.pinNew": "Nouveau PIN (4–6 chiffres)",
+    "sec.pinRepeat": "Répéter le PIN",
+    "sec.pinSave": "Enregistrer le PIN",
+    "sec.pinDisable": "Désactiver le PIN",
+    "sec.pinMismatch": "Les PIN ne correspondent pas.",
+    "sec.pinSaved": "PIN enregistré (hash scrypt sur le serveur).",
+    "sec.pinDisabled": "PIN désactivé.",
+    "sec.wordsTitle": "📜 12 mots (accès maître)",
+    "sec.wordsText": "Ils restaurent la clé partout. Ce site ne les voit ni ne les stocke jamais.",
+    "sec.wordsCmd": "echo '{\"password\":\"VOTRE_MOT_DE_PASSE\"}' | node agt-skill/agent-profile.mjs words profile.json",
     "overview.aliceTitle": "Demander un paiement à Alice",
     "overview.aliceText": "Créez une facture et partagez-la en fichier ou QR.",
     "overview.aliceButton": "Créer une facture pour Alice",
@@ -649,10 +852,30 @@ const I18N={
     "login.signature": "Signature (128 hex)",
     "login.submit": "Entrar",
     "login.logout": "Salir",
+    "login.pin": "PIN (4–6 dígitos)",
+    "login.pinSubmit": "Entrar con PIN",
+    "login.pinFirstPassport": "Entra primero con el pasaporte y configura un PIN en «Seguridad».",
+    "login.pinOk": "Sesión iniciada con PIN.",
+    "login.noAddrPin": "Guarda primero la dirección arriba. Solo AGT + 40 hex.",
+    "login.pinHow": "El PIN se define una vez tras entrar con clave o pasaporte (pestaña «Seguridad») y luego funciona en cualquier dispositivo.",
     "login.autologin": "Acceso local en este equipo",
     "login.disableAutologin": "Desactivar acceso automático",
     "login.hint": "La firma del pasaporte confirma la sesión.",
     "login.noAddr": "Indica primero una dirección.",
+    "login.key": "Clave o 24 palabras (queda en este navegador)",
+    "login.keySubmit": "Entrar con clave",
+    "login.keyHow": "Primer acceso sin pasaporte: clave guardada por /create-wallet, o pega hex privado / 24 palabras. Luego define un PIN en «Seguridad».",
+    "login.keyOk": "Sesión iniciada con clave.",
+    "login.noAddrKey": "Guarda primero la dirección, o pega clave/palabras y elige una de las dos direcciones.",
+    "login.noLocalKey": "Sin clave guardada para esta dirección — pega hex privado o 24 palabras.",
+    "login.keyMismatch": "La clave es de otra dirección.",
+    "login.keyBad": "Clave no reconocida: 64 hex o 24 palabras exactas.",
+    "login.dualTitle": "Dos direcciones de esta clave",
+    "login.dualHow": "Una clave, dos cuentas: navegador y pasaporte (JSON antiguo). Saldos abajo: entra en la que necesites.",
+    "login.browserAddr": "Navegador (/create-wallet)",
+    "login.passportAddr": "Pasaporte (JSON antiguo)",
+    "login.enterThis": "Entrar aquí",
+    "login.dualMismatch": "La dirección guardada no pertenece a esta clave. Pulsa Entrar aquí bajo la correcta: se guardará.",
     "login.needPassport": "No se encontró el pasaporte público.",
     "login.challengeOk": "Challenge listo: descarga el JSON y firma localmente.",
     "login.loggedIn": "Sesión iniciada.",
@@ -673,6 +896,14 @@ const I18N={
     "send.sign": "Solicitud para firmar",
     "send.signature": "Signature (128 hex)",
     "send.submit": "Enviar operación firmada",
+    "send.sig2Sign": "Firmar con 2.ª clave",
+    "send.sig2Ok": "Segunda firma lista — revisa y envía.",
+    "send.sig2NotPolicy": "Esta clave no está en la política del tesoro.",
+    "send.sig2Stale": "La segunda firma es de otra solicitud — vuelve a firmarla con la segunda clave para la actual.",
+    "send.sig2Diff": "El segundo firmante NO eres tú: se necesita una clave de la política, tu propia clave será rechazada.",
+    "send.sig2": "Segunda firma (solo tesoro 2-de-3)",
+    "send.sig2Pub": "Clave del segundo firmante (PEM o 64 hex)",
+    "send.sig2How": "Los gastos del tesoro exigen un segundo firmante: pega su firma sobre el mismo txid y su clave pública. No necesario para direcciones ordinarias.",
     "send.submitOk": "Aceptada en mempool",
     "send.submitRejected": "El nodo rechazó la operación",
     "send.statusChecking": "Comprobando la operación original…",
@@ -706,6 +937,11 @@ const I18N={
     "history.note": "Las categorías del sistema están marcadas; los datos vienen del nodo.",
     "contacts.title": "Contactos",
     "contacts.add": "Añadir",
+    "contacts.resolve": "Buscar por nombre",
+    "contacts.namePh": "Nombre",
+    "contacts.addrPh": "Dirección AGT o handle",
+    "contacts.saved": "Contacto guardado.",
+    "contacts.bad": "Nombre y dirección AGT + 40 hex (o handle).",
     "contacts.seedDemo": "Añadir Alicia y Bob",
     "contacts.export": "Exportar JSON",
     "contacts.import": "Importar JSON",
@@ -743,6 +979,20 @@ const I18N={
     "tab.history": "Historial",
     "tab.contacts": "Contactos",
     "tab.fees": "Comisiones",
+    "tab.security": "Seguridad",
+    "sec.title": "Seguridad",
+    "sec.pinOn": "PIN activado",
+    "sec.pinOff": "PIN desactivado",
+    "sec.pinNew": "Nuevo PIN (4–6 dígitos)",
+    "sec.pinRepeat": "Repite el PIN",
+    "sec.pinSave": "Guardar PIN",
+    "sec.pinDisable": "Desactivar PIN",
+    "sec.pinMismatch": "Los PIN no coinciden.",
+    "sec.pinSaved": "PIN guardado (hash scrypt en el servidor).",
+    "sec.pinDisabled": "PIN desactivado.",
+    "sec.wordsTitle": "📜 12 palabras (acceso maestro)",
+    "sec.wordsText": "Restauran la clave en cualquier dispositivo. Este sitio nunca las ve ni las guarda.",
+    "sec.wordsCmd": "echo '{\"password\":\"TU_CONTRASEÑA\"}' | node agt-skill/agent-profile.mjs words profile.json",
     "overview.aliceTitle": "Solicitar pago a Alicia",
     "overview.aliceText": "Crea una factura y compártela como archivo o QR.",
     "overview.aliceButton": "Crear factura para Alicia",
@@ -772,10 +1022,30 @@ const I18N={
     "login.signature": "Signatur (128 Hex)",
     "login.submit": "Anmelden",
     "login.logout": "Abmelden",
+    "login.pin": "PIN (4–6 Ziffern)",
+    "login.pinSubmit": "Mit PIN anmelden",
+    "login.pinFirstPassport": "Melde dich zuerst mit dem Pass an und richte eine PIN unter „Sicherheit“ ein.",
+    "login.pinOk": "Mit PIN angemeldet.",
+    "login.noAddrPin": "Speichere zuerst oben die Adresse. Nur AGT + 40 Hex.",
+    "login.pinHow": "Die PIN wird einmal nach Schlüssel- oder Pass-Anmeldung gesetzt (Reiter „Sicherheit“) und gilt danach überall.",
     "login.autologin": "Lokale Anmeldung auf diesem Gerät",
     "login.disableAutologin": "Autologin deaktivieren",
     "login.hint": "Die Pass-Signatur bestätigt diese Sitzung.",
     "login.noAddr": "Gib zuerst eine Adresse ein.",
+    "login.key": "Schlüssel oder 24 Wörter (bleibt in diesem Browser)",
+    "login.keySubmit": "Mit Schlüssel anmelden",
+    "login.keyHow": "Erste Anmeldung ohne Pass: Schlüssel aus /create-wallet oder Hex/24 Wörter einfügen. Danach PIN unter „Sicherheit“ setzen.",
+    "login.keyOk": "Mit Schlüssel angemeldet.",
+    "login.noAddrKey": "Speichere zuerst die Adresse — oder füge Schlüssel/Wörter ein und wähle eine der beiden Adressen.",
+    "login.noLocalKey": "Kein gespeicherter Schlüssel für diese Adresse — füge privates Hex oder 24 Wörter ein.",
+    "login.keyMismatch": "Schlüssel gehört zu einer anderen Adresse.",
+    "login.keyBad": "Schlüssel nicht erkannt: 64 Hex oder genau 24 Wörter.",
+    "login.dualTitle": "Zwei Adressen dieses Schlüssels",
+    "login.dualHow": "Ein Schlüssel, zwei Konten: Browser und Pass (altes JSON). Guthaben unten: melde dich an, wo du musst.",
+    "login.browserAddr": "Browser (/create-wallet)",
+    "login.passportAddr": "Pass (altes JSON)",
+    "login.enterThis": "Hier anmelden",
+    "login.dualMismatch": "Die gespeicherte Adresse gehört nicht zu diesem Schlüssel. Klicke unten auf Hier anmelden: sie wird gespeichert.",
     "login.needPassport": "Öffentlicher Pass nicht gefunden.",
     "login.challengeOk": "Challenge bereit: JSON laden und lokal signieren.",
     "login.loggedIn": "Angemeldet.",
@@ -796,6 +1066,14 @@ const I18N={
     "send.sign": "Anfrage zum Signieren",
     "send.signature": "Signatur (128 Hex)",
     "send.submit": "Signierte Operation senden",
+    "send.sig2Sign": "Mit 2. Schlüssel signieren",
+    "send.sig2Ok": "Zweite Signatur bereit — prüfen und senden.",
+    "send.sig2NotPolicy": "Dieser Schlüssel steht nicht in der Tresor-Policy.",
+    "send.sig2Stale": "Zweite Signatur gehört zu einer anderen Anfrage — bitte erneut mit dem zweiten Schlüssel für die aktuelle signieren.",
+    "send.sig2Diff": "Der zweite Unterzeichner bist NICHT du: es braucht einen Schlüssel aus der Policy, dein eigener wird abgelehnt.",
+    "send.sig2": "Zweite Signatur (nur Tresor 2-von-3)",
+    "send.sig2Pub": "Schlüssel des zweiten Unterzeichners (PEM oder 64 Hex)",
+    "send.sig2How": "Tresor-Ausgaben brauchen einen zweiten Zeichner: füge seine Signatur über dieselbe txid und seinen öffentlichen Schlüssel ein. Für normale Adressen nicht nötig.",
     "send.submitOk": "Im Mempool angenommen",
     "send.submitRejected": "Node hat die Operation abgelehnt",
     "send.statusChecking": "Prüfe die ursprüngliche Operation…",
@@ -829,6 +1107,11 @@ const I18N={
     "history.note": "Systemkategorien sind markiert; Einträge stammen vom Node.",
     "contacts.title": "Kontakte",
     "contacts.add": "Hinzufügen",
+    "contacts.resolve": "Nach Name suchen",
+    "contacts.namePh": "Name",
+    "contacts.addrPh": "AGT-Adresse oder Handle",
+    "contacts.saved": "Kontakt gespeichert.",
+    "contacts.bad": "Name und AGT + 40-Hex-Adresse (oder Handle) nötig.",
     "contacts.seedDemo": "Alice und Bob hinzufügen",
     "contacts.export": "JSON exportieren",
     "contacts.import": "JSON importieren",
@@ -866,6 +1149,20 @@ const I18N={
     "tab.history": "Verlauf",
     "tab.contacts": "Kontakte",
     "tab.fees": "Gebühren",
+    "tab.security": "Sicherheit",
+    "sec.title": "Sicherheit",
+    "sec.pinOn": "PIN aktiviert",
+    "sec.pinOff": "PIN deaktiviert",
+    "sec.pinNew": "Neue PIN (4–6 Ziffern)",
+    "sec.pinRepeat": "PIN wiederholen",
+    "sec.pinSave": "PIN speichern",
+    "sec.pinDisable": "PIN deaktivieren",
+    "sec.pinMismatch": "PINs stimmen nicht überein.",
+    "sec.pinSaved": "PIN gespeichert (scrypt-Hash auf dem Server).",
+    "sec.pinDisabled": "PIN deaktiviert.",
+    "sec.wordsTitle": "📜 12 Wörter (Master-Zugang)",
+    "sec.wordsText": "Sie stellen den Schlüssel überall wieder her. Diese Seite sieht oder speichert sie nie.",
+    "sec.wordsCmd": "echo '{\"password\":\"DEIN_PASSWORT\"}' | node agt-skill/agent-profile.mjs words profile.json",
     "overview.aliceTitle": "Zahlung von Alice anfordern",
     "overview.aliceText": "Erstelle eine Rechnung und teile sie als Datei oder QR.",
     "overview.aliceButton": "Rechnung für Alice erstellen",
@@ -881,6 +1178,10 @@ const LANGS=['ru','en','fr','es','de'], LANG_KEY='agentcoin.lang', ADDR_KEY='age
 const $=id=>document.getElementById(id), ADDR_RE=/^AGT[0-9a-fA-F]{40}$/, HEX128=/^[0-9a-fA-F]{128}$/;
 let lang='ru', address='', token='', nodeInfo=null, state=null, passport=null, challengeReply=null, pendingOp=null, estimate=null, historyCursor=null, contacts=loadContacts(), balanceMGNT=null, balanceUnit='AGT', sendUnit='AGT', invoiceUnit='AGT', invoiceData=null, submitBusy=false, prepareBusy=false, sendGeneration=0;
 const SECRET='Этот файл содержит секретные поля. Нужен только публичный паспорт.';
+const AGT_WORDS=["abandon","ability","able","about","above","absent","absorb","abstract","absurd","abuse","access","accident","account","accuse","achieve","acid","acoustic","acquire","across","act","action","actor","actress","actual","adapt","add","addict","address","adjust","admit","adult","advance","advice","aerobic","affair","afford","afraid","again","age","agent","agree","ahead","aim","air","airport","aisle","alarm","album","alcohol","alert","alien","all","alley","allow","almost","alone","alpha","already","also","alter","always","amateur","amazing","among","amount","amused","analyst","anchor","ancient","anger","angle","angry","animal","ankle","announce","annual","another","answer","antenna","antique","anxiety","any","apart","apology","appear","apple","approve","april","arch","arctic","area","arena","argue","arm","armed","armor","army","around","arrange","arrest","arrive","arrow","art","artefact","artist","artwork","ask","aspect","assault","asset","assist","assume","asthma","athlete","atom","attack","attend","attitude","attract","auction","audit","august","aunt","author","auto","autumn","average","avocado","avoid","awake","aware","away","awesome","awful","awkward","axis","baby","bachelor","bacon","badge","bag","balance","balcony","ball","bamboo","banana","banner","bar","barely","bargain","barrel","base","basic","basket","battle","beach","bean","beauty","because","become","beef","before","begin","behave","behind","believe","below","belt","bench","benefit","best","betray","better","between","beyond","bicycle","bid","bike","bind","biology","bird","birth","bitter","black","blade","blame","blanket","blast","bleak","bless","blind","blood","blossom","blouse","blue","blur","blush","board","boat","body","boil","bomb","bone","bonus","book","boost","border","boring","borrow","boss","bottom","bounce","box","boy","bracket","brain","brand","brass","brave","bread","breeze","brick","bridge","brief","bright","bring","brisk","broccoli","broken","bronze","broom","brother","brown","brush","bubble","buddy","budget","buffalo","build","bulb","bulk","bullet","bundle","bunker","burden","burger","burst","bus","business","busy","butter","buyer","buzz","cabbage","cabin","cable","cactus","cage","cake","call","calm","camera","camp","can","canal","cancel","candy","cannon","canoe","canvas","canyon","capable","capital","captain","car","carbon","card","cargo","carpet","carry","cart","case","cash","casino","castle","casual","cat","catalog","catch","category","cattle","caught","cause","caution","cave","ceiling","celery","cement","census","century","cereal","certain","chair","chalk","champion","change","chaos","chapter","charge","chase","chat","cheap","check","cheese","chef","cherry","chest","chicken","chief","child","chimney","choice","choose","chronic","chuckle","chunk","churn","cigar","cinnamon","circle","citizen","city","civil","claim","clap","clarify","claw","clay","clean","clerk","clever","click","client","cliff","climb","clinic","clip","clock","clog","close","cloth","cloud","clown","club","clump","cluster","clutch","coach","coast","coconut","code","coffee","coil","coin","collect","color","column","combine","come","comfort","comic","common","company","concert","conduct","confirm","congress","connect","consider","control","convince","cook","cool","copper","copy","coral","core","corn","correct","cost","cotton","couch","country","couple","course","cousin","cover","coyote","crack","cradle","craft","cram","crane","crash","crater","crawl","crazy","cream","credit","creek","crew","cricket","crime","crisp","critic","crop","cross","crouch","crowd","crucial","cruel","cruise","crumble","crunch","crush","cry","crystal","cube","culture","cup","cupboard","curious","current","curtain","curve","cushion","custom","cute","cycle","dad","damage","damp","dance","danger","daring","dash","daughter","dawn","day","deal","debate","debris","decade","december","decide","decline","decorate","decrease","deer","defense","define","defy","degree","delay","deliver","demand","demise","denial","dentist","deny","depart","depend","deposit","depth","deputy","derive","describe","desert","design","desk","despair","destroy","detail","detect","develop","device","devote","diagram","dial","diamond","diary","dice","diesel","diet","differ","digital","dignity","dilemma","dinner","dinosaur","direct","dirt","disagree","discover","disease","dish","dismiss","disorder","display","distance","divert","divide","divorce","dizzy","doctor","document","dog","doll","dolphin","domain","donate","donkey","donor","door","dose","double","dove","draft","dragon","drama","drastic","draw","dream","dress","drift","drill","drink","drip","drive","drop","drum","dry","duck","dumb","dune","during","dust","dutch","duty","dwarf","dynamic","eager","eagle","early","earn","earth","easily","east","easy","echo","ecology","economy","edge","edit","educate","effort","egg","eight","either","elbow","elder","electric","elegant","element","elephant","elevator","elite","else","embark","embody","embrace","emerge","emotion","employ","empower","empty","enable","enact","end","endless","endorse","enemy","energy","enforce","engage","engine","enhance","enjoy","enlist","enough","enrich","enroll","ensure","enter","entire","entry","envelope","episode","equal","equip","era","erase","erode","erosion","error","erupt","escape","essay","essence","estate","eternal","ethics","evidence","evil","evoke","evolve","exact","example","excess","exchange","excite","exclude","excuse","execute","exercise","exhaust","exhibit","exile","exist","exit","exotic","expand","expect","expire","explain","expose","express","extend","extra","eye","eyebrow","fabric","face","faculty","fade","faint","faith","fall","false","fame","family","famous","fan","fancy","fantasy","farm","fashion","fat","fatal","father","fatigue","fault","favorite","feature","february","federal","fee","feed","feel","female","fence","festival","fetch","fever","few","fiber","fiction","field","figure","file","film","filter","final","find","fine","finger","finish","fire","firm","first","fiscal","fish","fit","fitness","fix","flag","flame","flash","flat","flavor","flee","flight","flip","float","flock","floor","flower","fluid","flush","fly","foam","focus","fog","foil","fold","follow","food","foot","force","forest","forget","fork","fortune","forum","forward","fossil","foster","found","fox","fragile","frame","frequent","fresh","friend","fringe","frog","front","frost","frown","frozen","fruit","fuel","fun","funny","furnace","fury","future","gadget","gain","galaxy","gallery","game","gap","garage","garbage","garden","garlic","garment","gas","gasp","gate","gather","gauge","gaze","general","genius","genre","gentle","genuine","gesture","ghost","giant","gift","giggle","ginger","giraffe","girl","give","glad","glance","glare","glass","glide","glimpse","globe","gloom","glory","glove","glow","glue","goat","goddess","gold","good","goose","gorilla","gospel","gossip","govern","gown","grab","grace","grain","grant","grape","grass","gravity","great","green","grid","grief","grit","grocery","group","grow","grunt","guard","guess","guide","guilt","guitar","gun","gym","habit","hair","half","hammer","hamster","hand","happy","harbor","hard","harsh","harvest","hat","have","hawk","hazard","head","health","heart","heavy","hedgehog","height","hello","helmet","help","hen","hero","hidden","high","hill","hint","hip","hire","history","hobby","hockey","hold","hole","holiday","hollow","home","honey","hood","hope","horn","horror","horse","hospital","host","hotel","hour","hover","hub","huge","human","humble","humor","hundred","hungry","hunt","hurdle","hurry","hurt","husband","hybrid","ice","icon","idea","identify","idle","ignore","ill","illegal","illness","image","imitate","immense","immune","impact","impose","improve","impulse","inch","include","income","increase","index","indicate","indoor","industry","infant","inflict","inform","inhale","inherit","initial","inject","injury","inmate","inner","innocent","input","inquiry","insane","insect","inside","inspire","install","intact","interest","into","invest","invite","involve","iron","island","isolate","issue","item","ivory","jacket","jaguar","jar","jazz","jealous","jeans","jelly","jewel","job","join","joke","journey","joy","judge","juice","jump","jungle","junior","junk","just","kangaroo","keen","keep","ketchup","key","kick","kid","kidney","kind","kingdom","kiss","kit","kitchen","kite","kitten","kiwi","knee","knife","knock","know","lab","label","labor","ladder","lady","lake","lamp","language","laptop","large","later","latin","laugh","laundry","lava","law","lawn","lawsuit","layer","lazy","leader","leaf","learn","leave","lecture","left","leg","legal","legend","leisure","lemon","lend","length","lens","leopard","lesson","letter","level","liar","liberty","library","license","life","lift","light","like","limb","limit","link","lion","liquid","list","little","live","lizard","load","loan","lobster","local","lock","logic","lonely","long","loop","lottery","loud","lounge","love","loyal","lucky","luggage","lumber","lunar","lunch","luxury","lyrics","machine","mad","magic","magnet","maid","mail","main","major","make","mammal","man","manage","mandate","mango","mansion","manual","maple","marble","march","margin","marine","market","marriage","mask","mass","master","match","material","math","matrix","matter","maximum","maze","meadow","mean","measure","meat","mechanic","medal","media","melody","melt","member","memory","mention","menu","mercy","merge","merit","merry","mesh","message","metal","method","middle","midnight","milk","million","mimic","mind","minimum","minor","minute","miracle","mirror","misery","miss","mistake","mix","mixed","mixture","mobile","model","modify","mom","moment","monitor","monkey","monster","month","moon","moral","more","morning","mosquito","mother","motion","motor","mountain","mouse","move","movie","much","muffin","mule","multiply","muscle","museum","mushroom","music","must","mutual","myself","mystery","myth","naive","name","napkin","narrow","nasty","nation","nature","near","neck","need","negative","neglect","neither","nephew","nerve","nest","net","network","neutral","never","news","next","nice","night","noble","noise","nominee","noodle","normal","north","nose","notable","note","nothing","notice","novel","now","nuclear","number","nurse","nut","oak","obey","object","oblige","obscure","observe","obtain","obvious","occur","ocean","october","odor","off","offer","office","often","oil","okay","old","olive","olympic","omit","once","one","onion","online","only","open","opera","opinion","oppose","option","orange","orbit","orchard","order","ordinary","organ","orient","original","orphan","ostrich","other","outdoor","outer","output","outside","oval","oven","over","own","owner","oxygen","oyster","ozone","pact","paddle","page","pair","palace","palm","panda","panel","panic","panther","paper","parade","parent","park","parrot","party","pass","patch","path","patient","patrol","pattern","pause","pave","payment","peace","peanut","pear","peasant","pelican","pen","penalty","pencil","people","pepper","perfect","permit","person","pet","phone","photo","phrase","physical","piano","picnic","picture","piece","pig","pigeon","pill","pilot","pink","pioneer","pipe","pistol","pitch","pizza","place","planet","plastic","plate","play","please","pledge","pluck","plug","plunge","poem","poet","point","polar","pole","police","pond","pony","pool","popular","portion","position","possible","post","potato","pottery","poverty","powder","power","practice","praise","predict","prefer","prepare","present","pretty","prevent","price","pride","primary","print","priority","prison","private","prize","problem","process","produce","profit","program","project","promote","proof","property","prosper","protect","proud","provide","public","pudding","pull","pulp","pulse","pumpkin","punch","pupil","puppy","purchase","purity","purpose","purse","push","put","puzzle","pyramid","quality","quantum","quarter","question","quick","quit","quiz","quote","rabbit","raccoon","race","rack","radar","radio","rail","rain","raise","rally","ramp","ranch","random","range","rapid","rare","rate","rather","raven","raw","razor","ready","real","reason","rebel","rebuild","recall","receive","recipe","record","recycle","reduce","reflect","reform","refuse","region","regret","regular","reject","relax","release","relief","rely","remain","remember","remind","remove","render","renew","rent","reopen","repair","repeat","replace","report","require","rescue","resemble","resist","resource","response","result","retire","retreat","return","reunion","reveal","review","reward","rhythm","rib","ribbon","rice","rich","ride","ridge","rifle","right","rigid","ring","riot","ripple","risk","ritual","rival","river","road","roast","robot","robust","rocket","romance","roof","rookie","room","rose","rotate","rough","round","route","royal","rubber","rude","rug","rule","run","runway","rural","sad","saddle","sadness","safe","sail","salad","salmon","salon","salt","salute","same","sample","sand","satisfy","satoshi","sauce","sausage","save","say","scale","scan","scare","scatter","scene","scheme","school","science","scissors","scorpion","scout","scrap","screen","script","scrub","sea","search","season","seat","second","secret","section","security","seed","seek","segment","select","sell","seminar","senior","sense","sentence","series","service","session","settle","setup","seven","shadow","shaft","shallow","share","shed","shell","sheriff","shield","shift","shine","ship","shiver","shock","shoe","shoot","shop","short","shoulder","shove","shrimp","shrug","shuffle","shy","sibling","sick","side","siege","sight","sign","silent","silk","silly","silver","similar","simple","since","sing","siren","sister","situate","six","size","skate","sketch","ski","skill","skin","skirt","skull","slab","slam","sleep","slender","slice","slide","slight","slim","slogan","slot","slow","slush","small","smart","smile","smoke","smooth","snack","snake","snap","sniff","snow","soap","soccer","social","sock","soda","soft","solar","soldier","solid","solution","solve","someone","song","soon","sorry","sort","soul","sound","soup","source","south","space","spare","spatial","spawn","speak","special","speed","spell","spend","sphere","spice","spider","spike","spin","spirit","split","spoil","sponsor","spoon","sport","spot","spray","spread","spring","spy","square","squeeze","squirrel","stable","stadium","staff","stage","stairs","stamp","stand","start","state","stay","steak","steel","stem","step","stereo","stick","still","sting","stock","stomach","stone","stool","story","stove","strategy","street","strike","strong","struggle","student","stuff","stumble","style","subject","submit","subway","success","such","sudden","suffer","sugar","suggest","suit","summer","sun","sunny","sunset","super","supply","supreme","sure","surface","surge","surprise","surround","survey","suspect","sustain","swallow","swamp","swap","swarm","swear","sweet","swift","swim","swing","switch","sword","symbol","symptom","syrup","system","table","tackle","tag","tail","talent","talk","tank","tape","target","task","taste","tattoo","taxi","teach","team","tell","ten","tenant","tennis","tent","term","test","text","thank","that","theme","then","theory","there","they","thing","this","thought","three","thrive","throw","thumb","thunder","ticket","tide","tiger","tilt","timber","time","tiny","tip","tired","tissue","title","toast","tobacco","today","toddler","toe","together","toilet","token","tomato","tomorrow","tone","tongue","tonight","tool","tooth","top","topic","topple","torch","tornado","tortoise","toss","total","tourist","toward","tower","town","toy","track","trade","traffic","tragic","train","transfer","trap","trash","travel","tray","treat","tree","trend","trial","tribe","trick","trigger","trim","trip","trophy","trouble","truck","true","truly","trumpet","trust","truth","try","tube","tuition","tumble","tuna","tunnel","turkey","turn","turtle","twelve","twenty","twice","twin","twist","two","type","typical","ugly","umbrella","unable","unaware","uncle","uncover","under","undo","unfair","unfold","unhappy","uniform","unique","unit","universe","unknown","unlock","until","unusual","unveil","update","upgrade","uphold","upon","upper","upset","urban","urge","usage","use","used","useful","useless","usual","utility","vacant","vacuum","vague","valid","valley","valve","van","vanish","vapor","various","vast","vault","vehicle","velvet","vendor","venture","venue","verb","verify","version","very","vessel","veteran","viable","vibrant","vicious","victory","video","view","village","vintage","violin","virtual","virus","visa","visit","visual","vital","vivid","vocal","voice","void","volcano","volume","vote","voyage","wage","wagon","wait","walk","wall","walnut","want","warfare","warm","warrior","wash","wasp","waste","water","wave","way","wealth","weapon","wear","weasel","weather","web","wedding","weekend","weird","welcome","west","wet","whale","what","wheat","wheel","when","where","whip","whisper","wide","width","wife","wild","will","win","window","wine","wing","wink","winner","winter","wire","wisdom","wise","wish","witness","wolf","woman","wonder","wood","wool","word","work","world","worry","worth","wrap","wreck","wrestle","wrist","write","wrong","yard","year","yellow","you","young","youth","zebra","zero","zone","zoo"];
+async function agtPetname(addr){const data=new TextEncoder().encode('agentcoin-petname-v1:'+addr);const d=new Uint8Array(await crypto.subtle.digest('SHA-256',data));let bits='';for(let i=0;i<5;i++)bits+=d[i].toString(2).padStart(8,'0');bits=bits.slice(0,33);const out=[];for(let i=0;i<3;i++)out.push(AGT_WORDS[parseInt(bits.slice(i*11,i*11+11),2)]);return out.join('-')}
+function agtShort(addr){return addr.slice(0,8)+'…'+addr.slice(-4)}
+async function renderIdentity(handle,addr){const el=$('identity');if(!el||!/^AGT[0-9a-f]{40}$/.test(addr||'')){if(el)el.textContent=addr||'';return}try{const base=await agtPetname(addr)+' · '+agtShort(addr);el.textContent=(handle?handle+' · ':'')+base;el.title=addr}catch{el.textContent=(handle?handle+' · ':'')+addr}}
 function tr(k){return (I18N[lang]&&I18N[lang][k])||I18N.ru[k]||k}
 function applyLang(){document.documentElement.lang=lang;
 document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
@@ -900,8 +1201,8 @@ async function getJSON(path){return (await api(path)).json}
 function noSecrets(v){if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/priv|mnemonic|password|seed|token/i.test(k))throw Error(SECRET);noSecrets(x)}}}
 function loadContacts(){try{const v=JSON.parse(localStorage.getItem(CONTACT_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.label==='string'&&typeof x.address==='string'):[]}catch{return[]}}
 function persistContacts(){localStorage.setItem(CONTACT_KEY,JSON.stringify(contacts.slice(0,200)))}
-function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
-function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off')}
+function setAddress(v){const next=(v||'').trim();if(next&&!ADDR_RE.test(next))throw Error('AGT address must be AGT plus 40 lowercase hex characters.');if(next!==address){const oldToken=token;if(oldToken)api('/cabinet/logout',{token:oldToken}).catch(()=>{});token='';sessionStorage.removeItem(TOKEN_KEY);address=next;sendGeneration++;challengeReply=null;pendingOp=null;estimate=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';$('opJson').value='';$('signBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opStatus').textContent='';if(address)localStorage.setItem(ADDR_KEY,address);else localStorage.removeItem(ADDR_KEY);$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');updateAddressUI()}updateAddressUI()}
+function updateAddressUI(){if(document.activeElement!==$('adr'))$('adr').value=address;$('sessionPill').textContent=token?tr('session.on'):tr('session.off');$('sessionPill').className='pill '+(token?'on':'off');const lt=$('logoutTop');if(lt)lt.classList.toggle('hidden',!token)}
 async function checkNetwork(){const info=await getJSON('/info');const network=info.chainId||info.network;if(network!=='AGENTCOIN'||!/^[a-f0-9]{64}$/i.test(info.genesisHash||''))throw Error('Cannot verify network and genesis.');if(nodeInfo&&nodeInfo.genesisHash!==info.genesisHash)throw Error('Genesis changed; sign out and reconnect.');nodeInfo={network,genesisHash:info.genesisHash};return nodeInfo}
 function fileText(file,max=65536){if(!file||file.size>max)throw Error('File is missing or too large.');return file.text()}
 function drawQR(canvas,text){const qr=window.AgentcoinQR;if(!qr||typeof qr.encode!=='function')throw Error('QR encoder unavailable.');const encoded=qr.encode(text),matrix=encoded.modules;const ctx=canvas.getContext('2d'),n=encoded.size||matrix.length,pad=4,scale=Math.floor(canvas.width/(n+pad*2));ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';matrix.forEach((row,y)=>row.forEach((on,x)=>{if(on)ctx.fillRect((x+pad)*scale,(y+pad)*scale,scale,scale)}))}
@@ -913,22 +1214,53 @@ function buttons(container,current,callback){container.replaceChildren();for(con
 function renderUnits(){if($('unitButtons'))buttons($('unitButtons'),balanceUnit,u=>{balanceUnit=u;renderUnits();renderBalance()})}
 function renderSendUnits(){if($('sendUnitButtons'))buttons($('sendUnitButtons'),sendUnit,u=>{sendUnit=u;renderSendUnits();invalidateSend();$('unitHint').textContent='1 '+u+' = '+(u==='AGT'?'1 AGT':u==='mAGT'?'0.000001 AGT':'0.000000001 AGT')})}
 function renderInvoiceUnits(){if($('invUnitButtons'))buttons($('invUnitButtons'),invoiceUnit,u=>{invoiceUnit=u;renderInvoiceUnits();invoiceData=null;$('downloadInvoice').disabled=true;$('showInvoiceQR').disabled=true})}
-const PANES=['Overview','Send','Receive','History','Contacts','Fees'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders()}
+const PANES=['Overview','Send','Receive','History','Contacts','Fees','Security'];function showTab(n){for(const p of PANES){$('pane'+p).classList.toggle('hidden',p!==n);$('tab'+p).classList.toggle('active',p===n)}if(n==='History')loadHistory(false);if(n==='Contacts')renderContacts();if(n==='Fees')loadTreasury();if(n==='Overview')loadOrders();if(n==='Security')refreshPinState().catch(()=>{})}
 for(const p of PANES)$('tab'+p).onclick=()=>showTab(p);
-async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();$('identity').textContent=(state.passport&&state.passport.handle?state.passport.handle+' · ':'')+address;$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{})}
+async function loadWallet(){if(!address||!token)return;const askedAddress=address,askedToken=token;const [net,bal,session]=await Promise.all([checkNetwork(),api('/balance',{address:askedAddress}),api('/cabinet/state',{address:askedAddress,token:askedToken})]);if(address!==askedAddress||token!==askedToken)return;nodeInfo=net;const b=bal.json;balanceMGNT=b.balanceMGNT!=null?String(b.balanceMGNT):decimalBalanceToMgnt(b.balance);state=session.json;renderBalance();renderIdentity(state.passport&&state.passport.handle?state.passport.handle:null,address);$('receiveAddress').textContent=address;$('receiveUri').textContent='agentcoin:'+address;drawQR($('qrReceive'),'agentcoin:'+address);$('cab').classList.remove('hidden');$('loginBox').classList.add('hidden');updateAddressUI();loadOrders().catch(()=>{});refreshPinState().catch(()=>{})}
 async function refreshSession(){if(!address||!token)return;await loadWallet()}
 async function challengeFlow(){if(!address)throw Error(tr('err.noAddr'));const askedAddress=address;await checkNetwork();const r=(await api('/cabinet/challenge',{address})).json;if(address!==askedAddress)throw Error('Address changed; challenge discarded.');if(!r.ok||!r.challenge)throw Error(r.error||'invalid_challenge');challengeReply=r;$('challengeJson').value=JSON.stringify(r,null,2);$('signBox').classList.remove('hidden');const command='node src/cli.mjs sign-challenge /path/profile.json /path/challenge-'+(r.challengeId||'request')+'.json';$('challengeCommand').textContent=command;addCopyButton($('challengeCommand'),command);saveFile('agentcoin-challenge-'+(r.challengeId||'request')+'.json',r);$('loginHint').textContent=tr('login.challengeOk')}
 async function loginFlow(){if(!challengeReply)throw Error('Get a challenge first.');const loginAddress=address,signedChallenge=challengeReply,sig=$('signature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const r=(await api('/cabinet/login',{address:loginAddress,mode:'challenge',nonce:signedChallenge.nonce,challengeId:signedChallenge.challengeId,signature:sig})).json;if(address!==loginAddress||challengeReply!==signedChallenge)throw Error('Address changed; login response discarded.');if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);challengeReply=null;$('signature').value='';await loadWallet();setMessage(tr('login.loggedIn'))}
-async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;challengeReply=null;$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
+async function logoutFlow(){try{if(token)await api('/cabinet/logout',{token})}catch{}token='';sessionStorage.removeItem(TOKEN_KEY);invalidateSend();pendingOp=null;pendingKey=null;challengeReply=null;clearPinInputs();$('signature').value='';$('opSignature').value='';$('opJson').value='';$('cab').classList.add('hidden');$('loginBox').classList.remove('hidden');$('signBox').classList.add('hidden');updateAddressUI();setMessage(tr('login.loggedOut'))}
 async function autologin(){const askedAddress=address;if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname))throw Error('Autologin is available only on loopback.');if(localStorage.getItem('agtx:autologin')==='disabled')throw Error('Autologin is disabled.');const r=(await api('/cabinet/autologin',{address:address||undefined},{headers:{'x-cabinet-autologin':'local'}})).json;if(address!==askedAddress)throw Error('Address changed; autologin response discarded.');if(!r.token||!r.address)throw Error(r.error||'autologin_response_invalid');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);address=r.address;localStorage.setItem(ADDR_KEY,address);updateAddressUI();await loadWallet();setMessage(tr('login.loggedIn'))}
 function disableAutologin(){localStorage.setItem('agtx:autologin','disabled');setMessage('Autologin disabled on this browser.')}
-function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
+function invalidateSend(){sendGeneration++;estimate=null;pendingOp=null;$('feeBox').classList.add('hidden');$('opBox').classList.add('hidden');$('opJson').value='';$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';$('confirmSend').checked=false;$('opStatus').textContent=''}
 for(const id of ['sendTo','sendAmount','sendMemo'])$(id).addEventListener('input',invalidateSend);document.querySelectorAll('[name=sendRoute]').forEach(x=>x.addEventListener('change',invalidateSend));
 async function estimateFees(){if(!token||!address)throw Error('Sign in first.');const generation=sendGeneration,route=document.querySelector('[name=sendRoute]:checked').value;if(route!=='direct')throw Error('Gateway route estimates are not submit-enabled.');const amount=parseAmount($('sendAmount').value,sendUnit);const to=$('sendTo').value.trim();if(!ADDR_RE.test(to))throw Error('Invalid recipient address.');const r=(await api('/cabinet/wallet/estimate',{address,token,to,route,amount})).json;if(generation!==sendGeneration)return;estimate={r,to,amount,route,memo:$('sendMemo').value};renderEstimate(r);$('feeBox').classList.remove('hidden')}
 function renderEstimate(r){const t=$('feeTable');t.replaceChildren();const rows=[['route',r.route],['amount',r.amountAGT],['arrival',r.arrival],['fees',JSON.stringify(r.fees)],['balanceAGT',r.balanceAGT],['sufficient',r.sufficient]];for(const [k,v] of rows){const rowEl=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=String(v);rowEl.append(a,b);t.append(rowEl)}$('feeNote').textContent=r.explain||''}
-async function prepareSend(){if(prepareBusy)throw Error('Preparation is already running.');if(!token||!address)throw Error(tr('send.needLogin')); if(!$('confirmSend').checked)throw Error('Confirm recipient, amount, and fee first.');if(!estimate)throw Error('Calculate the fee again.');const now={to:$('sendTo').value.trim(),amount:parseAmount($('sendAmount').value,sendUnit),memo:$('sendMemo').value,route:document.querySelector('[name=sendRoute]:checked').value};if(now.to!==estimate.to||now.amount!==estimate.amount||now.memo!==estimate.memo||now.route!==estimate.route)throw Error('Details changed; recalculate the fee.');if(now.memo.length>120)throw Error('Memo exceeds 120 characters.');const generation=sendGeneration;prepareBusy=true;$('prepareOp').disabled=true;let r;try{r=(await api('/cabinet/op-request',{address,token,op:{kind:'send',to:now.to,amount:Number(now.amount),memo:now.memo}})).json}finally{prepareBusy=false;$('prepareOp').disabled=false}if(generation!==sendGeneration)throw Error('Details changed while preparing; request discarded.');if(!r.opId||!r.payload||!r.payload.txidHex)throw Error('Invalid op-request response.');pendingOp={opId:r.opId,txidHex:r.payload.txidHex,request:r,details:now};$('opJson').value=JSON.stringify(r,null,2);const command='node src/cli.mjs sign-op /path/profile.json --op-id '+r.opId+' --txid '+r.payload.txidHex;$('opCommand').textContent=command;addCopyButton($('opCommand'),command);$('opBox').classList.remove('hidden');$('opSubmit').disabled=false;saveFile('agentcoin-op-'+r.opId+'.json',r)}
+async function prepareSend(){if(prepareBusy)throw Error('Preparation is already running.');if(!token||!address)throw Error(tr('send.needLogin')); if(!$('confirmSend').checked)throw Error('Confirm recipient, amount, and fee first.');if(!estimate)throw Error('Calculate the fee again.');const now={to:$('sendTo').value.trim(),amount:parseAmount($('sendAmount').value,sendUnit),memo:$('sendMemo').value,route:document.querySelector('[name=sendRoute]:checked').value};if(now.to!==estimate.to||now.amount!==estimate.amount||now.memo!==estimate.memo||now.route!==estimate.route)throw Error('Details changed; recalculate the fee.');if(now.memo.length>120)throw Error('Memo exceeds 120 characters.');const generation=sendGeneration;prepareBusy=true;$('prepareOp').disabled=true;let r;const keyPub=(typeof pendingKey!=='undefined'&&pendingKey&&address&&(address===pendingKey.addrRaw||address===pendingKey.addrPem))?(address===pendingKey.addrPem?pendingKey.pem:pendingKey.pub):null;try{r=(await api('/cabinet/op-request',{address,token,pub:keyPub,op:{kind:'send',to:now.to,amount:Number(now.amount),memo:now.memo}})).json}finally{prepareBusy=false;$('prepareOp').disabled=false}if(generation!==sendGeneration)throw Error('Details changed while preparing; request discarded.');if(!r.opId||!r.payload||!r.payload.txidHex)throw Error('Invalid op-request response.');pendingOp={opId:r.opId,txidHex:r.payload.txidHex,request:r,details:now};$('sig2').value='';$('sig2Pub').value='';try{$('sig2Hint').textContent='';}catch{}$('opJson').value=JSON.stringify(r,null,2);const command='node src/cli.mjs sign-op /path/profile.json --op-id '+r.opId+' --txid '+r.payload.txidHex;$('opCommand').textContent=command;addCopyButton($('opCommand'),command);$('opBox').classList.remove('hidden');$('opSubmit').disabled=false;saveFile('agentcoin-op-'+r.opId+'.json',r)}
 async function lookupSubmittedTx(txid){try{const p=await getJSON('/txproof/'+encodeURIComponent(txid));if(p&&typeof p.txid==='string'&&p.txid.toLowerCase()===txid.toLowerCase())return'confirmed'}catch(e){if(e.status!==404)return'unknown'}try{const m=await getJSON('/mempool?full=1');if(m.complete&&Array.isArray(m.txs)&&m.txs.some(tx=>String(tx.txid||'').toLowerCase()===txid.toLowerCase()))return'mempool';return'unknown'}catch{return'unknown'}}
-async function submitSend(){if(submitBusy||!pendingOp)throw Error('No pending operation.');if(!$('confirmSend').checked)throw Error('Confirm the transfer details before submitting.');const sig=$('opSignature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));submitBusy=true;$('opSubmit').disabled=true;const op=pendingOp,generation=sendGeneration;$('opStatus').textContent='Submitting…';try{const out=await api('/cabinet/op-submit',{opId:op.opId,signature:sig},{timeout:10000});if(generation!==sendGeneration)return;if(out.status>=200&&out.status<300&&out.json.accepted){$('opStatus').textContent=tr('send.submitOk')+' · txid '+op.txidHex;pendingOp=null;$('opSignature').value='';return}throw Error('accepted_flag_missing')}catch(e){if(generation!==sendGeneration)return;if(e.status>=400&&e.status<500){$('opStatus').textContent=tr('send.submitRejected')+': '+e.message;pendingOp=null;$('opSignature').value='';return}$('opStatus').textContent=tr('send.statusChecking');const status=await lookupSubmittedTx(op.txidHex);$('opStatus').textContent=status==='confirmed'?tr('send.confirmed')+' · '+op.txidHex:status==='mempool'?tr('send.mempool')+' · '+op.txidHex:tr('send.status_unknown')+' · '+op.txidHex;pendingOp=null;$('opSignature').value=''}finally{submitBusy=false;$('opSubmit').disabled=!pendingOp}}
+async function signSecondKey(){
+  if(!pendingOp)throw Error('No pending operation.');
+  const raw=$('sig2Key').value.trim();
+  if(!raw)throw Error(tr('login.keyBad'));
+  let privBytes;
+  try {
+    if(/^[0-9a-fA-F]{64}$/.test(raw))privBytes=hexToBytesLocal(raw);
+    else privBytes=Uint8Array.from(await wordsToPrivLocal(raw));
+  } catch(e){ throw Error(tr('login.keyBad')); }
+  if(privBytes.length!==32)throw Error(tr('login.keyBad'));
+  $('sig2Key').value='';
+  const qs=await import('./js/agt-tx.mjs');
+  const pub=qs.pubFromPriv(bytesToHexLocal(privBytes));
+  const addrRaw=qs.addressFromPubHex(pub);
+  const pemInfo=await pemAddrOf(privBytes);
+  const pol=await getJSON('/treasury/state');
+  const signers=(pol&&pol.policy&&Array.isArray(pol.policy.signers))?pol.policy.signers:[];
+  let usePub=null;
+  if(signers.indexOf(addrRaw)>=0)usePub=pub;
+  else if(signers.indexOf(pemInfo.address)>=0)usePub=pemInfo.pem;
+  if(!usePub)throw Error(tr('send.sig2NotPolicy'));
+  const hex=(pendingOp.request&&pendingOp.request.payload&&(pendingOp.request.payload.txidHex||pendingOp.request.payload.digestHex))||pendingOp.txidHex;
+  if(!hex)throw Error('Nothing to sign.');
+  const ed=await import('./js/vendor/ed25519.mjs');
+  const sigBytes=await ed.sign(hexToBytesLocal(hex),privBytes);
+  $('sig2').value=bytesToHexLocal(sigBytes);
+  $('sig2Pub').value=usePub;
+  try{pendingOp.sig2Txid=hex;}catch{}
+  $('sig2Hint').textContent=tr('send.sig2Ok');
+}
+async function signOpWithLoginKey(){if(!pendingOp)throw Error('No pending operation.');if(typeof pendingKey==='undefined'||!pendingKey||!address)throw Error(tr('login.noAddrKey'));if(address!==pendingKey.addrRaw&&address!==pendingKey.addrPem)throw Error(tr('login.keyMismatch'));const hex=(pendingOp.request&&pendingOp.request.payload&&(pendingOp.request.payload.txidHex||pendingOp.request.payload.digestHex))||pendingOp.txidHex;if(!hex)throw Error('Nothing to sign.');const ed=await import('./js/vendor/ed25519.mjs');const sigBytes=await ed.sign(hexToBytesLocal(hex),pendingKey.privBytes);$('opSignature').value=bytesToHexLocal(sigBytes);$('opStatus').textContent='';setMessage(tr('login.keyOk'))}
+async function submitSend(){if(submitBusy||!pendingOp)throw Error('No pending operation.');if(!$('confirmSend').checked)throw Error('Confirm the transfer details before submitting.');const sig=$('opSignature').value.trim();if(!HEX128.test(sig))throw Error(tr('err.badSig'));const sig2=$('sig2').value.trim();let sig2Pub=$('sig2Pub').value.trim();if(sig2Pub.indexOf('\\n')>=0&&sig2Pub.indexOf('\n')<0)sig2Pub=sig2Pub.replace(/\\n/g,'\n');if((sig2||sig2Pub)&&(!/^[0-9a-fA-F]{128}$/.test(sig2)||!sig2Pub))throw Error(tr('send.sig2How'));const opTxPub=pendingOp.request&&pendingOp.request.payload&&pendingOp.request.payload.tx&&pendingOp.request.payload.tx.fromPub;if(sig2Pub&&opTxPub&&sig2Pub===opTxPub)throw Error(tr('send.sig2Diff'));const op=pendingOp,generation=sendGeneration;if(sig2&&sig2Pub&&op.sig2Txid&&op.sig2Txid!==op.txidHex)throw Error(tr('send.sig2Stale'));const body={opId:op.opId,signature:sig};if(sig2&&sig2Pub){body.sig2=sig2;body.sig2Pub=sig2Pub}submitBusy=true;$('opSubmit').disabled=true;$('opStatus').textContent='Submitting…';try{const out=await api('/cabinet/op-submit',body,{timeout:10000});if(generation!==sendGeneration)return;if(out.status>=200&&out.status<300&&out.json.accepted){$('opStatus').textContent=tr('send.submitOk')+' · txid '+op.txidHex;pendingOp=null;$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';return}throw Error('accepted_flag_missing')}catch(e){if(generation!==sendGeneration)return;if(e.status>=400&&e.status<500){const why=(e.body&&(e.body.reason||e.body.error||e.body.hint))||e.message;$('opStatus').textContent=tr('send.submitRejected')+': '+why+((String(why).indexOf('treasury_needs_2sig')>=0||String(why).indexOf('treasury_sig2_invalid')>=0)?' — '+tr('send.sig2How'):'');pendingOp=null;$('opSignature').value='';$('sig2').value='';$('sig2Pub').value='';try{$('sig2Hint').textContent='';}catch{}return}$('opStatus').textContent=tr('send.statusChecking');const status=await lookupSubmittedTx(op.txidHex);$('opStatus').textContent=status==='confirmed'?tr('send.confirmed')+' · '+op.txidHex:status==='mempool'?tr('send.mempool')+' · '+op.txidHex:tr('send.status_unknown')+' · '+op.txidHex;pendingOp=null;$('opSignature').value=''}finally{submitBusy=false;$('opSubmit').disabled=!pendingOp}}
 async function loadHistory(append){if(!token||!address)return;const r=(await api('/cabinet/wallet/history',{address,token,limit:50,beforeHeight:append?historyCursor:undefined})).json;const rows=[...(append?($('historyTable').dataset.rows?JSON.parse($('historyTable').dataset.rows):[]):[]),...(r.rows||[])];$('historyTable').dataset.rows=JSON.stringify(rows);const table=$('historyTable');table.replaceChildren();const head=document.createElement('tr');for(const k of ['history.height','history.from','history.to','history.amount','history.memo','history.status']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const row of rows){const tr=document.createElement('tr');for(const val of [row.height??'—',row.from||'',row.to||'',row.amountAGT??'',row.memo||row.kind||'',row.status||'']){const td=document.createElement('td');td.textContent=String(val);tr.append(td)}table.append(tr)}if(!rows.length){const emptyRow=document.createElement('tr'),emptyCell=document.createElement('td');emptyCell.colSpan=6;emptyCell.textContent=tr('history.empty');emptyRow.append(emptyCell);table.append(emptyRow)}historyCursor=r.nextBeforeHeight??null;$('historyMore').classList.toggle('hidden',historyCursor==null);$('historyTreasuryNote').textContent=r.treasury?('Treasury: '+JSON.stringify(r.treasury)):'Treasury metadata unavailable.'}
 async function loadOrders(){if(!address)return;try{const [r,f]=await Promise.all([getJSON('/dxe/orders'),getJSON('/dxe/fills')]),all=Array.isArray(r)?r:(r.orders||[]),mine=all.filter(o=>o&&o.from===address),fills=Array.isArray(f)?f:(f.fills||[]);renderOrders(mine);$('ordersFillNote').textContent=tr('orders.fillsCount').replace('{count}',String(fills.length))}catch(e){$('ordersBox').textContent=tr('err.api')+e.message}}
 function renderOrders(rows){const box=$('ordersBox');box.replaceChildren();if(!rows.length){box.textContent=tr('orders.empty');return}const table=document.createElement('table'),head=document.createElement('tr');for(const k of ['orders.ref','orders.item','orders.side','orders.qty','orders.price','orders.remaining','orders.status','orders.action']){const th=document.createElement('th');th.textContent=tr(k);head.append(th)}table.append(head);for(const o of rows){const rowEl=document.createElement('tr'),rem=Number(o.qty)-Number(o.filled||0);for(const v of [o.ref,o.item,o.side,o.qty,o.price,Number.isFinite(rem)?rem:'—',o.status]){const td=document.createElement('td');td.textContent=String(v??'');rowEl.append(td)}const td=document.createElement('td');if(o.status==='open'){const b=document.createElement('button');b.textContent=tr('orders.cancel');b.onclick=()=>showCancel(o.ref);td.append(b)}rowEl.append(td);table.append(rowEl)}box.append(table)}
@@ -936,8 +1268,28 @@ function addCopyButton(container,text){const b=document.createElement('button');
 function showCancel(ref){if(!/^[0-9a-f]{8}$/i.test(String(ref)))throw Error('Invalid order reference.');const command='node src/cli.mjs cancel-order /path/profile.json --ref '+String(ref)+' --node http://127.0.0.1:9335',box=$('cancelCommandBox');box.replaceChildren();const pre=document.createElement('div');pre.className='cmd mono';pre.textContent=command;const b=document.createElement('button');b.textContent=tr('copy');b.onclick=()=>navigator.clipboard.writeText(command).then(()=>b.textContent=tr('copied'));const hint=document.createElement('p');hint.className='hint';hint.textContent=tr('hint.privateKeyStaysLocal');box.append(pre,b,hint)}
 function validateQR(text){drawQR($('qrReceive'),text)}
 function contactsRender(){renderContacts()}
-function renderContacts(){const box=$('contactsList'),list=$('contactList');box.replaceChildren();list.replaceChildren();if(!contacts.length){box.textContent=tr('contacts.empty');return}for(const c of contacts){const row=document.createElement('p'),label=document.createElement('strong'),addr=document.createElement('span');label.textContent=c.label+' ';addr.className='mono';addr.textContent=c.address;row.append(label,addr);box.append(row);if(ADDR_RE.test(c.address)){const o=document.createElement('option');o.value=c.address;o.label=c.label;list.append(o)}}}
-function addContact(){const label=prompt(tr('contacts.label'));if(!label)return;const addr=prompt(tr('contacts.address'))||'';if(!ADDR_RE.test(addr))throw Error('Invalid AGT address.');contacts.push({label:label.trim(),address:addr});persistContacts();renderContacts()}
+function renderContacts(){const cn=$('contactName'),ca=$('contactAddr');if(cn&&!cn.placeholder)cn.placeholder=tr('contacts.namePh');if(ca&&!ca.placeholder)ca.placeholder=tr('contacts.addrPh');const box=$('contactsList'),list=$('contactList');box.replaceChildren();list.replaceChildren();if(!contacts.length){box.textContent=tr('contacts.empty');return}for(const c of contacts){const row=document.createElement('p'),label=document.createElement('strong'),addr=document.createElement('span');label.textContent=c.label+' ';addr.className='mono';addr.textContent=c.address;row.append(label,addr);box.append(row);if(ADDR_RE.test(c.address)){const o=document.createElement('option');o.value=c.address;o.label=c.label;list.append(o)}}}
+function contactsHint(t,err){const el=$('contactsHint');if(!el)return;el.textContent=t||'';el.classList.toggle('error',!!err)}
+function addContact(){
+  const rawLabel=$('contactName').value.trim(), rawAddr=$('contactAddr').value.trim();
+  let addr=rawAddr;
+  if(addr&&!ADDR_RE.test(addr))throw Error(tr('contacts.bad'));
+  if(!rawLabel||!ADDR_RE.test(addr))throw Error(tr('contacts.bad'));
+  if(contacts.some(x=>x.address===addr)){contactsHint(tr('contacts.saved'));renderContacts();return}
+  contacts.push({label:rawLabel.slice(0,64),address:addr});persistContacts();renderContacts();
+  $('contactName').value='';$('contactAddr').value='';contactsHint(tr('contacts.saved'));
+}
+async function resolveContact(){
+  const v=$('contactAddr').value.trim()||$('contactName').value.trim();
+  if(!v)throw Error(tr('contacts.bad'));
+  if(ADDR_RE.test(v)){$('contactAddr').value=v;contactsHint('');return}
+  const handle=v.replace(/^@/,'');
+  const j=await getJSON('/whoami/'+encodeURIComponent(handle));
+  if(!j||!ADDR_RE.test(j.address||''))throw Error(tr('contacts.bad'));
+  $('contactAddr').value=j.address;
+  if(!$('contactName').value.trim())$('contactName').value=handle;
+  contactsHint(tr('contacts.saved'));
+}
 function seedDemo(){for(const c of [{label:'Алиса',address:''},{label:'Боб',address:''}])if(!contacts.some(x=>x.label===c.label))contacts.push(c);persistContacts();renderContacts();setMessage('Demo contacts are templates. Add real addresses before use.')}
 function exportContacts(){saveFile('agentcoin-contacts.json',{schema:'agentcoin.wallet.contacts.v1',contacts});setMessage('Contacts exported; no private fields included.')}
 async function importContacts(){const f=$('importContacts').files[0];if(!f)return;const j=JSON.parse(await fileText(f));noSecrets(j);if(!j||j.schema!=='agentcoin.wallet.contacts.v1'||!Array.isArray(j.contacts))throw Error('Invalid contacts JSON.');const incoming=j.contacts.filter(c=>c&&typeof c.label==='string'&&typeof c.address==='string'&&(!c.address||ADDR_RE.test(c.address)));contacts.push(...incoming.filter(c=>!contacts.some(x=>x.label===c.label&&x.address===c.address)));persistContacts();renderContacts();setMessage('Imported '+incoming.length+' contacts.')}
@@ -950,11 +1302,21 @@ const $=(id)=>document.getElementById(id);
 const qsStatus=(text,bad=false)=>{const box=$('qsStatus');if(!box)return;box.textContent=text||'';box.style.color=bad?'var(--bad)':'var(--ok)';};
 let qsModule=null;try{qsModule=await import('./js/agt-tx.mjs')}catch(e){return}
 const { pubFromPriv, addressFromPubHex, sendRawTx, loadKey, forgetKey, KEY_PREFIX } = qsModule;
+function qsLoginRec(){
+  // Ключ входа (память до выхода): приоритет — он точно соответствует адресу.
+  if(typeof pendingKey!=='undefined'&&pendingKey&&address&&(address===pendingKey.addrRaw||address===pendingKey.addrPem)){
+    const isPem=address===pendingKey.addrPem;
+    return {k:bytesToHexLocal(pendingKey.privBytes),addr:address,fromPubHex:isPem?pendingKey.pem:pendingKey.pub};
+  }
+  return null;
+}
 function qsKeyFor(){
+  const loginRec=qsLoginRec();
+  if(loginRec)return loginRec;
   const savedKeys=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));
-  if(savedKeys.length===1){const addr=savedKeys[0].slice(KEY_PREFIX.length);return {k:loadKey(addr),addr}}
   if(address&&loadKey(address))return {k:loadKey(address),addr:address};
-  if(savedKeys.length>1)throw new Error('локальных ключей несколько — сохрани только нужный (кнопка «Стереть локальные ключи» + заново Через /create-wallet)');
+  if(savedKeys.length===1){const addr=savedKeys[0].slice(KEY_PREFIX.length);return {k:loadKey(addr),addr}}
+  if(savedKeys.length>1)throw new Error('Локальных ключей несколько. Войди ключом выше — подставится нужный; либо оставь один ключ (кнопка «Стереть локальные ключи», затем сохрани нужный заново).');
   return null;
 }
 async function quickSendSubmit(){
@@ -967,19 +1329,20 @@ async function quickSendSubmit(){
   if(!$('qsConfirm').checked){qsStatus('Отметь подтверждение: «Я сверил получателя, сумму и комиссию».',true);return}
   let rec;try{rec=qsKeyFor()}catch(e){qsStatus(e.message,true);return}
   if(!rec){
-    qsStatus('Локальный ключ не найден. Быстрый перевод подписывается ключом из /create-wallet (кнопка WASM выше). Если кабинет открыт и паспорт зарегистрирован — используй форму «Подготовить запрос» ниже.',true);
+    qsStatus('Ключ не найден. Войди ключом выше (вставь ключ/слова) либо сохрани ключ через /create-wallet — и повтори.',true);
     return;
   }
+  if(address&&rec.addr!==address){qsStatus('Ключ не от текущего адреса: войди ключом выше под '+address+', затем повтори.',true);return}
   qsStatus('Подписываем локально (ключ не покидает вкладку)…');
   let out;
-  try{out=await sendRawTx({privKeyHex:rec.k, to, amount, memo})}catch(e){qsStatus('Ошибка подписи: '+e.message,true);return}
+  try{out=await sendRawTx({privKeyHex:rec.k,from:rec.addr,fromPubHex:rec.fromPubHex,to,amount,memo})}catch(e){qsStatus('Ошибка подписи: '+e.message,true);return}
   const {tx, status, res} = out;
   if(status>=200&&status<300&&res&&res.accepted){
     qsStatus('✅ Принято: txid '+tx.txid.slice(0,16)+'… · в мемпуле (tx: '+(res.mempool??'?')+') · баланс меняется после ближайшего блока.');
     try{setTimeout(()=>loadWallet().catch(()=>{}),3000)}catch{}
     return;
   }
-  qsStatus(res && res.error ? 'Отклонено нодой: '+res.error+(res.hint?' — '+res.hint:'') : 'Не принято (HTTP '+status+')', true);
+  qsStatus(res && (res.error||res.reason) ? 'Отклонено нодой: '+(res.error||res.reason)+(res.hint?' — '+res.hint:'') : 'Не принято (HTTP '+status+')', true);
 }
 const sb=$('qsSend');if(sb)sb.onclick=()=>quickSendSubmit().catch(e=>qsStatus('Неожиданная ошибка: '+e.message,true));
 const fb=$('qsForget');if(fb)fb.onclick=()=>{const saved=Object.keys(localStorage).filter(k=>k.startsWith(KEY_PREFIX));saved.forEach(k=>localStorage.removeItem(k));qsStatus('Локальные ключи стёрты из браузера ('+saved.length+' шт.).')};
@@ -991,7 +1354,100 @@ function makeInvoice(){if(!address)throw Error(tr('err.noAddr'));const amount=pa
 async function loadTreasury(){try{const r=await getJSON('/treasury/state'),box=$('treasuryBox');box.replaceChildren();const table=document.createElement('table');const p=r.policy;if(!p){box.textContent='Treasury policy is not active.';return}for(const [k,v] of Object.entries(p)){const tr=document.createElement('tr'),a=document.createElement('th'),b=document.createElement('td');a.textContent=k;b.textContent=Array.isArray(v)?v.join(', '):String(v);tr.append(a,b);table.append(tr)}box.append(table)}catch(e){$('treasuryBox').textContent=tr('err.api')+e.message}}
 async function importPassport(){const f=$('certFile').files[0];if(!f)throw Error('Select a public passport JSON.');const j=JSON.parse(await fileText(f,4096));noSecrets(j);const passport=j.passport||j;await api('/identity/import',{passport});if(passport.address)setAddress(passport.address);setMessage('Public passport imported.')}
 function restoreSession(){address=localStorage.getItem(ADDR_KEY)||'';token=sessionStorage.getItem(TOKEN_KEY)||'';if(token&&address)loadWallet().catch(()=>logoutFlow())}
-function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){setMessage(e.message,true)}};$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
+function setPinHint(t,err=false){const el=$('pinHint');if(!el)return;el.textContent=t||'';el.classList.toggle('error',err)}
+function setSecMessage(t,err=false){const el=$('secMessage');if(!el)return;el.textContent=t||'';el.classList.toggle('error',err)}
+function clearPinInputs(){for(const id of ['pinInput','pinNew','pinRepeat']){const el=$(id);if(el)el.value=''}setPinHint('');setSecMessage('')}
+function pinErrText(e){return (e&&e.body&&e.body.hint)?(e.body.hint+' ('+e.body.error+')'):(e&&e.message?e.message:String(e))}
+async function refreshPinState(){const pill=$('pinStatePill');if(!pill)return;if(!address){pill.className='pill off';pill.textContent=tr('sec.pinOff');return}try{const r=(await api('/cabinet/pin/status',{address})).json;const on=!!(r.ok&&r.pinSet);pill.className='pill '+(on?'on':'off');pill.textContent=tr(on?'sec.pinOn':'sec.pinOff')}catch(e){pill.className='pill off';pill.textContent=tr('sec.pinOff')}}
+function hexToBytesLocal(h){var s=String(h||'').trim().toLowerCase();if(!/^[0-9a-f]*$/.test(s)||s.length%2)throw Error('bad_hex');var o=new Uint8Array(s.length/2);for(var i=0;i<o.length;i++)o[i]=parseInt(s.slice(i*2,i*2+2),16);return o;}
+async function wordsToPrivLocal(text){var w=String(text||'').trim().toLowerCase().split(/\s+/).filter(Boolean);if(w.length!==24)throw Error('need24');var bits='';for(var i=0;i<w.length;i++){var idx=AGT_WORDS.indexOf(w[i]);if(idx<0)throw Error('badword');bits+=idx.toString(2).padStart(11,'0');}var entBytes=bits.slice(0,256).match(/.{8}/g).map(function(h){return parseInt(h,2);});var csBits=bits.slice(256,264);var mod=await import('./js/vendor/sha256.mjs');var h=mod.sha256(Uint8Array.from(entBytes));var hb='';for(var k=0;k<8;k++)hb+=(((h[0]>>(7-k)))&1)?'1':'0';if(hb!==csBits)throw Error('checksum');return entBytes;}
+var pendingKey=null;
+function bytesToHexLocal(b){return Array.from(b,function(x){return x.toString(16).padStart(2,'0');}).join('');}
+function b64Local(bytes){var s='';for(var i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s);}
+async function pemAddrOf(privBytes){
+  // Канонический PEM из сырых 32 байт + адрес паспортной схемы (хеш текста PEM).
+  var prefix=new Uint8Array([0x30,0x2a,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x03,0x21,0x00]);
+  var der=new Uint8Array(prefix.length+32);
+  der.set(prefix,0);
+  var qs=await import('./js/agt-tx.mjs');
+  var pubHex=qs.pubFromPriv(bytesToHexLocal(privBytes));
+  var raw=hexToBytesLocal(pubHex);
+  der.set(raw,12);
+  var b64=b64Local(der), lines=[];
+  for(var i=0;i<b64.length;i+=64)lines.push(b64.slice(i,i+64));
+  var pem='-----BEGIN PUBLIC KEY-----\n'+lines.join('\n')+'\n-----END PUBLIC KEY-----\n';
+  var mod=await import('./js/vendor/sha256.mjs');
+  var te=new TextEncoder().encode(pem);
+  var h1=mod.sha256(te), h2=mod.sha256(h1);
+  var hx=bytesToHexLocal(h2);
+  var hxBytes=new TextEncoder().encode(hx);
+  var chk=bytesToHexLocal(mod.sha256(mod.sha256(hxBytes))).slice(0,8);
+  return {pem:pem, address:'AGT'+hx.slice(0,32)+chk};
+}
+async function dualBalance(addr,elId){
+  var el=$(elId);if(!el)return;
+  try{
+    var j=(await api('/balance',{address:addr})).json;
+    var v=(j&&(j.balance!=null?j.balance:(j.balanceMGNT!=null?j.balanceMGNT:null)));
+    el.textContent=(v==null?'?':String(v))+' AGT';
+  }catch(e){el.textContent='?';}
+}
+async function renderDual(pub,addrRaw,pemInfo){
+  $('dualRaw').textContent=addrRaw;
+  $('dualPem').textContent=pemInfo.address;
+  $('dualRawBal').textContent='…';$('dualPemBal').textContent='…';
+  $('dualBox').classList.remove('hidden');
+  await Promise.all([dualBalance(addrRaw,'dualRawBal'),dualBalance(pemInfo.address,'dualPemBal')]);
+}
+async function keyLoginTo(addr,pubForm,privBytes){
+  await checkNetwork();
+  var askedAddress=addr;
+  var ch=(await api('/cabinet/challenge',{address:addr,pub:pubForm})).json;
+  if(addr!==askedAddress)throw Error('Address changed; challenge discarded.');
+  if(!ch.ok||!ch.challenge)throw Error(ch.error||'invalid_challenge');
+  var ed=await import('./js/vendor/ed25519.mjs');
+  var sigBytes=await ed.sign(new TextEncoder().encode(ch.nonce),privBytes);
+  var sig=bytesToHexLocal(sigBytes);
+  var r=(await api('/cabinet/login',{address:addr,mode:'challenge',nonce:ch.nonce,challengeId:ch.challengeId,signature:sig})).json;
+  if(addr!==askedAddress)throw Error('Address changed; login response discarded.');
+  if(!r.token)throw Error('login_token_missing');
+  token=r.token;sessionStorage.setItem(TOKEN_KEY,token);
+  await loadWallet();setMessage(tr('login.keyOk'));
+  setKeyHint('');
+}
+async function keyLoginFlow(){
+  pendingKey=null;
+  var raw=$('keyInput').value.trim();
+  var qsModule=await import('./js/agt-tx.mjs');
+  var pubFromPriv=qsModule.pubFromPriv, addressFromPubHex=qsModule.addressFromPubHex, loadKey=qsModule.loadKey;
+  var privBytes=null;
+  try {
+    if(!raw){
+      if(!address)throw Error(tr('login.noAddrKey'));
+      var saved=loadKey(address)||'';
+      if(!saved)throw Error(tr('login.noLocalKey'));
+      privBytes=hexToBytesLocal(saved);
+    }else if(/^[0-9a-fA-F]{64}$/.test(raw))privBytes=hexToBytesLocal(raw);
+    else privBytes=Uint8Array.from(await wordsToPrivLocal(raw));
+  } catch(e){ throw Error(tr('login.keyBad')); }
+  if(privBytes.length!==32)throw Error(tr('login.keyBad'));
+  $('keyInput').value='';
+  var privHex=bytesToHexLocal(privBytes);
+  var pub=pubFromPriv(privHex), addrRaw=addressFromPubHex(pub);
+  var pemInfo=await pemAddrOf(privBytes), addrPem=pemInfo.address;
+  await renderDual(pub,addrRaw,pemInfo);
+  pendingKey={privBytes:privBytes,pub:pub,pem:pemInfo.pem,addrRaw:addrRaw,addrPem:addrPem};
+  if(!address){setKeyHint(tr('login.dualHow'));return;}
+  if(address!==addrRaw&&address!==addrPem)throw Error(tr('login.dualMismatch'));
+  var target=address;
+  var pubForm=(target===addrPem)?pemInfo.pem:pub;
+  await keyLoginTo(target,pubForm,privBytes);
+}
+function setKeyHint(t,err){var el=$('keyHint');if(!el)return;el.textContent=t||'';el.classList.toggle('error',!!err);}
+async function pinLoginFlow(){if(!address)throw Error(tr('login.noAddrPin'));const pin=$('pinInput').value.trim();let st=null;try{st=(await api('/cabinet/pin/status',{address})).json}catch{}if(st&&st.ok&&!st.pinSet)throw Error(tr('login.pinFirstPassport'));const r=(await api('/cabinet/pin/login',{address,pin})).json;if(!r.token)throw Error('login_token_missing');token=r.token;sessionStorage.setItem(TOKEN_KEY,token);$('pinInput').value='';await loadWallet();setMessage(tr('login.pinOk'))}
+async function savePinFlow(){const a=$('pinNew').value.trim(),b=$('pinRepeat').value.trim();if(a!==b)throw Error(tr('sec.pinMismatch'));const r=(await api('/cabinet/pin/set',{address,token,pin:a})).json;if(!(r.ok&&r.pinSet))throw Error((r&&(r.hint||r.error))||'pin_save_failed');$('pinNew').value='';$('pinRepeat').value='';await refreshPinState();setSecMessage(tr('sec.pinSaved'))}
+async function disablePinFlow(){const r=(await api('/cabinet/pin/disable',{address,token})).json;if(!(r.ok&&!r.pinSet))throw Error((r&&(r.hint||r.error))||'pin_disable_failed');await refreshPinState();setSecMessage(tr('sec.pinDisabled'))}
+function init(){lang=detectLang();applyLang();restoreSession();try{const info=api('/info').then(x=>{nodeInfo={network:x.json.chainId||x.json.network,genesisHash:x.json.genesisHash};return nodeInfo});info.catch(()=>{})}catch{}for(const b of document.querySelectorAll('.lang button'))b.onclick=()=>{lang=b.getAttribute('data-'+'lang');localStorage.setItem(LANG_KEY,lang);applyLang()};$('pinLogin').onclick=()=>pinLoginFlow().catch(e=>setPinHint(pinErrText(e),true));$('keyLogin').onclick=()=>keyLoginFlow().catch(e=>setKeyHint(pinErrText(e)||String((e&&e.message)||e),true));$('dualRawGo').onclick=()=>{if(!pendingKey)return;try{setAddress(pendingKey.addrRaw)}catch(e){setKeyHint(e.message,true);return}keyLoginTo(pendingKey.addrRaw,pendingKey.pub,pendingKey.privBytes).catch(e=>setKeyHint(pinErrText(e)||String((e&&e.message)||e),true))};$('dualPemGo').onclick=()=>{if(!pendingKey)return;try{setAddress(pendingKey.addrPem)}catch(e){setKeyHint(e.message,true);return}keyLoginTo(pendingKey.addrPem,pendingKey.pem,pendingKey.privBytes).catch(e=>setKeyHint(pinErrText(e)||String((e&&e.message)||e),true))};$('pinSave').onclick=()=>savePinFlow().catch(e=>setSecMessage(pinErrText(e),true));$('pinDisable').onclick=()=>disablePinFlow().catch(e=>setSecMessage(pinErrText(e),true));$('adr').value=address;$('addrSave').onclick=()=>{try{setAddress($('adr').value);setMessage('Address saved.')}catch(e){setMessage(e.message,true)}};$('addrClear').onclick=()=>{setAddress('');setMessage('Address cleared.')};$('challenge').onclick=()=>challengeFlow().catch(e=>setMessage(e.message,true));$('downloadChallenge').onclick=()=>challengeReply&&saveFile('agentcoin-challenge.json',challengeReply);$('login').onclick=()=>loginFlow().catch(e=>setMessage(e.message,true));$('logout').onclick=()=>logoutFlow();$('autologinNow').onclick=()=>autologin().catch(e=>setMessage(e.message,true));$('disableAutologin').onclick=disableAutologin;$('importCert').onclick=()=>importPassport().catch(e=>setMessage(e.message,true));$('refreshWallet').onclick=()=>loadWallet().catch(e=>setMessage(e.message,true));$('estimateBtn').onclick=()=>estimateFees().catch(e=>setMessage(e.message,true));$('prepareOp').onclick=()=>prepareSend().catch(e=>setMessage(e.message,true));$('opSubmit').onclick=()=>submitSend().catch(e=>setMessage(e.message,true));$('downloadOp').onclick=()=>pendingOp&&saveFile('agentcoin-op-'+pendingOp.opId+'.json',pendingOp.request);$('copyReceive').onclick=()=>navigator.clipboard.writeText(address);$('downloadReceive').onclick=()=>saveFile('agentcoin-receive.json',{schema:'agentcoin.receive.v1',address,network:nodeInfo?.network,genesisHash:nodeInfo?.genesisHash});$('makeInvoice').onclick=()=>{try{makeInvoice()}catch(e){setMessage(e.message,true)}};$('downloadInvoice').onclick=()=>invoiceData&&saveFile('agentcoin-invoice.json',invoiceData);$('showInvoiceQR').onclick=()=>{$('invQRBox').classList.remove('hidden');if(invoiceData)drawQR($('qrInvoice'),invoiceUri())};$('historyMore').onclick=()=>loadHistory(true).catch(e=>setMessage(e.message,true));$('addContact').onclick=()=>{try{addContact()}catch(e){contactsHint(e.message,true)}};$('contactResolve').onclick=()=>resolveContact().catch(e=>contactsHint(pinErrText(e)||String((e&&e.message)||e),true));$('opSignKey').onclick=()=>signOpWithLoginKey().catch(e=>{$('opStatus').textContent=e.message});$('sig2SignBtn').onclick=()=>signSecondKey().catch(e=>{$('sig2Hint').textContent=pinErrText(e)||String((e&&e.message)||e)});$('logoutTop').onclick=()=>logoutFlow();$('seedDemo').onclick=seedDemo;$('exportContacts').onclick=exportContacts;$('importContacts').onchange=()=>importContacts().catch(e=>{setMessage(e.message,true);$('importContacts').value='' });$('aliceRequest').onclick=aliceRequest;$('bobSend').onclick=bobSend;$('ordersRefresh').onclick=()=>loadOrders();renderContacts();renderSendUnits();renderInvoiceUnits();updateAddressUI()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
 </body>

@@ -60,7 +60,7 @@ import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
-import { AgentIdentityRegistry } from './agent-identity.mjs';
+import { AgentIdentityRegistry, bindPubToAddress, rawAgentPubToPem } from './agent-identity.mjs';
 import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from './passport-audit.mjs';
 import { createAssistantService } from './assistant-service.mjs';
 const agentAssistant = createAssistantService();
@@ -947,8 +947,8 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return json(res, out.status, out.body);
   }
   if (p === '/cabinet/challenge' && req.method === 'POST') {
-    const { address } = await body(req);
-    const r = cabinet.challenge(address);
+    const { address, pub } = await body(req);
+    const r = cabinet.challenge(address, pub);
     return json(res, r.ok ? 200 : 400, r);
   }
   if (p === '/cabinet/login' && req.method === 'POST') {
@@ -990,11 +990,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // недоступны — они описывают другие механики индексера.
   const RESERVED_MEMO_RE = /^(dxe\||escrow:|escpayout:|escfee:|faucet:)/;
   if (p === '/cabinet/op-request' && req.method === 'POST') {
-    const { address, token, op } = await body(req);
+    const { address, token, op, pub } = await body(req);
     if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'войти в кабинет заново' });
     const rec = cabinet.findPassportByAddress(address);
-    const passportPub = rec?.pub || null;
-    if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт с ключом ( Skill enroll )' });
+    let passportPub = rec?.pub || null;
+    if (!passportPub) {
+      // Key-only сессия (вход владением ключом, без паспорта): явный pub из
+      // запроса со строгой привязкой к адресу внутри его схемы; иначе — ключ,
+      // запомненный при успешном входе (переживает перезагрузку страницы и
+      // вход по PIN — хранится только публичное, привязка перепроверяется).
+      // Подпись всё равно проверяется этим ключом на submit — подмена невозможна.
+      passportPub = bindPubToAddress(address, pub) || cabinet.sessionPubFor(address);
+      if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт (Skill enroll), явный pub этого адреса в поле pub, либо свежий вход ключом' });
+    }
     const kind = op && op.kind;
     const bal = bc.balances()[address] || 0;
     const money = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -1053,18 +1061,27 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       passportPub });
   }
   if (p === '/cabinet/op-submit' && req.method === 'POST') {
-    const { opId, signature } = await body(req);
+    const { opId, signature, sig2, sig2Pub } = await body(req);
     const rec = cabinet.takeOp(opId); // атомарно: повторный submit всегда op_not_found
     if (!rec) return json(res, 400, { error: 'op_not_found', hint: 'заявка не существует, просрочена (5 мин) или уже потрачена' });
     if (typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) return json(res, 400, { error: 'invalid_signature' });
+    // Казна 2-of-3 (AGIP-4): вторая подпись прикладывается к той же txid.
+    // sig2Pub — PEM или сырой hex ключа подписанта из политики; привязка
+    // проверяется консенсусом (verifySecondSig), мусор → 409 без банов.
+    if (sig2 != null || sig2Pub != null) {
+      if (typeof sig2 !== 'string' || !/^[0-9a-fA-F]{128}$/.test(sig2)) return json(res, 400, { error: 'invalid_sig2' });
+      if (typeof sig2Pub !== 'string' || sig2Pub.length > 512) return json(res, 400, { error: 'invalid_sig2pub' });
+    }
     if (rec.kind === 'job-claim') {
       if (!rec.passportPub) return json(res, 500, { error: 'op_record_corrupt' });
-      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), rec.passportPub, Buffer.from(signature, 'hex'));
+      const claimKey = rec.passportPub.startsWith('-----BEGIN PUBLIC KEY-----') ? rec.passportPub : rawAgentPubToPem(rec.passportPub);
+      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), claimKey, Buffer.from(signature, 'hex'));
       if (!ok) return json(res, 400, { error: 'bad_signature', hint: 'подпись не от владельца паспорта над claim-дайджестом' });
       console.log(`[agip-46] job-claim: ${rec.address} подписал ${rec.data.escId}`);
       return json(res, 200, { ok: true, kind: 'job-claim', escId: rec.data.escId, taskHash: rec.data.taskHash, worker: rec.data.worker, amount: rec.data.amount, receiptSig: signature, workerPub: rec.passportPub, hint: 'квитанция готова; payout подписывается работодателем (escrow/payout)' });
     }
     const tx = { ...rec.data.tx, signature };
+    if (sig2 != null) { tx.sig2 = sig2; tx.sig2Pub = sig2Pub; }
     if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 409, r);

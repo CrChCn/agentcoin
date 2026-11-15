@@ -21,13 +21,17 @@ export function readTailnetBind(env = process.env, read = fs.readFileSync) {
   return isIP(bind) && bind !== '0.0.0.0' && bind !== '::' ? bind : null;
 }
 const tailnetBind = readTailnetBind();
-export const NODES = [
-  { name: 'A (9335)', port: '9335', url: 'http://127.0.0.1:9335/life', wrapper: path.join(ROOT, 'run-node.cmd') },
-  { name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(ROOT, 'run-node2.cmd') },
-  { name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(ROOT, 'run-node3.cmd') },
-  { name: 'TS (9336)', port: '9336', url: tailnetBind ? `http://${tailnetBind.includes(':') ? `[${tailnetBind}]` : tailnetBind}:9336/life` : null,
+// Резерв сети (2026-11-13, чистка зоопарка): живьём держим только A (9335) + TS (9336).
+// B (9341) и C (9342) выведены из надзора; вернуть: AGT_WATCH_NODES="A,B,C,TS".
+const WATCH_ALLOW = new Set(String(process.env.AGT_WATCH_NODES || 'A,TS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean));
+const ALL_NODES = [
+  { key: 'A', name: 'A (9335)', port: '9335', url: 'http://127.0.0.1:9335/life', wrapper: path.join(ROOT, 'run-node.cmd') },
+  { key: 'B', name: 'B (9341)', port: '9341', url: 'http://127.0.0.1:9341/life', wrapper: path.join(ROOT, 'run-node2.cmd') },
+  { key: 'C', name: 'C (9342)', port: '9342', url: 'http://127.0.0.1:9342/life', wrapper: path.join(ROOT, 'run-node3.cmd') },
+  { key: 'TS', name: 'TS (9336)', port: '9336', url: tailnetBind ? `http://${tailnetBind.includes(':') ? `[${tailnetBind}]` : tailnetBind}:9336/life` : null,
     wrapper: path.join(ROOT, 'run-node-ts.cmd'), configurationError: 'Set AGT_TS_BIND or data-agtx/ts-bind.txt to this host tailnet IP' },
 ];
+export const NODES = ALL_NODES.filter((n) => WATCH_ALLOW.has(n.key));
 
 // The deadline covers headers AND body. Destroying the request on timeout is
 // essential: resolving alone leaves hanging sockets in every cycle.

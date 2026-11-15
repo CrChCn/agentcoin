@@ -37,6 +37,29 @@ const addressFromPubHex = (pubHex) => {
   return 'AGT' + bytesToHex(pubHash).slice(0, 32) + checksum;
 };
 
+// Паспортная схема: PEM из сырых 32 байт + адрес как считает нода (хеш текста PEM,
+// контрольная — хеш hex-текста, как core.addressFromPub; сверено побайтово).
+const ED25519_PREFIX = new Uint8Array([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
+const b64encode = (u8) => {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+  return btoa(s);
+};
+const pubToPem = (pubHex) => {
+  const raw = hexToBytes(pubHex);
+  if (raw.length !== 32) throw new Error('bad_pub');
+  const der = new Uint8Array(ED25519_PREFIX.length + 32);
+  der.set(ED25519_PREFIX, 0);
+  der.set(raw, ED25519_PREFIX.length);
+  const b64 = b64encode(der), lines = [];
+  for (let i = 0; i < b64.length; i += 64) lines.push(b64.slice(i, i + 64));
+  return '-----BEGIN PUBLIC KEY-----\n' + lines.join('\n') + '\n-----END PUBLIC KEY-----\n';
+};
+const addressFromPem = (pem) => {
+  const h = sha256dHex(enc.encode(pem));
+  return 'AGT' + h.slice(0, 32) + sha256dHex(enc.encode(h)).slice(0, 8);
+};
+
 // Канонический digest v1 — ДОЛЖЕН совпадать с txDigest() ноды (json-строка целиком).
 const txPayload = (txCore) => JSON.stringify({
   from: txCore.from, to: txCore.to, amount: txCore.amount,
@@ -44,28 +67,37 @@ const txPayload = (txCore) => JSON.stringify({
 });
 const txidOf = (txCore) => sha256dHex(enc.encode(txPayload(txCore)));
 
-const buildTx = ({ privKeyHex, fromPubHex, to, amount, memo = '', nonce = null, ts = null }) => {
+const buildTx = ({ privKeyHex, fromPubHex, from, to, amount, memo = '', nonce = null, ts = null }) => {
   if (!/^[0-9a-fA-F]{64}$/.test(String(privKeyHex || ''))) throw new Error('bad_privkey');
   if (!/^AGT[0-9a-f]{40}$/i.test(String(to || ''))) throw new Error('bad_recipient');
   const amountN = Number(amount);
   if (!Number.isFinite(amountN) || amountN <= 0) throw new Error('bad_amount');
   if (String(memo).length > 120) throw new Error('memo_too_long');
   const pub = fromPubHex || pubFromPriv(privKeyHex);
-  const from = addressFromPubHex(pub);
+  let fromAddr, fromPubOut;
+  if (typeof pub === 'string' && pub.startsWith('-----BEGIN PUBLIC KEY-----')) {
+    fromPubOut = pub;
+    fromAddr = addressFromPem(pub);
+  } else {
+    fromPubOut = pub;
+    fromAddr = addressFromPubHex(pub);
+  }
+  if (from != null && from !== fromAddr) throw new Error('from_pub_mismatch');
+  const useFrom = from || fromAddr;
   const core = {
-    from, to, amount: amountN,
+    from: useFrom, to, amount: amountN,
     nonce: nonce == null ? Date.now() : Number(nonce),
     ts: ts == null ? Math.floor(Date.now() / 1000) : Number(ts),
     memo: String(memo || ''),
   };
   const txid = txidOf(core);
   const signature = bytesToHex(sign(hexToBytes(txid), hexToBytes(privKeyHex)));
-  return { ...core, fromPub: pub, txid, signature };
+  return { ...core, fromPub: fromPubOut, txid, signature };
 };
 
 // POST { to, amount, memo } → подпись локально → POST /tx. Возвращает { tx, res }.
-const sendRawTx = async ({ privKeyHex, to, amount, memo = '', endpoint = '/tx' }) => {
-  const tx = buildTx({ privKeyHex, to, amount, memo });
+const sendRawTx = async ({ privKeyHex, fromPubHex, from, to, amount, memo = '', endpoint = '/tx' }) => {
+  const tx = buildTx({ privKeyHex, fromPubHex, from, to, amount, memo });
   const r = await fetch(endpoint, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(tx),
@@ -87,4 +119,4 @@ const saveKey = (privKeyHex, { remember = true } = {}) => {
 const loadKey = (address) => localStorage.getItem(KEY_PREFIX + address) || sessionStorage.getItem(KEY_PREFIX + address);
 const forgetKey = (address) => { localStorage.removeItem(KEY_PREFIX + address); sessionStorage.removeItem(KEY_PREFIX + address); };
 
-export { pubFromPriv, addressFromPubHex, txidOf, buildTx, sendRawTx, saveKey, loadKey, forgetKey, KEY_PREFIX };
+export { pubFromPriv, addressFromPubHex, pubToPem, addressFromPem, txidOf, buildTx, sendRawTx, saveKey, loadKey, forgetKey, KEY_PREFIX };

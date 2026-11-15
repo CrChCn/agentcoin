@@ -289,7 +289,7 @@ const sig2bad = crypto.sign(null, Buffer.from(digest, 'hex'), badSigner.privKey)
 const rej3 = P._skipNetTests ? { status: 0, body: {} } : await j('POST', '/tx', { ...tx1, sig2: sig2bad, sig2Pub: badSigner.pub });
 const banAfter3 = (await j('GET', '/life')).body.security?.banned;
 if (P._skipNetTests) { /* пропущено — отмечено выше */ }
-else if (String(rej3.body?.reason || rej3.body?.error || '').includes('treasury_needs_2sig')) ok('sig2 от постороннего → treasury_needs_2sig');
+else if (/treasury_(needs_2sig|sig2_invalid)/.test(String(rej3.body?.reason || rej3.body?.error || ''))) ok('sig2 от постороннего → reject (treasury needs/sig2_invalid)');
 else fails.push(`sig2 постороннего: ${rej3.status} ${JSON.stringify(rej3.body).slice(0, 120)}`);
 if (!P._skipNetTests && (banAfter3 || 0) > (banAfter || 0)) fails.push(`посторонний sig2 вызвал бан (${banAfter}/${banAfter3}) — reject не эскалирует`);
 
@@ -326,7 +326,7 @@ else ok('tx с sig2 от доверенного → принята в mempool');
   // bad использует тот же nonce 7 (иначе dup-детект на txid выстрелит раньше sig2-проверки)
   const bad = { ...t, sig2: crypto.sign(null, Buffer.from(txDigest({ ...t, memo: 'thinking' }), 'hex'), w2.privKey).toString('hex'), sig2Pub: w2.pub };
   const r1 = bc.addTransaction(bad);
-  if (!r1.ok && ['treasury_needs_2sig'].includes(r1.reason)) ok('local: sig2 над чужим digest → reject (tamper-детект)');
+  if (!r1.ok && ['treasury_needs_2sig', 'treasury_sig2_invalid'].includes(r1.reason)) ok('local: sig2 над чужим digest → reject (tamper-детект)');
   else fails.push(`local: tampered sig2 не пойман (${JSON.stringify(r1).slice(0, 120)})`);
   const good = { ...t, sig2: crypto.sign(null, Buffer.from(txDigest(t), 'hex'), w2.privKey).toString('hex'), sig2Pub: w2.pub };
   if (bc.addTransaction(good).ok) ok('local: tx казны с честным sig2 принята');

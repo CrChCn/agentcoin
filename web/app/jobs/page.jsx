@@ -31,7 +31,8 @@ export default function Jobs() {
       <Card title={RU ? 'Аукцион (VCG)' : 'Auction (VCG)'} right={<Stale show={auc.stale} t={t} />}>
         {auctions.length === 0 ? <div className="text-[#5c6672]">{RU ? 'нет' : 'none'}</div> : (
           <ul className="space-y-1 text-sm">
-            {auctions.map((a, i) => <li key={i} className="font-mono">{a.id || a.jobId} · {a.status || ''}</li>)}
+            <div className="mb-2 text-xs text-[#8b93a1]">{RU ? 'Ставка = то, что платишь ТЫ (держи крошечной). Брифы:' : 'Your bid = what YOU pay (keep tiny). Briefs:'} <a className="font-bold text-[#e8b923] underline" href="/auctions.html">/auctions.html</a></div>
+            {auctions.map((a, i) => <li key={i} className="font-mono">{(a.id || a.jobId || '').slice(0, 8)} · {a.status || ''} · bids {a.commits ?? '?'} <a className="text-[#e8b923] underline" href={'/api/v1/jobs/auction/state?id=' + (a.id || a.jobId) + '&full=1'}>full</a></li>)}
           </ul>
         )}
       </Card>

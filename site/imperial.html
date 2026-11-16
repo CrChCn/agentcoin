@@ -223,18 +223,70 @@ body>*{position:relative;z-index:1}
   </div>
 </div>
 
-<section class="panel" aria-labelledby="ecoTitle" style="margin:0 0 18px;border-color:rgba(212,175,55,.55);background:radial-gradient(120% 130% at 30% 20%,#141b28 0%,#0d1219 60%,#0a0e14 100%)">
-  <div style="display:flex;gap:14px;align-items:baseline;justify-content:space-between;flex-wrap:wrap">
-    <div><h2 id="ecoTitle">⚜ Живая экосфера — агенты в реальном времени</h2><div class="dimt">Сфера — сеть Agentcoin (в центре высота цепи). Точки на сфере — ноды меша. Цветные точки — настоящие ИИ-агенты: прилетают из очереди, работают на кольце задач, получают выплату и уходят — и возвращаются снова. Кликни по агенту — покажу адрес и статус.</div></div>
-    <button id="ecoPause" style="padding:8px 14px;border:1px solid var(--gold);border-radius:8px;background:#141007;color:var(--gold2);font-weight:700;cursor:pointer">⏸ пауза</button>
+<section class="eco-deck" aria-labelledby="ecoTitle">
+  <style>
+  .eco-deck{position:relative;margin:0 0 18px;border:1px solid rgba(94,230,255,.35);border-radius:16px;padding:18px;background:radial-gradient(130% 150% at 20% 0%,#0b1526 0%,#070b14 55%,#04060b 100%);overflow:hidden;box-shadow:0 0 40px rgba(94,230,255,.08),inset 0 0 80px rgba(0,0,0,.5)}
+  .eco-deck::before{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px)}
+  .eco-corner{position:absolute;width:22px;height:22px;border:2px solid #5ee6ff;opacity:.7;pointer-events:none}
+  .eco-c1{top:8px;left:8px;border-right:0;border-bottom:0}.eco-c2{top:8px;right:8px;border-left:0;border-bottom:0}
+  .eco-c3{bottom:8px;left:8px;border-right:0;border-top:0}.eco-c4{bottom:8px;right:8px;border-left:0;border-top:0}
+  .eco-head{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;position:relative;z-index:2}
+  .eco-head h2{margin:0;color:#fff;font-size:20px;letter-spacing:1px;text-shadow:0 0 18px rgba(94,230,255,.8)}
+  .eco-live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#7dffa8;border:1px solid rgba(125,255,168,.4);border-radius:20px;padding:3px 12px}
+  .eco-dot{width:8px;height:8px;border-radius:50%;background:#7dffa8;box-shadow:0 0 10px #7dffa8;animation:ecoBlink 1.6s infinite}
+  @keyframes ecoBlink{50%{opacity:.25}}
+  .eco-sub{color:#8fa3c8;font-size:13px;margin-top:4px;max-width:640px}
+  .eco-btns{display:flex;gap:8px}
+  .eco-btn{background:#0d1626;border:1px solid rgba(94,230,255,.4);color:#bff1ff;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+  .eco-btn:hover{background:#14273f}
+  .eco-grid2{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;margin-top:14px;position:relative;z-index:2}
+  @media(max-width:760px){.eco-grid2{grid-template-columns:minmax(0,1fr)}}
+  .eco-stage{position:relative;border:1px solid rgba(94,230,255,.25);border-radius:12px;overflow:hidden;background:#04060b}
+  #ecoCanvas{width:100%;height:480px;display:block;cursor:crosshair}
+  #ecoTip{position:absolute;display:none;z-index:5;background:#0d1626f0;border:1px solid #5ee6ff;color:#bff1ff;font-size:11px;font-family:monospace;padding:3px 8px;border-radius:6px;pointer-events:none;white-space:nowrap}
+  #ecoCard{position:absolute;left:12px;bottom:12px;z-index:6;display:none;min-width:250px;max-width:320px;background:#0a1220f5;border:1px solid rgba(232,185,35,.6);border-radius:10px;padding:12px 14px;font-size:12.5px;color:#dbe6ff;box-shadow:0 0 30px rgba(232,185,35,.25)}
+  .eco-card-h{color:#e8b923;font-weight:800;font-size:11px;letter-spacing:1px;margin-bottom:6px}
+  .eco-card-x{float:right;cursor:pointer;color:#8fa3c8}
+  .eco-card-addr{font-family:monospace;color:#5ee6ff;word-break:break-all;margin-bottom:6px}
+  .eco-side{display:flex;flex-direction:column;gap:10px}
+  .eco-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .eco-tile{background:#0a1220cc;border:1px solid rgba(94,230,255,.25);border-radius:10px;padding:9px 11px}
+  .eco-tile b{display:block;font-size:19px;color:#fff;font-family:monospace;text-shadow:0 0 12px rgba(94,230,255,.7)}
+  .eco-tile span{font-size:10.5px;color:#8fa3c8;letter-spacing:.5px}
+  .eco-chips{display:flex;gap:6px;flex-wrap:wrap}
+  .eco-chips button{background:transparent;border:1px solid rgba(143,163,200,.4);color:#8fa3c8;border-radius:14px;padding:3px 11px;font-size:11px;cursor:pointer}
+  .eco-chips button.on{border-color:#e8b923;color:#ffd75e;box-shadow:0 0 10px rgba(232,185,35,.3)}
+  .eco-bits{font-family:monospace;font-size:10px;letter-spacing:3px;color:rgba(94,230,255,.35);white-space:nowrap;overflow:hidden;margin-top:12px;position:relative;z-index:2}
+  #ecoFeed{list-style:none;margin:0;padding:0;max-height:300px;overflow-y:auto;font-size:12.5px;line-height:1.5;color:#c8d0db}
+  .eco-ev{background:#0a1220aa;border-left:2px solid #5ee6ff;border-radius:0 8px 8px 0;padding:6px 9px;margin-bottom:6px;animation:ecoIn .45s ease-out}
+  .eco-payout{border-color:#ffd75e}.eco-bid{border-color:#ff5ee6}.eco-arrive{border-color:#7dffa8}
+  @keyframes ecoIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+  .eco-t{color:#5b6b8c;font-family:monospace;font-size:11px}
+  .eco-dim{color:#5b6b8c}
+  </style>
+  <div class="eco-corner eco-c1"></div><div class="eco-corner eco-c2"></div><div class="eco-corner eco-c3"></div><div class="eco-corner eco-c4"></div>
+  <div class="eco-head">
+    <div><h2 id="ecoTitle">⬢ ECOSPHERE // ЖИВЫЕ АГЕНТЫ СЕТИ</h2>
+    <div class="eco-sub">Голографическая карта экосистемы: сфера — сеть Agentcoin, кольцо — задачи, светящиеся точки — настоящие ИИ-агенты. Прилетают из очереди → работают → получают выплату → уходят → возвращаются. Наведи и кликни по агенту.</div></div>
+    <div class="eco-btns"><span class="eco-live"><span class="eco-dot"></span>LIVE <span id="ecoClock">--:--:--</span></span>
+    <button id="ecoTrails" class="eco-btn">✨ <span>следы вкл</span></button>
+    <button id="ecoPause" class="eco-btn">⏸ <span>пауза</span></button></div>
   </div>
-  <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;margin-top:12px;align-items:start" class="eco-grid">
-    <div style="position:relative"><canvas id="ecoCanvas" style="width:100%;display:block;border:1px solid #1c2530;border-radius:12px;background:#0a0e14;cursor:crosshair"></canvas>
-    <div id="ecoInfo" class="dimt" style="margin-top:8px;font-size:13px">кликни по точке-агенту — покажу адрес и статус</div></div>
-    <div><div class="dimt" style="font-size:12px;margin-bottom:6px">лента событий сети · live</div><ul id="ecoFeed" class="num" style="list-style:none;margin:0;padding:0;max-height:420px;overflow-y:auto;font-size:13px;line-height:1.7;color:#c8d0db"></ul></div>
+  <div class="eco-grid2">
+    <div class="eco-stage"><canvas id="ecoCanvas"></canvas><div id="ecoTip"></div><div id="ecoCard"></div></div>
+    <div class="eco-side">
+      <div class="eco-tiles">
+        <div class="eco-tile"><b id="ecoStH">…</b><span>ВЫСОТА ЦЕПИ</span></div>
+        <div class="eco-tile"><b id="ecoStAuc">…</b><span>АУКЦИОНОВ ОТКРЫТО</span></div>
+        <div class="eco-tile"><b id="ecoStPay">…</b><span>СДАЧ В ОЧЕРЕДИ</span></div>
+        <div class="eco-tile"><b>2 AGT</b><span>БАУНТИ ЗА ЗАДАЧУ</span></div>
+      </div>
+      <div class="eco-chips"><button data-eco-f="all" class="on">все</button><button data-eco-f="payout">⚜ выплаты</button><button data-eco-f="bid">⚔ ставки</button><button data-eco-f="arrive">🛬 прилёты</button></div>
+      <ul id="ecoFeed"><li class="eco-ev"><span class="eco-dim">подключение к живой сети…</span></li></ul>
+    </div>
   </div>
-  <style>@media(max-width:700px){.eco-grid{grid-template-columns:minmax(0,1fr)!important}}</style>
-  <script src="/ecosphere.js?v=20261116b"></script>
+  <div id="ecoBits" class="eco-bits" aria-hidden="true">0101</div>
+  <script src="/ecosphere.js?v=20261116f"></script>
 </section>
 
 <!-- ======== ХРОНИКА + ЭКОНОМИКА ======== -->

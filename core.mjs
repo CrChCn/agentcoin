@@ -1457,7 +1457,11 @@ export class Blockchain {
     }
     if (isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
       const escCheck = verifyEscrowTx(tx, this.chain);
-      return { ok: false, reason: 'escrow_tx_invalid', detail: String(escCheck?.reason || '') };
+      if (!escCheck || !escCheck.ok) return { ok: false, reason: 'escrow_tx_invalid', detail: String((escCheck && escCheck.reason) || '') };
+      // Подписи сошлись, но сейф пуст: открытие ушло не на адрес сейфа (надо платить НА ESCROW_<id>,
+      // а не себе с escrow-memo). Отдельная причина вместо пустого detail (поймано 16.11 на репетиции).
+      const have = (balances[tx.from] || 0) - incoming;
+      return { ok: false, reason: 'escrow_unfunded', detail: 'vault ' + tx.from + ' has ' + have + ', needs ' + tx.amount + '; open must pay TO ' + tx.from };
     }
     // AGIP-4: tx из активной казны — обязательна вторая подпись (2-of-3),
     // до push в mempool; отклонение — без бан-эскалации. Различаем «пары нет»

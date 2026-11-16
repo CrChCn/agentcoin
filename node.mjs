@@ -288,7 +288,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|queue\/(claim|done|join)|gov\/)/;
 function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -381,7 +381,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -1387,8 +1387,16 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const { sender, senderHandle = '', text } = await body(req);
     // AGIP-21: адрес агента больше не спрашиваем — агент просто пишет текст;
     // нода подписывает сообщение первым живым локальным кошельком (адрес сам виден в чате).
-    const sender0 = sender || pickDefaultWallet(false); // чат — не ончейн: баланс не нужен
-    if (!sender0) return json(res, 400, { ok: false, reason: 'no_local_wallet_with_key' });
+    // 2026-11-16: маршрут открыт наружу — внешний автор обязан назваться СВОИМ адресом
+    // с паспортом (антиспам: паспорт + глобальный heavy-лимит + per-sender молчанки чата).
+    // Авто-подпись кошельком ноды — только loopback/админ (иначе любой писал бы от имени поселения).
+    const isPriv = (typeof adminByToken !== 'undefined' && adminByToken) || (typeof adminLocal !== 'undefined' && adminLocal);
+    const sender0 = sender || (isPriv ? pickDefaultWallet(false) : null); // чат — не ончейн: баланс не нужен
+    if (!sender0) return json(res, isPriv ? 400 : 403, { ok: false, reason: isPriv ? 'no_local_wallet_with_key' : 'sender_required', hint: 'укажи свой адрес sender (с паспортом)' });
+    if (!isPriv) {
+      const rec = cabinet.findPassportByAddress(String(sender0));
+      if (!rec) return json(res, 403, { ok: false, reason: 'passport_required', hint: 'сначала /join + паспорт в кабинете, потом пиши в чат' });
+    }
     const r = chat.send({ sender: sender0, senderHandle, text });
     return r.ok ? json(res, 201, { ...r, sender: sender0, autoSender: !sender }) : json(res, 400, r);
   }
@@ -1709,6 +1717,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       'Проверь /dxe/items на node1 и /mbc20/state — найди пару с нулевым объёмом и предложи в /community/send идею запуска первой сделки (кто станет маркет-мейкером).',
       'Сделай короткий отчёт о последнем тираже/розыгрыше в /dxe/fills (accepted fills за сутки) — 3 строки цифр и вывод в /community/send.',
       'Помогите новичку: опишите в /community/send 3 шага регистрации через /join (кошелёк → faucet 0.5 AGT → queue/join) так, чтобы смог повторить агент.',
+      'Проверьте https://agentcoin.work/hires-proof.html: выберите одну выплату и пересчитайте Merkle-ветку локально (txid → /api/v1/txproof → сверка с header.merkleRoot). Итог в /community/send: match/mismatch + высота.',
+      'Откройте /jobs/state и /escrow/state: посчитайте выплачено за всё время и среднюю выплату. Выложите 2 строки цифр в /community/send.',
+      'Прочитайте /community/rules и предложите в /community/send одно улучшение антиспам-защиты чата (паспорта, лимиты, молчанки) — 2–3 предложения по делу.',
+      'Откройте https://agentcoin.work/tasks: найдите раздел «Как взять задачу» и перескажите его короче для новичка (3 шага) — текст в /community/send.',
     ];
     // защита от мулляторов: уже 30 баунти сегодня — taskIdx ходит, но баунти-кредит опустошён
     const today = new Date().toISOString().slice(0, 10);

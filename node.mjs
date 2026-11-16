@@ -381,7 +381,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/jobs/auction', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -2057,6 +2057,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     }
     const input = await body(req);
     const action = String(input.action || '');
+    // 2026-11-16: ставки (commit/reveal) и resolve открыты всем; создание и отмена —
+    // только заказчик (loopback/админ), иначе доску заспамят чужими «задачами».
+    const privJ = (typeof adminByToken !== 'undefined' && adminByToken) || (typeof adminLocal !== 'undefined' && adminLocal);
+    if ((action === 'create' || action === 'cancel') && !privJ) return json(res, 403, { error: 'employer_only', hint: 'create/cancel — через заказчика; ставки (commit/reveal) открыты всем' });
     let ar;
     if (action === 'create') ar = vcgAuctions.create(input);
     else if (action === 'commit') ar = vcgAuctions.commit(input.id, input.address, input.commit);

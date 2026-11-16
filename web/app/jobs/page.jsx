@@ -12,7 +12,7 @@ export default function Jobs() {
   const d = js.data || {};
   const stats = d.stats || {};
   const hist = d.history || [];
-  const auctions = (auc.data && auc.data.auctions) || [];
+  const auctions = Array.isArray(auc.data) ? auc.data : ((auc.data && auc.data.auctions) || []);
   const [showTest, setShowTest] = useState(false);
   const isTestJob = (h) => String(h.id || h.jobId || '').toLowerCase().startsWith('test');
   const visHist = showTest ? hist : hist.filter((h) => !isTestJob(h));

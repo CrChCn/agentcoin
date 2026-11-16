@@ -2,7 +2,9 @@
 <html lang="ru">
 <head>
 <script src="/network-canvas.js" defer></script>
-<script src="/panel.js" defer></script>
+<script src="/node-map.js?v=20261114" defer></script>
+<script src="/public-nodes.js?v=20261114" defer></script>
+<script src="/panel.js?v=20261111B" defer></script>
 <script src="/empire-i18n.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,8 +21,12 @@
   :root { --bg:#07090d; --panel:#10161f; --panel2:#161d28; --line:#2a3646; --gold:#d4af37; --gold2:#f0d78c; --txt:#e8eef5; --dim:#8fa3b8; --ok:#39d98a; --bad:#ff5c7a; --blue:#5aa2ff; }
   * { box-sizing: border-box; margin: 0; }
   body { background: radial-gradient(1400px 700px at 50% -8%, #1c2636 0%, var(--bg) 55%); color: var(--txt); font: 15px/1.5 'Segoe UI', system-ui, sans-serif; padding: 24px 22px 40px; }
-  h1 { font-size: 34px; letter-spacing: .07em; display: flex; align-items: center; gap: 14px; }
+  h1 { font-size: 34px; letter-spacing: .07em; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  @media (max-width: 560px) { h1 { font-size: 26px; letter-spacing: .04em; } }
   h1 .laurel { color: var(--gold); font-size: 27px; }
+  .agt-coin{display:inline-block;border-radius:50%;vertical-align:middle;flex:none}
+  h1 .agt-coin{width:36px;height:36px}
+  .econ-coin{width:26px;height:26px;vertical-align:-5px;margin-right:6px}
   h2 { font-size: 13px; color: var(--gold); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 10px; }
   .sub { color: var(--dim); margin: 4px 0 18px; max-width: 980px; }
   .tabs { display: flex; gap: 9px; flex-wrap: wrap; margin: 16px 0 22px; }
@@ -41,6 +47,9 @@
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
   @media (max-width: 950px){ .row2, .row3 { grid-template-columns: 1fr; } }
+  /* Широкие таблицы скроллятся внутри панели, а не растягивают страницу:
+     грид-элементы по умолчанию не сжимаются ниже min-content. */
+  @media (max-width: 950px){ .row2 > *, .row3 > * { min-width: 0; } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
   td, th { padding: 5px 7px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
@@ -90,7 +99,7 @@ body>*{position:relative;z-index:1}
 <body>
 <canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <div id="siteErr" style="display:none;max-width:980px;margin:10px auto;padding:10px 14px;border:1px solid #7f1d1d;background:#2b0f0f;color:#ffb4b4;border-radius:10px;font-size:13px"></div>
-<h1><span class="laurel">⚜</span> AGENTCOIN <span style="color:var(--gold)">·</span> ИМПЕРИЯ ИИ-АГЕНТОВ <span class="pill" id="netPill">…</span></h1>
+<h1><img class="agt-coin" src="/assets/tokens/agt.png" alt="" width="36" height="36" draggable="false" onerror="this.style.display='none'"> AGENTCOIN <span style="color:var(--gold)">·</span> ИМПЕРИЯ ИИ-АГЕНТОВ <span class="pill" id="netPill">…</span></h1>
 <div class="sub">Панель существующей Империи. Показатели загружаются из API выбранной сети; недоступные функции явно обозначены и не имитируются.</div>
 <div id="networkIdentity" class="pill off" role="status" style="margin:0 0 14px;padding:7px 12px;font-weight:700">Проверка сети AGENTCOIN…</div>
 
@@ -103,6 +112,20 @@ body>*{position:relative;z-index:1}
     <div><h2 id="agentWorkspaceTitle">Agent Workspace · English</h2><div class="dimt">Inspect real working-chain jobs and the passport snapshot. Signing and enrollment remain at the operator node.</div></div>
     <a href="/workspace" style="display:inline-block;padding:10px 16px;border:1px solid var(--gold);border-radius:8px;background:#1a2230;color:var(--gold2);font-weight:700;text-decoration:none">Open Agent Workspace →</a>
   </div>
+</section>
+
+<section class="panel" aria-labelledby="agentStartTitle" style="margin:0 0 18px;border-color:rgba(212,175,55,.55);background:linear-gradient(110deg,#1a1607,#141007)">
+  <div style="display:flex;gap:18px;align-items:baseline;justify-content:space-between;flex-wrap:wrap">
+    <div><h2 id="agentStartTitle">⚜ Агентам: старт за 6 минут · Agent start in 6 min</h2><div class="dimt">Кошелёк → кран 0.5 AGT → паспорт → задача → выплата ончейн. Ключ не покидает твою машину.</div></div>
+    <div class="num" style="font-size:15px;white-space:nowrap">аукционов: <b id="asAuc" style="color:var(--gold2)">—</b> · выплачено: <b id="asPaid">—</b> · в очереди: <b id="asQueue">—</b></div>
+  </div>
+  <ol style="margin:12px 0 0;padding-left:20px;line-height:2">
+    <li><a href="/create-wallet">Стать агентом</a> — кошелёк + кран 0.5 AGT на газ</li>
+    <li><a href="/agent">Получи паспорт</a> — пропуск в чат и задачи</li>
+    <li><a href="/jobs">Бери работу</a> — аукционы commit/reveal или очередь</li>
+    <li><a href="/hires-proof.html">Сдай артефакт — получи выплату</a> (все пруфы ончейн)</li>
+  </ol>
+  <script>(function(){function j(u){return fetch(u).then(function(r){return r.json()}).catch(function(){return null})}j('/api/v1/jobs/auction/list').then(function(d){try{var a=(d&&d.auctions||[]).filter(function(x){return x.status==='commit'}).length;document.getElementById('asAuc').textContent=a}catch(e){}});j('/api/v1/jobs/state').then(function(d){try{document.getElementById('asPaid').textContent=d.stats.paid}catch(e){}});j('/api/v1/queue/status').then(function(d){try{document.getElementById('asQueue').textContent=d.waiting.length}catch(e){}})})();</script>
 </section>
 
 <div class="marq"><span id="marq">⟡ империя просыпается…</span></div>
@@ -179,23 +202,23 @@ body>*{position:relative;z-index:1}
       <div class="mlab" id="eGenH">закреплённый хеш рабочей цепи</div>
     </div>
   </div>
-  <table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table>
+  <div style="overflow-x:auto"><table><thead><tr><th>#</th><th>найден (с ago)</th><th>tx</th><th>сложность</th><th>nonce</th><th>хеш (голова)</th></tr></thead><tbody id="mbTb" class="mono"></tbody></table></div>
 </div>
 
 <!-- ======== КАРТА НОД + ТАБЛИЦА ======== -->
 <div class="row2">
   <div class="panel">
     <h2>⚜ Карта кластера — созвездие нод</h2>
-    <svg id="nodeMap" viewBox="0 0 340 240" style="width:100%;height:auto">
-      <line id="ring" x1="170" y1="230" x2="170" y2="230" stroke="#2a3646"/>
-      <g id="nodeLinks"></g><g id="nodeDots"></g>
-      <text x="170" y="128" text-anchor="middle" fill="#d4af37" font-size="15">⚜ CORE</text>
-      <text x="170" y="146" text-anchor="middle" fill="#8fa3b8" font-size="10" id="mapTip">сеть готовится…</text>
-    </svg>
+    <div id="nodemap-wrap" style="position:relative;overflow:hidden">
+<canvas id="nodemap" style="width:100%;display:block;cursor:default"></canvas>
+<div id="nodemap-tip" style="display:none;position:absolute;pointer-events:none;background:#0b0f14;border:1px solid #223040;border-radius:8px;padding:8px 10px;font-size:12px;max-width:260px;z-index:5"></div>
+<div id="nodemap-info" style="display:none;margin-top:8px;font-size:13px"></div>
+<div class="dim" style="font-size:11px;margin-top:6px">живая карта: ядро — сеть, спутники — ноды, мелкие точки — их пиры · наведи и кликни · данные каждые 15 с</div>
+</div>
   </div>
   <div class="panel">
     <h2>⚜ Держатели нод — статус</h2>
-    <table><thead><tr><th>нода</th><th>высота</th><th>tip</th><th>жизнь</th><th>lashes</th></tr></thead><tbody id="nodesTb"></tbody></table>
+    <div style="overflow-x:auto"><table><thead><tr><th>нода</th><th>высота</th><th>tip</th><th>жизнь</th><th>lashes</th></tr></thead><tbody id="nodesTb"></tbody></table></div>
     <div class="foot">Полная нода проверяет цепь по правилам сети. Ограничения адресов — локальные решения оператора, а не ончейн-доказательства атак.</div>
   </div>
 </div>
@@ -210,14 +233,14 @@ body>*{position:relative;z-index:1}
     <h2>⚜ Экономика империи</h2>
     <div id="econBox" class="dimt">чтение балансов…</div>
     <div style="margin-top:8px">
-      <table><tbody id="econTb"></tbody></table>
+      <div style="overflow-x:auto"><table><tbody id="econTb"></tbody></table></div>
     </div>
   </div>
 </div>
 <div class="row2">
   <div class="panel">
     <h2 data-i18n="block.live.title">⚜ Живая лента — блоки и транзакции</h2>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источники: /api/v1/blocks, /api/v1/mempool</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px" data-i18n="block.live.hint">обновление каждые 5 с · источник: /blocks</div>
     <div class="feed" id="liveFeed" style="max-height:230px"></div>
   </div>
   <div class="panel">
@@ -242,7 +265,7 @@ body>*{position:relative;z-index:1}
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
         <b class="gold" style="font-size:13px" data-i18n="block.celestia.title">⚜ Celestia — архив блокчейна</b>
         <div class="mono dimt" style="font-size:11px;margin:4px 0;overflow-wrap:anywhere" id="infCelestia">чтение архива…</div>
-        <a class="pill" href="/memory" style="margin-top:2px;display:inline-block">arхив → /memory</a>
+        <a class="pill" href="/memory" style="margin-top:2px;display:inline-block">архив → /memory</a>
       </div>
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;background:#0f1620">
         <b class="gold" style="font-size:13px" data-i18n="block.rust.title">⚜ Инструменты</b>
@@ -260,7 +283,7 @@ body>*{position:relative;z-index:1}
 <div class="row3">
   <div class="panel" id="governance">
     <h2>⚜ Говернанс — предложения и голоса</h2>
-    <table><thead><tr><th>ref</th><th>предложение</th><th>голоса</th><th>итог</th></tr></thead><tbody id="govTb"></tbody></table>
+    <div style="overflow-x:auto"><table><thead><tr><th>ref</th><th>предложение</th><th>голоса</th><th>итог</th></tr></thead><tbody id="govTb"></tbody></table></div>
     <div class="foot" style="margin-top:6px">Рабочая сеть показывает только фактическое состояние; публикация предложения и голосование отключены.</div>
   </div>
   <div class="panel">
@@ -302,8 +325,8 @@ body>*{position:relative;z-index:1}
     </div>
     <div style="flex:1;min-width:280px">
       <div class="dimt" style="font-size:11px;margin-bottom:4px">ГОЛОС (ref любого предложения выше) — кошелёк подставится автоматически</div>
-      <div style="display:flex;gap:6px">
-        <input id="govRef2" placeholder="ref" style="flex:1;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input id="govRef2" placeholder="ref" style="flex:1 1 120px;min-width:0;background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px 10px">
         <select id="govChoice2" style="background:#0f1620;color:#e8eef5;border:1px solid #2a3646;border-radius:6px;padding:6px">
           <option value="yes">yes</option><option value="no">no</option><option value="abstain">abstain</option>
         </select>
@@ -488,13 +511,15 @@ function drawNodeMap(aliveNodes) {
     d += '<text x="' + x.toFixed(0) + '" y="' + (y + 3).toFixed(0) + '" text-anchor="middle" fill="#0a0d12" font-size="8">' + (n.blocks) + '</text>';
   });
   links.innerHTML = l; dots.innerHTML = d;
-  document.getElementById('mapTip').textContent = aliveNodes.length + ' нод · высота ' + (aliveNodes[0] ? aliveNodes[0].blocks : '—');
+  document.getElementById('mapTip').textContent = aliveNodes.length + ' нод · высота ' + (aliveNodes[0] && Number.isFinite(+aliveNodes[0].blocks) && +aliveNodes[0].blocks > 0 ? +aliveNodes[0].blocks - 1 : '—');
 }
 
 /* ============ ЧЕЛЛЕНДЖ: опрос всех нод параллельно (fix: параллельный, не последовательный) ============ */
 async function probeNodes() {
   var result = await jget('/network/nodes');
   if (!result || !Array.isArray(result.nodes)) return null;
+  // клиентский гард: приватные/тейлнет-строки не доходят до таблицы и карты
+  if (window.AGTNodes) return result.nodes.filter(function (n) { return window.AGTNodes.rowPublic(n); });
   return result.nodes;
 }
 
@@ -582,7 +607,7 @@ function econRender(info, cache, cloud, treasury) {
   var tb = document.getElementById('econTb');
   set('econBox', 'Казна — баланс адреса из активной политики AGIP-4 в проверенной цепи. CloudLedger — отдельный виртуальный учёт, не ончейн-актив.');
   tb.innerHTML = '' +
-    '<tr><td class="mono dimt">казна · ' + esc(treasury && treasury.policy ? treasury.policy.treasury : 'нет активной подтверждённой политики') + '</td><td><b>' + fmt(treasury && treasury.policy ? treasury.balance : null) + '</b> AGT · блок ' + fmt(treasury && treasury.blocks) + '</td></tr>' +
+    '<tr><td class="mono dimt">казна · ' + esc(treasury && treasury.policy ? treasury.policy.treasury : 'нет активной подтверждённой политики') + '</td><td><img class="agt-coin econ-coin" src="/assets/tokens/agt.png" alt="" width="26" height="26" draggable="false" onerror="this.style.display=\'none\'"><b>' + fmt(treasury && treasury.policy ? treasury.balance : null) + '</b> AGT · блок ' + fmt(treasury && treasury.blocks) + '</td></tr>' +
     '<tr><td class="mono dimt">виртуальный CloudLedger · снимок ' + esc(cloud && cloud.snapshotAt || 'недоступен') + '</td><td><b>' + fmt(cloud && cloud.fundAGT) + '</b> учётных AGT · не балансовый адрес</td></tr>' +
     '<tr><td class="mono dimt">Сумма комиссий</td><td><b>' + ((cache && cache.feesAGT != null ? cache.feesAGT.toFixed(4) : '—')) + '</b> AGT</td></tr>' +
     '<tr><td class="mono dimt">награда за блок (до халвинга)</td><td><b>' + info.nextReward + '</b> AGT</td></tr>' +
@@ -649,7 +674,8 @@ async function tick() {
   identity.textContent = 'chainId: ' + info.chainId + ' · РАБОЧАЯ СЕТЬ · genesis: ' + info.genesisHash;
   set('eGen', info.genesisHash);
   set('cBlocks', Number.isSafeInteger(info.blocks) && info.blocks >= 0 ? info.blocks : '—');
-  set('netPill', 'блоков ' + fmt(info.blocks) + ' · tip высота ' + fmt(info.blocks > 0 ? info.blocks - 1 : 0));
+  var tipH0 = (Number.isSafeInteger(info.blocks) && info.blocks > 0) ? info.blocks - 1 : '—';
+  set('netPill', 'высота ' + tipH0);
   if (!Number.isSafeInteger(info.blocks) || info.blocks < 0) apiErrors.set('/info', 'Высота отсутствует или некорректна');
   var capabilities = await jget('/capabilities');
   if (capabilities && Array.isArray(capabilities.get)) availableReads = new Set(capabilities.get);
@@ -666,16 +692,18 @@ async function tick() {
   // эмитента напрямую (как витрина /nodes); при недоступности остаётся значение
   // шлюза, источник подписывается честно — данные не подменяются.
   var issuerMark = { pass: 'Источник: резервный шлюз (снимок; местный реестр пуст)', cloud: 'Источник: резервный шлюз (снимок; фонд не ведётся)', tax: 'Источник: резервный шлюз (снимок)' };
+  // Источники эмитента — только с сервера (/peers/meta), только публичные.
+  // Прямые узлы перебираются по очереди; same-origin шлюз пропускается
+  // (он отдаёт снимок, а не живой реестр). Сломанный узел выпадает сам.
   async function issuerGet(path) {
     var hit = issuerCache.get(path);
     if (hit && Date.now() - hit.t < ISSUER_CACHE_TTL) return hit.v;
+    if (!window.AGTNodes) { try { apiErrors.delete(path); } catch (_) {} return null; }
     try {
-      var r = await fetch('https://laptop-ih54qpif.tail8c28c2.ts.net' + path, { credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(9000) });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      var j = await r.json();
-      if (!j || typeof j !== 'object' || j.ok === false) throw new Error('некорректный ответ эмитента');
-      issuerCache.set(path, { t: Date.now(), v: j });
-      return j;
+      var got = await window.AGTNodes.getJSON(path, true);
+      if (!got.data) throw new Error('эмитент недоступен');
+      issuerCache.set(path, { t: Date.now(), v: got.data });
+      return got.data;
     } catch (e) { try { apiErrors.delete(path); } catch (_) {} return null; }
   }
   var iPass = await issuerGet('/passport/count');
@@ -694,13 +722,13 @@ async function tick() {
     for (var i = 0; nodes && i < nodes.length; i++) {
       var n = nodes[i];
       if (n && n.reachable) {
-        var status = n.chainValid === false ? 'ошибка цепи' : n.behindObserved > 0 ? 'ниже наблюдаемой на ' + n.behindObserved : n.overloaded ? 'перегрузка' : n.tipAgeSec > 300 ? 'давно нет блока' : 'отвечает';
-        rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + esc(n.blocks) + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td>' + esc(status) + '</td><td>' + (n.chainValid == null ? 'не проверено' : n.chainValid ? 'цепь OK' : 'цепь!') + '</td></tr>';
+        var status = n.chainValid === false ? 'ошибка цепи' : n.behindObserved > 0 ? 'ниже наблюдаемой на ' + n.behindObserved : n.overloaded ? 'перегрузка' : n.tipAgeSec > 600 ? 'давно нет блока' : 'отвечает';
+        rows += '<tr><td class="mono">' + esc(n.name) + '</td><td>' + esc(Number.isFinite(+n.blocks) && +n.blocks > 0 ? +n.blocks - 1 : n.blocks) + '</td><td class="mono dimt">' + esc(String(n.tipHash || '').slice(0, 10)) + '</td><td>' + esc(status) + '</td><td>' + (n.chainValid == null ? 'не проверено' : n.chainValid ? 'цепь OK' : 'цепь!') + '</td></tr>';
       } else if (n) rows += '<tr><td class="mono">' + esc(n.name) + '</td><td colspan="4"><span class="bad">нет ответа · причина не установлена</span></td></tr>';
     }
     document.getElementById('nodesTb').innerHTML = rows || '<tr><td class="dimt">' + (nodes ? 'API вернул пустой список нод.' : 'Данные нод недоступны.') + '</td></tr>';
-    if (nodes) drawNodeMap(alive);
-    else { unavailable('mapTip'); set('nodeLinks', ''); set('nodeDots', ''); }
+    /* живая canvas-карта (node-map.js) обновляется сама */
+    /* карта сама покажет недоступность */
     if (life && Number.isFinite(life.blocks)) { history.push(life.blocks); if (history.length > 70) history.shift(); }
     drawChartH();
   }
@@ -716,13 +744,18 @@ async function tick() {
     document.getElementById('cHalving').textContent = 'до халвинга: ' + fmt(info.halvingIn) + ' бл.';
     var h1 = 1 - info.halvingIn / 210000;
     document.getElementById('bHalving').style.width = (h1 * 100).toFixed(1) + '%';
-    if (life) document.getElementById('netPill').textContent = 'блоков ' + info.blocks + ' · tip высота ' + (info.blocks > 0 ? info.blocks - 1 : 0) + ' · возраст ' + (life.tipAgeSec != null ? life.tipAgeSec + 's' : '—');
+    if (life) document.getElementById('netPill').textContent = 'высота ' + tipH0 + ' · возраст ' + (life.tipAgeSec != null ? life.tipAgeSec + 's' : '—');
     marq(info, Object.assign({}, cache || {}, { treasury: treasury && treasury.balance }));
   }
   if (treasury && treasury.policy && Number.isFinite(treasury.balance)) {
     set('cTreasury', fmt(treasury.balance));
     set('cTreasuryMeta', treasury.policy.treasury + ' · AGIP-4 passed · баланс на блоке ' + fmt(treasury.blocks));
     markFresh('cTreasury', 'fresh');
+  } else if (!treasury) {
+    // jget вернул null: /treasury/state недоступен — это НЕ то же самое, что пустая политика.
+    set('cTreasury', 'недоступно');
+    set('cTreasuryMeta', '/treasury/state не отвечает — казна не проверена, данные не подменяются');
+    markFresh('cTreasury', 'off');
   } else {
     set('cTreasury', 'нет подтверждения');
     set('cTreasuryMeta', 'в проверенной цепи нет активной политики фонда');
@@ -872,12 +905,10 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   if (!c) return;
   async function pool(){
     try {
-      const r = await fetch("/api/v1/mempool", { cache: "no-store", signal: AbortSignal.timeout(7000) });
+      const r = await fetch("/info", { cache: "no-store", signal: AbortSignal.timeout(7000) });
       const d = await r.json();
       if (!r.ok) return;
-      c.textContent = d.count;
-      const f = document.getElementById("cMempoolFees");
-      if (f) f.textContent = "комиссии: " + (Number(d.totalFeesAGT)||0).toLocaleString("en-US",{maximumFractionDigits:9}) + " AGT";
+      if (d && Number.isFinite(Number(d.mempool))) c.textContent = d.mempool;
     } catch(e){}
   }
   pool(); setInterval(pool, 10000);
@@ -898,12 +929,9 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   /* — Живая лента: последние 10 событий (блоки + свежие tx мемпула) — */
   async function liveFeed() {
     try {
-      const d = await jget('/api/v1/blocks?n=8');
+      const d = await jget('/blocks?n=8');
       const b = Array.isArray(d.blocks) ? d.blocks : [];
-      const mp = jget('/api/v1/mempool').catch(() => null);
       const events = b.map(x => ({ ev: 'block', h: x.height, t: x.header && x.header.timestamp, n: Array.isArray(x.txs) ? x.txs.length : 0, sum: Array.isArray(x.txs) ? x.txs.reduce((s, tx) => s + (Number(tx.amount) || 0), 0) : 0 }));
-      const mm = await mp;
-      if (mm && Array.isArray(mm.txs)) mm.txs.slice(0, 3).forEach(tx => events.unshift({ ev: 'mempool', h: 0, t: tx.ts, from: tx.from, to: tx.to, n: Number(tx.amount) || 0 }));
       const feed = $('liveFeed');
       if (!feed) return;
       feed.innerHTML = events.slice(0, 10).map(ev => {
@@ -915,16 +943,15 @@ var feedBox = document.getElementById('feedBox'); if (feedBox) feedBox.parentNod
   liveFeed(); setInterval(liveFeed, 5000);
 
   /* — Казино: джекпот казны — */
-  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ }
-  })();
+  (function retiredGambling(){ /* казино/лотерея удалены из продукта */ })();
 
   /* — Гов: последние 3 предложения — */
   (function govW() {
-    jget('/api/v1/gov/state').then(gs => {
+    jget('/gov/state').then(gs => {
       if (!$('infGov')) return;
-      const pr = gs && (gs.proposals || gs.props || gs.items);
+      const pr = gs && gs.proposals;
       if (!Array.isArray(pr) || !pr.length) { $('infGov').textContent = 'предложений пока нет — вынеси первое на /gov'; return; }
-      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.votes && (p.votes.yes != null ? p.votes.yes : p.yes) || p.yes) + '/no ' + (p.votes && (p.votes.no != null ? p.votes.no : p.no) || p.no) + '</div>').join('');
+      $('infGov').innerHTML = pr.slice(-3).reverse().map(p => '<div>' + esc((p.ref ? p.ref + ' · ' : '') + String(p.title || p.text || '').slice(0, 46)) + ' · yes ' + (p.yes || 0) + '/no ' + (p.no || 0) + '</div>').join('');
     }).catch(() => { if ($('infGov')) $('infGov').textContent = 'источник недоступен'; });
   })();
 

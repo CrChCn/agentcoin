@@ -46,6 +46,7 @@ export default function Home() {
   const gov = useApi('/api/v1/gov/state', 30000);
   const tstat = useApi('/api/v1/treasury/state', 60000);
   const jobs = useApi('/api/v1/jobs/state', 60000);
+  const auc = useApi('/api/v1/jobs/auction/list', 30000);
   const [treasury, setTreasury] = useState(null);
 
   const d = info.data || {};
@@ -104,6 +105,20 @@ export default function Home() {
           <Link href="/jobs" className="rounded-xl border border-[#e8b923] px-5 py-2.5 font-bold text-[#e8b923] hover:bg-[#1a1607]">{t('hero.cta2')}</Link>
         </div>
       </section>
+
+      <Card title={t('agent.title')} right={<span className="text-[11px] text-[#5c6672]">{t('agent.sub')}</span>}>
+        <ol className="grid gap-2 text-sm text-[#c8d0db] md:grid-cols-2">
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/agent">{t('agent.s1')}</Link></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/agent">{t('agent.s2')}</Link></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/jobs">{t('agent.s3')}</Link></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/hires-proof.html">{t('agent.s4')}</a></li>
+        </ol>
+        <div className="num mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span><b className="text-[#e8b923]">{((auc.data && auc.data.auctions) || []).filter((a) => a.status === 'commit').length}</b> {t('agent.open')}</span>
+          <span><b className="text-[#e8b923]">{(jobs.data && jobs.data.stats && jobs.data.stats.paid) || '—'}</b> {t('agent.paid')}</span>
+          <a className="font-bold text-[#e8b923] underline" href="/hires-proof.html">{t('agent.proofs')}</a>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {cards.map(([label, val, s]) => (

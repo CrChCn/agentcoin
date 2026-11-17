@@ -109,7 +109,7 @@ eq(ob1.status, 'created', 'obligation: created');
 eq(q.obligationFor(cA.jobId, A, '2000000000').repeat, true, 'obligation: идемпотентно');
 eq(q.payoutDecision(cA.jobId).action, 'create', 'payout: решение create');
 q.obligationSent(ob1.obId, 'txAAA');
-eq(q.payoutDecision(cA.jobId).action, 'resend-allowed', 'payout: отправлено, но нет в цепи — можно дослать');
+eq(q.payoutDecision(cA.jobId).action, 'resend-same-txid-only', 'payout: отправлено, но нет в цепи — только повтор того же txid');
 eq(q.payoutDecision(cA.jobId, new Set(['txAAA'])).action, 'adopt', 'payout: txid в цепи — только дописать');
 eq(q.obligationSent(ob1.obId, 'txBBB').error, 'OB_ALREADY_SENT', 'payout: вторая отправка запрещена');
 q.obligationSettled(ob1.obId);

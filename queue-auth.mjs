@@ -75,3 +75,37 @@ export function makeNonceStore(file, maxSize = 20000) {
     has(nonce) { return Boolean(map[String(nonce)]); },
   };
 }
+
+/* Идемпотентный исполнитель подписанных запросов (ответ на 3 вопроса, п.2).
+   Семантика:
+   - первый приём nonce: выполняет эффект один раз, сохраняет { digest, result };
+   - повтор с тем ЖЕ nonce и тем ЖЕ телом (тот же digest): эффекта нет,
+     возвращается сохранённый результат с replay:true (потеря ответа безопасна);
+   - тот же nonce с ИЗМЕНЁННЫМ телом (другой digest): отказ NONCE_BODY_MISMATCH,
+     эффект не выполняется и сохранённый результат не отдаётся как чужой;
+   - хранилище персистентно (файл JSON), переживает рестарт; записи чистятся по expiry.
+   digest считается вызывающим через actionDigest (та же каноника, что подпись). */
+export function makeIdempotentExecutor(file, maxSize = 20000) {
+  let map = {};
+  try { map = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { map = {}; }
+  const save = () => { try { fs.writeFileSync(file, JSON.stringify(map)); } catch {} };
+  return {
+    run({ nonce, digest, expiry }, effect) {
+      const k = String(nonce);
+      const prev = map[k];
+      if (prev) {
+        if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH', note: 'тот же nonce с другим телом: отказ, эффект не повторён' };
+        return { ok: true, replay: true, result: prev.result };
+      }
+      const result = effect();
+      map[k] = { digest: String(digest), result, expiry: Number(expiry) || 0 };
+      const keys = Object.keys(map);
+      if (keys.length > maxSize) {
+        keys.sort((a, b) => (map[a].expiry || 0) - (map[b].expiry || 0)).slice(0, keys.length - maxSize).forEach((x) => delete map[x]);
+      }
+      save();
+      return { ok: true, replay: false, result };
+    },
+    get(nonce) { return map[String(nonce)] || null; },
+  };
+}

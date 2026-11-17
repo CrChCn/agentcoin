@@ -194,6 +194,11 @@ export class AgentQueue {
     return { ok: false, error: outcome === 'expired-unconfirmed' ? 'CONFIRM_TIMEOUT' : 'JOB_EXPIRED' };
   }
   // Sweep истечений: confirm-окно и exec+grace. Первый (sweep/submit) выигрывает — атомарно в одном тике.
+  // Уточнение grace (ответ на 3 вопроса): слот ЗАНЯТ всё время до executeBy+grace
+  // (onDuty удерживается, переназначение невозможно). После grace — исход
+  // expired-unsubmitted, слот свободен; повторная выдача — ТОЛЬКО новым jobId.
+  // Поздний submit первого исполнителя привязан к попытке (jobId): после истечения
+  // своей попытки он отвергается и НЕ создаёт вторую выплату.
   sweepExpiries(now = Date.now()) {
     const out = [];
     for (const [j, agent] of Object.entries(this.state.onDuty)) {
@@ -201,8 +206,31 @@ export class AgentQueue {
       if (!m || m.outcome) continue; // legacy и завершённые не трогаем
       if (!m.confirmed && now > m.confirmBy) { this._expire(j, m, 'expired-unconfirmed', now); out.push([j, 'expired-unconfirmed']); }
       else if (m.confirmed && !m.submitted && now > m.executeBy + this.V2.lateGrace) { this._expire(j, m, 'expired-unsubmitted', now); out.push([j, 'expired-unsubmitted']); }
+      // submitted (вовремя или в grace) — sweep НЕ трогает никогда: задержка
+      // проверяющего работу просрочить не может; исход ставит только review().
     }
     return out;
+  }
+  // Ревью привязано к попытке: только submitted без исхода; ставит финальный исход
+  // done-accepted | done-rejected. Выплата создаётся только после done-accepted
+  // и только одна на jobId (см. obligationFor). После outcome повторный
+  // submit/review/done по тому же jobId невозможен.
+  review(jobId, verdict, reason = '', { now = Date.now() } = {}) {
+    const j = String(jobId);
+    const m = this._meta(j);
+    if (!m) return { ok: false, error: 'LEGACY_NO_REVIEW' };
+    if (m.outcome) return { ok: false, error: 'ALREADY_' + String(m.outcome).toUpperCase() };
+    if (!m.submitted) return { ok: false, error: 'NOT_SUBMITTED' };
+    if (verdict !== 'accept' && verdict !== 'reject') return { ok: false, error: 'BAD_VERDICT' };
+    const agent = this.state.onDuty[j];
+    delete this.state.onDuty[j];
+    m.outcome = verdict === 'accept' ? 'done-accepted' : 'done-rejected';
+    m.reviewedAt = now;
+    m.reviewReason = String(reason || '').slice(0, 200);
+    this.state.history.push({ at: now, jobId: j, agent: typeof agent === 'string' ? agent : agent?.agent, summary: m.outcome + (m.late ? ':late' : '') + ' ' + m.reviewReason });
+    if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
+    this.save();
+    return { ok: true, jobId: j, outcome: m.outcome, late: Boolean(m.late) };
   }
   // ---------- v2: обязательства выплаты (проверка отделена от денег) ----------
   obligationFor(jobId, agent, amountMgnt) { // идемпотентно по jobId: одно обязательство на работу
@@ -232,10 +260,15 @@ export class AgentQueue {
   }
   // Сверка перед отправкой: обязательство уже есть/исполнено или txid уже в цепи — второй отправки нет.
   // chainTxids: Set txid из цепи (строит вызывающий уровень). Возвращает решение для сервиса выплат.
+  // Уточнение resend (ответ на 3 вопроса): тайм-аут RPC сам по себе НЕ разрешает
+  // новую выплату. Разрешён только повтор ТОЙ ЖЕ подписанной транзакции (тот же
+  // txid) либо сначала доказанное установление исхода предыдущей (adopt по цепи).
+  // Новая подпись/новый txid при статусе sent запрещены: obligationSent второй раз
+  // не проходит, obligationFor идемпотентен (тот же obId/txid).
   payoutDecision(jobId, chainTxids = new Set()) {
     const ob = this.state.obligations[String(jobId)];
     if (ob && ob.status === 'settled') return { action: 'skip', reason: 'already_settled' };
-    if (ob && ob.status === 'sent') return chainTxids.has(ob.txid) ? { action: 'adopt', reason: 'txid_in_chain', txid: ob.txid } : { action: 'resend-allowed', reason: 'sent_but_missing', txid: ob.txid };
+    if (ob && ob.status === 'sent') return chainTxids.has(ob.txid) ? { action: 'adopt', reason: 'txid_in_chain', txid: ob.txid } : { action: 'resend-same-txid-only', reason: 'sent_but_missing_prove_or_rebroadcast_same', txid: ob.txid, forbidNewTxid: true };
     return { action: 'create', reason: 'no_obligation' };
   }
   leave(address, reason = '') { // явный выход из очереди с записью причины (без выплаты, без сдвига остальных)

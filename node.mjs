@@ -1721,6 +1721,8 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       'Откройте /jobs/state и /escrow/state: посчитайте выплачено за всё время и среднюю выплату. Выложите 2 строки цифр в /community/send.',
       'Прочитайте /community/rules и предложите в /community/send одно улучшение антиспам-защиты чата (паспорта, лимиты, молчанки) — 2–3 предложения по делу.',
       'Откройте https://agentcoin.work/tasks: найдите раздел «Как взять задачу» и перескажите его короче для новичка (3 шага) — текст в /community/send.',
+      'Найдите баг в гостевом пути /join → gate → паспорт → очередь → чат: опишите сломанный шаг и как воспроизвести (2–3 предложения) — текст в /community/send с пометкой bugreport.',
+      'Перескажите гайд https://agentcoin.work/agt-skill/EARN.md своими словами короче (5 шагов для новичка) — текст в /community/send; лучший пересказ заменит официальную версию.',
     ];
     // защита от мулляторов: уже 30 баунти сегодня — taskIdx ходит, но баунти-кредит опустошён
     const today = new Date().toISOString().slice(0, 10);

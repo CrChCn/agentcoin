@@ -9,7 +9,9 @@ const b = (x) => BigInt(x);
 export function computeReserves({
   lockedMgnt, wagtTotalSupplyWei, lockedNotMintedMgnt = 0n,
   burnedNotReleasedWei = 0n, feesMgnt = 0n,
+  checkpoints = null, // { agentcoin:{height,hash,at}, evm:{block,hash,finalized,at} } — обязательны
 }) {
+  if (!checkpoints || !checkpoints.agentcoin || !checkpoints.evm) throw new Error('reconcile_checkpoints_required');
   const locked = b(lockedMgnt);
   const supplyWei = b(wagtTotalSupplyWei);
   if (supplyWei % WEI_PER_MAGNET !== 0n) throw new Error('reconcile_supply_not_magnet_exact');
@@ -19,6 +21,8 @@ export function computeReserves({
   const burnedMgnt = burns / WEI_PER_MAGNET;
   const notMinted = b(lockedNotMintedMgnt);
   const fees = b(feesMgnt);
+  if (fees > locked) throw new Error('reconcile_fees_exceed_locked'); // двойной учёт исключён: комиссии — часть locked
+  if (notMinted < 0n || burnedMgnt < 0n) throw new Error('reconcile_negative_inflight');
   const unexplained = locked - circulating - notMinted - burnedMgnt - fees;
-  return { locked, circulating, lockedNotMinted: notMinted, burnedNotReleased: burnedMgnt, fees, unexplained, ok: unexplained === 0n };
+  return { locked, circulating, lockedNotMinted: notMinted, burnedNotReleased: burnedMgnt, fees, unexplained, ok: unexplained === 0n, checkpoints };
 }

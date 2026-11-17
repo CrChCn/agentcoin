@@ -116,6 +116,36 @@ describe("BridgeGateway mint", function () {
     await expect(g.mintAttested(eid2, user.address, WEI_PER_MAGNET, sigs2)).to.emit(g, "MintAttested");
   });
 
+  it("подмена шлюза: подписи под другой контракт недействительны", async function () {
+    const { user, keys } = await deploy(3, 5);
+    const { admin, pauser } = await signers();
+    const W2 = await ethers.getContractFactory("WrappedAGT");
+    const w2 = await W2.deploy(admin.address);
+    const G2 = await ethers.getContractFactory("BridgeGateway");
+    const g2 = await G2.deploy(admin.address, pauser.address, await w2.getAddress(), 77, keys.map((k) => k.address), 3, 10n ** 30n, 10n ** 31n, 10n ** 32n);
+    const { g } = await deploy(3, 5);
+    const eid = ethers.keccak256(ethers.toUtf8Bytes("x-gw"));
+    const inner = await g2.attestationInner(eid, user.address, WEI_PER_MAGNET);
+    const sigs = [];
+    for (const k of keys.slice(0, 3)) sigs.push(await k.signMessage(ethers.getBytes(inner)));
+    await expect(g.mintAttested(eid, user.address, WEI_PER_MAGNET, sigs)).to.be.reverted;
+    const inner1 = await g.attestationInner(eid, user.address, WEI_PER_MAGNET);
+    expect(inner1).to.not.equal(inner);
+  });
+
+  it("после ротации старые подписанты недействительны", async function () {
+    const { admin, user, keys, g } = await deploy(2, 3);
+    const eid = ethers.keccak256(ethers.toUtf8Bytes("old-signer"));
+    const inner = await g.attestationInner(eid, user.address, WEI_PER_MAGNET);
+    const oldSigs = [];
+    for (const k of keys.slice(0, 2)) oldSigs.push(await k.signMessage(ethers.getBytes(inner)));
+    await g.connect(admin).proposeSigners([user.address, keys[0].address], 2);
+    await ethers.provider.send("evm_increaseTime", [2 * 24 * 3600 + 1]);
+    await ethers.provider.send("evm_mine");
+    await g.connect(admin).applySigners();
+    await expect(g.mintAttested(eid, user.address, WEI_PER_MAGNET, oldSigs)).to.be.revertedWithCustomError(g, "NotSigner");
+  });
+
   it("ротация подписантов — двухшагово с задержкой; раннее применение revert", async function () {
     const { admin, keys, g } = await deploy(3, 5);
     const fresh = keys.slice(0, 3).map((k) => k.address);

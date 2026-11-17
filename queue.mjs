@@ -82,6 +82,11 @@ export class AgentQueue {
     return { ok: true, jobId, agent: addr, positionLeft: this.state.waiting.length };
   }
   done(jobId, summary = '', agent = '') {
+    // п.2 приёмки: старый done НЕ обходит submit→review→obligation для v2-попыток.
+    // Работает для legacy (без meta); для v2 с meta без исхода — отказ, слот и история целы.
+    // Действует независимо от флага readyEnforced (откат не отключает авторизацию/защиту).
+    const _m = this._meta(String(jobId));
+    if (_m && !_m.outcome) return { ok: false, error: 'V2_USE_SUBMIT_REVIEW', note: 'попытка v2 закрывается только submit+review' };
     delete this.state.onDuty[jobId];
     this.state.history.push({ at: Date.now(), jobId, agent: String(agent || ''), summary: String(summary || '').slice(0, 200) });
     if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
@@ -241,11 +246,40 @@ export class AgentQueue {
     this.save();
     return { ok: true, ...ob };
   }
-  obligationSent(obId, txid) {
+  obligationSent(obId, txid, envelope = null) {
+    // п.3 приёмки: храним ИСХОДНЫЕ подписанные байты (envelope), одного txid мало.
+    // Повтор — только теми же байтами (см. payoutResendBytes).
     const ob = Object.values(this.state.obligations).find((o) => o.obId === String(obId));
     if (!ob) return { ok: false, error: 'OB_NOT_FOUND' };
     if (ob.status !== 'created') return { ok: false, error: 'OB_ALREADY_' + ob.status.toUpperCase() };
     ob.status = 'sent'; ob.txid = String(txid);
+    if (envelope !== null && envelope !== undefined) ob.envelope = envelope;
+    this.save();
+    return { ok: true, ...ob };
+  }
+  // Повторная отправка — ТЕМИ ЖЕ байтами: возвращает сохранённый envelope.
+  payoutResendBytes(jobId) {
+    const ob = this.state.obligations[String(jobId)];
+    if (!ob || ob.status !== 'sent') return { ok: false, error: 'NO_RESEND' };
+    if (!ob.envelope) return { ok: false, error: 'NO_ENVELOPE_STORED' };
+    return { ok: true, txid: ob.txid, envelope: ob.envelope };
+  }
+  // Критерий settled: tx в канонической цепи И подтверждений >= K. Реорг, выбивший
+  // выплату из цепи, переводит settled→reorged-needs-review (стоп, дефицит, ручное
+  // урегулирование; автоматически отменённой считать нельзя).
+  payoutConfirm(jobId, { inChain = false, confirmations = 0, requiredConfirmations = 2 } = {}) {
+    const ob = this.state.obligations[String(jobId)];
+    if (!ob) return { ok: false, error: 'OB_NOT_FOUND' };
+    if (ob.status === 'settled' && !inChain) {
+      ob.status = 'reorged-needs-review'; ob.reorgedAt = Date.now();
+      this.state.history.push({ at: Date.now(), jobId: String(jobId), agent: ob.agent, summary: 'payout reorged out: стоп, ручное урегулирование' });
+      this.save();
+      return { ok: false, error: 'PAYOUT_REORGED', action: 'stop-and-review' };
+    }
+    if (ob.status !== 'sent') return { ok: false, error: 'OB_NOT_SENT' };
+    if (!inChain) return { ok: false, error: 'NOT_IN_CHAIN' };
+    if (Number(confirmations) < Number(requiredConfirmations)) return { ok: false, error: 'NOT_ENOUGH_CONFIRMATIONS', confirmations };
+    ob.status = 'settled'; ob.settledAt = Date.now(); ob.confirmations = Number(confirmations);
     this.save();
     return { ok: true, ...ob };
   }
@@ -268,6 +302,7 @@ export class AgentQueue {
   payoutDecision(jobId, chainTxids = new Set()) {
     const ob = this.state.obligations[String(jobId)];
     if (ob && ob.status === 'settled') return { action: 'skip', reason: 'already_settled' };
+    if (ob && ob.status === 'reorged-needs-review') return { action: 'stop-and-review', reason: 'payout_reorged_out' };
     if (ob && ob.status === 'sent') return chainTxids.has(ob.txid) ? { action: 'adopt', reason: 'txid_in_chain', txid: ob.txid } : { action: 'resend-same-txid-only', reason: 'sent_but_missing_prove_or_rebroadcast_same', txid: ob.txid, forbidNewTxid: true };
     return { action: 'create', reason: 'no_obligation' };
   }

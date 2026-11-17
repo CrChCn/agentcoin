@@ -76,34 +76,71 @@ export function makeNonceStore(file, maxSize = 20000) {
   };
 }
 
-/* Идемпотентный исполнитель подписанных запросов (ответ на 3 вопроса, п.2).
-   Семантика:
-   - первый приём nonce: выполняет эффект один раз, сохраняет { digest, result };
-   - повтор с тем ЖЕ nonce и тем ЖЕ телом (тот же digest): эффекта нет,
-     возвращается сохранённый результат с replay:true (потеря ответа безопасна);
-   - тот же nonce с ИЗМЕНЁННЫМ телом (другой digest): отказ NONCE_BODY_MISMATCH,
-     эффект не выполняется и сохранённый результат не отдаётся как чужой;
-   - хранилище персистентно (файл JSON), переживает рестарт; записи чистятся по expiry.
-   digest считается вызывающим через actionDigest (та же каноника, что подпись). */
+/* Идемпотентный исполнитель с журналом (п.1 приёмки: атомарность nonce+действие).
+   Прежде effect() выполнялся ДО записи {digest,result} — падение
+   между давало повторное исполнение. Протокол: reserve (WAL pending,
+   атомарная запись tmp+rename) ДО эффекта → effect → commit (done).
+   Конкурент видит pending и получает NONCE_PENDING_RETRY без исполнения;
+   рестарт видит pending и НЕ переисполняет вслепую: повтор —
+   NONCE_UNKNOWN_NEEDS_RECONCILE до явного resolvePending (reconcile с очередью).
+   Чужое тело — MISMATCH. Старый формат {digest,result} читается как done. */
+function atomicWriteJson(file, obj) {
+  const tmp = String(file) + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(obj));
+  fs.renameSync(tmp, String(file));
+}
 export function makeIdempotentExecutor(file, maxSize = 20000) {
   let map = {};
   try { map = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { map = {}; }
-  const save = () => { try { fs.writeFileSync(file, JSON.stringify(map)); } catch {} };
+  for (const [k, v] of Object.entries(map)) {
+    if (v && typeof v === 'object' && !v.state && v.digest !== undefined) map[k] = { ...v, state: 'done' };
+  }
+  const save = () => { try { atomicWriteJson(file, map); } catch {} };
+  const prune = () => {
+    const keys = Object.keys(map);
+    if (keys.length > maxSize) {
+      keys.sort((a, b) => (map[a].expiry || 0) - (map[b].expiry || 0)).slice(0, keys.length - maxSize).forEach((x) => delete map[x]);
+    }
+  };
   return {
-    run({ nonce, digest, expiry }, effect) {
+    begin({ nonce, digest, expiry }) {
       const k = String(nonce);
       const prev = map[k];
       if (prev) {
-        if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH', note: 'тот же nonce с другим телом: отказ, эффект не повторён' };
-        return { ok: true, replay: true, result: prev.result };
+        if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH' };
+        if (prev.state === 'done') return { ok: true, replay: true, result: prev.result };
+        return { ok: false, error: 'NONCE_PENDING_RETRY', note: 'reconcile, ne povtor vslepuyu' };
       }
-      const result = effect();
-      map[k] = { digest: String(digest), result, expiry: Number(expiry) || 0 };
-      const keys = Object.keys(map);
-      if (keys.length > maxSize) {
-        keys.sort((a, b) => (map[a].expiry || 0) - (map[b].expiry || 0)).slice(0, keys.length - maxSize).forEach((x) => delete map[x]);
-      }
+      map[k] = { digest: String(digest), state: 'pending', result: null, expiry: Number(expiry) || 0 };
       save();
+      return { ok: true, reserved: true };
+    },
+    commit(nonce, result) {
+      const k = String(nonce);
+      const prev = map[k];
+      if (!prev) return { ok: false, error: 'NONCE_NOT_RESERVED' };
+      map[k] = { ...prev, state: 'done', result };
+      prune();
+      save();
+      return { ok: true };
+    },
+    resolvePending(nonce, resolution) {
+      const k = String(nonce);
+      const prev = map[k];
+      if (!prev || prev.state !== 'pending') return { ok: false, error: 'NOT_PENDING' };
+      if (resolution && resolution.status === 'aborted') { delete map[k]; save(); return { ok: true, aborted: true }; }
+      map[k] = { ...prev, state: 'done', result: resolution ? resolution.result : null };
+      save();
+      return { ok: true };
+    },
+    pendingList() { return Object.entries(map).filter(([, v]) => v && v.state === 'pending').map(([k]) => k); },
+    run({ nonce, digest, expiry }, effect) {
+      const b = this.begin({ nonce, digest, expiry });
+      if (!b.ok) return b;
+      if (b.replay) return b;
+      let result;
+      try { result = effect(); } catch (e) { throw e; }
+      this.commit(nonce, result);
       return { ok: true, replay: false, result };
     },
     get(nonce) { return map[String(nonce)] || null; },

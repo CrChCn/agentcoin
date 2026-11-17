@@ -255,7 +255,7 @@ Sepolia: вместо фиксированных «13 минут» — ожид�
 `test/bridge-local-e2e.mjs`).
 
 ## 15. Локальный двусторонний e2e (стенд, без Sepolia)
-`test/bridge-local-e2e.mjs` (ALL GREEN): lock→mint→burn→release на локальной цепи
+`test/bridge-local-e2e.mjs` (ALL GREEN, модель шлюза): lock→mint→burn→release на локальной цепи
 ядра + модели шлюза; повтор eventId — `AlreadyExecuted`; мусорный memo — без
 выпуска; рестарт — реестры `executed` и цепь переживают, повтор после рестарта —
 отказ; реорг с выпадением lock — наблюдатель фиксирует отсутствие и выпуск стопается;

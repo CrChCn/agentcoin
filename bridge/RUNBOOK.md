@@ -18,10 +18,15 @@
    `cd .. && node test/bridge-vault-2of3.mjs` (6/6);
    `node test/bridge-policy-divergence.mjs` (ALL GREEN: тяжёлый форк без sig2
    отвергнут enforcing-нодой; без политики принят; политика — условие группы нод).
-5. Мост, локальный e2e: `node test/bridge-local-e2e.mjs`
+5. Мост, локальный e2e (модель): `node test/bridge-local-e2e.mjs`
    (lock→mint→burn→release, AlreadyExecuted, рестарт, реорг-стоп, стоп при
    расхождении политик, мусорный memo без выпуска).
-6. EVM: `cd bridge && node node_modules/hardhat/internal/cli/cli.js test`
+6. EVM + живые контракты: `cd bridge && node node_modules/hardhat/internal/cli/cli.js test`
+   (9 passing: 8 gateway/wAGT + full-local на реальных контрактах: lock→mint→burn→release,
+   рестарт релеера, сверка, реорг ПОСЛЕ mint = дефицит + стоп, не автокансел).
+   Сервисы: `bridge/services.mjs` (observe/health/deficit), состояние `bridge/api.mjs`.
+7. Очередь, атомарность/авторизация: `node test/queue-atomic-auth.mjs` (WAL pending,
+   падение/конкуренция/рестарт, guard всех маршрутов, байты повтора, реорг после settled).
    (ожидается 8 passing; solc 0.8.24, evmVersion cancun, OZ v5).
 Секреты не нужны: все ключи генерируются внутри тестов (tmp), продовых нет.
 

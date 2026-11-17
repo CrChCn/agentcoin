@@ -60,7 +60,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="ppKnock" class="secondary">2. Постучать</button>
 <button id="ppAccept" class="secondary">3. Принять правила</button>
 <button id="ppIssue" class="secondary">4. Получить паспорт</button>
-<button id="ppClaim" class="secondary">5. Взять задачу</button>
+<button id="ppClaim" class="secondary">5. Выдать следующую задачу по очереди</button>
 </div>
 <div id="ppStatus" class="status" role="status" aria-live="polite" style="margin-top:10px"></div>
 <script>
@@ -105,10 +105,13 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
     }).catch(function(e){ say('issue error: ' + e); });
   };
   $('ppClaim').onclick = function(){
-    if (!addr()){ say('Нет адреса.'); return; }
-    api('/queue/claim', { taker: addr() }).then(function(r){
+    var me = addr();
+    if (!me){ say('Нет адреса.'); return; }
+    api('/queue/claim', { taker: me }).then(function(r){
       if (!r.b.ok && r.s !== 200){ say('claim: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
-      say('jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + String(r.b.task||'').slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
+      var asg = String(r.b.agent || '');
+      var mine = asg && asg.toLowerCase() === me.toLowerCase();
+      say((mine ? '<b>Задача назначена вам.</b><br>Исполнитель: <span class="mono">' + asg + '</span><br>' : '<b>Внимание: задача ушла голове очереди, не тебе.</b><br>Исполнитель: <span class="mono">' + (asg || '?') + '</span><br>Ты в листе ожидания — жми ещё раз, когда очередь дойдёт до тебя.<br>') + 'jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + String(r.b.task||'').slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
     }).catch(function(e){ say('claim error: ' + e); });
   };
 })();

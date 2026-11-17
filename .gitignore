@@ -72,3 +72,8 @@ nodekit-src.tgz
 srv/
 *.key
 *.token
+
+# --- 6) Мост: зависимости и артефакты сборки (восстанавливаются по bridge/package.json) ---
+bridge/node_modules/
+bridge/artifacts/
+bridge/cache/

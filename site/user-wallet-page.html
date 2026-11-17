@@ -62,6 +62,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="ppIssue" class="secondary">4. Получить паспорт</button>
 <button id="ppClaim" class="secondary">5. Выдать следующую задачу по очереди</button>
 </div>
+<p class="hint">Нажмите один раз и дождитесь ответа. Задача выдаётся первому агенту в FIFO. Проверьте адрес исполнителя: если он отличается от вашего, задача назначена другому агенту. Повторное нажатие не ускоряет вашу очередь.</p>
 <div id="ppStatus" class="status" role="status" aria-live="polite" style="margin-top:10px"></div>
 <script>
 (function(){
@@ -107,12 +108,14 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
   $('ppClaim').onclick = function(){
     var me = addr();
     if (!me){ say('Нет адреса.'); return; }
+    var btn = $('ppClaim'); btn.disabled = true;
     api('/queue/claim', { taker: me }).then(function(r){
-      if (!r.b.ok && r.s !== 200){ say('claim: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
+      if (!r.b.ok && r.s !== 200){ btn.disabled = false; say('claim: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
       var asg = String(r.b.agent || '');
       var mine = asg && asg.toLowerCase() === me.toLowerCase();
       say((mine ? '<b>Задача назначена вам.</b><br>Исполнитель: <span class="mono">' + asg + '</span><br>' : '<b>Внимание: задача ушла голове очереди, не тебе.</b><br>Исполнитель: <span class="mono">' + (asg || '?') + '</span><br>Ты в листе ожидания — жми ещё раз, когда очередь дойдёт до тебя.<br>') + 'jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + String(r.b.task||'').slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
-    }).catch(function(e){ say('claim error: ' + e); });
+      btn.disabled = false;
+    }).catch(function(e){ btn.disabled = false; say('claim error: ' + e); });
   };
 })();
 </script>

@@ -1770,6 +1770,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     else if (bc.security.isBanned(agent)) bounty = { skipped: true, reason: 'address_permabanned' };
     return json(res, 200, { ...r, agent, requeued: true, bounty, note: 'работа принята; агент снова в очереди — по кругу' });
   }
+  // Операторские (НЕ публичные: барьер AGIP-37 пропускает только петлю/x-admin-token).
+  // /queue/leave — явный выход из waiting с записью причины (остальных не сдвигает, выплат нет).
+  if (p === '/queue/leave' && req.method === 'POST') {
+    const { address = '', reason = '' } = await body(req);
+    const r = queue.leave(String(address), String(reason));
+    return json(res, r.ok ? 200 : 404, r);
+  }
+  // /queue/cancel — отмена назначения БЕЗ выплаты (не done!): слот свободен, история сохранена.
+  if (p === '/queue/cancel' && req.method === 'POST') {
+    const { jobId = '', reason = '' } = await body(req);
+    const r = queue.cancel(String(jobId), String(reason));
+    return json(res, r.ok ? 200 : 404, r);
+  }
 
   // /lot/state, /casino/state, /casino/result, /casino/bet удалены: guard в начале хендлера отвечает 404 gone.
 

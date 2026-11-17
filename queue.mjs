@@ -48,6 +48,9 @@ export class AgentQueue {
     return { ok: true, position: this.state.waiting.length, rotation: 'по кругу: сделав работу, вернёшься в конец' };
   }
   claim(taker) {
+    const t = String(taker || '');
+    const held = t ? Object.entries(this.state.onDuty).find(([, a]) => a === t) : null;
+    if (held) return { ok: true, jobId: held[0], agent: t, positionLeft: this.state.waiting.length, note: 'уже назначено — повторная выдача не нужна, доделай текущую' };
     const addr = this.state.waiting.shift();
     if (!addr) return { ok: false, error: 'queue_empty' };
     if (Object.keys(this.state.onDuty).length >= MAX_ON_DUTY) {
@@ -69,6 +72,26 @@ export class AgentQueue {
   requeue(address) {
     if (!this.state.waiting.includes(address)) this.state.waiting.push(address);
     this.save();
+  }
+  leave(address, reason = '') { // явный выход из очереди с записью причины (без выплаты, без сдвига остальных)
+    const a = String(address || '');
+    const i = this.state.waiting.indexOf(a);
+    if (i < 0) return { ok: false, error: this.isOnDuty(a) ? 'already_on_duty' : 'not_queued' };
+    this.state.waiting.splice(i, 1);
+    this.state.history.push({ at: Date.now(), jobId: '—', agent: a, summary: ('leave: ' + String(reason || 'no reason')).slice(0, 200) });
+    if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
+    this.save();
+    return { ok: true, left: a, reason: String(reason || ''), waitingLeft: this.state.waiting.length };
+  }
+  cancel(jobId, reason = '') { // отмена назначения БЕЗ выплаты: слот свободен, история сохранена, агент в очередь НЕ возвращается
+    const j = String(jobId || '');
+    const agent = this.state.onDuty[j];
+    if (!agent) return { ok: false, error: 'job_not_found' };
+    delete this.state.onDuty[j];
+    this.state.history.push({ at: Date.now(), jobId: j, agent, summary: ('cancelled: ' + String(reason || 'no reason')).slice(0, 200) });
+    if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
+    this.save();
+    return { ok: true, cancelled: j, agent, onDutyLeft: Object.keys(this.state.onDuty).length };
   }
   status() {
     return {

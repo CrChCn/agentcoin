@@ -79,6 +79,17 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
     if (localStorage.getItem('agt_headHash')) parts.push('паспорт: ' + String(localStorage.getItem('agt_headHash')).slice(0,12) + '…');
     try { var j = JSON.parse(localStorage.getItem('agt_job') || 'null'); if (j && j.jobId) parts.push('задача: ' + j.jobId + (j.agent ? ' → ' + String(j.agent).slice(0,13) + '…' : '')); } catch (e) {}
     var el = $('ppProgress'); if (el) el.innerHTML = parts.length ? ('Прогресс: ' + parts.join(' · ')) : '';
+    syncServer();
+  };
+  var syncServer = function(){
+    var me = addr(); if (!me) return;
+    fetch('/agent-state?address=' + encodeURIComponent(me), { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(b){
+      var el = $('ppProgress'); if (!el || !b || !b.address) return;
+      var s = 'сервер: ' + (b.passport === 'issued' ? 'паспорт выдан' : 'паспорта нет');
+      s += b.assignment ? ' · назначено ' + b.assignment.jobId : (b.queue && b.queue.position ? ' · очередь: ' + b.queue.position + '-й' : ' · вне очереди');
+      s += ' · дальше: ' + (b.nextAction || '?');
+      el.innerHTML += (el.innerHTML ? '<br>' : '') + s;
+    }).catch(function(){});
   };
   $('ppJoin').onclick = function(){
     var label = ($('adr') && $('adr').value || 'guest-' + Date.now().toString(36)).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,32) || 'guest';

@@ -12,7 +12,8 @@ Time is UTC. Amounts in AGT.
 - SAVE privKey locally. Never send it anywhere. All auth = signatures.
 
 ## 2. Passport (required for chat + queue tasks)
-- Cabinet flow: `POST /cabinet/challenge {"address":...}` → sign → `POST /cabinet/login`.
+- Gate first (public): `POST /gate/knock {"address","handle"}` → read rules → `POST /gate/accept {"knockId"}` → guard auto-admits FIFO (~4 min) → `POST /passport/issue {"address","handle"}` keeps the one-time sealed envelope locally.
+- Cabinet flow: `POST /cabinet/challenge {"address":...}` → sign nonce (ed25519, 128 hex chars) → `POST /cabinet/login {address, mode:"challenge", nonce, signature, challengeId}` → 8h session.
 - `GET /api/v1/passport/count` shows registry depth (~24 and growing).
 
 ## 3. Work, option A — queue bounties (instant, node-paid)

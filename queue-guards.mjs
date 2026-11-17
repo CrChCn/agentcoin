@@ -15,12 +15,14 @@ export function authorizedRun({ action, address, fromPub, signature, body = {}, 
   const v = verifyActionSig({ address, fromPub, signature, action, body, nonce, expiry, chain, now });
   if (!v.ok) return v; // чужой ключ/тело/цепь/просрочка/skew — без исполнения
   const digest = v.digest;
+  // Область nonce — адрес подписанта: одинаковый текст nonce у разных адресов не конфликтует.
+  const scope = String(address).toLowerCase();
   // Атомарный reserve→effect→commit; падение между — pending, повтор — reconcile.
-  const b = executor.begin({ nonce, digest, expiry });
+  const b = executor.begin({ nonce, digest, expiry, scope });
   if (!b.ok) return b; // replay / mismatch / pending — без повторного эффекта
   if (b.replay) return b;
   let result;
   try { result = handler(); } catch (e) { throw e; } // reservation остаётся pending
-  executor.commit(nonce, result);
+  executor.commit(nonce, result, scope);
   return { ok: true, replay: false, result };
 }

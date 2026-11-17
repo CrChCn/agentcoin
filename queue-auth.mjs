@@ -111,13 +111,59 @@ function atomicWriteJsonDurable(file, obj) {
 function atomicWriteJson(file, obj) { atomicWriteJsonDurable(file, obj); }
 // Межпроцессный мьютекс: атомарный mkdir. Держится только на критической секции
 // чтения-записи журнала (миллисекунды), НЕ на время effect().
-export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5 } = {}) {
+// Восстановление после аварии: внутри lockDir лежит info.json {pid, at}. Если процесс
+// умер, держа lock (kill -9 / падение ОС), lockDir остаётся; следующий владелец после
+// staleMs считает его протухшим, сносит и забирает (mkdir снова атомарна — побеждает
+// ровно один). Критическая секция — миллисекунды, поэтому staleMs=15с безопасен:
+// живой держатель так долго lock не держит. Без восстановления любая авария в секции
+// давала бы вечный WAL_LOCK_TIMEOUT — это и закрыто здесь + тестом crash-holding-lock.
+export const WAL_LOCK_STALE_MS = 15000;
+export function lockInfo(file) {
+  const lockDir = String(file) + '.lock';
+  try {
+    const raw = fs.readFileSync(path.join(lockDir, 'info.json'), 'utf8');
+    return { ...JSON.parse(raw), lockDir };
+  } catch {
+    try { const st = fs.statSync(lockDir); return { at: st.mtimeMs, lockDir, legacy: true }; }
+    catch { return null; }
+  }
+}
+export function pidAlive(pid) {
+  const n = Number(pid);
+  if (!n || n <= 0) return false;
+  if (n === process.pid) return true;
+  try { process.kill(n, 0); return true; } catch (e) { return e && e.code === 'EPERM'; }
+}
+export function recoverStaleLock(file, { staleMs = WAL_LOCK_STALE_MS } = {}) {
+  const info = lockInfo(file);
+  if (!info) return { ok: true, recovered: false, reason: 'no-lock' };
+  const age = Date.now() - Number(info.at || 0);
+  // Мёртвый pid (kill -9 держателя) — протухший сразу, ждать staleMs не нужно.
+  const holderDead = info.pid !== undefined && !pidAlive(info.pid);
+  if (!(age > staleMs) && !holderDead) return { ok: false, error: 'LOCK_ACTIVE', ageMs: Math.max(0, Math.round(age)) };
+  try { fs.unlinkSync(path.join(String(file) + '.lock', 'info.json')); } catch {}
+  try { fs.rmdirSync(String(file) + '.lock'); } catch (e) { return { ok: false, error: 'LOCK_RECOVER_RACE' }; }
+  return { ok: true, recovered: true, ageMs: Math.round(age) };
+}
+export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5, staleMs = WAL_LOCK_STALE_MS } = {}) {
   const lockDir = String(file) + '.lock';
   const start = Date.now();
   for (;;) {
-    try { fs.mkdirSync(lockDir); break; }
+    try {
+      fs.mkdirSync(lockDir);
+      try { fs.writeFileSync(path.join(lockDir, 'info.json'), JSON.stringify({ pid: process.pid, at: Date.now() })); } catch {}
+      break;
+    }
     catch (e) {
       if (e && (e.code === 'EEXIST' || e.code === 'EACCES')) {
+        // Протухший lock (авария держателя: возраст > staleMs ИЛИ pid мёртв) — снести и повторить.
+        const info = lockInfo(file);
+        const age = info ? Date.now() - Number(info.at || 0) : 0;
+        const dead = info && info.pid !== undefined && !pidAlive(info.pid);
+        if (info && (age > staleMs || dead)) {
+          const r = recoverStaleLock(file, { staleMs });
+          if (r.ok && r.recovered) continue; // гонку за снос выиграл — пробуем mkdir снова
+        }
         if (Date.now() - start > timeoutMs) throw new Error('WAL_LOCK_TIMEOUT');
         const end = Date.now() + pollMs;
         while (Date.now() < end) {} // короткое ожидание без зависимостей
@@ -127,15 +173,31 @@ export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5 } = {}) {
     }
   }
   try { return fn(); }
-  finally { try { fs.rmdirSync(lockDir); } catch {} }
+  finally {
+    try { fs.unlinkSync(path.join(lockDir, 'info.json')); } catch {}
+    try { fs.rmdirSync(lockDir); } catch {}
+  }
+}
+/* Область уникальности nonce: ключ = address|nonce (адрес — нижний регистр).
+   Без scope (старые вызовы/тесты) — глобальный ключ nonce (обратная совместимость).
+   Зачем: один и тот же текст nonce у РАЗНЫХ адресов обязан не мешать друг другу
+   (иначе чужой nonce = вечный NONCE_BODY_MISMATCH = межпользовательский DoS).
+   Один адрес + один nonce = идемпотентность по digest (§4 спеки). */
+export function nonceKey(nonce, scope) {
+  const n = String(nonce);
+  if (n.includes('|')) throw new Error('NONCE_HAS_SEPARATOR');
+  if (!scope) return n;
+  const s = String(scope).toLowerCase();
+  if (!s || s.includes('|')) throw new Error('NONCE_SCOPE_BAD');
+  return s + '|' + n;
 }
 export function makeIdempotentExecutor(file, maxSize = 20000) {
   const load = () => {
     let m = {};
     try { m = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { m = {}; }
     for (const [k, v] of Object.entries(m)) {
-      if (v && typeof v === 'object' && !v.state && v.digest !== undefined) m[k] = { ...v, state: 'done', operationId: String(k) };
-      else if (v && typeof v === 'object' && !v.operationId) m[k] = { ...v, operationId: String(k) };
+      if (v && typeof v === 'object' && !v.state && v.digest !== undefined) m[k] = { ...v, state: 'done', operationId: v.operationId || String(k).split('|').pop() };
+      else if (v && typeof v === 'object' && !v.operationId) m[k] = { ...v, operationId: String(k).split('|').pop() };
     }
     return m;
   };
@@ -149,63 +211,82 @@ export function makeIdempotentExecutor(file, maxSize = 20000) {
   };
   const refresh = () => { map = load(); };
   return {
-    begin({ nonce, digest, expiry }) {
+    begin({ nonce, digest, expiry, scope }) {
       return withFileLock(file, () => {
         refresh();
-        const k = String(nonce);
+        const k = nonceKey(nonce, scope);
+        const opId = String(nonce);
         const prev = map[k];
         if (prev) {
-          if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH', operationId: k };
-          if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: k };
-          return { ok: false, error: 'NONCE_PENDING_RETRY', note: 'reconcile, ne povtor vslepuyu', operationId: k };
+          if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH', operationId: opId };
+          if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: opId };
+          return { ok: false, error: 'NONCE_PENDING_RETRY', note: 'reconcile, ne povtor vslepuyu', operationId: opId };
         }
-        map[k] = { digest: String(digest), state: 'pending', result: null, expiry: Number(expiry) || 0, operationId: k };
+        map[k] = { digest: String(digest), state: 'pending', result: null, expiry: Number(expiry) || 0, operationId: opId, scope: scope ? String(scope).toLowerCase() : null };
         save();
-        return { ok: true, reserved: true, operationId: k };
+        return { ok: true, reserved: true, operationId: opId };
       });
     },
-    commit(nonce, result) {
+    commit(nonce, result, scope = null) {
+      const realScope = scope || null; // scope третьим аргументом; без него — поиск голого и scoped-ключей
       return withFileLock(file, () => {
         refresh();
-        const k = String(nonce);
-        const prev = map[k];
-        if (!prev) return { ok: false, error: 'NONCE_NOT_RESERVED', operationId: k };
-        if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: k };
-        map[k] = { ...prev, state: 'done', result, operationId: k };
+        // Обратная совместимость: commit(nonce, result) без scope ищет и голый, и scoped-ключи с этим nonce.
+        let k = null;
+        try { k = nonceKey(nonce, realScope || null); } catch { return { ok: false, error: 'NONCE_SCOPE_BAD', operationId: String(nonce) }; }
+        let prev = map[k];
+        if (!prev && !realScope) {
+          const hit = Object.keys(map).find((kk) => kk === String(nonce) || kk.endsWith('|' + String(nonce)));
+          if (hit) { k = hit; prev = map[hit]; }
+        }
+        const opId = String(nonce);
+        if (!prev) return { ok: false, error: 'NONCE_NOT_RESERVED', operationId: opId };
+        if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: opId };
+        map[k] = { ...prev, state: 'done', result, operationId: opId };
         prune();
         save();
-        return { ok: true, operationId: k };
+        return { ok: true, operationId: opId };
       });
     },
     // Три исхода сверки; неопределённый НЕ снимает бронь.
-    resolvePending(nonce, resolution) {
+    resolvePending(nonce, resolution, scope) {
       return withFileLock(file, () => {
         refresh();
-        const k = String(nonce);
-        const prev = map[k];
-        if (!prev || prev.state !== 'pending') return { ok: false, error: 'NOT_PENDING', operationId: k };
-        const st = resolution && resolution.status;
-        if (st === 'proven-not-executed') { delete map[k]; save(); return { ok: true, aborted: true, operationId: k }; }
-        if (st === 'aborted') { delete map[k]; save(); return { ok: true, aborted: true, operationId: k }; }
-        if (st === 'effect-confirmed') {
-          map[k] = { ...prev, state: 'done', result: resolution.result ?? null, operationId: k };
-          save();
-          return { ok: true, restored: true, operationId: k };
+        let k;
+        try { k = nonceKey(nonce, scope || (resolution && resolution.scope) || null); } catch { return { ok: false, error: 'NONCE_SCOPE_BAD', operationId: String(nonce) }; }
+        let prev = map[k];
+        if ((!prev || prev.state !== 'pending') && !(scope || (resolution && resolution.scope))) {
+          const hit = Object.keys(map).find((kk) => (kk === String(nonce) || kk.endsWith('|' + String(nonce))) && map[kk] && map[kk].state === 'pending');
+          if (hit) { k = hit; prev = map[hit]; }
         }
-        return { ok: false, error: 'NEEDS_RECONCILE', note: 'unknown outcome: keep pending', operationId: k };
+        const opId = String(nonce);
+        if (!prev || prev.state !== 'pending') return { ok: false, error: 'NOT_PENDING', operationId: opId };
+        const st = resolution && resolution.status;
+        if (st === 'proven-not-executed') { delete map[k]; save(); return { ok: true, aborted: true, operationId: opId }; }
+        if (st === 'aborted') { delete map[k]; save(); return { ok: true, aborted: true, operationId: opId }; }
+        if (st === 'effect-confirmed') {
+          map[k] = { ...prev, state: 'done', result: resolution.result ?? null, operationId: opId };
+          save();
+          return { ok: true, restored: true, operationId: opId };
+        }
+        return { ok: false, error: 'NEEDS_RECONCILE', note: 'unknown outcome: keep pending', operationId: opId };
       });
     },
     pendingList() { refresh(); return Object.entries(map).filter(([, v]) => v && v.state === 'pending').map(([k]) => k); },
-    run({ nonce, digest, expiry }, effect) {
-      const b = this.begin({ nonce, digest, expiry });
+    run({ nonce, digest, expiry, scope }, effect) {
+      const b = this.begin({ nonce, digest, expiry, scope });
       if (!b.ok) return b;
       if (b.replay) return b;
       let result;
       try { result = effect(); } catch (e) { throw e; }
-      this.commit(nonce, result);
+      this.commit(nonce, result, scope || null);
       return { ok: true, replay: false, result };
     },
-    get(nonce) { refresh(); return map[String(nonce)] || null; },
+    get(nonce, scope) {
+      refresh();
+      if (scope) return map[nonceKey(nonce, scope)] || null;
+      return map[String(nonce)] || Object.entries(map).find(([kk]) => kk.endsWith('|' + String(nonce)))?.[1] || null;
+    },
     _file: file,
   };
 }

@@ -1,6 +1,16 @@
-/* worker: одна попытка reserve→effect→commit. modes: normal | crash-before-commit | crash-after-effect */
+/* worker: одна попытка reserve→effect→commit. modes: normal | crash-before-commit | crash-after-effect | crash-holding-lock */
 import fs from 'node:fs';
+import path from 'node:path';
 import { makeIdempotentExecutor } from '../../queue-auth.mjs';
+const _mode = process.argv[7];
+if (_mode === 'crash-holding-lock') {
+  // Симуляция kill -9 ВНУТРИ критической секции: голый mkdir lock + info, затем смерть без уборки.
+  const _file = process.argv[2];
+  const _lockDir = String(_file) + '.lock';
+  try { fs.mkdirSync(_lockDir); } catch {}
+  try { fs.writeFileSync(path.join(_lockDir, 'info.json'), JSON.stringify({ pid: process.pid, at: Date.now() })); } catch {}
+  process.exit(137);
+}
 const [file, nonce, digest, expiryS, counterFile, mode] = process.argv.slice(2);
 const expiry = Number(expiryS);
 const ex = makeIdempotentExecutor(file);

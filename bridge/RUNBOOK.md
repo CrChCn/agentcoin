@@ -15,7 +15,9 @@
    атомарность/авторизация (`queue-atomic-auth`: WAL pending, падение/конкуренция/рестарт,
    guard всех маршрутов, байты повтора, реорг после settled);
    межпроцессный WAL (`queue-wal-multiproc`: два отдельных процесса, падения до/после
-   эффекта, operationId, три исхода resolvePending);
+   эффекта, operationId, три исхода resolvePending) + восстановление lock
+   (`queue-lock-recover`: протухший/свежий lock, реальный kill -9 держателя, журнал цел)
+   + область nonce (`queue-nonce-scope`: адрес|nonce, без межпользовательского DoS);
    HTTP-авторизация (`queue-http-auth`: изолированный сервер, матрица подписей/подмен/
    просрочек/повторов/конкуренции, readyEnforced=false, обход через старый done, оператор);
    ядро моста (`bridge/test-proto.mjs`, `bridge/test-reconcile.mjs`);
@@ -23,7 +25,10 @@
    e2e-модель (`test/bridge-local-e2e.mjs`: lock→mint→burn→release, AlreadyExecuted,
    рестарт, реорг-стоп, стоп при расхождении, мусорный memo без выпуска);
    действительная остановка (`test/bridge-halt-stop.mjs`: дефицит после mint, стоп
-   аттестаций/отправок, API STOP ≠ остановка контракта, окно риска, запрет авторезюма).
+   аттестаций/отправок, API STOP ≠ остановка контракта, окно риска, запрет авторезюма)
+   + стоп обоих направлений (`test/bridge-halt-both.mjs`: любой красный флаг —
+   mint=STOP и release=STOP одновременно; дефицит burn-стороны после реорга EVM;
+   canRelease; сведение обоих дефицитов в `bridgeState`).
 3. EVM + живые контракты: `cd bridge && node node_modules/hardhat/internal/cli/cli.js test`
    (9 passing: 8 gateway/wAGT + full-local на реальных контрактах: lock→mint→burn→release,
    рестарт релеера, сверка, реорг ПОСЛЕ mint = дефицит + стоп, не автокансел).

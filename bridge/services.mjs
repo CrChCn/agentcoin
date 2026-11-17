@@ -18,12 +18,17 @@ export function observeLocks(chain, fromHeight = 0) {
   return out;
 }
 
-// Здоровье направлений: любое расхождение политик/сверки/финализации — стоп.
+// Здоровье направлений: ЛЮБАЯ несвежесть/расхождение останавливает ОБА направления.
+// Причина: mint пишет в EVM (нужна финализированность EVM-ноды) и читает AGT-тип
+// (нужна свежесть AGT); release пишет в AGT (нужна свежесть AGT-типа) и читает EVM
+// (нужна финализированность EVM). Частичный STOP одного направления давал бы ложное
+// чувство «вторая сторона едет» при ненадёжных чтениях — запрещено. Поэтому оба флага
+// свежести и оба флага корректности дают mint=STOP+release=STOP одновременно.
 export function healthCheck({ policyMatch, reconcileOk, evmFinalized, agentcoinTipFresh }) {
   if (!policyMatch) return { mint: 'STOP', release: 'STOP', reason: 'POLICY_DIVERGENCE' };
   if (!reconcileOk) return { mint: 'STOP', release: 'STOP', reason: 'RECONCILE_UNEXPLAINED' };
-  if (!evmFinalized) return { mint: 'STOP', release: 'OK', reason: 'EVM_NOT_FINALIZED' };
-  if (!agentcoinTipFresh) return { mint: 'OK', release: 'STOP', reason: 'AGT_TIP_STALE' };
+  if (!evmFinalized) return { mint: 'STOP', release: 'STOP', reason: 'EVM_NOT_FINALIZED' };
+  if (!agentcoinTipFresh) return { mint: 'STOP', release: 'STOP', reason: 'AGT_TIP_STALE' };
   return { mint: 'OK', release: 'OK', reason: 'ALL_OK' };
 }
 
@@ -61,6 +66,49 @@ export function canAttest(state) {
 export function canRelay(state) {
   if (state && state.halted) return { ok: false, error: 'HALT_RELAY_STOP', cause: state.cause };
   return { ok: true };
+}
+// Релиз AGT из vault — та же остановка, что ретранслятор: отдельное имя для ясности
+// матрицы «оба направления встают». Halt останавливает И mint-аттестации, И релизы.
+export function canRelease(state) {
+  if (state && state.halted) return { ok: false, error: 'HALT_RELEASE_STOP', cause: state.cause };
+  return { ok: true };
+}
+// Наблюдатель EVM: все BurnRegistered-события с блока fromBlock (симметрия observeLocks).
+// Формат входа: [{ block, txHash, logIndex, burner, amountWei, agentcoinRecipient }].
+export function observeBurns(logs, fromBlock = 0) {
+  const out = [];
+  for (const l of logs || []) {
+    if ((l.block ?? 0) < fromBlock) continue;
+    if (!l || typeof l.txHash !== 'string' || typeof l.agentcoinRecipient !== 'string') { out.push({ block: l && l.block, status: 'unclassified', reason: 'bad_log' }); continue; }
+    let amt = 0n;
+    try { amt = BigInt(l.amountWei); } catch { out.push({ block: l.block, status: 'unclassified', reason: 'bad_amount' }); continue; }
+    if (amt <= 0n || amt % 1000000000n !== 0n) { out.push({ block: l.block, txHash: l.txHash, status: 'unclassified', reason: 'not_magnet_exact' }); continue; }
+    out.push({ block: l.block, txHash: l.txHash, logIndex: l.logIndex ?? 0, status: 'burn', amountWei: amt, burner: l.burner, agentcoinRecipient: l.agentcoinRecipient });
+  }
+  return out;
+}
+// Дефицит после релиза (симметрия mint-стороны): burn был, vault перевёл AGT, но burn
+// исчез из канонической EVM-цепи (реорг EVM). Выплата AGT уже необратима → дефицит,
+// стоп ОБЕИХ операций и ручное урегулирование (зеркально detectPostMintDeficit).
+export function detectPostReleaseDeficit({ releasedBurnRefs, currentBurns }) {
+  const live = new Set((currentBurns || []).filter((b) => b.status === 'burn').map((b) => String(b.txHash) + ':' + String(b.logIndex ?? 0)));
+  const missing = [];
+  for (const r of releasedBurnRefs || []) {
+    const key = String(r.txHash) + ':' + String(r.logIndex ?? 0);
+    if (!live.has(key)) missing.push(r);
+  }
+  if (!missing.length) return { deficit: false };
+  return {
+    deficit: true,
+    missing,
+    stop: ['mint', 'release'],
+    settlement: [
+      '1. setMintPaused(true) + стоп релизов (health STOP).',
+      '2. Инвентаризация: burn-журнал vs vault-выплаты, сверка locked/circulating.',
+      '3. Ручное урегулирование: довнесение wAGT-сжигания ИЛИ возврат AGT ИЛИ компенсация по журналу. Автокансел запрещён.',
+      '4. Запись в журнал + честный статус на /bridge/health до снятия стопа вручную.',
+    ],
+  };
 }
 // Дефицит после реорга: lock был, mint выполнен, а lock из канонической цепи исчез.
 // Автоматически отменённым НЕ считается: выпуск остаётся, фиксируется дефицит,

@@ -10,6 +10,8 @@ const steps = [
   ['queue-v2-clarify', ['test/queue-v2-clarify.mjs']],
   ['queue-atomic-auth', ['test/queue-atomic-auth.mjs']],
   ['queue-wal-multiproc', ['test/queue-wal-multiproc.mjs']],
+  ['queue-lock-recover', ['test/queue-lock-recover.mjs']],
+  ['queue-nonce-scope', ['test/queue-nonce-scope.mjs']],
   ['queue-http-auth', ['test/queue-http-auth.mjs']],
   ['bridge-proto', ['bridge/test-proto.mjs']],
   ['bridge-reconcile', ['bridge/test-reconcile.mjs']],
@@ -17,6 +19,7 @@ const steps = [
   ['bridge-policy-divergence', ['test/bridge-policy-divergence.mjs']],
   ['bridge-local-e2e', ['test/bridge-local-e2e.mjs']],
   ['bridge-halt-stop', ['test/bridge-halt-stop.mjs']],
+  ['bridge-halt-both', ['test/bridge-halt-both.mjs']],
 ];
 let fail = 0;
 for (const [name, args] of steps) {

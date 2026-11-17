@@ -466,12 +466,73 @@ function agtValidate(path, data) {
   if (b === '/info') {
     if (data.chainId !== EXPECTED_NETWORK) return 'chuzhaya-set: ' + data.chainId;
     if (data.genesisHash !== EXPECTED_GENESIS) return 'chuzhoi-genesis';
+    if (!Number.isSafeInteger(data.blocks) || data.blocks < 0) return 'net-vysoty-info';
+    if (data.totalSupplyCirculating != null && !Number.isFinite(Number(data.totalSupplyCirculating))) return 'net-summy-supply';
   }
   if (b === '/blocks') {
     var arr = data.blocks || (Array.isArray(data) ? data : null);
     if (!Array.isArray(arr)) return 'net-massiva-blocks';
   }
+  if (b === '/balances') {
+    if (!Array.isArray(data.balances)) return 'net-massiva-balances';
+    for (var i = 0; i < data.balances.length; i++) {
+      var r = data.balances[i];
+      if (!r || typeof r.address !== 'string' || !r.address) return 'net-adresa-balansa';
+      if (r.balance != null && !Number.isFinite(Number(r.balance))) return 'net-summy-balansa';
+    }
+  }
+  if (b === '/queue/status') {
+    if (data.waiting != null && !(Array.isArray(data.waiting) || Number.isFinite(Number(data.waiting)))) return 'net-ocheredi-waiting';
+    if (data.nextFive != null && !Array.isArray(data.nextFive)) return 'net-massiva-nextFive';
+    if (data.onDuty != null && !Number.isFinite(Number(data.onDuty))) return 'net-ocheredi-onDuty';
+    if (data.maxOnDuty != null && !Number.isFinite(Number(data.maxOnDuty))) return 'net-ocheredi-maxOnDuty';
+  }
+  if (b === '/queue/history') {
+    if (!Array.isArray(data.history)) return 'net-massiva-history';
+  }
+  if (b === '/treasury/state') {
+    if (data.policy != null && (typeof data.policy !== 'object' || typeof data.policy.treasury !== 'string')) return 'net-politiki-kazny';
+    if (data.balance != null && !Number.isFinite(Number(data.balance))) return 'net-balansa-kazny';
+    if (data.blocks != null && !Number.isFinite(Number(data.blocks))) return 'net-vysoty-kazny';
+  }
+  if (b === '/jobs/state') {
+    if (data.stats != null && typeof data.stats !== 'object') return 'net-statistiki-jobs';
+  }
+  if (b === '/cloud/stats') {
+    if (data.fundAGT != null && !Number.isFinite(Number(data.fundAGT))) return 'net-fonda-cloud';
+    if (data.snapshotBlocks != null && !Number.isFinite(Number(data.snapshotBlocks))) return 'net-vysoty-cloud';
+    if (data.currentBlocks != null && !Number.isFinite(Number(data.currentBlocks))) return 'net-tekushchei-vysoty-cloud';
+  }
+  if (b === '/passport/count') {
+    if (data.count != null && !Number.isFinite(Number(data.count))) return 'net-schetchika-pasportov';
+  }
+  if (b === '/tax/state') {
+    if (data.collected != null && typeof data.collected !== 'object') return 'net-sborov-tax';
+  }
+  if (b === '/jobs/auction/list') {
+    if (data.auctions != null && !Array.isArray(data.auctions)) return 'net-massiva-auctions';
+  }
   return null;
+}
+function agtSnapshotMs(data) {
+  var v = data && (data.snapshotAt || data.snapshot_time || data.passportSnapshotAt);
+  if (v == null) return null;
+  var t = Date.parse(v);
+  return Number.isFinite(t) ? t : null;
+}
+function agtStatusFor(path, data, nowMs) {
+  var snapMs = agtSnapshotMs(data);
+  if (snapMs == null) return { status: 'unknown', snapshotAt: (data && (data.snapshotAt || data.snapshot_time || data.passportSnapshotAt)) || null };
+  var age = nowMs - snapMs;
+  if (!Number.isFinite(age) || age < 0) return { status: 'stale', snapshotAt: data.snapshotAt || data.snapshot_time || data.passportSnapshotAt };
+  var limit = agtFreshness(path);
+  return { status: age <= limit ? 'fresh' : 'stale', snapshotAt: data.snapshotAt || data.snapshot_time || data.passportSnapshotAt };
+}
+var AGTSubs = new Map();
+function agtNotify(path, rec) {
+  var set = AGTSubs.get(path);
+  if (!set) return;
+  set.forEach(function (fn) { try { fn(rec); } catch (e) {} });
 }
 async function agtFetch(path) {
   if (availableReads && !availableReads.has(agtBase(path))) {
@@ -491,12 +552,14 @@ async function agtFetch(path) {
       var verr = agtValidate(path, data);
       if (verr) throw new Error('Nepodderzhivaemyi-format: ' + verr);
       var now = Date.now();
-      var rec = { data: data, status: 'fresh', source: '/api/v1' + path,
-        fetchedAt: now, snapshotAt: (data.snapshotAt || data.snapshot_time || data.passportSnapshotAt || null),
+      var st = agtStatusFor(path, data, now);
+      var rec = { data: data, status: st.status, source: '/api/v1' + path,
+        fetchedAt: now, snapshotAt: st.snapshotAt,
         blockHeight: ((data.blocks != null && !Array.isArray(data.blocks)) ? data.blocks : (data.snapshotBlocks != null ? data.snapshotBlocks : (data.currentBlocks != null ? data.currentBlocks : null))),
         blockHash: (data.headHash || data.tipHash || null), error: null };
       AGTDataStore.set(path, rec);
       apiErrors.delete(path);
+      agtNotify(path, rec);
       return rec;
     } catch (e) {
       var msg = (e && e.message) || 'request_failed';
@@ -509,10 +572,12 @@ async function agtFetch(path) {
       if (prev && prev.data) {
         var stale = Object.assign({}, prev, { status: 'stale', error: msg });
         AGTDataStore.set(path, stale);
+        agtNotify(path, stale);
         return stale;
       }
       var rec3 = { data: null, status: 'unavailable', source: '/api/v1' + path, fetchedAt: null, snapshotAt: null, blockHeight: null, blockHash: null, error: msg };
       AGTDataStore.set(path, rec3);
+      agtNotify(path, rec3);
       return rec3;
     } finally { AGTInflight.delete(path); }
   })();
@@ -522,9 +587,13 @@ async function agtFetch(path) {
 window.AGTData = {
   read: function (path) { return agtFetch(path); },
   subscribe: function (path, fn) {
+    if (typeof fn !== 'function') return function () {};
+    var set = AGTSubs.get(path);
+    if (!set) { set = new Set(); AGTSubs.set(path, set); }
+    set.add(fn);
     var cur = AGTDataStore.get(path);
     if (cur) { try { fn(cur); } catch (e) {} }
-    return function () {};
+    return function () { try { set.delete(fn); } catch (e) {} };
   },
   getSnapshot: function (path) { return AGTDataStore.get(path) || { data: null, status: 'unknown', source: '/api/v1' + path, fetchedAt: null, snapshotAt: null, blockHeight: null, blockHash: null, error: null }; }
 };
@@ -532,6 +601,7 @@ async function jget(p) {
   var rec = await agtFetch(p);
   return rec && rec.data ? rec.data : null;
 }
+function rsnap(p) { try { return (window.AGTData && window.AGTData.getSnapshot(p)) || { status: 'unknown', data: null }; } catch (e) { return { status: 'unknown', data: null }; } }
 function showApiErrors() {
   if (apiErrors.size) showSiteErr('Недоступные данные API: ' + Array.from(apiErrors, function (entry) { return entry[0] + ' (' + entry[1] + ')'; }).join('; ') + '. Данные не подменяются.');
   else hideSiteErr();
@@ -550,6 +620,21 @@ var fmt = n => {
   var num = Number(n);
   if (!Number.isFinite(num)) return '—';
   return num.toLocaleString('ru-RU', { maximumFractionDigits: 9 });
+};
+var fmtExact = function (n) {
+  try {
+    if (typeof n === 'string') {
+      var t = n.trim();
+      if (/^-?\d+(\.\d{1,9})?$/.test(t)) {
+        var ps = t.split('.');
+        var ip = Number(ps[0]).toLocaleString('ru-RU');
+        if (ps.length === 1) return ip;
+        var fr = ps[1].replace(/0+$/, '');
+        return fr ? ip + ',' + fr : ip;
+      }
+    }
+  } catch (e) {}
+  return fmt(n);
 };
 function set(id, val) { var el = document.getElementById(id); if (el && el.textContent !== String(val)) { el.textContent = String(val); flash(el); } }
 function flash(el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 900); }
@@ -756,8 +841,17 @@ function cloudRender(cs) {
 function econRender(info, cache, cloud, treasury, blocksArr) {
   var total = info.totalSupplyCirculating;
   var tbalance = treasury && treasury.policy ? treasury.balance : null;
+  var infoH = info && Number.isFinite(Number(info.blocks)) ? Number(info.blocks) : null;
+  var treasH = treasury && Number.isFinite(Number(treasury.blocks)) ? Number(treasury.blocks) : null;
+  var cloudSnapH = cloud && Number.isFinite(Number(cloud.snapshotBlocks)) ? Number(cloud.snapshotBlocks) : null;
+  var cloudCurH = cloud && Number.isFinite(Number(cloud.currentBlocks)) ? Number(cloud.currentBlocks) : (typeof life !== 'undefined' && life && Number.isFinite(Number(life.blocks)) ? Number(life.blocks) : null);
+  var heightsOk = (infoH == null || treasH == null || treasH <= infoH) && (cloudSnapH == null || cloudCurH == null || cloudSnapH <= cloudCurH);
   if (treasury && treasury.policy && Number.isFinite(Number(tbalance)) && Number.isFinite(Number(total)) && Number(total) >= 0 && Number(tbalance) >= 0) {
-    if (Number(tbalance) > Number(total)) {
+    if (!heightsOk) {
+      document.getElementById('chartPie').innerHTML = '';
+      set('pieLegend', 'Распределение не рассчитано: снимок казны новее снимка сети.');
+      set('pieNote', 'Проверка только порядка снимков (treasury.blocks <= info.blocks: снимок казны не новее снимка сети); совместимость цепей этим не подтверждается. Источник: /treasury/state + /info.');
+    } else if (Number(tbalance) > Number(total)) {
       document.getElementById('chartPie').innerHTML = '';
       set('pieLegend', 'Распределение не рассчитано: данные источников не согласованы.');
       set('pieNote', 'Казна превышает общий показатель; цифры не подгоняются. Источник: /treasury/state + /info.');
@@ -766,14 +860,14 @@ function econRender(info, cache, cloud, treasury, blocksArr) {
         { label: 'прочие ончейн-балансы (разница)', val: Number(total) - Number(tbalance), color: '#d4af37' },
         { label: 'подтверждённая казна фонда', val: Number(tbalance), color: '#5aa2ff' },
       ]);
-      set('pieNote', 'Только проверенная рабочая цепь; виртуальный CloudLedger в распределение не включён. Источник: /treasury/state + /info.');
+      set('pieNote', 'Суммы из /treasury/state и /info на момент снимков. Проверка высот подтверждает лишь, что снимок казны не новее снимка сети (treasury.blocks <= info.blocks); совместимость цепей этим не подтверждается, проверка хешей браузером не выполнялась. Виртуальный CloudLedger в распределение не включён. Источник: /treasury/state + /info.');
     }
   } else { set('chartPie', ''); set('pieLegend', 'Нет активной подтверждённой политики казны; распределение не рассчитывается.'); set('pieNote', ''); }
   var mined24h = null, minedNote = 'данных за полный период недостаточно';
   try {
     if (Array.isArray(blocksArr) && blocksArr.length) {
       var nowS = Math.floor(Date.now() / 1000);
-      var win = blocksArr.filter(function (b) { var ts = Number(b.header && b.header.timestamp || 0); return ts > 0 && (nowS - ts) <= 86400; });
+      var win = blocksArr.filter(function (b) { var ts = Number(b.header && b.header.timestamp || 0); return ts > 0 && ts <= nowS && (nowS - ts) <= 86400; });
       var allTs = blocksArr.map(function (b) { return Number(b.header && b.header.timestamp || 0); }).filter(function (t) { return t > 0; }).sort(function (a, b) { return a - b; });
       var covered = allTs.length && (nowS - allTs[0]) >= 86400;
       var sum = 0, ok = true;
@@ -784,13 +878,13 @@ function econRender(info, cache, cloud, treasury, blocksArr) {
           if (tx && (tx.from === 'COINBASE' || tx.coinbase)) { var v = Number(tx.amount); if (!Number.isFinite(v) || v < 0) { ok = false; break; } sum += v; }
         }
       }
-      if (ok && covered && win.length) { mined24h = sum; minedNote = 'факт по ' + win.length + ' блокам окна 24ч (каноническая цепь)'; }
+      if (ok && covered && win.length) { mined24h = sum; minedNote = 'факт по ' + win.length + ' блокам окна 24ч (каноническая цепь; полнота промежутка браузером не проверена)'; }
       else if (ok && win.length && !covered) { minedNote = 'история меньше 24 часов (' + win.length + ' блоков в окне) — полного суточного итога нет'; }
       else if (!ok) { minedNote = 'награды окна не прошли проверку типов — итог не рассчитан'; }
     }
   } catch (e) { minedNote = 'ошибка расчёта окна: итог не рассчитан'; }
   var tb = document.getElementById('econTb');
-  set('econBox', 'Казна — баланс адреса из активной политики AGIP-4 в проверенной цепи. CloudLedger — отдельный виртуальный учёт, не ончейн-актив.');
+  set('econBox', 'Казна — баланс адреса из активной политики AGIP-4 по снимку /treasury/state. CloudLedger — отдельный виртуальный учёт, не ончейн-актив.');
   while (tb.firstChild) tb.removeChild(tb.firstChild);
   function ecoRow(k, v) {
     var tr = document.createElement('tr');
@@ -799,7 +893,7 @@ function econRender(info, cache, cloud, treasury, blocksArr) {
     tb.appendChild(tr);
   }
   ecoRow('казна · ' + (treasury && treasury.policy ? treasury.policy.treasury : 'нет активной подтверждённой политики'),
-    fmt(treasury && treasury.policy ? treasury.balance : null) + ' AGT · блок ' + fmt(treasury && treasury.blocks));
+    fmtExact(treasury && treasury.policy ? treasury.balance : null) + ' AGT · блок ' + fmtExact(treasury && treasury.blocks));
   ecoRow('виртуальный CloudLedger · снимок ' + (cloud && cloud.snapshotAt || 'недоступен'),
     fmt(cloud && cloud.fundAGT) + ' учётных AGT · не балансовый адрес');
   ecoRow('Сумма комиссий', (cache && cache.feesAGT != null && Number.isFinite(Number(cache.feesAGT))) ? fmt(cache.feesAGT) + ' AGT' : 'не проверено');
@@ -811,7 +905,7 @@ function econRender(info, cache, cloud, treasury, blocksArr) {
 function marq(info, cache) {
   var bits = [];
   if (info && Number.isFinite(Number(info.blocks))) bits.push('⟡ ' + Number(info.blocks) + ' блоков');
-  if (info && Number.isFinite(Number(info.totalSupplyCirculating))) bits.push('⟡ ' + fmt(info.totalSupplyCirculating) + ' AGT');
+  if (info && Number.isFinite(Number(info.totalSupplyCirculating))) bits.push('⟡ ' + fmtExact(info.totalSupplyCirculating) + ' AGT');
   if (cache && Number.isFinite(Number(cache.treasury)) && Number(cache.treasury) > 0) bits.push('⟡ казна ' + fmt(cache.treasury) + ' AGT');
   if (info && Number.isFinite(Number(info.halvingIn))) bits.push('⟡ халвинг через ' + fmt(info.halvingIn) + ' блоков');
   if (info && Number.isFinite(Number(info.nextReward))) bits.push('⟡ награда ' + Number(info.nextReward) + ' AGT/блок');
@@ -890,6 +984,13 @@ async function tick() {
     jget('/treasury/state'), jget('/tax/state'),
   ]);
   if (myTick !== tickSeq) return; // запоздавший тик: не перезаписывать новое состояние
+  try {
+    ['/stats-data', '/passport/count', '/jobs/state', '/cloud/stats', '/gov/state', '/life', '/queue/status', '/blocks', '/balances', '/treasury/state', '/tax/state'].forEach(function (p) {
+      var r = rsnap(p);
+      if (r && r.status === 'stale') apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'снимок устарел — показаны последние известные данные');
+      if (r && r.status === 'unknown' && r.data) apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'давность снимка неизвестна');
+    });
+  } catch (e) {}
   if (passports) { passportLastGood = passports; passportLastSuccess = new Date(); }
   else if (passportLastGood) passports = passportLastGood;
   // Issuer-federation: реестры паспортов, cloud-фонд и налоговые декларации —
@@ -947,12 +1048,12 @@ async function tick() {
   }
   if (info) {
     set('cBlocks', Number.isSafeInteger(info.blocks) && info.blocks >= 0 ? info.blocks : '—');
-    set('cSupply', fmt(info.totalSupplyCirculating));
+    set('cSupply', fmtExact(info.totalSupplyCirculating));
     var supN = Number(info.totalSupplyCirculating), maxN = Number(info.maxSupply);
     if (Number.isFinite(supN) && Number.isFinite(maxN) && maxN > 0 && supN >= 0) {
       var pct = 100 * supN / maxN;
       document.getElementById('bSupply').style.width = Math.max(0, Math.min(100, pct)) + '%';
-      document.getElementById('cSupplyMax').textContent = 'из ' + fmt(info.maxSupply) + ' · ' + pct.toFixed(1) + '%' + (pct > 100 ? ' · превышает ожидаемый максимум — расхождение не скрыто' : '');
+      document.getElementById('cSupplyMax').textContent = 'из ' + fmtExact(info.maxSupply) + ' · ' + pct.toFixed(1) + '%' + (pct > 100 ? ' · превышает ожидаемый максимум — расхождение не скрыто' : '');
     } else {
       document.getElementById('bSupply').style.width = '0%';
       document.getElementById('cSupplyMax').textContent = 'предел эмиссии: данные некорректны — шкала не построена';
@@ -967,8 +1068,8 @@ async function tick() {
     marq(info, Object.assign({}, cache || {}, { treasury: treasury && treasury.balance }));
   }
   if (treasury && treasury.policy && Number.isFinite(Number(treasury.balance))) {
-    set('cTreasury', fmt(treasury.balance));
-    set('cTreasuryMeta', treasury.policy.treasury + ' · AGIP-4 passed · баланс на блоке ' + fmt(treasury.blocks));
+    set('cTreasury', fmtExact(treasury.balance));
+    set('cTreasuryMeta', treasury.policy.treasury + ' · AGIP-4 passed · баланс на блоке ' + fmtExact(treasury.blocks));
     markFresh('cTreasury', 'fresh');
   } else if (!treasury) {
     // jget вернул null: /treasury/state недоступен — это НЕ то же самое, что пустая политика.
@@ -996,7 +1097,7 @@ async function tick() {
       set('passportFreshness', (passports && snapAt ? 'Снимок от ' + snapAt + ' · высота снимка ' + (passports.snapshotBlocks != null ? passports.snapshotBlocks : 'по tip-блоку источника') + (passports.headHash ? ' · head ' + String(passports.headHash).slice(0, 10) + '…' : '') + ' · последняя успешная проверка API ' + (passportLastSuccess ? passportLastSuccess.toLocaleTimeString('ru-RU') : '—') + ' · ' + (!Number.isFinite(passAge) ? 'давность снимка не определена' : (passAge < 1 ? 'реестр свежий' : 'реестр отстаёт от эмитента на ' + passAge.toFixed(1) + ' ч')) : 'Актуальность реестра недоступна') + ' · переопрос эмитента раз в 60 с · ' + issuerMark.pass);
   if (publicBalances && Array.isArray(publicBalances.balances)) {
     set('balancesSummary', 'Адресов: ' + (Number.isFinite(Number(publicBalances.totalAccounts)) ? publicBalances.totalAccounts : '—') + ' · блоков: ' + (Number.isFinite(Number(publicBalances.blocks)) ? publicBalances.blocks : '—') + ' · показано ' + publicBalances.balances.length);
-    document.getElementById('balancesTb').innerHTML = publicBalances.balances.map(function (r) { return '<tr><td class="mono" style="max-width:none">' + esc(r && r.address) + '</td><td>' + esc(fmt(r && r.balance)) + '</td></tr>'; }).join('') || '<tr><td colspan="2">Список пуст</td></tr>';
+    document.getElementById('balancesTb').innerHTML = publicBalances.balances.map(function (r) { return '<tr><td class="mono" style="max-width:none">' + esc(r && r.address) + '</td><td>' + esc(fmtExact(r && r.balance)) + '</td></tr>'; }).join('') || '<tr><td colspan="2">Список пуст</td></tr>';
   } else if (publicBalances) {
     set('balancesSummary', 'Данные источника имеют неподдерживаемый формат (/balances, код: bad-shape)');
     document.getElementById('balancesTb').innerHTML = '<tr><td colspan="2">Данные источника имеют неподдерживаемый формат</td></tr>';
@@ -1011,24 +1112,26 @@ async function tick() {
     document.getElementById('cJobsOpen').title = 'Открытые контракты найма по /jobs/state; аукционы и очередь — отдельные смыслы ниже';
   } else { set('cJobs', '—'); unavailable('cJobsOpen'); }
   if (cloud) {
-    set('cCloudFund', fmt(cloud.fundAGT));
-    set('cCloudGB', fmt(cloud.cloudGB));
+    set('cCloudFund', fmtExact(cloud.fundAGT));
+    set('cCloudGB', fmtExact(cloud.cloudGB));
     var cloudSnap = cloud.snapshotAt || cloud.snapshot_time || null;
     var cloudAge = cloudSnap ? (Date.now() - Date.parse(cloudSnap)) : null;
     var cloudState = cloud.stale === true ? 'stale' : (cloudSnap == null || !Number.isFinite(cloudAge) ? 'unknown' : (cloudAge > 600000 ? 'stale' : 'fresh'));
     markFresh('cCloudFund', cloudState);
     var cloudLag = Number.isFinite(Number(cloud.currentBlocks)) && Number.isFinite(Number(cloud.snapshotBlocks)) ? Math.max(0, Number(cloud.currentBlocks) - Number(cloud.snapshotBlocks)) : null;
-    set('cloudFreshness', 'снимок ' + (cloud.snapshotAt || cloud.snapshot_time || 'без даты') + ' · источник: блок ' + fmt(cloud.snapshotBlocks) + ' · цепь: блок ' + fmt(cloud.currentBlocks != null ? cloud.currentBlocks : (life ? life.blocks : null)) + ' · ' + (cloud.stale ? 'отстаёт на ' + fmt(cloudLag) + ' блоков' : 'совпадает с текущей цепью') + ' · переопрос эмитента раз в 60 с · ' + issuerMark.cloud);
+    var cloudMatch = (cloud.stale === false || cloudLag === 0) && cloudSnap != null && cloud.currentBlocks != null && Number(cloud.snapshotBlocks) === Number(cloud.currentBlocks);
+    var cloudMsg = cloud.stale === true ? 'отстаёт на ' + fmtExact(cloudLag) + ' блоков' : (cloudMatch ? 'совпадает с текущей цепью (блоки снимка и цепи равны)' : 'совпадение с текущей цепью не проверено');
+    set('cloudFreshness', 'снимок ' + (cloud.snapshotAt || cloud.snapshot_time || 'без даты') + ' · источник: блок ' + fmtExact(cloud.snapshotBlocks) + ' · цепь: блок ' + fmtExact(cloud.currentBlocks != null ? cloud.currentBlocks : (life ? life.blocks : null)) + ' · ' + cloudMsg + ' · переопрос эмитента раз в 60 с · ' + issuerMark.cloud);
     set('cStorage', cloud.actualStorage && cloud.actualStorage.chainFileBytes != null ? fmt((cloud.actualStorage.chainFileBytes / 1048576).toFixed(2)) + ' MiB chain.json · ' + (cloud.actualStorage.filesystem ? fmt((cloud.actualStorage.filesystem.usedBytes / 1073741824).toFixed(2)) + ' / ' + fmt((cloud.actualStorage.filesystem.capacityBytes / 1073741824).toFixed(2)) + ' GiB диска занято / всего' : 'использование диска недоступно') : 'файл цепи не измерен');
     var cp = cloud.compression || {};
     document.getElementById('cCompr').textContent = 'коэффициент модели: ×' + (Number.isFinite(Number(cp.ratioNow)) ? Number(cp.ratioNow).toFixed(0) : '—') + ' (не физическое хранение)';
     try { cloudRender(cloud); } catch (e) { unavailable('cloudBox', 'Данные источника имеют неподдерживаемый формат (/cloud/stats, код: bad-shape)'); apiErrors.set('/cloud/stats', 'bad-shape'); }
   } else { unavailable('cloudBox'); ['cCloudFund', 'cCloudGB', 'cCompr', 'cStorage', 'cloudFreshness'].forEach(function (id) { set(id, 'источник недоступен'); }); }
   if (tax) {
-    set('cTax', fmt(tax.governed));
+    set('cTax', fmtExact(tax.governed));
     var collectedTax = Object.values(tax.collected || {}).reduce(function (sum, item) { return sum + Number(item.agt || 0); }, 0);
     var taxTxCount = Object.values(tax.collected || {}).reduce(function (sum, item) { return sum + Number(item.txs || 0); }, 0);
-    set('cTaxMeta', fmt(tax.passports) + ' паспортов · собрано в последних 5000 блоках: ' + fmt(collectedTax) + ' AGT / ' + fmt(taxTxCount) + ' tx · снимок ' + (tax.passportSnapshotAt || 'без даты') + ' · ' + issuerMark.tax);
+    set('cTaxMeta', fmtExact(tax.passports) + ' паспортов · собрано в последних 5000 блоках: ' + fmtExact(collectedTax) + ' AGT / ' + fmtExact(taxTxCount) + ' tx · снимок ' + (tax.passportSnapshotAt || 'без даты') + ' · ' + issuerMark.tax);
     var taxAge = tax.passportSnapshotAt || tax.snapshot_time ? Math.max(0, (Date.now() - Date.parse(tax.passportSnapshotAt || tax.snapshot_time)) / 3600000) : null;
     markFresh('cTax', taxAge == null ? 'unknown' : taxAge < 1 ? 'fresh' : 'stale');
   } else { set('cTax', 'API недоступен'); set('cTaxMeta', 'сборы и декларации не подставляются'); }
@@ -1044,8 +1147,12 @@ async function tick() {
     try { set('asPaid', (jobs && jobs.stats && Number.isFinite(Number(jobs.stats.paid))) ? jobs.stats.paid : '—'); } catch (e) {}
     try { set('asQueue', Number.isFinite(Number(qWait)) ? qWait : '—'); } catch (e) {}
     document.getElementById('asQueue').title = 'Ожидающие агенты в очереди (по /queue/status)';
-    markFresh('cQueue', queue.current === false ? 'stale' : (queue.snapshotAt ? 'fresh' : 'unknown'));
-    document.getElementById('cOnDuty').textContent = 'назначены по снимку: ' + queue.onDuty + ' / ' + queue.maxOnDuty + ' · ' + (queue.current === false ? 'не live' : 'состояние API') + ' · ' + (queue.snapshotAt || 'дата неизвестна');
+    var qSnapMs = (function () { try { var v = queue.snapshotAt || queue.snapshot_time; var t = v ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; } catch (e) { return null; } })();
+    var qAge = qSnapMs == null ? null : (Date.now() - qSnapMs);
+    var qFresh = queue.current === false ? 'stale' : (qSnapMs == null || !Number.isFinite(qAge) || qAge < 0 ? 'unknown' : (qAge <= agtFreshness('/queue/status') ? 'fresh' : 'stale'));
+    if (rsnap('/queue/status').status === 'stale' && qFresh === 'fresh') qFresh = 'stale';
+    markFresh('cQueue', qFresh);
+    document.getElementById('cOnDuty').textContent = 'назначены по снимку: ' + queue.onDuty + ' / ' + queue.maxOnDuty + ' · ' + (queue.current === false ? 'не live' : (qFresh === 'fresh' ? 'состояние API (снимок свежий)' : (qFresh === 'stale' ? 'снимок устарел — показаны последние известные данные' : 'состояние API (давность неизвестна)'))) + ' · ' + (queue.snapshotAt || queue.snapshot_time || 'дата неизвестна');
     document.getElementById('cQueueProcesses').textContent = queue.aiProcesses && queue.aiProcesses.status === 'not_deployed' ? 'управляющий, исполнитель и reviewer на Hetzner не запущены' : 'статус AI-процессов: ' + (queue.aiProcesses && queue.aiProcesses.status || 'неизвестен');
   } else { set('cQueue', 'API недоступен'); unavailable('cOnDuty'); set('cQueueProcesses', 'статус AI-процессов неизвестен'); }
   if (gov) {
@@ -1069,7 +1176,7 @@ async function tick() {
     for (var b of arr.slice(0, 10)) {
       for (var tx of (b.txs || [])) {
         var memo = tx.from === 'COINBASE' ? '⛏ блок заминен · награда нации' : String(tx.memo || 'перевод AGT');
-                  var amt = (tx && tx.amount != null && Number.isFinite(Number(tx.amount))) ? fmt(tx.amount) + ' AGT' : 'сумма не проверена'; // fmt: same-script, 9 decimals; fmtAGT lives in a later block
+                  var amt = (tx && tx.amount != null && Number.isFinite(Number(tx.amount))) ? fmtExact(tx.amount) + ' AGT' : 'сумма не проверена'; // fmtExact: same-script, строковый путь без потери разрядов
           items.push('<tr><td>' + esc(Number.isFinite(Number(b.height)) ? b.height : '—') + '</td><td class="mono dimt">' + esc(memo.slice(0, 52)) + '</td><td>' + esc(amt) + '</td></tr>');
         if (items.length >= 16) break;
       }

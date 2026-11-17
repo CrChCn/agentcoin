@@ -104,5 +104,46 @@ function mined24h(blocksArr, nowS) {
   ok(i18.includes('Последние блоки') && !i18.includes('Живая лента — блоки и транзакции'), 'i18n: no stale live-feed copy');
 }
 
+// 6. расхождения владельца: свежесть/подписка/валидация/время события (без новых функций)
+{
+  const h = fs.readFileSync(new URL('../site/imperial.html', import.meta.url), 'utf8');
+  const eco = fs.readFileSync(new URL('../site/ecosphere.js', import.meta.url), 'utf8');
+  ok(h.includes('fmtExact'), 'fmtExact present');
+  ok(h.includes('net-massiva-balances') && h.includes('net-massiva-history') && h.includes('net-politiki-kazny'), 'agtValidate covers balances/queue/treasury shapes');
+  ok(h.includes('agtStatusFor') && h.includes('agtFreshness(path)'), 'fetch status derived from snapshot age via agtFreshness');
+  ok(h.includes('AGTSubs') && h.includes('agtNotify(path'), 'subscribe stores listeners + notifies on update');
+  ok(h.includes('rsnap('), 'render reads snapshot status (no silent old data)');
+  ok(h.includes('совпадение с текущей цепью не проверено') && h.includes('cloudMatch'), 'cloud match claimed only after checkpoint equality');
+  ok(h.includes('qAge') && h.includes("agtFreshness('/queue/status')"), 'queue freshness checks age, not mere snapshotAt presence');
+  ok(h.includes('ts <= nowS'), '24h window excludes future timestamps');
+  ok(h.includes('полнота промежутка браузером не проверена'), '24h honesty: completeness not claimed');
+  ok(h.includes('heightsOk'), 'treasury pie checks heights compatibility');
+  ok(h.includes('снимок казны не новее снимка сети') && h.includes('совместимость цепей этим не подтверждается'), 'treasury heights: only snapshot ordering, not chain compat');
+  ok(eco.includes('srcMs') && eco.includes('detectedAt'), 'ecosphere: source event time separated from detection time');
+  ok(eco.includes('occurredAt: occ') && eco.indexOf('occurredAt: nowMs') === -1, 'ecosphere: occurredAt null when source time unknown (detection not passed as event time)');
+  ok(eco.includes('обходного fetch нет'), 'ecosphere: no fallback fetch when common layer down');
+  const statusFor = (snapIso, nowMs, limit) => {
+    if (snapIso == null) return 'unknown';
+    const t = Date.parse(snapIso); if (!Number.isFinite(t)) return 'unknown';
+    const age = nowMs - t; if (!Number.isFinite(age) || age < 0) return 'stale';
+    return age <= limit ? 'fresh' : 'stale';
+  };
+  const now = Date.now();
+  ok(statusFor(new Date(now - 5000).toISOString(), now, 15000) === 'fresh', 'stale-at-200: recent snapshot => fresh');
+  ok(statusFor(new Date(now - 5 * 3600 * 1000).toISOString(), now, 120000) === 'stale', 'stale-at-200: old snapshot at HTTP200 => stale');
+  ok(statusFor(null, now, 15000) === 'unknown', 'missing snapshot => unknown, not fresh');
+  ok(statusFor(new Date(now + 3600 * 1000).toISOString(), now, 15000) === 'stale', 'future snapshot => stale');
+  const win = [{ header: { timestamp: Math.floor(now / 1000) + 3600 } }].filter(b => { const ts = Number(b.header.timestamp); const ns = Math.floor(now / 1000); return ts > 0 && ts <= ns && (ns - ts) <= 86400; });
+  ok(win.length === 0, 'future block excluded from 24h window');
+  const subs = new Map(); const seen = [];
+  const notify = (pp, r) => (subs.get(pp) || []).forEach(f => f(r));
+  const sub = (pp, f) => { if (!subs.has(pp)) subs.set(pp, new Set()); subs.get(pp).add(f); return () => subs.get(pp).delete(f); };
+  const un = sub('/info', r => seen.push(r.status));
+  notify('/info', { status: 'stale' }); un(); notify('/info', { status: 'fresh' });
+  ok(seen.length === 1 && seen[0] === 'stale', 'subscribe notifies after update; unsubscribe stops');
+  const srcMs = at => { const v = Number(at); if (!Number.isFinite(v) || v <= 0) return null; return v < 1e12 ? Math.floor(v * 1000) : Math.floor(v); };
+  ok(srcMs(1000) === 1000000 && srcMs(1700000000000) === 1700000000000 && srcMs(null) === null, 'srcMs: seconds to ms, ms kept, empty null');
+}
+
 console.log(fail ? `\nRESULT: ${fail} FAIL(s)` : '\nRESULT: all PASS');
 process.exit(fail ? 1 : 0);

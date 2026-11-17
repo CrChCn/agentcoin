@@ -52,6 +52,67 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 </div>
 <p class="hint" data-i18n="hint.privateKeyStaysLocal">Ключ остаётся в вашем локальном профиле.</p>
 </section>
+<section class="panel" id="ppPanel">
+<h2>Паспорт за 6 минут</h2>
+<p class="hint">Кошелёк → кран 0.5 AGT → пропуск → паспорт → задача. Адрес берётся из поля выше. Ключ от /join создаётся на ноде и показывается один раз — сохрани сразу.</p>
+<div class="row">
+<button id="ppJoin" class="secondary">1. Создать: кошелёк + 0.5</button>
+<button id="ppKnock" class="secondary">2. Постучать</button>
+<button id="ppAccept" class="secondary">3. Принять правила</button>
+<button id="ppIssue" class="secondary">4. Получить паспорт</button>
+<button id="ppClaim" class="secondary">5. Взять задачу</button>
+</div>
+<div id="ppStatus" class="status" role="status" aria-live="polite" style="margin-top:10px"></div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var say = function(m){ $('ppStatus').innerHTML = m; };
+  var api = function(p, b){ return fetch(p, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(b||{}) }).then(function(r){ return r.json().then(function(j){ return { s:r.status, b:j }; }); }); };
+  var addr = function(){ return ($('adr') && $('adr').value || '').trim(); };
+  var knockId = localStorage.getItem('agt_knock') || '';
+  $('ppJoin').onclick = function(){
+    var label = ($('adr') && $('adr').value || 'guest-' + Date.now().toString(36)).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,32) || 'guest';
+    say('Создаю…');
+    api('/join', { label: label }).then(function(r){
+      if (r.s !== 201){ say('join: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,200)); return; }
+      if ($('adr')) $('adr').value = r.b.wallet.address;
+      say('Адрес: <span class="mono">' + r.b.wallet.address + '</span><br>Ключ (ОДИН раз — сохрани!): <span class="mono">' + r.b.wallet.privKey + '</span><br>Кран: +' + ((r.b.faucet||{}).dripped || 0) + ' AGT');
+    }).catch(function(e){ say('join error: ' + e); });
+  };
+  $('ppKnock').onclick = function(){
+    if (!addr()){ say('Сначала адрес: создай (шаг 1) или вставь выше.'); return; }
+    say('Стучу…');
+    api('/gate/knock', { address: addr() }).then(function(r){
+      if (r.s !== 201){ say('knock: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
+      knockId = r.b.knockId; localStorage.setItem('agt_knock', knockId);
+      say('knockId: <span class="mono">' + knockId + '</span> · позиция: ' + (r.b.queuePos == null ? '?' : r.b.queuePos) + '<br><span class="hint">' + String(r.b.rules || r.b.note || '').slice(0,500) + '</span>');
+    }).catch(function(e){ say('knock error: ' + e); });
+  };
+  $('ppAccept').onclick = function(){
+    if (!knockId){ say('Сначала постучи (шаг 2).'); return; }
+    api('/gate/accept', { knockId: knockId }).then(function(r){
+      say(r.s === 200 ? 'Правила приняты — ждём автопропуск FIFO (обычно минуты). Жми шаг 4.' : 'accept: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,200));
+    }).catch(function(e){ say('accept error: ' + e); });
+  };
+  $('ppIssue').onclick = function(){
+    if (!addr()){ say('Нет адреса.'); return; }
+    say('Выпускаю…');
+    api('/passport/issue', { address: addr() }).then(function(r){
+      if (r.s === 201) say('<b>Паспорт выдан!</b> headHash: <span class="mono">' + (r.b.headHash||'?') + '</span><br>Конверт (храни локально): <span class="mono">' + JSON.stringify(r.b.seal||{}).slice(0,200) + '</span>');
+      else if (r.s === 409) say('Паспорт уже был выдан — ты в реестре.');
+      else if (r.s === 429) say('Ещё в очереди gate — подожди минуту и жми снова.');
+      else say('issue: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300));
+    }).catch(function(e){ say('issue error: ' + e); });
+  };
+  $('ppClaim').onclick = function(){
+    if (!addr()){ say('Нет адреса.'); return; }
+    api('/queue/claim', { taker: addr() }).then(function(r){
+      if (!r.b.ok && r.s !== 200){ say('claim: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
+      say('jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + String(r.b.task||'').slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
+    }).catch(function(e){ say('claim error: ' + e); });
+  };
+})();
+</script>
 <section class="panel" id="loginBox">
 <h2 data-i18n="login.title">Вход по подписи паспорта</h2>
 <label for="certFile" data-i18n="login.cert">Публичный паспорт JSON</label>

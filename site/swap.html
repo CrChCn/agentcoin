@@ -30,10 +30,15 @@ async function checkSepolia(txid){
     const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getTransactionByHash',params:[txid]})});
     const j=await r.json();if(j.result&&j.result.blockNumber){
-      const rc=await(await fetch(u,{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({jsonrpc:'2.0',id:2,method:'eth_getTransactionReceipt',params:[txid]})})).json();
-      const ok=rc.result&&rc.result.status==='0x1';
-      return{st:ok?'ok':'warn',info:ok?('в блоке '+parseInt(j.result.blockNumber,16)):'транзакция упала (status 0)'};}
+      const blk=parseInt(j.result.blockNumber,16);
+      try{
+        const rc=await(await fetch(u,{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({jsonrpc:'2.0',id:2,method:'eth_getTransactionReceipt',params:[txid]})})).json();
+        if(rc.result)return rc.result.status==='0x1'
+          ? {st:'ok',info:'успешна, блок '+blk}
+          : {st:'warn',info:'транзакция упала (status 0), блок '+blk};
+      }catch(e){}
+      return{st:'ok',info:'в блоке '+blk+' (receipt не проверен — лимит RPC, сверь на sepolia.etherscan.io)'};}
     if(j.result)return{st:'pend',info:'в мемпуле, ждём'};}catch(e){}}
   return{st:'unknown',info:'RPC недоступен, проверь на sepolia.etherscan.io'}};
 async function checkAgt(txid){

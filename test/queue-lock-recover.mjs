@@ -81,7 +81,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agt-lockrec-'));
   const ex = makeIdempotentExecutor(file);
   const d = actionDigest({ action: 'submit', body: { j: 'mp-rec' }, nonce: 'mp-rec', expiry: Date.now() + 600000 });
   const b = ex.begin({ nonce: 'mp-rec', digest: d, expiry: Date.now() + 600000 });
-  eq(b.reserved, true, 'lock-recover: следующий процесс восстановил lock и зарезервировал (без ожидания staleMs)');
+  eq(b.reserved, true, 'lock-recover: следующий процесс восстановил lock после grace и зарезервировал (≈2с, в пределах тайм-аута)');
   ex.commit('mp-rec', { n: 1 });
   eq(ex.get('mp-rec').state, 'done', 'lock-recover: журнал цел после восстановления');
 }

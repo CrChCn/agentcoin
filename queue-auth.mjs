@@ -112,12 +112,19 @@ function atomicWriteJson(file, obj) { atomicWriteJsonDurable(file, obj); }
 // Межпроцессный мьютекс: атомарный mkdir. Держится только на критической секции
 // чтения-записи журнала (миллисекунды), НЕ на время effect().
 // Восстановление после аварии: внутри lockDir лежит info.json {pid, at}. Если процесс
-// умер, держа lock (kill -9 / падение ОС), lockDir остаётся; следующий владелец после
-// staleMs считает его протухшим, сносит и забирает (mkdir снова атомарна — побеждает
-// ровно один). Критическая секция — миллисекунды, поэтому staleMs=15с безопасен:
-// живой держатель так долго lock не держит. Без восстановления любая авария в секции
-// давала бы вечный WAL_LOCK_TIMEOUT — это и закрыто здесь + тестом crash-holding-lock.
+// умер, держа lock (kill -9 / падение ОС), lockDir остаётся; следующий владелец сносит
+// его и забирает (mkdir снова атомарна — побеждает ровно один). Условие кражи строгое:
+// живой держатель — никогда; мёртвый pid — только после grace 2с (переходный teardown
+// pid и флэп проверки живости не крадут свежий lock, иначе два держателя в секции =
+// двойной эффект); lock без pid (legacy) — после staleMs=15с. Критическая секция —
+// миллисекунды, живой держатель так долго lock не держит. Без восстановления любая
+// авария в секции давала бы вечный WAL_LOCK_TIMEOUT — закрыто здесь + тестом crash-holding-lock.
 export const WAL_LOCK_STALE_MS = 15000;
+// Выдержка для мёртвого держателя: даже при мёртвом pid сносим только lock старше
+// grace — это закрывает переходные состояния teardown/reuse pid и короткие
+// флэпы проверки живости: ложная кража свежего lock = двойной эффект (1-in-N
+// флак гонки двух процессов). Цена — восстановление после kill -9 занимает ~2с
+// вместо мгновенного, что укладывается в тайм-аут ожидания lock (5с).
 export function lockInfo(file) {
   const lockDir = String(file) + '.lock';
   try {
@@ -134,18 +141,23 @@ export function pidAlive(pid) {
   if (n === process.pid) return true;
   try { process.kill(n, 0); return true; } catch (e) { return e && e.code === 'EPERM'; }
 }
-export function recoverStaleLock(file, { staleMs = WAL_LOCK_STALE_MS } = {}) {
+export const WAL_LOCK_DEAD_GRACE_MS = 2000;
+export function recoverStaleLock(file, { staleMs = WAL_LOCK_STALE_MS, deadGraceMs = WAL_LOCK_DEAD_GRACE_MS } = {}) {
   const info = lockInfo(file);
   if (!info) return { ok: true, recovered: false, reason: 'no-lock' };
   const age = Date.now() - Number(info.at || 0);
-  // Мёртвый pid (kill -9 держателя) — протухший сразу, ждать staleMs не нужно.
+  // Кража — только застарелого lock: живой держатель — никогда; мёртвый pid —
+  // только после grace (переходный teardown pid + флэп живости не должны красть
+  // свежий lock, иначе два держателя в секции = двойной эффект). Без pid
+  // (legacy-остатки) — только по полному staleMs.
   const holderDead = info.pid !== undefined && !pidAlive(info.pid);
-  if (!(age > staleMs) && !holderDead) return { ok: false, error: 'LOCK_ACTIVE', ageMs: Math.max(0, Math.round(age)) };
+  const threshold = holderDead ? Math.min(Number(staleMs), Number(deadGraceMs)) : Number(staleMs);
+  if (!(age > threshold)) return { ok: false, error: 'LOCK_ACTIVE', ageMs: Math.max(0, Math.round(age)) };
   try { fs.unlinkSync(path.join(String(file) + '.lock', 'info.json')); } catch {}
   try { fs.rmdirSync(String(file) + '.lock'); } catch (e) { return { ok: false, error: 'LOCK_RECOVER_RACE' }; }
   return { ok: true, recovered: true, ageMs: Math.round(age) };
 }
-export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5, staleMs = WAL_LOCK_STALE_MS } = {}) {
+export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5, staleMs = WAL_LOCK_STALE_MS, deadGraceMs = WAL_LOCK_DEAD_GRACE_MS } = {}) {
   const lockDir = String(file) + '.lock';
   const start = Date.now();
   for (;;) {
@@ -156,12 +168,17 @@ export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5, staleMs =
     }
     catch (e) {
       if (e && (e.code === 'EEXIST' || e.code === 'EACCES')) {
-        // Протухший lock (авария держателя: возраст > staleMs ИЛИ pid мёртв) — снести и повторить.
+        // Протухший lock — снести и повторить борьбу за mkdir. Порог — как в
+        // recoverStaleLock: живой — никогда; мёртвый — после grace; без pid — staleMs.
         const info = lockInfo(file);
         const age = info ? Date.now() - Number(info.at || 0) : 0;
         const dead = info && info.pid !== undefined && !pidAlive(info.pid);
-        if (info && (age > staleMs || dead)) {
-          const r = recoverStaleLock(file, { staleMs });
+        const threshold = dead ? Math.min(Number(staleMs), Number(deadGraceMs)) : Number(staleMs);
+        if (process.env.AGT_WAL_DEBUG && info && (age > threshold)) {
+          try { fs.appendFileSync(process.env.AGT_WAL_DEBUG, JSON.stringify({ t: Date.now(), me: process.pid, stoleFrom: info.pid, ageMs: Math.round(age), dead: !!dead, file: String(file) }) + '\n'); } catch {}
+        }
+        if (info && (age > threshold)) {
+          const r = recoverStaleLock(file, { staleMs, deadGraceMs });
           if (r.ok && r.recovered) continue; // гонку за снос выиграл — пробуем mkdir снова
         }
         if (Date.now() - start > timeoutMs) throw new Error('WAL_LOCK_TIMEOUT');

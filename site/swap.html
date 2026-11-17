@@ -37,8 +37,10 @@ async function checkSepolia(txid){
     if(j.result)return{st:'pend',info:'в мемпуле, ждём'};}catch(e){}}
   return{st:'unknown',info:'RPC недоступен, проверь на sepolia.etherscan.io'}};
 async function checkAgt(txid){
-  try{const r=await fetch('/api/v1/txproof/'+txid);if(!r.ok)return{st:'missing',info:'не найдена в цепи'};
-    const j=await r.json();
+  try{const r=await fetch('/api/v1/txproof/'+txid);
+    let j={};try{j=await r.json();}catch(e){}
+    if(j&&j.error==='admin_loopback_only')return{st:'unknown',info:'прямой пруф закрыт прокси (только локально у ноды) — сверь вручную через /hires-proof.html и историю эскроу'};
+    if(!r.ok)return{st:'missing',info:'не найдена в цепи'};
     if(j&&(j.height||j.blockHeight||j.included||j.ok))return{st:'ok',info:'включена в цепь, высота '+(j.height||j.blockHeight||'?')};
     return{st:'pend',info:'ответ получен, проверь поля вручную'};}
   catch(e){return{st:'unknown',info:'API недоступен'}}}

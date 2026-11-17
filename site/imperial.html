@@ -545,7 +545,12 @@ function clearPanels(message) {
   ['chartH', 'chartPie'].forEach(function (id) { document.getElementById(id).innerHTML = ''; });
   var canvas = document.getElementById('chartD'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
-var fmt = n => (n == null ? '—' : Number(n).toLocaleString('ru-RU'));
+var fmt = n => {
+  if (n == null) return '—';
+  var num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  return num.toLocaleString('ru-RU', { maximumFractionDigits: 9 });
+};
 function set(id, val) { var el = document.getElementById(id); if (el && el.textContent !== String(val)) { el.textContent = String(val); flash(el); } }
 function flash(el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 900); }
 function markFresh(id, state) {
@@ -797,7 +802,7 @@ function econRender(info, cache, cloud, treasury, blocksArr) {
     fmt(treasury && treasury.policy ? treasury.balance : null) + ' AGT · блок ' + fmt(treasury && treasury.blocks));
   ecoRow('виртуальный CloudLedger · снимок ' + (cloud && cloud.snapshotAt || 'недоступен'),
     fmt(cloud && cloud.fundAGT) + ' учётных AGT · не балансовый адрес');
-  ecoRow('Сумма комиссий', (cache && cache.feesAGT != null && Number.isFinite(Number(cache.feesAGT))) ? Number(cache.feesAGT).toFixed(4) + ' AGT' : 'не проверено');
+  ecoRow('Сумма комиссий', (cache && cache.feesAGT != null && Number.isFinite(Number(cache.feesAGT))) ? fmt(cache.feesAGT) + ' AGT' : 'не проверено');
   ecoRow('награда за блок (до халвинга)', String(info.nextReward) + ' AGT');
   ecoRow('Намайнено за последние 24 часа (факт)', mined24h == null ? '— · ' + minedNote : fmt(mined24h) + ' AGT · ' + minedNote);
   ecoRow('Прогноз при текущей награде', fmt((info.nextReward || 0) * 2880) + ' AGT/сутки = награда ' + info.nextReward + ' × 2880 блоков (сценарный расчёт, не факт)');
@@ -853,7 +858,13 @@ async function tick() {
   var identity = document.getElementById('networkIdentity');
   if (!info) {
     clearPanels('Данные недоступны: /info не вернул корректный JSON.');
-    identity.className = 'pill off'; identity.textContent = 'Сеть не проверена · /info недоступен';
+    var infoErr = '';
+    try { infoErr = apiErrors.get('/info') || ''; } catch (e) {}
+    if (/chuzhaya|chuzhoi/i.test(infoErr)) {
+      identity.className = 'pill off'; identity.textContent = 'NETWORK MISMATCH · /info отвергнут: ' + infoErr + ' · чужие данные скрыты';
+    } else {
+      identity.className = 'pill off'; identity.textContent = 'Сеть не проверена · /info недоступен';
+    }
     showApiErrors();
     return;
   }
@@ -1058,7 +1069,7 @@ async function tick() {
     for (var b of arr.slice(0, 10)) {
       for (var tx of (b.txs || [])) {
         var memo = tx.from === 'COINBASE' ? '⛏ блок заминен · награда нации' : String(tx.memo || 'перевод AGT');
-                  var amt = (tx && tx.amount != null && Number.isFinite(Number(tx.amount))) ? fmtAGT(String(tx.amount)) + ' AGT' : 'сумма не проверена';
+                  var amt = (tx && tx.amount != null && Number.isFinite(Number(tx.amount))) ? fmt(tx.amount) + ' AGT' : 'сумма не проверена'; // fmt: same-script, 9 decimals; fmtAGT lives in a later block
           items.push('<tr><td>' + esc(Number.isFinite(Number(b.height)) ? b.height : '—') + '</td><td class="mono dimt">' + esc(memo.slice(0, 52)) + '</td><td>' + esc(amt) + '</td></tr>');
         if (items.length >= 16) break;
       }

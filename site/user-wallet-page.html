@@ -85,7 +85,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
     api('/gate/knock', { address: addr() }).then(function(r){
       if (r.s !== 201){ say('knock: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
       knockId = r.b.knockId; localStorage.setItem('agt_knock', knockId);
-      say('knockId: <span class="mono">' + knockId + '</span> · позиция: ' + (r.b.queuePos == null ? '?' : r.b.queuePos) + '<br><span class="hint">' + String(r.b.rules || r.b.note || '').slice(0,500) + '</span>');
+      say('knockId: <span class="mono">' + knockId + '</span> · позиция: ' + (r.b.queuePos == null ? '?' : r.b.queuePos) + '<br><span class="hint">' + String(r.b.rules || r.b.note || '') + '</span>');
     }).catch(function(e){ say('knock error: ' + e); });
   };
   $('ppAccept').onclick = function(){

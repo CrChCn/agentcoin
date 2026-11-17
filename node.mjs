@@ -1835,7 +1835,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       }
     }
     const list = [...map.values()];
-    return { escrows: list, fees, stats: { total: list.length, open: list.filter(e => e.status === 'open').length, paid: list.filter(e => e.status === 'paid').length, refunded: list.filter(e => e.status === 'refunded').length, feesAGT: fees.reduce((s, f) => s + f.amount, 0) } };
+    const paidList = list.filter(e => e.status === 'paid');
+    const inWork = list.filter(e => e.status === 'open' || e.status === 'partial').length;
+    const paidOutSum = paidList.reduce((s, e) => s + (Number(e.paidOut) || 0), 0);
+    return { escrows: list, fees, stats: { total: list.length, open: list.filter(e => e.status === 'open').length, paid: paidList.length, refunded: list.filter(e => e.status === 'refunded').length, feesAGT: fees.reduce((s, f) => s + f.amount, 0), active: inWork, inWork, done: paidList.length, completed: paidList.length, paidOut: paidOutSum } };
   }
   function escrowStateOnce(force = false) {
     if (force || !escCache.data || Date.now() - escCache.at > 30000) { escCache.data = escrowStateFromChain(); escCache.at = Date.now(); }
@@ -2401,11 +2404,14 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/gate/accept' && req.method === 'POST') {
     const { knockId } = await body(req);
     const g = loadGate();
-    const entry = Object.values(g.queue).find(e => 'G' + String(e.seq).padStart(6, '0') === String(knockId));
-    if (!entry) return json(res, 404, { error: 'knock_not_found' });
+    const found = Object.entries(g.queue).find(([, e]) => 'G' + String(e.seq).padStart(6, '0') === String(knockId));
+    if (!found) return json(res, 404, { error: 'knock_not_found' });
+    const [key, entry] = found;
     entry.rulesAccepted = true; entry.acceptedAt = Date.now();
     saveGate(g);
-    return json(res, 200, { knockId, state: 'queued', note: 'правила приняты; ждём автоматического пропуска FIFO' });
+    const admitted = entry.state === 'approved' || !!g.approved[key];
+    const ahead = admitted ? 0 : Object.values(g.queue).filter(e => e.state === 'queued' && e.seq < entry.seq).length;
+    return json(res, 200, { knockId, state: admitted ? 'approved' : 'queued', queuePos: admitted ? 0 : ahead + 1, note: admitted ? 'уже допущен — выпускай паспорт: POST /passport/issue' : 'правила приняты; ждём автоматического пропуска FIFO' });
   }
   // автопуск FIFO: за один вызов одобряем до per-entry rate — логично пинать из guard'а раз в 4 мин
   if (p === '/gate/tick') {

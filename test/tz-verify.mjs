@@ -145,5 +145,62 @@ function mined24h(blocksArr, nowS) {
   ok(srcMs(1000) === 1000000 && srcMs(1700000000000) === 1700000000000 && srcMs(null) === null, 'srcMs: seconds to ms, ms kept, empty null');
 }
 
+// 7. воспроизводимые замечания владельца: реальные agtValidate/fmtExact из imperial.html
+{
+  const html = fs.readFileSync(new URL('../site/imperial.html', import.meta.url), 'utf8');
+  const GEN = '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e';
+  const agtBase = p => String(p).split('?')[0];
+  const slice = (from, to) => {
+    const a = html.indexOf(from);
+    const b = html.indexOf(to, a);
+    if (a < 0 || b < 0) throw new Error('extract-fail:' + from);
+    return html.slice(a, b);
+  };
+  const fxStart = html.indexOf('var fmtExact = function');
+  const src = slice('function agtIsInt', 'function agtSnapshotMs')
+    + '\n' + slice('var fmt = n => {', 'var fmtExact = function')
+    + '\n' + html.slice(fxStart, html.indexOf('\n};', fxStart) + 3);
+  const mk = new Function('EXPECTED_NETWORK', 'EXPECTED_GENESIS', 'agtBase', src + '\nreturn { agtValidate, fmt, fmtExact };');
+  const R = mk('AGENTCOIN', GEN, agtBase);
+  ok(R.agtValidate('/balances', { balances: [{ address: 'AGTx' }] }) !== null, 'owner-repro: balances без balance отклонён');
+  ok(R.agtValidate('/balances?limit=20', { blocks: 10001, totalAccounts: 1, balances: [{ address: 'AGTx' }] }) === 'net-balansa-net', 'balances: нет balance => net-balansa-net');
+  ok(R.agtValidate('/queue/status', {}) !== null, 'owner-repro: пустой queue/status отклонён');
+  ok(R.agtValidate('/jobs/state', { stats: { paid: 'oops' } }) !== null, 'owner-repro: jobs paid=oops отклонён');
+  ok(R.agtValidate('/jobs/state', { stats: { paid: 7.5, open: 2, total: 9 } }) !== null, 'jobs: дробный счётчик отклонён');
+  ok(R.agtValidate('/queue/status', { waiting: -1, onDuty: 0, maxOnDuty: 4, nextFive: [] }) !== null, 'queue: отрицательный счётчик отклонён');
+  ok(R.agtValidate('/queue/status', { waiting: 0, onDuty: true, maxOnDuty: 4, nextFive: [] }) !== null, 'queue: bool вместо счётчика отклонён');
+  const nowIso = new Date().toISOString();
+  const good = [
+    ['/info', { chainId: 'AGENTCOIN', genesisHash: GEN, blocks: 10001, difficultyBits: 14, nextReward: 50, totalSupplyCirculating: 160.123456789, maxSupply: 21000000, halvingIn: 199999, retargetIn: 7 }],
+    ['/stats-data', { blocks: 10001, supply: 160.123, treasury: 100, paidJobs: 7, feesAGT: 0.000000001 }],
+    ['/blocks', { blocks: [{ height: 10000, hash: 'h', header: { timestamp: 1700000000, difficultyBits: 14, nonce: 1 }, txs: [{ from: 'COINBASE', amount: 50 }] }] }],
+    ['/balances?limit=20', { totalAccounts: 2, blocks: 10001, balances: [{ address: 'AGTa', balance: 0.000000001 }, { address: 'AGTb', balance: 12345678.123456789 }] }],
+    ['/treasury/state', { policy: { treasury: 'AGTx' }, balance: 100, blocks: 10000 }],
+    ['/treasury/state', { policy: null, balance: null, blocks: 10000 }],
+    ['/jobs/state', { stats: { paid: 7, open: 2, total: 9 } }],
+    ['/cloud/stats', { fundAGT: 5, cloudGB: 10, epochsClosed: 2, snapshotAt: nowIso, snapshotBlocks: 10000, currentBlocks: 10001, compression: { ratioNow: 200 } }],
+    ['/gov/state', { proposals: [] }],
+    ['/life', { blocks: 10001, tipAgeSec: 12, security: { attacks: 3, banned: 0 } }],
+    ['/queue/status', { waiting: 0, onDuty: 0, maxOnDuty: 4, nextFive: [], rotation: 'FIFO', history: [] }],
+    ['/queue/history', { history: [{ at: 1000, jobId: 'J1', agent: 'A', summary: 'job done J1' }] }],
+    ['/passport/count', { count: 12, snapshotAt: nowIso, snapshotBlocks: 10000 }],
+    ['/tax/state', { passports: 12, governed: 3, collected: {}, passportSnapshotAt: nowIso }],
+    ['/jobs/auction/list', { auctions: [] }],
+  ];
+  for (const [p, d] of good) ok(R.agtValidate(p, d) === null, 'mock-normal принят: ' + p, R.agtValidate(p, d) || '');
+  ok(R.agtValidate('/info', { chainId: 'OTHERNET', genesisHash: 'dead', blocks: 5 }) !== null, 'othernet отклонён');
+  ok(R.agtValidate('/info', { chainId: 123, genesisHash: 456, blocks: 'many' }) !== null, 'badtypes /info отклонён');
+  ok(R.agtValidate('/blocks', { blocks: 'not-an-array' }) !== null, 'badtypes /blocks отклонён');
+  const NB = String.fromCharCode(160);
+  ok(R.fmtExact('9007199254740993.000000001') === '9' + NB + '007' + NB + '199' + NB + '254' + NB + '740' + NB + '993,000000001', 'fmtExact: 2^53+1 точен, без потери разряда');
+  ok(R.fmtExact('12345678.123456789') === '12' + NB + '345' + NB + '678,123456789', 'fmtExact: группировка целой части строкой');
+  ok(R.fmtExact('1000000') === '1' + NB + '000' + NB + '000', 'fmtExact: миллион');
+  ok(R.fmtExact('0.000000001') === '0,000000001', 'fmtExact: 1 магнит');
+  ok(R.fmtExact('-1234567.500') === '-1' + NB + '234' + NB + '567,5', 'fmtExact: минус и обрезка нулей');
+  ok(R.fmtExact('1.0000000001') === '—', 'fmtExact: 10 знаков дроби — явный отказ, не округление');
+  ok(R.fmtExact('1e5') === '—', 'fmtExact: экспонента — явный отказ, не молчаливое округление');
+  ok(R.fmtExact(160.123456789) === R.fmt(160.123456789), 'fmtExact: числовой путь без изменений (float-лимит честно показан)');
+}
+
 console.log(fail ? `\nRESULT: ${fail} FAIL(s)` : '\nRESULT: all PASS');
 process.exit(fail ? 1 : 0);

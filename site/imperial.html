@@ -460,54 +460,148 @@ var AGTDataStore = new Map();
 var AGTInflight = new Map();
 function agtBase(p) { return String(p).split('?')[0]; }
 function agtFreshness(path) { return FRESHNESS_MS[agtBase(path)] || 30000; }
+function agtIsInt(v) {
+  if (v == null || typeof v === 'boolean') return false;
+  if (typeof v === 'string') { if (!/^-?\d+$/.test(v.trim())) return false; }
+  var n = Number(v);
+  return Number.isSafeInteger(n) && n >= 0;
+}
+function agtIsAmount(v) {
+  if (v == null || typeof v === 'boolean') return false;
+  if (typeof v === 'string') { if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return false; }
+  var n = Number(v);
+  return Number.isFinite(n) && n >= 0;
+}
 function agtValidate(path, data) {
   if (!data || typeof data !== 'object') return 'ne-obekt-JSON';
   var b = agtBase(path);
+  // Частичный ответ = недопустимый: agtFetch отклоняет его целиком, в AGTDataStore
+  // он попадает лишь как unavailable/stale с текстом ошибки — показатели по нему не обновляются.
   if (b === '/info') {
+    if (typeof data.chainId !== 'string' || !data.chainId) return 'net-chainId-info';
+    if (typeof data.genesisHash !== 'string' || !data.genesisHash) return 'net-genesis-info';
     if (data.chainId !== EXPECTED_NETWORK) return 'chuzhaya-set: ' + data.chainId;
     if (data.genesisHash !== EXPECTED_GENESIS) return 'chuzhoi-genesis';
-    if (!Number.isSafeInteger(data.blocks) || data.blocks < 0) return 'net-vysoty-info';
-    if (data.totalSupplyCirculating != null && !Number.isFinite(Number(data.totalSupplyCirculating))) return 'net-summy-supply';
+    if (!agtIsInt(data.blocks)) return 'net-vysoty-info';
+    if (data.totalSupplyCirculating != null && !agtIsAmount(data.totalSupplyCirculating)) return 'net-summy-supply';
+    if (data.maxSupply != null && !agtIsAmount(data.maxSupply)) return 'net-max-supply';
+    if (data.nextReward != null && !agtIsAmount(data.nextReward)) return 'net-nagrady-info';
+    if (data.halvingIn != null && !agtIsInt(data.halvingIn)) return 'net-halving-info';
+    if (data.retargetIn != null && !agtIsInt(data.retargetIn)) return 'net-retarget-info';
+    if (data.difficultyBits != null && !agtIsAmount(data.difficultyBits)) return 'net-slozhnosti-info';
+  }
+  if (b === '/stats-data') {
+    if (!agtIsInt(data.blocks)) return 'net-vysoty-stats';
+    if (!agtIsAmount(data.supply)) return 'net-summy-stats';
+    if (!agtIsAmount(data.treasury)) return 'net-kazny-stats';
+    if (!agtIsInt(data.paidJobs)) return 'net-dzhobov-stats';
+    if (!agtIsAmount(data.feesAGT)) return 'net-komissii-stats';
+    if (data.halvingIn != null && !agtIsInt(data.halvingIn)) return 'net-halving-stats';
   }
   if (b === '/blocks') {
     var arr = data.blocks || (Array.isArray(data) ? data : null);
     if (!Array.isArray(arr)) return 'net-massiva-blocks';
+    for (var bi = 0; bi < arr.length; bi++) {
+      var be = arr[bi];
+      if (!be || typeof be !== 'object') return 'net-bloka-blocks';
+      if (!agtIsInt(be.height)) return 'net-vysoty-block';
+      if (be.txs != null) {
+        if (!Array.isArray(be.txs)) return 'net-massiva-txs';
+        for (var ti = 0; ti < be.txs.length; ti++) {
+          var tx = be.txs[ti];
+          if (tx && (tx.from === 'COINBASE' || tx.coinbase) && tx.amount != null && !agtIsAmount(tx.amount)) return 'net-summy-coinbase';
+        }
+      }
+    }
   }
   if (b === '/balances') {
     if (!Array.isArray(data.balances)) return 'net-massiva-balances';
+    if (!agtIsInt(data.blocks)) return 'net-vysoty-balances';
+    if (!agtIsInt(data.totalAccounts)) return 'net-schetchika-balances';
     for (var i = 0; i < data.balances.length; i++) {
       var r = data.balances[i];
       if (!r || typeof r.address !== 'string' || !r.address) return 'net-adresa-balansa';
-      if (r.balance != null && !Number.isFinite(Number(r.balance))) return 'net-summy-balansa';
+      if (r.balance == null) return 'net-balansa-net';
+      if (!agtIsAmount(r.balance)) return 'net-summy-balansa';
     }
   }
   if (b === '/queue/status') {
-    if (data.waiting != null && !(Array.isArray(data.waiting) || Number.isFinite(Number(data.waiting)))) return 'net-ocheredi-waiting';
+    if (data.waiting == null) return 'net-ocheredi-waiting-net';
+    if (!(Array.isArray(data.waiting) || agtIsInt(data.waiting))) return 'net-ocheredi-waiting';
+    if (!agtIsInt(data.onDuty)) return 'net-ocheredi-onDuty';
+    if (!agtIsInt(data.maxOnDuty)) return 'net-ocheredi-maxOnDuty';
     if (data.nextFive != null && !Array.isArray(data.nextFive)) return 'net-massiva-nextFive';
-    if (data.onDuty != null && !Number.isFinite(Number(data.onDuty))) return 'net-ocheredi-onDuty';
-    if (data.maxOnDuty != null && !Number.isFinite(Number(data.maxOnDuty))) return 'net-ocheredi-maxOnDuty';
+    if (data.current != null && typeof data.current !== 'boolean') return 'net-flaga-current';
+    if (data.aiProcesses != null && typeof data.aiProcesses !== 'object') return 'net-aiProcesses';
   }
   if (b === '/queue/history') {
     if (!Array.isArray(data.history)) return 'net-massiva-history';
+    for (var hi = 0; hi < data.history.length; hi++) {
+      var he = data.history[hi];
+      if (!he || typeof he !== 'object') return 'net-zapisi-history';
+      if (he.jobId == null || (typeof he.jobId !== 'string' && typeof he.jobId !== 'number') || String(he.jobId).trim() === '') return 'net-jobId-history';
+      if (he.at != null && (typeof he.at === 'boolean' || !Number.isFinite(Number(he.at)))) return 'net-vremeni-history';
+      if (he.agent != null && typeof he.agent !== 'string') return 'net-agenta-history';
+    }
   }
   if (b === '/treasury/state') {
-    if (data.policy != null && (typeof data.policy !== 'object' || typeof data.policy.treasury !== 'string')) return 'net-politiki-kazny';
-    if (data.balance != null && !Number.isFinite(Number(data.balance))) return 'net-balansa-kazny';
-    if (data.blocks != null && !Number.isFinite(Number(data.blocks))) return 'net-vysoty-kazny';
+    if (data.policy != null && (typeof data.policy !== 'object' || typeof data.policy.treasury !== 'string' || !data.policy.treasury)) return 'net-politiki-kazny';
+    if (data.balance != null && !agtIsAmount(data.balance)) return 'net-balansa-kazny';
+    if (!agtIsInt(data.blocks)) return 'net-vysoty-kazny';
   }
   if (b === '/jobs/state') {
-    if (data.stats != null && typeof data.stats !== 'object') return 'net-statistiki-jobs';
+    if (data.stats == null || typeof data.stats !== 'object') return 'net-statistiki-jobs';
+    if (!agtIsInt(data.stats.paid) || !agtIsInt(data.stats.open) || !agtIsInt(data.stats.total)) return 'net-schetchika-jobs';
+    if (data.stats.refunded != null && !agtIsInt(data.stats.refunded)) return 'net-schetchika-jobs';
+    if (data.stats.feesAGT != null && !agtIsAmount(data.stats.feesAGT)) return 'net-komissii-jobs';
   }
   if (b === '/cloud/stats') {
-    if (data.fundAGT != null && !Number.isFinite(Number(data.fundAGT))) return 'net-fonda-cloud';
-    if (data.snapshotBlocks != null && !Number.isFinite(Number(data.snapshotBlocks))) return 'net-vysoty-cloud';
-    if (data.currentBlocks != null && !Number.isFinite(Number(data.currentBlocks))) return 'net-tekushchei-vysoty-cloud';
+    if (!agtIsAmount(data.fundAGT)) return 'net-fonda-cloud';
+    if (!agtIsAmount(data.cloudGB)) return 'net-oblaka-cloud';
+    if (data.epochsClosed != null && !agtIsInt(data.epochsClosed)) return 'net-epoh-cloud';
+    if (data.snapshotBlocks != null && !agtIsInt(data.snapshotBlocks)) return 'net-vysoty-cloud';
+    if (data.currentBlocks != null && !agtIsInt(data.currentBlocks)) return 'net-tekushchei-vysoty-cloud';
+    if (data.compression != null && typeof data.compression !== 'object') return 'net-szhatiya-cloud';
+    if (data.compression && data.compression.ratioNow != null && !agtIsAmount(data.compression.ratioNow)) return 'net-koeffitsienta-cloud';
+    if (data.stale != null && typeof data.stale !== 'boolean') return 'net-flaga-stale';
   }
   if (b === '/passport/count') {
-    if (data.count != null && !Number.isFinite(Number(data.count))) return 'net-schetchika-pasportov';
+    if (!agtIsInt(data.count)) return 'net-schetchika-pasportov';
+    if (data.snapshotBlocks != null && !agtIsInt(data.snapshotBlocks)) return 'net-vysoty-pasportov';
+    if (data.headHash != null && typeof data.headHash !== 'string') return 'net-head-pasportov';
   }
   if (b === '/tax/state') {
-    if (data.collected != null && typeof data.collected !== 'object') return 'net-sborov-tax';
+    if (!agtIsInt(data.passports)) return 'net-pasportov-tax';
+    if (!agtIsInt(data.governed)) return 'net-upravlyaemyh-tax';
+    if (data.collected != null) {
+      if (typeof data.collected !== 'object') return 'net-sborov-tax';
+      for (var ck in data.collected) {
+        if (!Object.prototype.hasOwnProperty.call(data.collected, ck)) continue;
+        var ci = data.collected[ck];
+        if (!ci || typeof ci !== 'object') return 'net-sborov-tax';
+        if (ci.agt != null && !agtIsAmount(ci.agt)) return 'net-summy-tax';
+        if (ci.txs != null && !agtIsInt(ci.txs)) return 'net-tx-tax';
+      }
+    }
+  }
+  if (b === '/gov/state') {
+    if (!Array.isArray(data.proposals)) return 'net-massiva-proposals';
+    for (var gi = 0; gi < data.proposals.length; gi++) {
+      var gp = data.proposals[gi];
+      if (!gp || typeof gp !== 'object') return 'net-predlozheniya-gov';
+      if (gp.yes != null && !agtIsInt(gp.yes)) return 'net-golosov-gov';
+      if (gp.no != null && !agtIsInt(gp.no)) return 'net-golosov-gov';
+      if (gp.abstain != null && !agtIsInt(gp.abstain)) return 'net-golosov-gov';
+    }
+  }
+  if (b === '/life') {
+    if (!agtIsInt(data.blocks)) return 'net-vysoty-life';
+    if (data.tipAgeSec != null && (typeof data.tipAgeSec === 'boolean' || !Number.isFinite(Number(data.tipAgeSec)) || Number(data.tipAgeSec) < 0)) return 'net-vozrasta-life';
+    if (data.security != null) {
+      if (typeof data.security !== 'object') return 'net-bezopasnosti-life';
+      if (data.security.attacks != null && !agtIsInt(data.security.attacks)) return 'net-atak-life';
+      if (data.security.banned != null && !agtIsInt(data.security.banned)) return 'net-banov-life';
+    }
   }
   if (b === '/jobs/auction/list') {
     if (data.auctions != null && !Array.isArray(data.auctions)) return 'net-massiva-auctions';
@@ -626,12 +720,19 @@ var fmtExact = function (n) {
     if (typeof n === 'string') {
       var t = n.trim();
       if (/^-?\d+(\.\d{1,9})?$/.test(t)) {
-        var ps = t.split('.');
-        var ip = Number(ps[0]).toLocaleString('ru-RU');
-        if (ps.length === 1) return ip;
+        // Точный путь: группировка цифр строкой, без Number() — float64
+        // теряет разряды за пределами 2^53 (9007199254740993, а не ...992).
+        var neg = t[0] === '-';
+        var ps = (neg ? t.slice(1) : t).split('.');
+        var grp = ps[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u00A0');
+        if (neg) grp = '-' + grp;
+        if (ps.length === 1) return grp;
         var fr = ps[1].replace(/0+$/, '');
-        return fr ? ip + ',' + fr : ip;
+        return fr ? grp + ',' + fr : grp;
       }
+      // Числовая строка вне точного формата (экспонента, дробь длиннее 9):
+      // молча не округляем — явный отказ вместо искажения.
+      if (t !== '' && Number.isFinite(Number(t))) return '—';
     }
   } catch (e) {}
   return fmt(n);

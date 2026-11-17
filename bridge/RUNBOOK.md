@@ -7,28 +7,32 @@
 развёртывание Sepolia. Основная сеть и реальные средства — НЕ подключать.
 
 ## Воспроизводимость стенда (независимый проверяющий, одна документация)
-Из корня репо `agentcoin/`:
-1. `node --check queue.mjs && node --check queue-auth.mjs` (очередь не трогает прод).
-2. Очередь v2 изолированно:
-   `node test/queue-v2-isolated.mjs` (ALL GREEN);
-   `node test/queue-v2-clarify.mjs` (ALL GREEN: grace-слот, привязка попытки,
-   nonce-идемпотентность, resend того же txid, границы/skew/часы, миграция/откат).
-3. Мост, ядро: `cd bridge && node test-proto.mjs`, `node test-reconcile.mjs` (ALL GREEN).
-4. Мост, vault и политика (ядро, без сети):
-   `cd .. && node test/bridge-vault-2of3.mjs` (6/6);
-   `node test/bridge-policy-divergence.mjs` (ALL GREEN: тяжёлый форк без sig2
-   отвергнут enforcing-нодой; без политики принят; политика — условие группы нод).
-5. Мост, локальный e2e (модель): `node test/bridge-local-e2e.mjs`
-   (lock→mint→burn→release, AlreadyExecuted, рестарт, реорг-стоп, стоп при
-   расхождении политик, мусорный memo без выпуска).
-6. EVM + живые контракты: `cd bridge && node node_modules/hardhat/internal/cli/cli.js test`
+Из корня репо `agentcoin/` (все команды — отсюда, если не сказано иное):
+1. `node --check queue.mjs && node --check queue-auth.mjs && node --check queue-guards.mjs && node --check bridge/services.mjs && node --check bridge/api.mjs` (очередь и прод не трогаются).
+2. Всё не-EVM одной командой: `node test/repro-stand.mjs` (ALL GREEN). Внутри по порядку:
+   очередь v2 (`queue-v2-isolated`, `queue-v2-clarify`: grace-слот, привязка попытки,
+   nonce-идемпотентность, resend того же txid, границы/skew/часы, миграция/откат);
+   атомарность/авторизация (`queue-atomic-auth`: WAL pending, падение/конкуренция/рестарт,
+   guard всех маршрутов, байты повтора, реорг после settled);
+   межпроцессный WAL (`queue-wal-multiproc`: два отдельных процесса, падения до/после
+   эффекта, operationId, три исхода resolvePending);
+   HTTP-авторизация (`queue-http-auth`: изолированный сервер, матрица подписей/подмен/
+   просрочек/повторов/конкуренции, readyEnforced=false, обход через старый done, оператор);
+   ядро моста (`bridge/test-proto.mjs`, `bridge/test-reconcile.mjs`);
+   vault/политика (`test/bridge-vault-2of3.mjs`, `test/bridge-policy-divergence.mjs`);
+   e2e-модель (`test/bridge-local-e2e.mjs`: lock→mint→burn→release, AlreadyExecuted,
+   рестарт, реорг-стоп, стоп при расхождении, мусорный memo без выпуска);
+   действительная остановка (`test/bridge-halt-stop.mjs`: дефицит после mint, стоп
+   аттестаций/отправок, API STOP ≠ остановка контракта, окно риска, запрет авторезюма).
+3. EVM + живые контракты: `cd bridge && node node_modules/hardhat/internal/cli/cli.js test`
    (9 passing: 8 gateway/wAGT + full-local на реальных контрактах: lock→mint→burn→release,
    рестарт релеера, сверка, реорг ПОСЛЕ mint = дефицит + стоп, не автокансел).
-   Сервисы: `bridge/services.mjs` (observe/health/deficit), состояние `bridge/api.mjs`.
-7. Очередь, атомарность/авторизация: `node test/queue-atomic-auth.mjs` (WAL pending,
-   падение/конкуренция/рестарт, guard всех маршрутов, байты повтора, реорг после settled).
-   (ожидается 8 passing; solc 0.8.24, evmVersion cancun, OZ v5).
+   ВАЖНО: запускать именно из `bridge/` (путь `node_modules/...` относительный).
+   Сервисы: `bridge/services.mjs` (observe/health/deficit/halt: canAttest/canRelay,
+   recordHaltObservation, clearHalt только вручную), состояние `bridge/api.mjs`.
+   (solc 0.8.24, evmVersion cancun, OZ v5).
 Секреты не нужны: все ключи генерируются внутри тестов (tmp), продовых нет.
+Шаблон отчёта проверяющего: `docs/INDEPENDENT-REPRO-TEMPLATE.md`.
 
 ## Ключи стенда (тестовые, НЕ продовые)
 - Подписанты федерации 3-of-5: тестовые ключи hardhat-сети; продовые генерируются

@@ -6,7 +6,7 @@
    Рабочая нода включает его следующим шагом приёмки; здесь — тесты. */
 import { verifyActionSig, actionDigest } from './queue-auth.mjs';
 
-export const MUTATING_ACTIONS = ['claim', 'confirm', 'submit', 'renew', 'ready', 'leave', 'cancel', 'review', 'done-legacy'];
+export const MUTATING_ACTIONS = ['claim', 'claim2', 'confirm', 'submit', 'renew', 'ready', 'leave', 'cancel', 'review', 'done', 'done-legacy', 'join', 'obligationFor', 'obligationSent', 'payoutConfirm'];
 
 // Проверяет подпись и идемпотентность, затем исполняет handler ровно один раз.
 // Возвращает {ok, replay} либо отказ без исполнения.

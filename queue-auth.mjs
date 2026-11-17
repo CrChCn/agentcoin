@@ -4,6 +4,7 @@
    Адрес выводится из fromPub теми же функциями, что консенсус (core.mjs). */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { addressFromPub, isRawPubHex, addressFromRawPub, rawPubKeyObject } from './core.mjs';
 
 export const QUEUE_CHAIN = 'AGENTCOIN';
@@ -76,64 +77,125 @@ export function makeNonceStore(file, maxSize = 20000) {
   };
 }
 
-/* Идемпотентный исполнитель с журналом (п.1 приёмки: атомарность nonce+действие).
-   Прежде effect() выполнялся ДО записи {digest,result} — падение
-   между давало повторное исполнение. Протокол: reserve (WAL pending,
-   атомарная запись tmp+rename) ДО эффекта → effect → commit (done).
-   Конкурент видит pending и получает NONCE_PENDING_RETRY без исполнения;
-   рестарт видит pending и НЕ переисполняет вслепую: повтор —
-   NONCE_UNKNOWN_NEEDS_RECONCILE до явного resolvePending (reconcile с очередью).
-   Чужое тело — MISMATCH. Старый формат {digest,result} читается как done. */
-function atomicWriteJson(file, obj) {
+/* Идемпотентный исполнитель с журналом (п.1 приёмки: атомарность nonce+действие
+   МЕЖДУ ПРОЦЕССАМИ). Протокол: lock (mkdir exclusive) → перечитать файл → reserve
+   (WAL pending, запись tmp+fsync+rename+fsync dir) ДО эффекта → unlock → effect →
+   lock → commit (done) → unlock. tmp+rename без lock недостаточно: два процесса
+   могли оба прочитать "нет записи" и оба записать reserve. mkdir — атомарна в
+   ядре (POSIX/Windows: EEXIST при гонке), поэтому резерв ровно один.
+   Гарантии сохранения: запись идёт в tmp с fsync файла, затем rename, затем fsync
+   директории — после commit запись переживает падение ОС (на одной файловой
+   системе; rename атомарна). Конкурент видит pending → NONCE_PENDING_RETRY без
+   исполнения; рестарт видит pending и НЕ переисполняет вслепую: повтор —
+   NONCE_PENDING_RETRY до явного resolvePending. resolve три исхода:
+   effect-confirmed (эффект доказан — восстановить результат), proven-not-executed
+   (доказанно не исполнен — разрешить безопасное снятие брони), unknown — оставить
+   pending на сверке (НЕ снимать вслепую). Чужое тело — MISMATCH. Старый формат
+   {digest,result} читается как done. Эффект связан с постоянным operationId:
+   operationId = String(nonce); хранится в записи и возвращается в результате. */
+function fsyncDirOf(file) {
+  try {
+    const d = path.dirname(String(file));
+    // fsync директории доступен на POSIX; на Windows — no-op без ошибки для вызывающего.
+    const fd = fs.openSync(d, 'r');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } catch {}
+}
+function atomicWriteJsonDurable(file, obj) {
   const tmp = String(file) + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(obj));
+  const fd = fs.openSync(tmp, 'w');
+  try { fs.writeFileSync(fd, JSON.stringify(obj)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, String(file));
+  fsyncDirOf(file);
+}
+function atomicWriteJson(file, obj) { atomicWriteJsonDurable(file, obj); }
+// Межпроцессный мьютекс: атомарный mkdir. Держится только на критической секции
+// чтения-записи журнала (миллисекунды), НЕ на время effect().
+export function withFileLock(file, fn, { timeoutMs = 5000, pollMs = 5 } = {}) {
+  const lockDir = String(file) + '.lock';
+  const start = Date.now();
+  for (;;) {
+    try { fs.mkdirSync(lockDir); break; }
+    catch (e) {
+      if (e && (e.code === 'EEXIST' || e.code === 'EACCES')) {
+        if (Date.now() - start > timeoutMs) throw new Error('WAL_LOCK_TIMEOUT');
+        const end = Date.now() + pollMs;
+        while (Date.now() < end) {} // короткое ожидание без зависимостей
+        continue;
+      }
+      throw e;
+    }
+  }
+  try { return fn(); }
+  finally { try { fs.rmdirSync(lockDir); } catch {} }
 }
 export function makeIdempotentExecutor(file, maxSize = 20000) {
-  let map = {};
-  try { map = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { map = {}; }
-  for (const [k, v] of Object.entries(map)) {
-    if (v && typeof v === 'object' && !v.state && v.digest !== undefined) map[k] = { ...v, state: 'done' };
-  }
-  const save = () => { try { atomicWriteJson(file, map); } catch {} };
+  const load = () => {
+    let m = {};
+    try { m = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { m = {}; }
+    for (const [k, v] of Object.entries(m)) {
+      if (v && typeof v === 'object' && !v.state && v.digest !== undefined) m[k] = { ...v, state: 'done', operationId: String(k) };
+      else if (v && typeof v === 'object' && !v.operationId) m[k] = { ...v, operationId: String(k) };
+    }
+    return m;
+  };
+  let map = load();
+  const save = () => { try { atomicWriteJsonDurable(file, map); } catch {} };
   const prune = () => {
     const keys = Object.keys(map);
     if (keys.length > maxSize) {
       keys.sort((a, b) => (map[a].expiry || 0) - (map[b].expiry || 0)).slice(0, keys.length - maxSize).forEach((x) => delete map[x]);
     }
   };
+  const refresh = () => { map = load(); };
   return {
     begin({ nonce, digest, expiry }) {
-      const k = String(nonce);
-      const prev = map[k];
-      if (prev) {
-        if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH' };
-        if (prev.state === 'done') return { ok: true, replay: true, result: prev.result };
-        return { ok: false, error: 'NONCE_PENDING_RETRY', note: 'reconcile, ne povtor vslepuyu' };
-      }
-      map[k] = { digest: String(digest), state: 'pending', result: null, expiry: Number(expiry) || 0 };
-      save();
-      return { ok: true, reserved: true };
+      return withFileLock(file, () => {
+        refresh();
+        const k = String(nonce);
+        const prev = map[k];
+        if (prev) {
+          if (prev.digest !== String(digest)) return { ok: false, error: 'NONCE_BODY_MISMATCH', operationId: k };
+          if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: k };
+          return { ok: false, error: 'NONCE_PENDING_RETRY', note: 'reconcile, ne povtor vslepuyu', operationId: k };
+        }
+        map[k] = { digest: String(digest), state: 'pending', result: null, expiry: Number(expiry) || 0, operationId: k };
+        save();
+        return { ok: true, reserved: true, operationId: k };
+      });
     },
     commit(nonce, result) {
-      const k = String(nonce);
-      const prev = map[k];
-      if (!prev) return { ok: false, error: 'NONCE_NOT_RESERVED' };
-      map[k] = { ...prev, state: 'done', result };
-      prune();
-      save();
-      return { ok: true };
+      return withFileLock(file, () => {
+        refresh();
+        const k = String(nonce);
+        const prev = map[k];
+        if (!prev) return { ok: false, error: 'NONCE_NOT_RESERVED', operationId: k };
+        if (prev.state === 'done') return { ok: true, replay: true, result: prev.result, operationId: k };
+        map[k] = { ...prev, state: 'done', result, operationId: k };
+        prune();
+        save();
+        return { ok: true, operationId: k };
+      });
     },
+    // Три исхода сверки; неопределённый НЕ снимает бронь.
     resolvePending(nonce, resolution) {
-      const k = String(nonce);
-      const prev = map[k];
-      if (!prev || prev.state !== 'pending') return { ok: false, error: 'NOT_PENDING' };
-      if (resolution && resolution.status === 'aborted') { delete map[k]; save(); return { ok: true, aborted: true }; }
-      map[k] = { ...prev, state: 'done', result: resolution ? resolution.result : null };
-      save();
-      return { ok: true };
+      return withFileLock(file, () => {
+        refresh();
+        const k = String(nonce);
+        const prev = map[k];
+        if (!prev || prev.state !== 'pending') return { ok: false, error: 'NOT_PENDING', operationId: k };
+        const st = resolution && resolution.status;
+        if (st === 'proven-not-executed') { delete map[k]; save(); return { ok: true, aborted: true, operationId: k }; }
+        if (st === 'aborted') { delete map[k]; save(); return { ok: true, aborted: true, operationId: k }; }
+        if (st === 'effect-confirmed') {
+          map[k] = { ...prev, state: 'done', result: resolution.result ?? null, operationId: k };
+          save();
+          return { ok: true, restored: true, operationId: k };
+        }
+        return { ok: false, error: 'NEEDS_RECONCILE', note: 'unknown outcome: keep pending', operationId: k };
+      });
     },
-    pendingList() { return Object.entries(map).filter(([, v]) => v && v.state === 'pending').map(([k]) => k); },
+    pendingList() { refresh(); return Object.entries(map).filter(([, v]) => v && v.state === 'pending').map(([k]) => k); },
     run({ nonce, digest, expiry }, effect) {
       const b = this.begin({ nonce, digest, expiry });
       if (!b.ok) return b;
@@ -143,6 +205,7 @@ export function makeIdempotentExecutor(file, maxSize = 20000) {
       this.commit(nonce, result);
       return { ok: true, replay: false, result };
     },
-    get(nonce) { return map[String(nonce)] || null; },
+    get(nonce) { refresh(); return map[String(nonce)] || null; },
+    _file: file,
   };
 }

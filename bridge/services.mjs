@@ -27,6 +27,41 @@ export function healthCheck({ policyMatch, reconcileOk, evmFinalized, agentcoinT
   return { mint: 'OK', release: 'OK', reason: 'ALL_OK' };
 }
 
+/* Остановка моста (п.3): что блокируется автоматически, что — только транзакцией паузы.
+   Автоматически (без цепи, в сервисах): наблюдатели фиксируют причину+контрольные точки,
+   аттестор прекращает выдавать новые аттестации (canAttest→false), ретранслятор
+   прекращает отправки (canRelay→false), API показывает STOP. Контракт при этом НЕ
+   остановлен: ранее собранные аттестации ТЕХНИЧЕСКИ исполнимы через mintAttested
+   напрямую до тех пор, пока не добыта setMintPaused(true) — это окно риска (см. тест).
+   STOP в API НЕ выдавать за остановку контракта. Незавершённые mint/release при стопе
+   сохраняются в pendingExec/pendingRelease (не автокансел, не авторетрай). Автоматическое
+   возобновление ЗАПРЕЩЕНО: clearHalt требует manual:true и закрытый дефицит. */
+export function makeHaltState() {
+  return { halted: false, cause: null, checkpoints: null, at: null, manualResumeOnly: true };
+}
+export function haltBridge(state, cause, checkpoints) {
+  state.halted = true; state.cause = String(cause); state.checkpoints = checkpoints || null; state.at = Date.now();
+  return state;
+}
+export function clearHalt(state, { manual = false, deficitClosed = false } = {}) {
+  if (!manual) return { ok: false, error: 'HALT_MANUAL_ONLY', note: 'автовозобновление запрещено' };
+  if (!deficitClosed) return { ok: false, error: 'HALT_DEFICIT_OPEN' };
+  state.halted = false; state.cause = null; state.checkpoints = null;
+  return { ok: true };
+}
+// Наблюдатель фиксирует причину и контрольные точки (журнал без секретов).
+export function recordHaltObservation(state, cause, checkpoints) {
+  haltBridge(state, cause, checkpoints);
+  return { halted: true, cause: state.cause, checkpoints: state.checkpoints };
+}
+export function canAttest(state) {
+  if (state && state.halted) return { ok: false, error: 'HALT_ATTEST_STOP', cause: state.cause };
+  return { ok: true };
+}
+export function canRelay(state) {
+  if (state && state.halted) return { ok: false, error: 'HALT_RELAY_STOP', cause: state.cause };
+  return { ok: true };
+}
 // Дефицит после реорга: lock был, mint выполнен, а lock из канонической цепи исчез.
 // Автоматически отменённым НЕ считается: выпуск остаётся, фиксируется дефицит,
 // остановка затронутых операций и ручное урегулирование (доплата vault / сжигание

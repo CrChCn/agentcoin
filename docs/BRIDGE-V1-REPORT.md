@@ -262,3 +262,34 @@ Sepolia: вместо фиксированных «13 минут» — ожид�
 расхождение политик — `MINT_STOP_POLICY_DIVERGENCE`. Воспроизводимость — одной
 документацией: `bridge/RUNBOOK.md` (независимый проверяющий повторяет все четыре
 файла тестов без доступа к секретам).
+
+## 16. Закрытие пп.1–5 ускоренного плана (изолированно, без прод-средств)
+База — коммит b134498; рабочая очередь, выплаты и реальные средства не тронуты.
+1. WAL между процессами: `queue-auth.mjs` — lock через атомарный mkdir (только на
+   критической секции reserve/commit), запись tmp+fsync+rename+fsync директории;
+   повторное чтение файла под lock; эффект связан с постоянным operationId=nonce;
+   resolvePending — три исхода (effect-confirmed→восстановить, proven-not-executed→снять,
+   unknown→NEEDS_RECONCILE, бронь остаётся). Тест `test/queue-wal-multiproc.mjs`
+   (два отдельных процесса, падения до/после эффекта) — ALL GREEN.
+2. Авторизация через HTTP: `queue-guards.mjs` — MUTATING_ACTIONS расширен до всех
+   мутаций (claim/claim2/confirm/submit/renew/ready/leave/cancel/review/done/done-legacy/
+   join/obligationFor/obligationSent/payoutConfirm); операторские действия — отдельная
+   авторизация (OPERATOR_ONLY). Тест `test/queue-http-auth.mjs` — изолированный сервер,
+   матрица (без/чужая/битая подпись, подмены адреса/действия/тела, просрочка/skew,
+   повтор, конкуренция, readyEnforced=false, обход через старый done): отказ не меняет
+   очередь/историю/обязательства, повтор возвращает прежнее без эффекта — ALL GREEN.
+   В рабочую ноду (node.mjs) проводка НЕ вшита — следующий шаг после приёмки.
+3. Действительная остановка: `bridge/services.mjs` — halt (recordHaltObservation с
+   причиной+КТ; canAttest/canRelay отказывают; in-flight сохраняются; clearHalt только
+   вручную при закрытом дефиците, авторезюм запрещён); API STOP ≠ остановка контракта.
+   Тест `test/bridge-halt-stop.mjs` — ALL GREEN. Окно риска: между API-STOP и добытой
+   setMintPaused(true) ранее собранные аттестации исполнимы напрямую.
+4. Независимое воспроизведение: `bridge/RUNBOOK.md` — одна документация;
+   `test/repro-stand.mjs` — весь не-EVM стенд одной командой (ALL GREEN);
+   EVM — `cd bridge && node node_modules/hardhat/internal/cli/cli.js test` (9 passing).
+   Шаблон отчёта: `docs/INDEPENDENT-REPRO-TEMPLATE.md`. Независимый отчёт проверяющего —
+   ОЖИДАЕТСЯ (блокер для Sepolia).
+5. Sepolia-пилот: `docs/SEPOLIA-PILOT.md` — отдельная тестовая цепь, только тестовые
+   активы/ключи, один шлюз/один wAGT, малые лимиты, мониторинг+сверка+дрилл паузы,
+   журнал адресов/параметров/версий/транзакций. Развёртывание — отдельной контрольной
+   точкой, не в этой итерации.

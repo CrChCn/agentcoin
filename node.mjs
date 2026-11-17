@@ -376,7 +376,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -1702,8 +1702,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
   if (p === '/queue/claim' && req.method === 'POST') {
     const { taker = '' } = await body(req);
-    const r = queue.claim(String(taker || 'panel'));
+    const r = queue.claim(String(taker || ''));
     if (!r.ok) return json(res, 409, r);
+    if (r.repeat) return json(res, 200, { ...r, task: null, bountyAGT: 2, note: r.note + '; текст задачи и баунти — из первой выдачи' });
     // Пул задач: ратация по счётчику в файле — агент получает конкретное задание и bounty 2 AGT
     const BOUNTY_FILE = path.join(DATA_DIR, 'queue-bounty.json');
     const bk = (() => { try { return JSON.parse(fs.readFileSync(BOUNTY_FILE, 'utf8')); } catch { return { taskIdx: 0, day: '', dayCount: 0, paid: {} }; } })();
@@ -2455,6 +2456,29 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/gate/queue') {
     const g = loadGate();
     return json(res, 200, { queued: Object.values(g.queue).filter(e => e.state === 'queued').length, approved: Object.keys(g.approved).length, rulesHead: GATE_RULES.slice(0, 80) + '…' });
+  }
+  // Единый экран «Моё состояние» (read-only, публичный): паспорт + gate + очередь + назначение + следующий шаг.
+  if (p === '/agent-state') {
+    const address = String(url.searchParams.get('address') || '');
+    const key = address.toLowerCase();
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const pass = reg.find(r => String(r.address).toLowerCase() === key);
+    const g = loadGate();
+    const entry = g.queue[key];
+    const gate = g.approved[key] ? 'approved' : (entry ? (entry.rulesAccepted ? 'accepted' : 'knocked') : 'none');
+    const knockId = entry ? 'G' + String(entry.seq).padStart(6, '0') : null;
+    const st = queue.status();
+    const pos = queue.state.waiting.indexOf(address);
+    const held = Object.entries(queue.state.onDuty).find(([, a]) => a === address);
+    let code = 'OK', nextAction = 'knock', retryAfterSeconds = 0;
+    if (held) { code = 'ACTIVE_ASSIGNMENT_EXISTS'; nextAction = 'submit'; }
+    else if (!pass && gate === 'approved') nextAction = 'issue-passport';
+    else if (!pass && gate === 'accepted') { code = 'WAITING_FOR_GATE'; nextAction = 'wait-gate'; retryAfterSeconds = 60; }
+    else if (!pass && gate === 'knocked') nextAction = 'accept';
+    else if (pass && pos === 0) nextAction = 'claim';
+    else if (pass && pos > 0) { code = 'NOT_YOUR_TURN'; nextAction = 'wait'; retryAfterSeconds = 60; }
+    else if (pass) nextAction = 'join';
+    return json(res, 200, { address, code, passport: pass ? 'issued' : 'none', headHash: pass ? (pass.hash || null) : null, gate, knockId, queue: { position: pos >= 0 ? pos + 1 : null, waiting: st.waiting }, assignment: held ? { jobId: held[0] } : null, nextAction, retryAfterSeconds });
   }
   // AGIP-10: самодекларация налога для УЖЕ выпущенного паспорта (campaign-friendly).
   // {{

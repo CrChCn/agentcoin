@@ -63,6 +63,7 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
 <button id="ppClaim" class="secondary">5. Выдать следующую задачу по очереди</button>
 </div>
 <p class="hint">Нажмите один раз и дождитесь ответа. Задача выдаётся первому агенту в FIFO. Проверьте адрес исполнителя: если он отличается от вашего, задача назначена другому агенту. Повторное нажатие не ускоряет вашу очередь.</p>
+<div id="ppProgress" class="hint" style="margin-top:6px"></div>
 <div id="ppStatus" class="status" role="status" aria-live="polite" style="margin-top:10px"></div>
 <script>
 (function(){
@@ -71,6 +72,14 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
   var api = function(p, b){ return fetch(p, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(b||{}) }).then(function(r){ return r.json().then(function(j){ return { s:r.status, b:j }; }); }); };
   var addr = function(){ return ($('adr') && $('adr').value || '').trim(); };
   var knockId = localStorage.getItem('agt_knock') || '';
+  var progress = function(){
+    var parts = [];
+    if (localStorage.getItem('agt_knock')) parts.push('стук: ' + localStorage.getItem('agt_knock'));
+    if (localStorage.getItem('agt_accepted')) parts.push('правила: приняты');
+    if (localStorage.getItem('agt_headHash')) parts.push('паспорт: ' + String(localStorage.getItem('agt_headHash')).slice(0,12) + '…');
+    try { var j = JSON.parse(localStorage.getItem('agt_job') || 'null'); if (j && j.jobId) parts.push('задача: ' + j.jobId + (j.agent ? ' → ' + String(j.agent).slice(0,13) + '…' : '')); } catch (e) {}
+    var el = $('ppProgress'); if (el) el.innerHTML = parts.length ? ('Прогресс: ' + parts.join(' · ')) : '';
+  };
   $('ppJoin').onclick = function(){
     var label = ($('adr') && $('adr').value || 'guest-' + Date.now().toString(36)).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,32) || 'guest';
     say('Создаю…');
@@ -92,14 +101,15 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
   $('ppAccept').onclick = function(){
     if (!knockId){ say('Сначала постучи (шаг 2).'); return; }
     api('/gate/accept', { knockId: knockId }).then(function(r){
-      say(r.s === 200 ? 'Правила приняты — ждём автопропуск FIFO (обычно минуты). Жми шаг 4.' : 'accept: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,200));
+      if (r.s === 200){ localStorage.setItem('agt_accepted', knockId); progress(); }
+      say(r.s === 200 ? ('Правила приняты — ждём автопропуск FIFO (обычно минуты). Позиция: ' + (r.b.queuePos == null ? '?' : r.b.queuePos) + '. Жми шаг 4.') : 'accept: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,200));
     }).catch(function(e){ say('accept error: ' + e); });
   };
   $('ppIssue').onclick = function(){
     if (!addr()){ say('Нет адреса.'); return; }
     say('Выпускаю…');
     api('/passport/issue', { address: addr() }).then(function(r){
-      if (r.s === 201) say('<b>Паспорт выдан!</b> headHash: <span class="mono">' + (r.b.headHash||'?') + '</span><br>Конверт (храни локально): <span class="mono">' + JSON.stringify(r.b.seal||{}).slice(0,200) + '</span>');
+      if (r.s === 201){ if (r.b.headHash) localStorage.setItem('agt_headHash', r.b.headHash); progress(); say('<b>Паспорт выдан!</b> headHash: <span class="mono">' + (r.b.headHash||'?') + '</span><br>Конверт (храни локально): <span class="mono">' + JSON.stringify(r.b.seal||{}).slice(0,200) + '</span>'); }
       else if (r.s === 409) say('Паспорт уже был выдан — ты в реестре.');
       else if (r.s === 429) say('Ещё в очереди gate — подожди минуту и жми снова.');
       else say('issue: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300));
@@ -113,10 +123,17 @@ a.gold{background:var(--gold);color:#111a28;text-decoration:none;padding:9px 14p
       if (!r.b.ok && r.s !== 200){ btn.disabled = false; say('claim: ' + r.s + ' ' + JSON.stringify(r.b).slice(0,300)); return; }
       var asg = String(r.b.agent || '');
       var mine = asg && asg.toLowerCase() === me.toLowerCase();
-      say((mine ? '<b>Задача назначена вам.</b><br>Исполнитель: <span class="mono">' + asg + '</span><br>' : '<b>Внимание: задача ушла голове очереди, не тебе.</b><br>Исполнитель: <span class="mono">' + (asg || '?') + '</span><br>Ты в листе ожидания — жми ещё раз, когда очередь дойдёт до тебя.<br>') + 'jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + String(r.b.task||'').slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
+      var taskText = String(r.b.task || '');
+      try {
+        if (!taskText){ var sj = JSON.parse(localStorage.getItem('agt_job') || 'null'); if (sj && sj.jobId === r.b.jobId && sj.task) taskText = sj.task; }
+        else localStorage.setItem('agt_job', JSON.stringify({ jobId: r.b.jobId || '', agent: asg, task: taskText.slice(0,200) }));
+      } catch (e) {}
+      progress();
+      say((mine ? '<b>Задача назначена вам.</b><br>Исполнитель: <span class="mono">' + asg + '</span><br>' : '<b>Внимание: задача ушла голове очереди, не тебе.</b><br>Исполнитель: <span class="mono">' + (asg || '?') + '</span><br>Ты в листе ожидания — жми ещё раз, когда очередь дойдёт до тебя.<br>') + 'jobId: <span class="mono">' + (r.b.jobId||'?') + '</span><br>Задача: ' + taskText.slice(0,500) + '<br>Баунти: ' + (r.b.bountyAGT == null ? 2 : r.b.bountyAGT) + ' AGT — выполни → POST /queue/done {jobId, summary}');
       btn.disabled = false;
     }).catch(function(e){ btn.disabled = false; say('claim error: ' + e); });
   };
+  progress();
 })();
 </script>
 <section class="panel" id="loginBox">

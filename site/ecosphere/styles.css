@@ -1,5 +1,48 @@
-:root{--bg:#0d1117;--gold:#e8b923;--ice:#5ee6ff;--fg:#e8ecf1;--dim:#9aa4b2;--card:#151c26}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;padding:0 12px 40px}
+:root{--bg:#0b0f16;--bg2:#0d1117;--gold:#e8b923;--gold2:#f5cf4d;--ice:#5ee6ff;--fg:#e8ecf1;--dim:#9aa4b2;--card:#141b27;--line:#26303f;--ok:#3ddc84;--bad:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(1200px 500px at 70% -10%,#16283a 0%,var(--bg) 60%) fixed,var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 12px 60px}
+.wrap{max-width:860px;margin:0 auto;padding:0 16px}
+.hero h1{font-size:clamp(28px,5vw,44px);margin:.1em 0;letter-spacing:-.01em}
+.kicker{color:var(--gold);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:14px 0 0}
+.steps{list-style:none;display:flex;gap:8px;flex-wrap:wrap;padding:0;margin:14px 0 4px}
+.steps a{display:flex;align-items:center;gap:8px;padding:7px 12px 7px 7px;border:1px solid var(--line);border-radius:999px;color:var(--dim);text-decoration:none;background:#101722;transition:border-color .15s,color .15s}
+.steps a b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1d2735;color:var(--fg);font-size:12px}
+.steps a:hover{border-color:var(--gold);color:var(--fg)}
+.steps a.on{border-color:var(--gold);color:var(--gold)}
+.steps a.on b{background:var(--gold);color:#111}
+.netcard{background:linear-gradient(180deg,#182130,#121926);border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:250px}
+.netcard-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.pill{display:inline-block;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:700;border:1px solid var(--line);color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:var(--ok)}
+.pill.bad{color:var(--bad);border-color:var(--bad)}
+.pill.idle{color:var(--gold);border-color:var(--gold)}
+.netgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin:10px 0 4px}
+.netgrid dt{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.netgrid dd{margin:0;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.card-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-bottom:8px}
+.card-h h2{margin:0;font-size:18px;display:flex;align-items:center;gap:10px}
+.card-h .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--gold);color:#111;font-size:14px}
+.hint{font-size:12px;color:var(--dim)}
+.tiny{font-size:12.5px}
+.out{background:#0d141f;border:1px solid #223145;border-radius:10px;padding:10px 12px;margin-top:8px;overflow-wrap:anywhere}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
+.kv span{color:var(--dim)}
+.good{color:var(--ok)}.err{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid2 .wide{grid-column:1/-1}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.amtrow{display:flex;gap:8px}
+.amtrow input{flex:1;min-width:0}
+textarea{font:inherit;background:#0b1119;color:var(--fg);border:1px solid #2c3a4e;border-radius:8px;padding:8px 10px;min-height:88px;resize:vertical}
+textarea:focus,input:focus{outline:2px solid var(--gold);outline-offset:1px;border-color:var(--gold)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:not(:disabled):hover{filter:brightness(1.08)}
+.ghost{background:transparent!important;color:var(--ice)!important;border:1px solid #2c3a4e!important;font-weight:600!important}
+.confbar{height:8px;border-radius:99px;background:#0d141f;border:1px solid #223145;margin-top:10px;overflow:hidden}
+.confbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .5s}
+.confbar i.done{background:var(--ok)}
+.foot{margin-top:18px;display:flex;gap:14px;flex-wrap:wrap}
+.foot a{color:var(--ice)}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}.netgrid{grid-template-columns:1fr 1fr}}
 .stage-banner{background:#3a2b00;color:var(--gold);text-align:center;padding:6px;font-weight:700;letter-spacing:.04em}
 .top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:end}
 .sub{color:var(--dim);margin:0}.net{display:flex;gap:12px;flex-wrap:wrap;color:var(--dim)}

@@ -638,8 +638,8 @@ async function agtFetch(path) {
   // capabilities-список ноды может быть неполон: отсутствие в списке — не запрет,
   // а повод проверить маршрут напрямую. Честно: в коде ноды репозитория подтверждён
   // только /queue/history (PUBLIC_READS + обработчик); обработчиков /memory/state и
-  // /compute/state в node.mjs нет — фолбэк их опробует, но их 404 означает
-  // «функция не подключена», а не «данные сломаны».
+  // /compute/state в node.mjs нет. Голый 404 ни о чём из этого не говорит сам по себе:
+  // кто отказал (шлюз-allowlist, нода, прокси) — только по телу ответа.
   var gateMiss = !!(availableReads && !availableReads.has(agtBase(path)));
   if (AGTInflight.has(path)) return AGTInflight.get(path);
   var pr = (async function () {
@@ -648,16 +648,15 @@ async function agtFetch(path) {
       var usedSrc = '/api/v1' + path;
       var r = await fetch(usedSrc, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
       if (r.status === 404) {
-        // /api/v1-шлюз знает не все маршруты ноды (точно: /queue/history — есть в
-        // PUBLIC_READS ноды, но может отсутствовать в allowlist шлюза): честный фолбэк
-        // на корневой путь той же ноды (same-origin). Если и он 404 — это признак
-        // «функция не подключена», а не недоступности всего API.
+        // /api/v1-шлюз может знать не все маршруты ноды: честный фолбэк на корневой
+        // путь той же ноды (same-origin). Двойной 404 — нейтрально «маршрут не отвечает»;
+        // вывод «функция не подключена» — только при явном отказе в теле ответа.
         try {
           var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
           if (rTop.ok) { r = rTop; usedSrc = path; }
         } catch (fb) {}
       }
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) { var det = await agtErrDetail(r); throw new Error('HTTP ' + r.status + (det ? ' (' + det + ')' : '')); }
       if (!(r.headers.get('content-type') || '').includes('application/json')) throw new Error('Ozhidalsya-JSON');
       var data = await r.json();
       if (!data || typeof data !== 'object' || data.ok === false || data.error) throw new Error(data && data.error || 'Nekorrektnyi-JSON-otvet');
@@ -712,24 +711,48 @@ async function jget(p) {
   return rec && rec.data ? rec.data : null;
 }
 function rsnap(p) { try { return (window.AGTData && window.AGTData.getSnapshot(p)) || { status: 'unknown', data: null }; } catch (e) { return { status: 'unknown', data: null }; } }
+async function agtErrDetail(r) {
+  // Доказательство who-refused: читаем тело ответа с ошибкой. Подпись
+  // «функция не подключена» — ТОЛЬКО при явном отказе allowlist/маршрута в теле.
+  // Голый HTTP 404 (пустое тело, HTML-страница прокси) — нейтрально: причина
+  // не установлена, с allowlist не объединяем.
+  try {
+    var b = await r.clone().json();
+    if (b && typeof b === 'object') {
+      var code = b.error || b.code || null;
+      if (typeof code === 'string' && code.trim()) return code.trim().slice(0, 80);
+    }
+  } catch (e1) {
+    try {
+      var t = await r.clone().text();
+      t = String(t || '').trim().slice(0, 80);
+      if (t && /allowlist|unknown_route|not_allow/i.test(t)) return t;
+    } catch (e2) {}
+  }
+  return null;
+}
 function agtKindOf(path, msg) {
-  // Четыре разных состояния — четыре разных смысла (см. ТЗ п.3):
-  // unavailable (ответа нет), stale (ответ старый), unknown (ответ есть, возраста нет),
-  // not-connected (маршрута нет: 404/allowlist — функция не подключена).
+  // Разные состояния — разный смысл: unavailable (ответа нет), http-404 (маршрут
+  // не отвечает, причина по ответу не установлена — нейтрально), not-connected
+  // (сервер ЯВНО отклонил маршрут в теле ответа: allowlist/unknown_route),
+  // stale (ответ старый), unknown (ответ есть, возраста нет). Голый 404 и отказ
+  // allowlist без явного тела НЕ объединяются.
   var rec = null;
   try { rec = AGTDataStore.get(path) || null; } catch (e) {}
   if (rec && rec.data && rec.status === 'stale') return 'stale';
   if (rec && rec.data && rec.status === 'unknown') return 'unknown-age';
-  if (/HTTP 404|not_allowlisted|route_not|Cannot GET|NOT_FOUND/i.test(msg || '')) return 'not-connected';
+  if (/not_allow|unknown_route/i.test(msg || '')) return 'not-connected';
+  if (/HTTP 404/.test(msg || '')) return 'http-404';
   return 'unavailable';
 }
 function showApiErrors() {
   if (!apiErrors.size) { hideSiteErr(); return; }
-  var groups = { 'unavailable': [], 'stale': [], 'unknown-age': [], 'not-connected': [] };
+  var groups = { 'unavailable': [], 'http-404': [], 'stale': [], 'unknown-age': [], 'not-connected': [] };
   apiErrors.forEach(function (msg, path) { groups[agtKindOf(path, msg)].push(path + ' (' + msg + ')'); });
   var parts = [];
   if (groups['unavailable'].length) parts.push('API недоступен (ответа нет): ' + groups['unavailable'].join('; '));
-  if (groups['not-connected'].length) parts.push('Функция не подключена (маршрут отсутствует, 404/allowlist): ' + groups['not-connected'].join('; '));
+  if (groups['http-404'].length) parts.push('Маршрут не отвечает (HTTP 404, причина по ответу не установлена): ' + groups['http-404'].join('; '));
+  if (groups['not-connected'].length) parts.push('Функция не подключена (сервер явно отклонил маршрут): ' + groups['not-connected'].join('; '));
   if (groups['stale'].length) parts.push('Данные устарели (показаны последние известные): ' + groups['stale'].join('; '));
   if (groups['unknown-age'].length) parts.push(groups['unknown-age'].map(function (s) {
     var p = s.slice(0, s.indexOf(' ('));

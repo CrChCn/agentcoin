@@ -58,6 +58,8 @@ body.settle .netcard{background:linear-gradient(180deg,rgba(22,29,40,.92),rgba(1
 body.settle .pill.ok{box-shadow:0 0 12px rgba(57,217,138,.45);animation:pulse-ok 2.2s ease-in-out infinite}
 @keyframes pulse-ok{0%,100%{box-shadow:0 0 6px rgba(57,217,138,.3)}50%{box-shadow:0 0 16px rgba(57,217,138,.65)}}
 body.settle .card,body.settle .detail>div{background:linear-gradient(180deg,rgba(22,29,40,.9),rgba(13,17,23,.9));border:1px solid #2a3646;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+body.settle .howlist{margin:8px 0;padding-left:20px;display:grid;gap:6px}
+body.settle .howlist li::marker{color:#d4af37;font-weight:700}
 body.settle .card-h h2{color:#f0d78c}
 body.settle .card-h .n{background:linear-gradient(180deg,#f0d78c,#d4af37);box-shadow:0 0 12px rgba(212,175,55,.5)}
 body.settle .hint{color:#8fa3b8}

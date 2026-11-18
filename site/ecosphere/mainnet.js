@@ -294,6 +294,20 @@ function startPoll() {
 }
 function stopPoll() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
 $('cForm').addEventListener('submit', (e) => { e.preventDefault(); stopPoll(); checkStatus(); });
+if ($('cDemo')) $('cDemo').addEventListener('click', async () => {
+  if (!NET_OK) { $('cOut').textContent = 'отказ: сеть не сверена — дождитесь синхронизации.'; return; }
+  $('cOut').textContent = 'беру настоящий перевод из последнего блока…';
+  try {
+    const r = await jget('/blocks?n=1');
+    const txs = ((r.data.blocks || [])[0] || {}).txs || [];
+    const tx = txs.find((t) => t && t.txid && t.from !== 'COINBASE') || txs[0];
+    if (!tx || !tx.txid) { $('cOut').textContent = 'в последнем блоке переводов нет — попробуйте позже.'; return; }
+    $('cTxid').value = tx.txid;
+    if (tx.to) $('cTo').value = String(tx.to);
+    try { $('cAmt').value = String(txAmountToAtomic(tx.amount)); } catch { $('cAmt').value = ''; }
+    stopPoll(); checkStatus();
+  } catch (err) { $('cOut').textContent = 'не удалось взять пример: ' + String(err.message || err); }
+});
 if ($('cAuto')) $('cAuto').addEventListener('change', () => { if (!$('cAuto').checked) stopPoll(); });
 
 // --- шаги-подсветка при прокрутке ---

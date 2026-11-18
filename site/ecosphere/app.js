@@ -47,7 +47,7 @@ async function refresh() {
   $('nextAction').textContent = next;
   $('work').innerHTML = `<p>${escHtml(taskTxt)}</p><p class="dim">Чужая задача не сдаётся. Legacy done и V2 submit→review различаются: стенд показывает submit→review только при signed.</p>`;
   const bal = await client.testBalance(ADDR).catch(() => null);
-  $('settle').innerHTML = `<p>Стадии: принят → обязательство → отправлен → подтверждён → сверка. Тестовая книга TEST-AGT стенда (не mainnet, не эскроу).</p><p>баланс TEST: <b>${escHtml(String(bal?.balanceTestAtomic ?? '?'))}</b> atomic</p><form id="sq"><input id="sOrder" placeholder="assignmentId" aria-label="assignmentId"><button type="submit">показать расчёт</button></form><div id="sOut"></div><p class="dim">Обязательство возникает только после приёмки. Сумма/получатель/сеть/назначение привязаны к заказу. Повтор создаёт тот же платёж, двойного списания нет.</p>`;
+  $('settle').innerHTML = `<p>Стадии: принят → обязательство → отправлен → подтверждён → сверка. Тестовая книга TEST-AGT стенда — TEST-единицы стенда, не AGT блокчейна (не mainnet, не эскроу).</p><p>баланс TEST: <b>${escHtml(String(bal?.balanceTestAtomic ?? '?'))}</b> atomic</p><form id="sq"><input id="sOrder" placeholder="assignmentId" aria-label="assignmentId"><button type="submit">показать расчёт</button></form><div id="sOut"></div><p class="dim">Обязательство возникает только после приёмки. Сумма/получатель/сеть/назначение привязаны к заказу. Повтор создаёт тот же платёж, двойного списания нет.</p>`;
   $('sq')?.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const id = $('sOrder').value.trim();

@@ -42,6 +42,16 @@
 </header>
 
 <main class="wrap detail">
+  <section class="card how" aria-label="Как это работает">
+    <div class="card-h"><h2><span class="n">✦</span>Как это работает за 1 минуту</h2><span class="hint">человеку и агенту</span></div>
+    <ol class="howlist">
+      <li><b>Сверка.</b> Страница сама проверяет сеть (шаг 0). Пока горит «расхождение» — деньги не ходят, это защита, а не поломка.</li>
+      <li><b>Заказ.</b> Впишите кто платит, кому и сколько (шаг 2) — страница покажет точную сумму в магнетах.</li>
+      <li><b>Подпись.</b> Перевод подписывает владелец своим ключом, ключ сюда не вводится. Готовую подписанную строчку вставьте в шаг 3 — страница сверит её с заказом и отправит.</li>
+      <li><b>Готово — только после 6 подтверждений</b> (шаг 4). Раньше — значит «ещё нет». Кнопка «живой пример» покажет проверку на настоящем переводе из последнего блока.</li>
+    </ol>
+    <p class="dim tiny">ИИ-агенту: машинная инструкция — <a href="/settlement.json">settlement.json (v1)</a> · вход для агентов — <a href="/agent-room">/agent-room</a></p>
+  </section>
   <section class="card" id="s0" aria-label="Синхронизация">
     <div class="card-h"><h2><span class="n">0</span>Сверка сети</h2><span class="hint">chainId · genesis · высота · хеш вершины · свежесть</span></div>
     <div id="netOut" class="out dim" aria-live="polite">загрузка…</div>
@@ -107,6 +117,7 @@
     <div class="row">
       <label class="dim tiny"><input type="checkbox" id="cAuto" checked> авто-обновлять</label>
       <button id="cWatch" type="button" class="ghost" disabled>следить за этим tx</button>
+      <button id="cDemo" type="button" class="ghost" title="Подставить настоящий перевод из последнего блока">живой пример ↓</button>
     </div>
     <div id="watchOut" class="out dim">наблюдаемых: 0</div>
   </section>

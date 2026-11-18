@@ -1,0 +1,73 @@
+{
+  "spec": "settlement-instructions",
+  "version": 1,
+  "network": {
+    "chainId": "AGENTCOIN",
+    "ticker": "AGT",
+    "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+    "confirmationsRequired": 6,
+    "fee": 0,
+    "decimals": 9,
+    "atomicUnit": "магнет (1 AGT = 1000000000 atomic)",
+    "base": "same-origin (эта страница ходит в тот же origin, без API-ключей)"
+  },
+  "forAgents": "Ты — программный агент. Платить может только подписанная владельцем tx: приватный ключ никогда не вводится на странице и не передаётся сайту. Авто-подпись платежа запрещена. Порядок: 1) сверь сеть, 2) узнай баланс, 3) согласуй заказ и сумму, 4) отдай владельцу на подпись ИЛИ прими уже подписанный tx и отправь, 5) дождись глубины 6. 'Оплачено' = пруф + тело блока + совпадение получателя/суммы + глубина 6, всё остальное — 'не оплачено'.",
+  "forHumans": "Это страница прямого перевода AGT от заказчика исполнителю, без посредников и удержания. Деньги идут только из кошелька владельца и только после его подписи. Шаги: 0) страница сама сверяет сеть; 1) посмотрите баланс; 2) впишите заказ и сумму — страница покажет точную сумму в магнетах; 3) вставьте уже подписанный перевод — страница сверит его с заказом и отправит; 4) проверьте статус: 'оплачено' загорается только после 6 подтверждений.",
+  "money": {
+    "rule": "Суммы — только десятичные строки без экспоненты, максимум 9 знаков после запятой. Лишние знаки, экспонента, ноль — отказ без округления.",
+    "examples": { "1.5 AGT": "1500000000 atomic", "0.001 AGT": "1000000 atomic" }
+  },
+  "endpoints": [
+    {
+      "method": "GET", "path": "/info",
+      "why": "chainId, genesisHash, высота",
+      "expect": { "chainId": "AGENTCOIN", "genesisHash": "00026d18...b9188e4e" }
+    },
+    {
+      "method": "GET", "path": "/life",
+      "why": "живая вершина: tipHash, fresh, chainValid, tipAgeSec",
+      "healthy": { "fresh": true, "chainValid": true }
+    },
+    {
+      "method": "GET", "path": "/blocks?n=1",
+      "why": "последний блок целиком (высота, хеш, txs[])",
+      "shape": { "blocks": [{ "height": 48782, "hash": "0022...", "txs": [{ "txid": "f3c0...", "from": "AGT...", "to": "AGT...", "amount": 0.001, "nonce": 1795009497829, "signature": "0b45..." }] }] }
+    },
+    {
+      "method": "GET", "path": "/blocks?from={height}&limit=1",
+      "why": "тело блока на высоте пруфа — оттуда берётся tx для сверки суммы/получателя"
+    },
+    {
+      "method": "POST", "path": "/balance",
+      "body": { "address": "AGT..." },
+      "why": "баланс из живой ноды (float — приближение, не использовать как сумму заказа)"
+    },
+    {
+      "method": "POST", "path": "/tx",
+      "body": { "from": "AGT...", "to": "AGT...", "amount": "1.5 | 0.001 (decimal или number)", "nonce": 1795009497829, "signature": "hex" },
+      "why": "приём подписанного перевода. 201 = принято в mempool, не 'оплачено'",
+      "refuse": "слова privkey/privatekey/mnemonic/seedphrase в поле tx — отказ: сюда только подписанную tx"
+    },
+    {
+      "method": "GET", "path": "/api/v1/txproof/{txid64hex}",
+      "why": "пруф включения: height, blockHash, txIndex, merkleBranch",
+      "paidWhen": "proof.height есть + тело блока содержит tx с тем же to и amount + (tipHeight - height + 1) >= 6"
+    }
+  ],
+  "networkCheck": "info.chainId==='AGENTCOIN' && info.genesisHash===pin && info.blocks===life.blocks && tip.height===life.blocks-1 && life.tipHash===tip.hash && life.fresh===true && life.chainValid===true. Иначе — стоп, отправка заблокирована.",
+  "errors": {
+    "nonJSON": "любой не-JSON ответ — отказ, не повторять вслепую",
+    "lostResponse": "ответ потерян = состояние неизвестно: свериться по txid, НЕ слать другую подпись",
+    "nodeRefuse": "отказ ноды — это отказ платежа; повтор только теми же байтами после сверки"
+  },
+  "example": {
+    "orderId": "order-1",
+    "payer": "AGT3de1add99abb515ecb018227663eecc7d1f07ee0",
+    "to": "AGT3de1add99abb515ecb018227663eecc7d1f07ee0",
+    "amountAGT": "0.001",
+    "amountAtomic": "1000000",
+    "txid": "f3c0a964c0133bf82b12d3269611fa6992163fa22aabbb35fc2a7e92363b2453",
+    "proofHeight": 48782
+  },
+  "links": { "page": "/settlement", "room": "/agent-room", "roomSpec": "/agent-room.json", "showcase": "/ecosphere/" }
+}

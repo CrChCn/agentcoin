@@ -93,3 +93,8 @@
 - Сервер автономен: выключенный домашний ПК НИКАК не влияет на сайт. 404/«давность неизвестна» на главной — смотреть на сервере (нода/Caddy/шлюз /api/v1), а не дома.
 - Диагноз 2026-11-18: баннер «Недоступные данные API» на главной (site/imperial.html) — три причины во фронте: удвоенный префикс /api/v1/api/v1/X, отсутствие memory/compute/queue-history в allowlist /api/v1-шлюза, флаг «unknown» у 200-ответов без метки снимка. Исправлено фронтом в коммите 36c6cc6 (валидация: node --check всех скриптов + логика). Деплой на cx23 — только по SSH (доступа из этой среды нет).
 - Серверная недоделка осталась: allowlist /api/v1 и /capabilities не включают memory/state, compute/state, queue/history (обход — фолбэк фронта на корневые маршруты). Править кодом ноды + согласованный рестарт 3 нод.
+
+## Доступ к cx23 (зафиксировано 2026-11-18, без секретов)
+- SSH: ключ `~/.ssh/agentcoin-deploy` в WSL (пользователь mark), команда `ssh -i ~/.ssh/agentcoin-deploy root@2.31.145.160`. Hetzner-токен: `agentcoin/.tz-deploy/hetzner.token` (в .gitignore, не коммитить; в shell-history светился — при случае почистить `history`).
+- Сайт: `/srv/agentcoin-empire/current` → symlink на `/srv/agentcoin-empire/releases/<hash>/` (активный ab2ccba7 от 18.11). imperial.html на сервере = локальный до фикса (проверено по sha256).
+- API-шлюз: `/opt/agentcoin-job-test/releases/98a26a13.../api/server.mjs` + таблица в `api/policy.mjs` (READ, 61 строка). Сервис: `agentcoin-autonomous-job-test-api.service`. Корневые маршруты (мимо /api/v1) Caddy проксирует прямо в ноду.

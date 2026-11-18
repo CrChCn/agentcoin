@@ -21,7 +21,17 @@
 #   2. одна строка ниже (таблица READ)
 #   3. node --check api/server.mjs api/policy.mjs
 #   4. systemctl restart agentcoin-autonomous-job-test-api.service
-#   5. проверка: 9 URL баннера -> 200, /healthz адаптера, главная без баннера (Ctrl+F5)
+#   5. сверка (allowlist сам по себе НЕ доказывает доступ — нужен фактический 200
+#      И соответствие capabilities; выполнять на сервере):
+#      for p in info life capabilities queue/history memory/state compute/state \
+#        queue/status jobs/state gov/state treasury/state; do
+#        printf '%s ' "/api/v1/$p"; curl -s -o /dev/null -w '%{http_code}\n' \
+#          --max-time 8 "http://127.0.0.1:${AGT_API_PORT:-9336}/api/v1/$p"; done
+#      Все три спорных маршрута обязаны вернуть 200 (а не просто не-404),
+#      плюс /healthz адаптера. Затем сравнить: каждый маршрут из
+#      /api/v1/capabilities должен отвечать 200, и наоборот — расхождение =
+#      capabilities снова врёт, фиксировать отдельным шагом.
+#      После: главная без баннера (Ctrl+F5) + внешний опрос трёх /api/v1-путей.
 # Откат: вернуть бэкап + тот же restart (~1 мин).
 # Цепочные ноды (agentcoin-node.service, майнер) НЕ трогаем. Транзакций mainnet нет.
 --- api/policy.mjs

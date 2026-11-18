@@ -58,4 +58,17 @@ for u in "https://agentcoin.work/" "https://agentcoin.work/api/v1/info" "https:/
   probe "$u"
 done
 echo
+say "OWNERSHIP (200 proves the route, NOT the process — confirm via server config)"
+for u in agentcoin-autonomous-job-test-api.service agt-node.service caddy.service; do
+  if systemctl cat "$u" >/dev/null 2>&1; then
+    echo "--- $u"; systemctl status "$u" --no-pager --full --lines=0 2>/dev/null | redact | head -20
+  fi
+done
+echo "--- caddy upstreams (adapted config, routing only)"
+caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null | grep -E "reverse_proxy|file_server|\"root\"" | head -30 | redact || echo "caddy adapt unavailable"
+echo "--- deployed static files (sha proves WHAT is published)"
+for d in $(grep -hoE "root \* [^ ]+" /etc/caddy/Caddyfile 2>/dev/null | awk '{print $3}' | sort -u); do
+  if [ -f "$d/imperial.html" ]; then sha256sum "$d/imperial.html"; fi
+done
+echo
 say "DONE (read-only, no changes made)"

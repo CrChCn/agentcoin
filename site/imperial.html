@@ -457,9 +457,13 @@ var FRESHNESS_MS = {
   '/memory/state': 120000, '/compute/state': 120000, '/network/nodes': 30000
 };
 // Явные разрешённые прямые пути (ТЗ п.2): фолбэк /api/v1 -> корень ноды разрешён
-// ТОЛЬКО для этих маршрутов. Доказано живым опросом прода 2026-11-18: корень
-// отдаёт 200 с реальными данными, /api/v1 отвечает явным route_not_allowlisted.
-// Общего автоматического фолбэка для любых маршрутов нет.
+// ТОЛЬКО для этих маршрутов И ТОЛЬКО при подтверждённом отказе маршрутизации
+// (явное тело route_not_allowlisted/unknown_route). Timeout, HTTP 500, чужая сеть
+// и повреждённый JSON под фолбэк не попадают: там либо исключение fetch, либо
+// не-404 — другой источник автоматически не выбирается. Source всегда фактический.
+// Доказано живым опросом прода 2026-11-18: корень отдаёт 200 с реальными данными,
+// /api/v1 отвечает явным route_not_allowlisted. Общего автофолбэка для любых
+// маршрутов нет.
 var AGT_DIRECT_PATHS = { '/queue/history': true, '/memory/state': true, '/compute/state': true };
 var AGTDataStore = new Map();
 var AGTInflight = new Map();
@@ -653,10 +657,11 @@ async function agtFetch(path) {
       var usedSrc = '/api/v1' + path;
       var r = await fetch(usedSrc, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
       if (r.status === 404 && AGT_DIRECT_PATHS[agtBase(path)]) {
-        // Только явные пути из AGT_DIRECT_PATHS: фолбэк на корневой путь той же
-        // ноды (same-origin). Двойной 404 — нейтрально «маршрут не отвечает»;
-        // вывод «функция не подключена» — только при явном отказе в теле ответа.
-        try {
+        // Только явные пути И только подтверждённый отказ маршрутизации.
+        // Проверка capabilities (gateMiss) — лишь пометка в тексте ошибки и НИКОГДА
+        // не блокирует разрешённый маршрут: фолбэк решает тело ответа, а не список.
+        var refusal = await agtErrDetail(r);
+        if (refusal && /not_allow|unknown_route/i.test(refusal)) try {
           var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
           if (rTop.ok) { r = rTop; usedSrc = path; }
         } catch (fb) {}

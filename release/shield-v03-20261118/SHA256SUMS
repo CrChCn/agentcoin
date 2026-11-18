@@ -1,0 +1,4 @@
+b7b840049e50dd5434b3065da62a809782f37ef6d9b0eb50ef2d8b0255ffacb4 *web/app/shield/page.jsx
+e371fa1bb3fbd960c062f91682230a3d0855b1f22a6248d5c05783ebdd771bae *caddy/shield-handle.conf
+03880a0c99dd68a1d5ab1eace579a419cce70b9be5e953283ebaebfca7c80dbc *RELEASE.md
+64c7bd5096df669f8e4c577b0372e64b3d68cd1799c3c7bb6cb793fc8a48a555 *ROLLBACK.md

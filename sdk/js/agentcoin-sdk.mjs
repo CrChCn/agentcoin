@@ -347,8 +347,20 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const submitArtifact = (addr, assignmentId, artifact, contentB64) => signedMarket({ addr, action: 'artifact', body: { assignmentId, artifact, content: contentB64 }, endpoint: '/orders/submit-artifact', operationId: `artifact:${assignmentId}:${artifact.artifactId}` });
   const acceptOrder = (addr, assignmentId, verdict) => signedMarket({ addr, action: 'accept', body: { assignmentId, verdict }, endpoint: '/orders/accept', operationId: `accept:${assignmentId}:${bodyDigest({ assignmentId, verdict })}` });
   const getOrder = async (assignmentId, requester) => (await get(`/orders/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  // ---- Этап C: события с курсором + api-monitor ----
+  const getEvents = async ({ cursor = '0', limit = 20, requester = '' } = {}) => {
+    const q = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
+    if (requester) q.set('requester', requester);
+    const r = await get('/events?' + q.toString());
+    return { ...r.data, _status: r.status, at: Date.now() };
+  };
+  const createMonitor = (addr, monitor) => signedMarket({ addr, action: 'monitor', body: { monitor }, endpoint: '/monitors/create', operationId: `monitor:${addr}:${monitor.monitorId || bodyDigest(monitor)}` });
+  const tickMonitor = async (monitorId, nowMs) => (await post('/monitors/tick', { monitorId, nowMs: nowMs || Date.now() })).data;
+  const monitorHistory = async (monitorId, requester) => (await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  const pauseMonitor = (addr, monitorId, paused) => signedMarket({ addr, action: 'mpause', body: { monitorId, paused: !!paused }, endpoint: '/monitors/pause', operationId: `mpause:${monitorId}:${paused ? '1' : '0'}:${addr}` });
+  const cancelMonitor = (addr, monitorId) => signedMarket({ addr, action: 'mcancel', body: { monitorId }, endpoint: '/monitors/cancel', operationId: `mcancel:${monitorId}:${addr}` });
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

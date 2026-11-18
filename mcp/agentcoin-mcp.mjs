@@ -21,6 +21,8 @@ const TOOLS = [
   { name: 'orders_create', description: 'MUTATING (destructive): создать заказ (идемпотентный)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, offerId: { type: 'string' }, input: { type: 'object' }, idempotencyKey: { type: 'string' } }, required: ['address', 'offerId'] } },
   { name: 'orders_submit', description: 'MUTATING (destructive): сдать артефакт результата', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' }, artifact: { type: 'object' }, contentB64: { type: 'string' } }, required: ['address', 'assignmentId', 'artifact', 'contentB64'] } },
   { name: 'orders_accept', description: 'MUTATING (destructive): принять результат заказа', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' }, verdict: { type: 'string' } }, required: ['address', 'assignmentId'] } },
+  { name: 'events_read', description: 'READ-ONLY: события с курсором (cursor/limit)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'number' } } } },
+  { name: 'monitors_history', description: 'READ-ONLY: история запусков api-monitor', inputSchema: { type: 'object', properties: { address: { type: 'string' }, monitorId: { type: 'string' } }, required: ['address', 'monitorId'] } },
 ];
 function client(addr) {
   const a = addr || ADDRESS;
@@ -37,6 +39,8 @@ async function call(name, args = {}) {
   if (name === 'orders_create') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.createOrder(addr, String(args.offerId), args.input || {}, String(args.idempotencyKey || '')); }
   if (name === 'orders_submit') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.submitArtifact(addr, String(args.assignmentId), args.artifact, String(args.contentB64)); }
   if (name === 'orders_accept') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.acceptOrder(addr, String(args.assignmentId), String(args.verdict || 'accepted')); }
+  if (name === 'events_read') return await c.getEvents({ cursor: String(args.cursor || '0'), limit: Number(args.limit || 20), requester: addr });
+  if (name === 'monitors_history') return await c.monitorHistory(String(args.monitorId), addr);
   if (name === 'queue_join') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.join(addr, String(args.handle || '')); }
   if (name === 'jobs_claim') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.claim(addr); }
   if (name === 'jobs_submit') {

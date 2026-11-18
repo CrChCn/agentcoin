@@ -110,10 +110,21 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
     if (r.status === 200) return { ok: true, result: r.data };
     return { ok: false, status: r.status, error: r.data?.error || action + '_failed', detail: r.data };
   }
+  async function getEvents({ cursor = '0', limit = 20, requester = '' } = {}) {
+    const q = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
+    if (requester) q.set('requester', requester);
+    const r = await get('/events?' + q.toString());
+    return { ...r.data, _status: r.status, at: Date.now() };
+  }
+  async function monitorHistory(monitorId, requester) {
+    const r = await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
+    return { ...r.data, _status: r.status, at: Date.now() };
+  }
   const publishOffer = (addr, offer, extra) => mutate({ action: 'publish', endpoint: '/catalog/publish', body: { offer }, ...(extra || {}) });
   const createOrder = (addr, offerId, input, idempotencyKey, offerVersion, extra) => mutate({ action: 'order', endpoint: '/orders/create', body: { offerId, offerVersion, input, idempotencyKey }, ...(extra || {}) });
   const submitArtifact = (addr, assignmentId, artifact, contentB64, extra) => mutate({ action: 'artifact', endpoint: '/orders/submit-artifact', body: { assignmentId, artifact, content: contentB64 }, ...(extra || {}) });
   const acceptOrder = (addr, assignmentId, verdict, extra) => mutate({ action: 'accept', endpoint: '/orders/accept', body: { assignmentId, verdict }, ...(extra || {}) });
 
-  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, mutate, publishOffer, createOrder, submitArtifact, acceptOrder };
+  const createMonitor = (monitor, extra) => mutate({ action: 'monitor', endpoint: '/monitors/create', body: { monitor }, ...(extra || {}) });
+  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, getEvents, monitorHistory, mutate, publishOffer, createOrder, submitArtifact, acceptOrder, createMonitor };
 }

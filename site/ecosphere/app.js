@@ -25,6 +25,8 @@ async function boot() {
   $('refresh').addEventListener('click', refresh);
   $('q').addEventListener('submit', (e) => { e.preventDefault(); search(); });
   $('mkOrder').addEventListener('submit', onCreate);
+  $('evNext')?.addEventListener('click', loadEvents);
+  $('evReload')?.addEventListener('click', () => { evCursor = '0'; evSeen.clear(); loadEvents(true); });
 }
 async function refresh() {
   ADDR = $('addr').value.trim();
@@ -47,7 +49,7 @@ async function refresh() {
   $('settle').innerHTML = `<p>Результат принят ≠ оплата подтверждена. Стадии: принят → обязательство → отправлен → подтверждён → сверка.</p><p class="dim">Для заказов api-check-v1: «Результат принят. Расчёт в AGT для этого типа заказа пока не подключён.» Локальные счётчики выплатой не считаются.</p>`;
   logFeed(`обновлено состояние ${escHtml(shortAddr(ADDR))}`, 'источник /queue/status · подтверждение: http 200');
   drawSphere([{ k: 'agent', label: ADDR }, ...(s.queue?.waiting || []).slice(0, 6).map((a) => ({ k: 'queue', label: a }))]);
-  search();
+  search(); loadEvents(true);
 }
 async function search() {
   const r = await client.searchOffers({ skill: $('qSkill').value.trim() || undefined, maxPriceAtomic: $('qMax').value ? Number($('qMax').value) : undefined, format: $('qFmt').value.trim() || undefined });
@@ -62,6 +64,18 @@ async function onCreate(e) {
   const r = await client.createOrder(ADDR, $('oOffer').value.trim(), (() => { try { return JSON.parse($('oInput').value || '{}'); } catch { return {}; } })(), $('oIdem').value.trim() || ('ui-' + Date.now()), undefined, { expectedGenesis: EXPECTED_GENESIS });
   $('orderRes').innerHTML = r.ok ? `<p>заказ создан: ${escHtml(r.result.assignment.assignmentId)} (приёмка ≠ оплата)</p>` : `<p>отказ: ${escHtml(r.error || '')} — ${escHtml(r.hint || '')}</p>`;
   logFeed(r.ok ? `заказ ${escHtml(r.result.assignment.assignmentId)} создан` : `заказ отклонён: ${escHtml(r.error || '')}`, 'источник /orders/create');
+}
+let evCursor = '0'; const evSeen = new Set();
+async function loadEvents(reset) {
+  const box = $('events'); if (!box) return;
+  const r = await client.getEvents({ cursor: reset ? '0' : evCursor, limit: 15, requester: ADDR });
+  if (r._status === 410) { box.innerHTML = '<p>Курсор истёк — нужен новый снимок. <button id="evFix" type="button">сбросить курсор</button></p>'; $('evFix')?.addEventListener('click', () => { evCursor = '0'; evSeen.clear(); loadEvents(true); }); return; }
+  if (r._status !== 200) { box.innerHTML = '<p class="dim">Лента недоступна (http ' + escHtml(String(r._status)) + '). Последние данные помечены устаревшими.</p>'; return; }
+  evCursor = r.nextCursor;
+  const html = (r.events || []).filter((e) => !evSeen.has(e.eventId) ? (evSeen.add(e.eventId), true) : false).map((e) => `<div class="card"><b>${escHtml(e.eventType)}</b> ${escHtml(e.entityId)} v${escHtml(e.entityVersion)}<br><span class="dim">occurred ${new Date(e.occurredAt).toLocaleTimeString()} · observed ${new Date(e.observedAt).toLocaleTimeString()} · ${escHtml(e.source)}/${escHtml(e.network)} · ${escHtml(e.visibility)}</span></div>`).join('');
+  box.innerHTML = (reset ? '' : box.innerHTML) + (html || '<p class="dim">новых событий нет.</p>') + `<p class="dim">курсор: ${escHtml(evCursor)} · <button id="evNext" type="button">далее</button> <button id="evReload" type="button">новый снимок</button></p>`;
+  $('evNext')?.addEventListener('click', () => loadEvents(false));
+  $('evReload')?.addEventListener('click', () => { evCursor = '0'; evSeen.clear(); loadEvents(true); });
 }
 function drawSphere(items) {
   const cv = $('sphere'), ctx = cv.getContext('2d');

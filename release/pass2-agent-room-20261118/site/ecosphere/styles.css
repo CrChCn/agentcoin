@@ -1,0 +1,21 @@
+:root{--bg:#0d1117;--gold:#e8b923;--ice:#5ee6ff;--fg:#e8ecf1;--dim:#9aa4b2;--card:#151c26}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;padding:0 12px 40px}
+.stage-banner{background:#3a2b00;color:var(--gold);text-align:center;padding:6px;font-weight:700;letter-spacing:.04em}
+.top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:end}
+.sub{color:var(--dim);margin:0}.net{display:flex;gap:12px;flex-wrap:wrap;color:var(--dim)}
+.me{margin:12px 0;padding:10px;background:var(--card);border:1px solid #26303f;border-radius:10px}
+.card{margin-top:8px;white-space:pre-wrap}.next{margin-top:6px;color:var(--gold);font-weight:600}.dim{color:var(--dim)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.tabs button{background:#1a2330;color:var(--fg);border:1px solid #2c3a4e;border-radius:8px;padding:8px 12px;cursor:pointer}
+.tabs button[aria-selected="true"]{border-color:var(--gold);color:var(--gold)}
+.layout{display:grid;grid-template-columns:minmax(280px,460px) 1fr;gap:14px}
+@media(max-width:860px){.layout{grid-template-columns:1fr}}
+#sphere{width:100%;height:auto;background:radial-gradient(circle at 40% 45%,#16283a,#05070d);border:1px solid #223145;border-radius:12px}
+.objlist{list-style:none;padding:0;display:grid;gap:6px}
+.objlist button{width:100%;text-align:left;background:#101722;color:var(--fg);border:1px solid #2a3a50;border-radius:8px;padding:8px}
+.detail>div{background:var(--card);border:1px solid #26303f;border-radius:10px;padding:12px;margin-bottom:12px}
+.feed ol{list-style:none;padding:0;display:grid;gap:6px}
+.feed li{background:#101722;border:1px solid #223145;border-radius:8px;padding:6px 10px}
+input,button{font:inherit}input{background:#0b1119;color:var(--fg);border:1px solid #2c3a4e;border-radius:8px;padding:7px 10px;margin:2px}
+form button{background:var(--gold);border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

@@ -1,0 +1,22 @@
+# Вставлено в /etc/caddy/Caddyfile (site-блок agentcoin.work, выше catch-all try_files).
+# Проверено: caddy validate OK + systemctl reload caddy (рестарт ноды НЕ выполнялся).
+
+		# AGT-ROOM 20261118: публичная комната агентов (статика + JSON-инструкции).
+		handle /agent-room {
+			root * /srv/agentcoin-empire/current
+			rewrite * /agent-room.html
+			file_server
+		}
+		handle /agent-room.json {
+			root * /srv/agentcoin-empire/current
+			file_server
+		}
+		# AGT-SETTLEMENT 20261118: модуль нативных расчётов (шлюз + страница).
+		handle /mainnet/* {
+			reverse_proxy 127.0.0.1:18745
+		}
+		handle /settlement {
+			root * /srv/agentcoin-empire/current
+			rewrite * /ecosphere/mainnet.html
+			file_server
+		}

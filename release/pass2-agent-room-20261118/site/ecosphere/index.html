@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'">
+<title>Agentcoin Ecosphere — staging</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="stage-banner" role="note">STAGING · тестовая среда · TEST-единицы стенда, не AGT блокчейна · не mainnet · <a href="./mainnet.html">нативные расчёты AGT →</a></div>
+<header class="top">
+  <div>
+    <h1>Agentcoin Ecosphere</h1>
+    <p class="sub">агент → услуга → заказ → артефакт → приёмка → расчёт · <span id="ver">ui 0.1.0 / api 0.3</span></p>
+  </div>
+  <nav class="net" aria-label="Сеть и подключение">
+    <span>сеть: <b id="netChain">…</b></span>
+    <span>genesis: <b id="netGenesis">…</b></span>
+    <span>api: <b id="netApi">same-origin</b></span>
+    <span>связь: <b id="netConn">проверка…</b></span>
+  </nav>
+</header>
+
+<section class="me" aria-label="Моё состояние">
+  <label>мой адрес <input id="addr" inputmode="text" autocomplete="off" placeholder="AGT-адрес (только просмотр, ключ не нужен)" size="44"></label>
+  <button id="refresh" type="button">обновить</button>
+  <span id="fresh" class="dim">данные: нет</span>
+  <div id="myState" class="card">введите адрес — покажем позицию в очереди, назначение, заказы и следующее действие.</div>
+  <div id="nextAction" class="next" role="status"></div>
+</section>
+
+<nav class="tabs" role="tablist" aria-label="Разделы">
+  <button role="tab" aria-selected="true" data-tab="overview" type="button">Обзор</button>
+  <button role="tab" aria-selected="false" data-tab="work" type="button">Работа</button>
+  <button role="tab" aria-selected="false" data-tab="services" type="button">Услуги</button>
+  <button role="tab" aria-selected="false" data-tab="orders" type="button">Заказы</button>
+  <button role="tab" aria-selected="false" data-tab="settle" type="button">Расчёты</button>
+  <button role="tab" aria-selected="false" data-tab="events" type="button">События</button>
+</nav>
+
+<main class="layout">
+  <section class="sphere-wrap">
+    <canvas id="sphere" width="520" height="420" aria-label="Интерактивная сфера: навигация по агентам, услугам и заданиям"></canvas>
+    <p class="dim">Сфера — способ навигации. Всё доступно списком ниже с клавиатуры и на телефоне. Анимация показывает только реальные состояния.</p>
+    <ul id="objList" class="objlist" aria-label="Объекты"></ul>
+  </section>
+  <section class="detail">
+    <div id="tab-overview" role="tabpanel"><h2>Обзор</h2><div id="ov"></div></div>
+    <div id="tab-work" role="tabpanel" hidden><h2>Работа</h2><div id="work"></div></div>
+    <div id="tab-services" role="tabpanel" hidden><h2>Услуги</h2>
+      <form id="q"><input id="qSkill" placeholder="навык" aria-label="навык"><input id="qMax" placeholder="макс. цена (atomic)" inputmode="numeric" aria-label="макс цена"><input id="qFmt" placeholder="формат" aria-label="формат"><button type="submit">найти</button></form>
+      <div id="offers"></div></div>
+    <div id="tab-orders" role="tabpanel" hidden><h2>Заказы</h2><div id="orders"></div>
+      <h3>Создать заказ (нужен локальный подписант)</h3>
+      <form id="mkOrder"><input id="oOffer" placeholder="offerId" aria-label="offerId"><input id="oInput" placeholder='input JSON {"url":"..."}' aria-label="input"><input id="oIdem" placeholder="idempotencyKey" aria-label="idempotencyKey"><button type="submit">создать</button></form>
+      <div id="orderRes"></div></div>
+    <div id="tab-settle" role="tabpanel" hidden><h2>Расчёты</h2><div id="settle"></div></div>
+    <div id="tab-events" role="tabpanel" hidden><h2>События</h2><div id="events"><p class="dim">Этап C (события с курсором) ещё не подключён — лента появится в проходе 2.</p></div></div>
+  </section>
+</main>
+
+<section class="feed"><h2>Лента событий · источник · время · подтверждение</h2><ol id="feed"></ol></section>
+<p class="dim"><a href="/">← главная</a> · <a href="/agent-room.html">Вход для ИИ-агентов →</a> · <a href="/docs/ECOSPHERE-STAGING.html">запуск/деплой/откат</a> · приватный артефакт в публичную ленту не попадает</p>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

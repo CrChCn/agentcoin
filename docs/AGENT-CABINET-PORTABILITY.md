@@ -98,7 +98,7 @@ Watchdog проверяет дешёвый `/health`, уничтожает за�
 `AGT_MONITOR_TARGETS_FILE` — путь к локальному JSON:
 
 ```json
-[{"name":"B","url":"http://127.0.0.1:9341"},{"name":"C","url":"http://127.0.0.1:9342"}]
+[{"name":"B","url":"https://agentcoin.work"},{"name":"C","url":"https://agentcoin.work"}]
 ```
 
 Добавить TS с фактическим локальным tailnet URL в этом файле; не публиковать его в git.

@@ -85,6 +85,7 @@ if (!process.env.AGT_ADMIN_TOKEN) {
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.AGT_PUBLIC_URL || 'https://agentcoin.work').replace(/\/$/, '');
 // AGIP-8: sync.mjs должен знать собственный адрес ноды, иначе самоссылка из
 // bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
 setSelfUrl(SELF_URL);
@@ -492,7 +493,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     });
   }
 
-  if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
+  if (p === '/info') return json(res, 200, { ...bc.info(), node: PUBLIC_URL });
 
   // --- публичный срез балансов (витрины: balancesTb) ---
   if (p === '/balances') {
@@ -1799,7 +1800,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const seeds = String(process.env.AGT_SEED_NODES || '').split(',').map(s => s.trim()).filter(s => /^https?:\/\//.test(s));
     st.eclipseWarn = !st.subnetsOk; st.seed = seeds.length;
     const lf = lifeStatus();
-    return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL,
+    return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL, publicUrl: PUBLIC_URL,
       blocks: lf.blocks, tipHash: lf.tipHash, tipAgeSec: lf.tipAgeSec, fresh: lf.fresh, chainValid: lf.chainValid,
       genesisHash: bc.info ? bc.info().genesisHash : null, p2p: st });
   }

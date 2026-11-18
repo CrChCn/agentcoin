@@ -37,7 +37,7 @@ const WALLET_FILE = path.join(AGTX, 'holder-wallet.json');
 const MARKER_FILE = path.join(AGTX, 'passport.json'); // запечатанный паспорт
 const NODE_LOG = path.join(AGTX, 'node.log');
 const LOGF = path.join(AGTX, 'agtx.log');
-const ANCHORS = (process.env.AGTX_ANCHORS || 'http://127.0.0.1:9335,http://127.0.0.1:9341').split(',').map(s => s.trim()).filter(Boolean);
+const ANCHORS = (process.env.AGTX_ANCHORS || 'https://agentcoin.work').split(',').map(s => s.trim()).filter(Boolean);
 const PORT_HINTS = process.env.AGTX_PORT_HINTS ? process.env.AGTX_PORT_HINTS.split(',').map(Number) : [9335, 9341, 9337, 9343];
 
 fs.mkdirSync(AGTX, { recursive: true });

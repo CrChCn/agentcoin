@@ -55,7 +55,7 @@ function withJournalLock(journalFile, fn, timeoutMs = 5000) {
 
 export function makeClient({ node, address, walletFile, journalFile, allowLegacyWrite = false, timeoutMs = 15000, fetchImpl } = {}) {
   const doFetch = fetchImpl || fetch;
-  const base = String(node || process.env.AGENTCOIN_NODE || 'http://127.0.0.1:9333').replace(/\/$/, '');
+  const base = String(node || process.env.AGENTCOIN_NODE || 'https://agentcoin.work').replace(/\/$/, '');
   const jFile = journalFile || process.env.AGENTCOIN_JOURNAL || path.join(process.cwd(), '.agentcoin-sdk-journal.json');
   const legacyOptIn = allowLegacyWrite || process.env.AGENTCOIN_ALLOW_LEGACY_WRITE === '1';
   let capCache = null;
@@ -355,23 +355,65 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const createOrder = (addr, offerId, input, idempotencyKey, offerVersion) => signedMarket({ addr, action: 'order', body: { offerId, offerVersion, input, idempotencyKey }, endpoint: '/orders/create', operationId: `order:${addr}:${offerId}:${idempotencyKey || bodyDigest({ offerId, input })}` });
   const submitArtifact = (addr, assignmentId, artifact, contentB64) => signedMarket({ addr, action: 'artifact', body: { assignmentId, artifact, content: contentB64 }, endpoint: '/orders/submit-artifact', operationId: `artifact:${assignmentId}:${artifact.artifactId}` });
   const acceptOrder = (addr, assignmentId, verdict) => signedMarket({ addr, action: 'accept', body: { assignmentId, verdict }, endpoint: '/orders/accept', operationId: `accept:${assignmentId}:${bodyDigest({ assignmentId, verdict })}` });
-  const getOrder = async (assignmentId, requester) => (await get(`/orders/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  async function readProof(requester, resource, id) {
+    if (!requester || !walletFile) return '';
+    try {
+      const signer = readSigner();
+      if (String(signer.w.address || '').toLowerCase() !== String(requester).toLowerCase()) {
+        try {
+          const { addressFromPub } = await import('../../core.mjs');
+          const pub = signer.w.public_key_pem || signer.w.pub || '';
+          if (pub && addressFromPub(pub).toLowerCase() !== String(requester).toLowerCase()) return '';
+        } catch { return ''; }
+      }
+      const { signAction } = await import('../../queue-auth.mjs');
+      const nonce = String(Date.now()) + '-' + crypto.randomBytes(4).toString('hex');
+      const expiry = Date.now() + 5 * 60_000;
+      const body = { resource: String(resource), id: String(id || ''), requester: String(requester) };
+      const sig = signAction(signer.pem, { action: 'read', body, nonce, expiry });
+      const q = new URLSearchParams({ requester: String(requester), fromPub: signer.w.public_key_pem || signer.w.pub || '', signature: sig.signature, nonce, expiry: String(expiry) });
+      return '?' + q.toString();
+    } catch { return ''; }
+  }
+  const getOrder = async (assignmentId, requester) => {
+    let suffix = '';
+    if (requester) {
+      const proof = await readProof(requester, 'order', assignmentId);
+      suffix = proof || ('?requester=' + encodeURIComponent(requester));
+    }
+    return (await get(`/orders/${assignmentId}${suffix}`)).data;
+  };
   // ---- Этап C: события с курсором + api-monitor ----
   const getEvents = async ({ cursor = '0', limit = 20, requester = '' } = {}) => {
     const q = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
-    if (requester) q.set('requester', requester);
+    if (requester) {
+      const proof = await readProof(requester, 'events', String(cursor));
+      if (proof) {
+        const r = await get('/events?' + q.toString() + '&' + proof.slice(1));
+        return { ...r.data, _status: r.status, at: Date.now() };
+      }
+      q.set('requester', requester);
+    }
     const r = await get('/events?' + q.toString());
     return { ...r.data, _status: r.status, at: Date.now() };
   };
   const createMonitor = (addr, monitor) => signedMarket({ addr, action: 'monitor', body: { monitor }, endpoint: '/monitors/create', operationId: `monitor:${addr}:${monitor.monitorId || bodyDigest(monitor)}` });
   const tickMonitor = async (monitorId, nowMs) => (await post('/monitors/tick', { monitorId, nowMs: nowMs || Date.now() })).data;
-  const monitorHistory = async (monitorId, requester) => (await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  const monitorHistory = async (monitorId, requester) => {
+    let suffix = '';
+    if (requester) suffix = (await readProof(requester, 'monitor', monitorId)) || ('?requester=' + encodeURIComponent(requester));
+    return (await get(`/monitors/${encodeURIComponent(monitorId)}/history${suffix}`)).data;
+  };
   const pauseMonitor = (addr, monitorId, paused) => signedMarket({ addr, action: 'mpause', body: { monitorId, paused: !!paused }, endpoint: '/monitors/pause', operationId: `mpause:${monitorId}:${paused ? '1' : '0'}:${addr}` });
   const cancelMonitor = (addr, monitorId) => signedMarket({ addr, action: 'mcancel', body: { monitorId }, endpoint: '/monitors/cancel', operationId: `mcancel:${monitorId}:${addr}` });
   // ---- Проход 3: тестовый расчёт TEST-AGT (стенд; не эскроу, не mainnet) ----
   const faucet = async (addr, amountAtomic) => (await post('/settlements/faucet', { address: addr, amountAtomic })).data;
   const testBalance = async (addr) => (await get(`/settlements/balances?address=${encodeURIComponent(addr)}`)).data;
-  const getSettlement = async (assignmentId, requester) => (await get(`/settlements/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  const getSettlement = async (assignmentId, requester) => {
+    let suffix = '';
+    if (requester) suffix = (await readProof(requester, 'settlement', assignmentId)) || ('?requester=' + encodeURIComponent(requester));
+    return (await get(`/settlements/${assignmentId}${suffix}`)).data;
+  };
   const createSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'settle', body: { assignmentId }, endpoint: '/settlements/create', operationId: `settle:${assignmentId}:${addr}` });
   const sendSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'ssend', body: { assignmentId }, endpoint: '/settlements/send', operationId: `ssend:${assignmentId}:${addr}` });
   const confirmSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'sconfirm', body: { assignmentId }, endpoint: '/settlements/confirm', operationId: `sconfirm:${assignmentId}:${addr}` });
@@ -381,7 +423,10 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const opsMetrics = async () => (await get('/ops/metrics')).data;
   const complain = (addr, targetType, targetId, reason) => signedMarket({ addr, action: 'complain', body: { targetType, targetId, reason }, endpoint: '/moderation/complaint', operationId: `complain:${addr}:${targetId}:${bodyDigest({ targetType, targetId, reason })}` });
   const decide = (addr, complaintId, decision, reason) => signedMarket({ addr, action: 'mdecide', body: { complaintId, decision, reason }, endpoint: '/moderation/decide', operationId: `mdecide:${complaintId}:${decision}` });
-  const modHistory = async (addr) => (await get(`/moderation/history?requester=${encodeURIComponent(addr)}`)).data;
+  const modHistory = async (addr) => {
+    const suffix = (await readProof(addr, 'moderation', 'history')) || ('?requester=' + encodeURIComponent(addr));
+    return (await get(`/moderation/history${suffix}`)).data;
+  };
 
   return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }

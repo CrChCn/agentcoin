@@ -1,5 +1,5 @@
 {
-  "node": "http://127.0.0.1:9333",
+  "node": "https://agentcoin.work",
   "address": "AGTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "wallet": "./wallet.json",
   "journal": "./.agentcoin-sdk-journal.json",

@@ -24,15 +24,13 @@ https://<domain>[:443]   # для публичных пиров через TLS (
 ### 1) ENV (одна строка, через запятую)
 
 ```bash
-AGT_SEED_NODES=http://127.0.0.1:9335,http://127.0.0.1:9341,https://agentcoin.work
+AGT_SEED_NODES=https://agentcoin.work
 ```
 
 ### 2) Файл `seed-nodes.json` (рядом с data-каталогом ноды)
 
 ```json
 [
-  "http://127.0.0.1:9335",
-  "http://127.0.0.1:9341",
   "https://agentcoin.work"
 ]
 ```
@@ -40,7 +38,7 @@ AGT_SEED_NODES=http://127.0.0.1:9335,http://127.0.0.1:9341,https://agentcoin.wor
 ### 3) Как проверить, что нода приняла seeds
 
 ```bash
-curl -s http://127.0.0.1:9335/ws/status | node -e \
+curl -s https://agentcoin.work/ws/status | node -e \
   "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log('seed:',j.p2p.seed)})"
 # ожидаем: seed = количество чистых URL из env+файла, которые также появились в peers.json
 ```

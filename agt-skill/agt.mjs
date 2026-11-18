@@ -13,7 +13,7 @@
      - gateway  — работа через шлюзы (route/list)
 
    Использование:
-     node agt.mjs connect http://127.0.0.1:9335
+     node agt.mjs connect https://agentcoin.work
      node agt.mjs create <profile-path>  # JSON stdin: password, label?
      node agt.mjs balance <address>
      node agt.mjs send <fromAddress> <toHandle|toAddress> <amount> [memo]
@@ -53,7 +53,7 @@ const COMMANDS = ['connect', 'create', 'balance', 'send', 'mine', 'pool', 'histo
 function ensureDir() { fs.mkdirSync(STATE_DIR, { recursive: true }); }
 function loadState() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { wallets: {} }; } }
 function saveState(s) { ensureDir(); fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2)); }
-function loadNode() { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')).base; } catch { return 'http://127.0.0.1:9335'; } }
+function loadNode() { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')).base; } catch { return 'https://agentcoin.work'; } }
 function logLedger(entry) {
   ensureDir();
   fs.appendFileSync(LEDGER_FILE, JSON.stringify({ ...entry, at: new Date().toISOString() }) + '\n');
@@ -149,7 +149,7 @@ async function main() {
 
   if (cmd === 'connect') {
     ensureDir();
-    const base = args[0] || 'http://127.0.0.1:9335';
+    const base = args[0] || 'https://agentcoin.work';
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({ base, boundAt: new Date().toISOString() }, null, 2));
     const info = await api('GET', '/info');
     console.log('connected:', base, '| chain:', info.body.chainId, '| blocks:', info.body.blocks);

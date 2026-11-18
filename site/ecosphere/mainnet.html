@@ -59,7 +59,7 @@
 
   <section class="card" id="s1" aria-label="Баланс">
     <div class="card-h"><h2><span class="n">1</span>Баланс из живой ноды</h2><span class="hint">POST /balance · float ноды — приближение</span></div>
-    <form id="bForm" novalidate onsubmit="return false;" class="row">
+    <form id="bForm" novalidate class="row">
       <input id="bAddr" size="44" placeholder="AGT-адрес" aria-label="адрес" autocomplete="off" spellcheck="false">
       <button id="bGo" type="submit" disabled>показать</button>
       <button id="bCopy" type="button" class="ghost" title="Скопировать адрес">⧉</button>
@@ -70,7 +70,7 @@
   <section class="card" id="s2" aria-label="Предпросмотр">
     <div class="card-h"><h2><span class="n">2</span>Предпросмотр до подписи</h2><span class="hint">заказ · получатель · сумма · комиссия 0</span></div>
     <p class="dim tiny">Ключ в браузер не вводится и сайту не передаётся. Подпись — локально у владельца.</p>
-    <form id="pForm" novalidate onsubmit="return false;" class="grid2">
+    <form id="pForm" novalidate class="grid2">
       <input id="pOrder" placeholder="orderId" aria-label="orderId" autocomplete="off">
       <input id="pPayer" placeholder="плательщик (заказчик)" size="44" aria-label="плательщик" autocomplete="off" spellcheck="false">
       <input id="pTo" placeholder="получатель (исполнитель)" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
@@ -86,7 +86,7 @@
   <section class="card" id="s3" aria-label="Отправка">
     <div class="card-h"><h2><span class="n">3</span>Отправка подписанного перевода</h2><span class="hint">сверка с заказом → POST /tx</span></div>
     <p class="dim tiny">Владелец подписывает локально и вставляет сюда уже подписанный tx. Страница сверяет отправителя / получателя / сумму / сеть с заказом и только потом шлёт в приёмник ноды. Первый перевод — только из разрешённого кошелька на утверждённую сумму.</p>
-    <form id="sForm" novalidate onsubmit="return false;" class="grid2">
+    <form id="sForm" novalidate class="grid2">
       <input id="sOrder" placeholder="orderId" aria-label="orderId" autocomplete="off">
       <input id="sPayer" placeholder="плательщик" size="44" aria-label="плательщик" autocomplete="off" spellcheck="false">
       <input id="sTo" placeholder="получатель" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
@@ -104,7 +104,7 @@
   <section class="card" id="s4" aria-label="Статус">
     <div class="card-h"><h2><span class="n">4</span>Статус оплаты по цепи</h2><span class="hint">«Оплачено» — пруф + тело + глубина 6</span></div>
     <p class="dim tiny">Потеря ответа — сверка, не повтор вслепую. Авто-обновление каждые 15&nbsp;с до глубины 6.</p>
-    <form id="cForm" novalidate onsubmit="return false;" class="grid2">
+    <form id="cForm" novalidate class="grid2">
       <input id="cTxid" placeholder="txid (64 hex)" size="68" aria-label="txid" autocomplete="off" spellcheck="false" class="wide">
       <input id="cTo" placeholder="получатель" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
       <div class="amtrow">

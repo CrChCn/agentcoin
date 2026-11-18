@@ -1,0 +1,8 @@
+{
+  "_note": "Политику задаёт владелец кошелька. Автономные платежи — только внутри этих лимитов; всё выше — с ручным подтверждением владельца.",
+  "maxPerPaymentAtomic": "1000000000",
+  "maxPerDayAtomic": "2000000000",
+  "autonomous": true,
+  "allowedRecipients": null,
+  "requireManualApproveAboveAtomic": "500000000"
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Нативные расчёты AGT — Ecosphere staging</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="stage-banner" role="note">STAGING · нативный AGT основной сети · TEST-книга стенда — не публичный платёжный путь (только изолированные тесты)</div>
+<header class="top">
+  <div>
+    <h1>Нативные расчёты AGT</h1>
+    <p class="sub">прямой перевод заказчик → исполнитель · без удержания · слово «эскроу» не используется</p>
+  </div>
+  <nav class="net" aria-label="Сеть">
+    <span>сеть: <b id="mChain">…</b></span>
+    <span>genesis: <b id="mGenesis">…</b></span>
+    <span>блоков: <b id="mBlocks">…</b></span>
+  </nav>
+</header>
+<main class="detail" style="max-width:760px;margin:0 auto;padding:0 16px 40px">
+  <section class="card" aria-label="Баланс">
+    <h2>1 · Баланс из основной сети</h2>
+    <p class="dim">Чтение с проверкой chainId и genesis. Суммы — целыми атомарными единицами.</p>
+    <form id="bForm"><input id="bAddr" size="44" placeholder="AGT-адрес" aria-label="адрес"><button type="submit">показать</button></form>
+    <div id="bOut" class="dim">—</div>
+  </section>
+  <section class="card" aria-label="Предпросмотр">
+    <h2>2 · Предпросмотр до подписи</h2>
+    <p class="dim">Перед подписью показываем заказ, получателя, сумму и комиссию. Ключ сайту не передаётся.</p>
+    <form id="pForm">
+      <input id="pOrder" placeholder="orderId" aria-label="orderId">
+      <input id="pPayer" placeholder="плательщик (заказчик)" size="44" aria-label="плательщик">
+      <input id="pTo" placeholder="получатель (исполнитель)" size="44" aria-label="получатель">
+      <input id="pAmt" placeholder="сумма AGT (напр. 1.5)" aria-label="сумма">
+      <button type="submit">показать</button>
+    </form>
+    <div id="pOut" class="dim">—</div>
+  </section>
+  <section class="card" aria-label="Политика">
+    <h2>3 · Политика расходов владельца</h2>
+    <p class="dim">Автономные платежи — только внутри лимитов из settlement-policy.json. Выше порога — ручное подтверждение владельца.</p>
+    <div id="polOut" class="dim">загрузка…</div>
+  </section>
+  <section class="card" aria-label="Статус">
+    <h2>4 · Статус оплаты</h2>
+    <p class="dim">«Оплачено» — только после совпадения получателя/суммы, включения в каноническую цепь и глубины 6. Приёмка и оплата разделены.</p>
+    <form id="sForm"><input id="sOrder" placeholder="orderId" aria-label="orderId"><button type="submit">проверить</button></form>
+    <div id="sOut" class="dim">—</div>
+  </section>
+  <section class="card" aria-label="Подпись">
+    <h2>Подпись владельца</h2>
+    <p class="dim">Отправка — только подписью владельца соответствующих средств: подпишите локально (<code>signTransfer</code> в <code>sdk/js/mainnet-settlement.mjs</code>), затем отправьте <code>POST /mainnet/submit { orderId, signedTx }</code>. Приватный ключ сюда не вводится и не отправляется.</p>
+  </section>
+  <p class="dim"><a href="./index.html">← к витрине стенда</a> · TEST-книга (<code>/settlements/*</code>) — только изолированные тесты, не mainnet</p>
+</main>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));
+async function info() {
+  try {
+    const r = await fetch('/mainnet/info').then((x) => x.json());
+    $('mChain').textContent = r.network || '?';
+    $('mGenesis').textContent = String(r.genesis || '').slice(0, 18) + '…';
+    $('mBlocks').textContent = r.blocks ?? '?';
+  } catch { $('mChain').textContent = 'нет связи'; }
+  try {
+    const r = await fetch('/mainnet/policy').then((x) => x.json());
+    $('polOut').innerHTML = r.configured ? `<div>автономно: <b>${esc(String(r.autonomous))}</b> · макс/платёж: ${esc(r.maxPerPaymentAtomic ?? '—')} · макс/день: ${esc(r.maxPerDayAtomic ?? '—')}</div>` : `<div>политика не задана — автономная отправка заблокирована (${esc(r.hint || '')})</div>`;
+  } catch { $('polOut').textContent = 'политика недоступна'; }
+}
+$('bForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const a = $('bAddr').value.trim();
+  const r = await fetch('/mainnet/balances?address=' + encodeURIComponent(a)).then((x) => x.json());
+  $('bOut').innerHTML = r.balanceAtomic != null ? `баланс: <b>${esc(r.balanceAtomic)}</b> atomic · сеть ${esc(r.network)} · genesis ${esc(String(r.genesis).slice(0, 18))}…` : `отказ: ${esc(r.error || '?')} — ${esc(r.hint || '')}`;
+});
+$('pForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = { orderId: $('pOrder').value.trim(), payer: $('pPayer').value.trim(), recipient: $('pTo').value.trim(), amountAtomic: String(Math.round(Number($('pAmt').value) * 1e9)) };
+  const r = await fetch('/mainnet/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json());
+  $('pOut').innerHTML = r.preview ? `<div>заказ ${esc(r.preview.orderId)} · ${esc(r.preview.payer)} → ${esc(r.preview.recipient)}<br>сумма <b>${esc(r.preview.amountAtomic)}</b> atomic (${esc(r.preview.amountAGT)} AGT) · комиссия ${esc(r.preview.feeAtomic)}<br><span class="dim">${esc(r.preview.warning)}</span><br>политика: ${esc(JSON.stringify(r.policy))}</div>` : `отказ: ${esc(r.error || '?')} — ${esc(r.hint || '')}`;
+});
+$('sForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('sOrder').value.trim();
+  const r = await fetch('/mainnet/settlements/' + encodeURIComponent(id) + '/status').then((x) => x.json());
+  $('sOut').innerHTML = r.settlement ? `<div>состояние: <b>${esc(r.settlement.state)}</b> · txid ${esc(r.settlement.txid || '—')}<br>подтверждения: ${esc(String(r.confirmation?.confirmations ?? 0))} · оплачено: <b>${esc(String(!!r.paid))}</b></div>` : `нет: ${esc(r.error || '?')}`;
+});
+info();
+</script>
+</body>
+</html>

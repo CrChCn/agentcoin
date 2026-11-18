@@ -7,8 +7,8 @@
 
 ## Кандидат
 - Файл: `agentcoin/site/imperial.html`
-- Коммит: `e2e48fe` + правки `AGT_DIRECT_PATHS`/баннер/`eAgeH` (см. лог ниже)
-- SHA256: считать после финального коммита: `sha256sum site/imperial.html`
+- Коммит: `4fccb1c` (ветка `redesign-ac`)
+- SHA256: `184b8f555c506a2b1687baa461a66ee46ad27b17c29e20588e3f0f73dff1f000`
 - Проверка хеша: `sha256sum site/imperial.html`
 
 ## Что внутри (без новой функциональности)

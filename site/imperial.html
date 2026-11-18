@@ -609,6 +609,9 @@ function agtValidate(path, data) {
   return null;
 }
 function agtSnapshotMs(data) {
+  // Источник времени — ТОЛЬКО метка снимка источника. checkedAt / validationCheckedAt
+  // (/life) и fetchedAt — время ответа/проверки, а не время данных: их подстановка сюда
+  // запрещена (иначе время проверки цепи подменило бы время всего ответа).
   var v = data && (data.snapshotAt || data.snapshot_time || data.passportSnapshotAt);
   if (v == null) return null;
   var t = Date.parse(v);
@@ -632,8 +635,11 @@ async function agtFetch(path) {
   // Нормализация: '/api/v1/X' и '/X' — один маршрут (внутренний jget-блок уже
   // режет префикс до вызова; это страховка прямых вызовов window.AGTData.read).
   if (typeof path === 'string' && path.indexOf('/api/v1/') === 0) path = path.slice(7);
-  // capabilities-список ноды неполон (нода отдаёт /memory/state, /compute/state мимо
-  // него): отсутствие в списке — не запрет, а повод проверить маршрут напрямую.
+  // capabilities-список ноды может быть неполон: отсутствие в списке — не запрет,
+  // а повод проверить маршрут напрямую. Честно: в коде ноды репозитория подтверждён
+  // только /queue/history (PUBLIC_READS + обработчик); обработчиков /memory/state и
+  // /compute/state в node.mjs нет — фолбэк их опробует, но их 404 означает
+  // «функция не подключена», а не «данные сломаны».
   var gateMiss = !!(availableReads && !availableReads.has(agtBase(path)));
   if (AGTInflight.has(path)) return AGTInflight.get(path);
   var pr = (async function () {
@@ -642,8 +648,10 @@ async function agtFetch(path) {
       var usedSrc = '/api/v1' + path;
       var r = await fetch(usedSrc, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
       if (r.status === 404) {
-        // /api/v1-шлюз знает не все маршруты ноды (/queue/history, /memory/state,
-        // /compute/state): честный фолбэк на корневой путь той же ноды (same-origin).
+        // /api/v1-шлюз знает не все маршруты ноды (точно: /queue/history — есть в
+        // PUBLIC_READS ноды, но может отсутствовать в allowlist шлюза): честный фолбэк
+        // на корневой путь той же ноды (same-origin). Если и он 404 — это признак
+        // «функция не подключена», а не недоступности всего API.
         try {
           var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
           if (rTop.ok) { r = rTop; usedSrc = path; }
@@ -670,6 +678,8 @@ async function agtFetch(path) {
       if (gateMiss) msg += ' (нет в /capabilities: ' + agtBase(path) + ')';
       apiErrors.set(path, msg);
       if (prev && prev.data) {
+        // Показываем ПОСЛЕДНИЕ известные данные как устаревшие: fetchedAt/snapshotAt
+        // старого снимка НЕ обновляем — иначе старый снимок позеленел бы без причины.
         var stale = Object.assign({}, prev, { status: 'stale', error: msg });
         AGTDataStore.set(path, stale);
         agtNotify(path, stale);
@@ -702,9 +712,33 @@ async function jget(p) {
   return rec && rec.data ? rec.data : null;
 }
 function rsnap(p) { try { return (window.AGTData && window.AGTData.getSnapshot(p)) || { status: 'unknown', data: null }; } catch (e) { return { status: 'unknown', data: null }; } }
+function agtKindOf(path, msg) {
+  // Четыре разных состояния — четыре разных смысла (см. ТЗ п.3):
+  // unavailable (ответа нет), stale (ответ старый), unknown (ответ есть, возраста нет),
+  // not-connected (маршрута нет: 404/allowlist — функция не подключена).
+  var rec = null;
+  try { rec = AGTDataStore.get(path) || null; } catch (e) {}
+  if (rec && rec.data && rec.status === 'stale') return 'stale';
+  if (rec && rec.data && rec.status === 'unknown') return 'unknown-age';
+  if (/HTTP 404|not_allowlisted|route_not|Cannot GET|NOT_FOUND/i.test(msg || '')) return 'not-connected';
+  return 'unavailable';
+}
 function showApiErrors() {
-  if (apiErrors.size) showSiteErr('Недоступные данные API: ' + Array.from(apiErrors, function (entry) { return entry[0] + ' (' + entry[1] + ')'; }).join('; ') + '. Данные не подменяются.');
-  else hideSiteErr();
+  if (!apiErrors.size) { hideSiteErr(); return; }
+  var groups = { 'unavailable': [], 'stale': [], 'unknown-age': [], 'not-connected': [] };
+  apiErrors.forEach(function (msg, path) { groups[agtKindOf(path, msg)].push(path + ' (' + msg + ')'); });
+  var parts = [];
+  if (groups['unavailable'].length) parts.push('API недоступен (ответа нет): ' + groups['unavailable'].join('; '));
+  if (groups['not-connected'].length) parts.push('Функция не подключена (маршрут отсутствует, 404/allowlist): ' + groups['not-connected'].join('; '));
+  if (groups['stale'].length) parts.push('Данные устарели (показаны последние известные): ' + groups['stale'].join('; '));
+  if (groups['unknown-age'].length) parts.push(groups['unknown-age'].map(function (s) {
+    var p = s.slice(0, s.indexOf(' ('));
+    var rec = null;
+    try { rec = AGTDataStore.get(p) || null; } catch (e) {}
+    var when = rec && rec.fetchedAt ? new Date(rec.fetchedAt).toLocaleTimeString('ru-RU') : null;
+    return p + ' (ответ получен' + (when ? ' в ' + when : '') + '; актуальность источника неизвестна)';
+  }).join('; '));
+  showSiteErr(parts.join(' | ') + '. Данные не подменяются.');
 }
 function unavailable(id, message) { set(id, message || 'Данные API недоступны'); }
 function clearPanels(message) {

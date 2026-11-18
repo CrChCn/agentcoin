@@ -1,0 +1,14 @@
+POST-FIX PROBES 2026-11-18 (проверено curl + браузер)
+/ => 200 text/html Imperial («ИМПЕРИЯ ИИ-АГЕНТОВ»)
+/index => 308 -> https://agentcoin.work/
+/index.html => 308 -> https://agentcoin.work/ (файл удалён из публикации, бекап /root/deploy-bak-dedup-20261118/index.html.next-home)
+/mine => 200 Next-модуль v0.2, шапка — обычные <a>, клик «Сайт» ведёт на / = Imperial (проверено в браузере: navigated https://agentcoin.work/, title Imperial)
+/robots.txt => 200 text/plain (реальный файл, не лендинг)
+/sitemap.xml => 200 text/xml (реальный файл)
+/app.webmanifest => 404 (настоящий 404, не лендинг)
+/неизвестная страница => 404 (не лендинг)
+/api/v1/unknown => 404 {"error":"route_not_allowlisted"} (JSON)
+/agent-room.json => 200 application/json
+/tree.json => 200 application/json
+guard: node tools/route-guard.mjs --base https://agentcoin.work => RESULT: PASS (14 PASS, 1 SKIP без --caddy)
+Браузер: /mine → клик «Сайт» → / Imperial; консоль без ошибок приложения.

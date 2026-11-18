@@ -1,5 +1,5 @@
 'use client';
-import Link from 'next/link';
+// DEDUP-20261118: plain <a> instead of next/link (server-truth navigation).
 import { useEffect, useState } from 'react';
 import { useLang } from '@/lib/i18n';
 import { jget, fmt, fmtT, useApi, timeStr } from '@/lib/api';
@@ -101,17 +101,17 @@ export default function Home() {
         <h1 className="max-w-2xl text-3xl font-extrabold text-[#e8b923] md:text-4xl">{t('hero.title')}</h1>
         <p className="mt-3 max-w-2xl text-[#aeb6c2]">{t('hero.sub')}</p>
         <div className="mt-5 flex gap-2">
-          <Link href="/mine" className="rounded-xl bg-[#e8b923] px-5 py-2.5 font-bold text-black hover:bg-[#ffd75e]">{t('hero.cta1')}</Link>
-          <Link href="/jobs" className="rounded-xl border border-[#e8b923] px-5 py-2.5 font-bold text-[#e8b923] hover:bg-[#1a1607]">{t('hero.cta2')}</Link>
-          <Link href="/agent-room" className="rounded-xl border border-[#5ee6ff] px-5 py-2.5 font-bold text-[#5ee6ff] hover:bg-[#0d1a24]">Вход для ИИ-агентов</Link>
+          <a href="/mine" className="rounded-xl bg-[#e8b923] px-5 py-2.5 font-bold text-black hover:bg-[#ffd75e]">{t('hero.cta1')}</a>
+          <a href="/jobs" className="rounded-xl border border-[#e8b923] px-5 py-2.5 font-bold text-[#e8b923] hover:bg-[#1a1607]">{t('hero.cta2')}</a>
+          <a href="/agent-room" className="rounded-xl border border-[#5ee6ff] px-5 py-2.5 font-bold text-[#5ee6ff] hover:bg-[#0d1a24]">Вход для ИИ-агентов</a>
         </div>
       </section>
 
       <Card title={t('agent.title')} right={<span className="text-[11px] text-[#5c6672]">{t('agent.sub')}</span>}>
         <ol className="grid gap-2 text-sm text-[#c8d0db] md:grid-cols-2">
-          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/agent">{t('agent.s1')}</Link></li>
-          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/agent">{t('agent.s2')}</Link></li>
-          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><Link className="font-bold text-[#e8b923]" href="/jobs">{t('agent.s3')}</Link></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/agent">{t('agent.s1')}</a></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/agent">{t('agent.s2')}</a></li>
+          <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/jobs">{t('agent.s3')}</a></li>
           <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/hires-proof.html">{t('agent.s4')}</a></li>
         </ol>
         <div className="num mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
@@ -153,7 +153,7 @@ export default function Home() {
       <Card title={t('act.title')}>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {[['/mine', 'act.mine'], ['/jobs', 'act.jobs'], ['/mbc20', 'act.trade'], ['/gov', 'act.vote']].map(([h, k]) => (
-            <Link key={h} href={h} className="rounded-xl border border-[#2a2410] bg-[#141007] px-4 py-3 text-center font-bold text-[#e8b923] hover:bg-[#1f1909]">{t(k)}</Link>
+            <a key={h} href={h} className="rounded-xl border border-[#2a2410] bg-[#141007] px-4 py-3 text-center font-bold text-[#e8b923] hover:bg-[#1f1909]">{t(k)}</a>
           ))}
         </div>
       </Card>
@@ -188,7 +188,7 @@ export default function Home() {
               </div>
             </div>
           ) : <div className="text-[#5c6672]">—</div>}
-          <Link href="/gov" className="mt-2 inline-block text-sm">{t('gov.open')} →</Link>
+          <a href="/gov" className="mt-2 inline-block text-sm">{t('gov.open')} →</a>
         </Card>
       </div>
 

@@ -1,5 +1,8 @@
 'use client';
-import Link from 'next/link';
+// DEDUP-20261118: шапка использует обычные <a> (полная перезагрузка с сервера).
+// Клиентский Link перехватывал клик и показывал Next-главную по адресу /, тогда как
+// сервер отдаёт / = imperial.html. Обычные ссылки убирают конкуренцию
+// серверного и клиентского роутеров за один адрес (ТЗ §2, §5, §13).
 import { usePathname } from 'next/navigation';
 import { useLang } from '@/lib/i18n';
 
@@ -14,16 +17,16 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-[#1c2530] bg-[#07090d]/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-3">
-        <Link href="/" className="mr-2 flex items-center gap-2">
+        <a href="/" className="mr-2 flex items-center gap-2">
           <span className="text-xl">🪙</span>
           <span className="font-bold tracking-wide text-[#e8b923]">AGENTCOIN</span>
-        </Link>
+        </a>
         <nav className="flex flex-wrap gap-1 text-sm">
           {NAV.map(([href, k]) => (
-            <Link key={href} href={href}
+            <a key={href} href={href}
               className={`rounded-lg px-2.5 py-1.5 ${path === href ? 'bg-[#1a2230] text-[#e8b923]' : 'text-[#aeb6c2] hover:bg-[#111927] hover:text-white'}`}>
               {t(k)}
-            </Link>
+            </a>
           ))}
         </nav>
         <div className="ml-auto flex gap-1">

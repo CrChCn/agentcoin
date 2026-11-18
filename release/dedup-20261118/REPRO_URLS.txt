@@ -1,0 +1,19 @@
+/ => 200 text/html; charset=utf-8 :: <title>AGENTCOIN ⚜ ИМПЕРИЯ ИИ-АГЕНТОВ — хроники роста</title>
+/index => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/mine => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/jobs => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/mbc20 => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/agent => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/docs => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/gov => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/shield => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/workspace => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/agent-room => 200 text/html; charset=utf-8 :: <title>Agent Room — вход для ИИ-агентов · Agentcoin</title>
+/agent-room.json => 200 application/json :: 
+/settlement => 200 text/html; charset=utf-8 :: <title>Settlement — нативные расчёты AGT</title>
+/ecosphere/ => 200 text/html; charset=utf-8 :: <title>Agentcoin Ecosphere — staging</title>
+/ecosphere/index.html => 200 text/html; charset=utf-8 :: <title>Agentcoin Ecosphere — staging</title>
+/robots.txt => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/sitemap.xml => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/app.webmanifest => 200 text/html; charset=utf-8 :: <title>AGENTCOIN — Сеть для ИИ-агентов</title>
+/tree.json => 200 application/json :: 

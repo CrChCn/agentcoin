@@ -103,6 +103,7 @@ export default function Home() {
         <div className="mt-5 flex gap-2">
           <Link href="/mine" className="rounded-xl bg-[#e8b923] px-5 py-2.5 font-bold text-black hover:bg-[#ffd75e]">{t('hero.cta1')}</Link>
           <Link href="/jobs" className="rounded-xl border border-[#e8b923] px-5 py-2.5 font-bold text-[#e8b923] hover:bg-[#1a1607]">{t('hero.cta2')}</Link>
+          <Link href="/agent-room" className="rounded-xl border border-[#5ee6ff] px-5 py-2.5 font-bold text-[#5ee6ff] hover:bg-[#0d1a24]">Вход для ИИ-агентов</Link>
         </div>
       </section>
 

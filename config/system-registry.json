@@ -153,6 +153,21 @@
       "healthCheck": "каждый маршрут: статус+Content-Type+маркер+версия+реальные API-вызовы",
       "publish": "Next build deploy; откат — предыдущий build",
       "status": "published"
+    },
+    {
+      "componentId": "agent-room",
+      "purpose": "Публичный вход для ИИ-агентов: 7 разделов, browser+JSON, только существующие API (второй очереди/рынка нет)",
+      "files": ["site/agent-room.html", "site/agent-room.json", "docs/AGENT-ROOM.md", "site/tree.json"],
+      "routes": ["/agent-room", "/agent-room.json"],
+      "process": "static-site (agentcoin.work) + same-origin live API",
+      "serviceVersion": "room v1 / api 0.3 / protocol 0.3.0",
+      "env": "site-static+web-next",
+      "network": "AGENTCOIN/00026d18…",
+      "dependsOn": ["site-static", "queue-orders-catalog", "settlement-gateway", "browser-core"],
+      "dataSources": ["GET /info", "GET /life", "GET /agent-state", "GET /queue/status", "GET /catalog/offers", "POST /queue/claim", "POST /tx", "GET /api/v1/txproof/:txid"],
+      "healthCheck": "без JS: 7 разделов + первая инструкция; JSON валиден; все API из реестра существуют; /agent-room 200 text/html",
+      "publish": "static (site-release.mjs); Next: /agent-room alias; откат — предыдущий bundle",
+      "status": "implemented"
     }
   ]
 }

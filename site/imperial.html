@@ -629,16 +629,25 @@ function agtNotify(path, rec) {
   set.forEach(function (fn) { try { fn(rec); } catch (e) {} });
 }
 async function agtFetch(path) {
-  if (availableReads && !availableReads.has(agtBase(path))) {
-    var capRec = { data: null, status: 'unavailable', source: '/api/v1' + path, fetchedAt: null, snapshotAt: null, blockHeight: null, blockHash: null, error: 'capability-недоступна: ' + agtBase(path) };
-    AGTDataStore.set(path, capRec);
-    return capRec;
-  }
+  // Нормализация: jget('/api/v1/X') и jget('/X') — один маршрут. Без этого fetch
+  // уходил на /api/v1/api/v1/X (удвоенный префикс, вечный HTTP 404).
+  if (typeof path === 'string' && path.indexOf('/api/v1/') === 0) path = path.slice(7);
+  // capabilities-список ноды неполон (нода отдаёт /memory/state, /compute/state мимо
+  // него): отсутствие в списке — не запрет, а повод проверить маршрут напрямую.
+  var gateMiss = !!(availableReads && !availableReads.has(agtBase(path)));
   if (AGTInflight.has(path)) return AGTInflight.get(path);
   var pr = (async function () {
     var prev = AGTDataStore.get(path);
     try {
       var r = await fetch('/api/v1' + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
+      if (r.status === 404) {
+        // /api/v1-шлюз знает не все маршруты ноды (/queue/history, /memory/state,
+        // /compute/state): честный фолбэк на корневой путь той же ноды (same-origin).
+        try {
+          var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
+          if (rTop.ok) r = rTop;
+        } catch (fb) {}
+      }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       if (!(r.headers.get('content-type') || '').includes('application/json')) throw new Error('Ozhidalsya-JSON');
       var data = await r.json();
@@ -657,11 +666,7 @@ async function agtFetch(path) {
       return rec;
     } catch (e) {
       var msg = (e && e.message) || 'request_failed';
-      if (availableReads && !availableReads.has(agtBase(path))) {
-        var rec2 = { data: null, status: 'unavailable', source: '/api/v1' + path, fetchedAt: null, snapshotAt: null, blockHeight: null, blockHash: null, error: 'capability-nedostupna: ' + agtBase(path) };
-        AGTDataStore.set(path, rec2);
-        return rec2;
-      }
+      if (gateMiss) msg += ' (нет в /capabilities: ' + agtBase(path) + ')';
       apiErrors.set(path, msg);
       if (prev && prev.data) {
         var stale = Object.assign({}, prev, { status: 'stale', error: msg });
@@ -1089,7 +1094,14 @@ async function tick() {
     ['/stats-data', '/passport/count', '/jobs/state', '/cloud/stats', '/gov/state', '/life', '/queue/status', '/blocks', '/balances', '/treasury/state', '/tax/state'].forEach(function (p) {
       var r = rsnap(p);
       if (r && r.status === 'stale') apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'снимок устарел — показаны последние известные данные');
-      if (r && r.status === 'unknown' && r.data) apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'давность снимка неизвестна');
+      if (r && r.status === 'unknown' && r.data) {
+        // Ответ 200 получен только что (fetchedAt ~ сейчас): данные текущие,
+        // у эндпоинта просто нет метки снимка. Ошибка — только протухший опрос.
+        var ageMs = Date.now() - (r.fetchedAt || 0);
+        var limMs = (typeof agtFreshness === 'function') ? agtFreshness(p) : 30000;
+        if (!r.fetchedAt || ageMs < 0 || ageMs > limMs) apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'давность снимка неизвестна');
+        else apiErrors.delete(p);
+      }
     });
   } catch (e) {}
   if (passports) { passportLastGood = passports; passportLastSuccess = new Date(); }

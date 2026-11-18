@@ -2,78 +2,110 @@
 import { useState } from 'react';
 import { useLang } from '@/lib/i18n';
 import { useApi, fmt } from '@/lib/api';
+import { normAddr } from '@/lib/addr';
 import { Card, Stale } from '@/components/ui';
-
-const HEX40 = /^[0-9a-fA-F]{40}$/;
 
 export default function Mbc20() {
   const { lang, t } = useLang();
   const RU = lang === 'ru';
-  const tk = useApi('/api/v1/mbc20/tokens', 30000);
-  const tokens = (tk.data && (tk.data.tokens || tk.data.list)) || [];
+  const st = useApi('/api/v1/mbc20/state', 30000);
+  const d = st.data || {};
+  const tokens = Array.isArray(d.tokens) ? d.tokens : [];
+  const prices = d.prices || {};
   const [addr, setAddr] = useState('');
   const [bal, setBal] = useState(null);
   const [err, setErr] = useState('');
-  const [showTest, setShowTest] = useState(false);
-  const visTokens = showTest ? tokens : tokens.filter((x) => !String(x.symbol || x.sym || '').toLowerCase().startsWith('test'));
-  const [dep, setDep] = useState({ sym: '', name: '', supply: '' });
-  const [depRes, setDepRes] = useState('');
+  const [tick, setTick] = useState('CRCHCN');
+  const [book, setBook] = useState(null);
+  const [bookErr, setBookErr] = useState('');
 
   async function check(e) {
     e.preventDefault();
     setErr(''); setBal(null);
-    if (!HEX40.test(addr.trim())) { setErr(t('err.addr')); return; }
+    const n = normAddr(addr);
+    if (!n.ok) { setErr(t('err.addr')); return; }
     try {
       const r = await fetch('/api/v1/balance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: addr.trim() }),
+        body: JSON.stringify({ address: n.address }),
       });
       const j = await r.json();
       setBal(j.balance);
     } catch (e2) { setErr(String(e2.message || e2)); }
   }
 
-  async function deploy(e) {
+  async function loadBook(e) {
     e.preventDefault();
-    setDepRes('');
+    setBookErr(''); setBook(null);
+    const tk = String(tick || '').trim().toUpperCase().slice(0, 8);
+    if (!tk) { setBookErr(t('err.addr')); return; }
     try {
-      const r = await fetch('/api/v1/mbc20/deploy', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: dep.sym, name: dep.name, supply: Number(dep.supply) }),
-      });
-      const j = await r.json();
-      setDepRes(JSON.stringify(j).slice(0, 300));
-    } catch (e2) { setDepRes(String(e2.message || e2)); }
+      const r = await fetch('/api/v1/mbc20/book?tick=' + encodeURIComponent(tk), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      setBook(await r.json());
+    } catch (e2) { setBookErr(String(e2.message || e2)); }
   }
 
   const inp = 'w-full rounded-xl border border-[#232d3b] bg-[#0a0e13] px-3 py-2 font-mono text-sm';
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-extrabold text-[#e8b923]">MBC-20 {RU ? 'Биржа' : 'Exchange'}</h1>
-      <Card title={RU ? 'Токены' : 'Tokens'} right={<span className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-[#8b93a1]"><input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />{RU ? 'тестовые' : 'test'}</label><Stale show={tk.stale} t={t} /></span>}>
-        {visTokens.length === 0 ? <div className="text-[#5c6672]">—</div> : (
-          <ul className="space-y-1 font-mono text-sm">
-            {visTokens.map((x, i) => <li key={i}>{x.symbol || x.sym} · {x.name || ''} · {fmt(x.supply ?? x.totalSupply)}</li>)}
+      <Card title={RU ? 'Токены' : 'Tokens'} right={<Stale show={st.stale} t={t} />}>
+        {tokens.length === 0 ? <div className="text-[#5c6672]">—</div> : (
+          <ul className="space-y-2 text-sm">
+            {tokens.map((x) => {
+              const p = prices[x.tick] || {};
+              return (
+                <li key={x.tick} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="font-mono font-bold text-[#e8b923]">{x.tick}</span>
+                  <span className="text-[#8b93a1]">{RU ? 'выпущено' : 'minted'} {fmt(x.minted)}/{fmt(x.max)}</span>
+                  <span className="text-[#8b93a1]">{x.status}</span>
+                  {(p.bestBidAGT != null || p.bestAskAGT != null) && (
+                    <span className="font-mono text-xs text-[#aeb6c2]">
+                      bid {p.bestBidAGT ?? '—'} / ask {p.bestAskAGT ?? '—'} AGT
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
+        <p className="mt-2 text-xs text-[#5c6672]">{d.standard || ''} · {RU ? 'база' : 'base'}: {d.baseUnit || '—'}</p>
       </Card>
       <div className="grid gap-4 md:grid-cols-2">
-        <Card title={RU ? 'Проверить баланс' : 'Check balance'}>
+        <Card title={RU ? 'Проверить баланс AGT' : 'Check AGT balance'}>
           <form onSubmit={check} className="flex flex-col gap-2">
-            <input className={inp} value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="40 hex…" />
+            <input className={inp} value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="AGT… (40 hex)" />
             <button className="rounded-xl bg-[#e8b923] px-4 py-2 font-bold text-black">{RU ? 'Проверить' : 'Check'}</button>
           </form>
           {err && <div className="mt-2 text-sm text-[#ef4444]">{err}</div>}
           {bal != null && <div className="num mt-2">{fmt(bal)} AGT</div>}
         </Card>
-        <Card title={RU ? 'Эмиссия токена' : 'Deploy token'}>
-          <form onSubmit={deploy} className="flex flex-col gap-2">
-            <input className={inp} value={dep.sym} onChange={(e) => setDep({ ...dep, sym: e.target.value })} placeholder="SYM" />
-            <input className={inp} value={dep.name} onChange={(e) => setDep({ ...dep, name: e.target.value })} placeholder="Name" />
-            <input className={inp} value={dep.supply} onChange={(e) => setDep({ ...dep, supply: e.target.value })} placeholder="Supply" />
-            <button className="rounded-xl bg-[#e8b923] px-4 py-2 font-bold text-black">{RU ? 'Выпустить' : 'Deploy'}</button>
+        <Card title={RU ? 'Стакан (биды/аски)' : 'Order book (bids/asks)'}>
+          <form onSubmit={loadBook} className="flex flex-col gap-2">
+            <input className={inp} value={tick} onChange={(e) => setTick(e.target.value)} placeholder="TICK" />
+            <button className="rounded-xl bg-[#e8b923] px-4 py-2 font-bold text-black">{RU ? 'Показать' : 'Show'}</button>
           </form>
-          {depRes && <div className="mt-2 break-all font-mono text-xs text-[#8b93a1]">{depRes}</div>}
+          {bookErr && <div className="mt-2 text-sm text-[#ef4444]">{bookErr}</div>}
+          {book && (
+            <div className="mt-2 font-mono text-xs">
+              <div className="text-[#8b93a1]">{book.item} · spread {book.spread}</div>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[#5ee6ff]">bids ({(book.bids || []).length})</div>
+                  {(book.bids || []).slice(0, 5).map((b) => (
+                    <div key={b.ref}>{b.price} × {b.remaining ?? b.qty}</div>
+                  ))}
+                </div>
+                <div>
+                  <div className="text-[#e8b923]">asks ({(book.asks || []).length})</div>
+                  {(book.asks || []).slice(0, 5).map((a) => (
+                    <div key={a.ref}>{a.price} × {a.remaining ?? a.qty}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     </div>

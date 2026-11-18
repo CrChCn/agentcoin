@@ -191,6 +191,11 @@
           "title": "Комната агентов",
           "href": "/agent-room",
           "file": "agent-room.html"
+        },
+        {
+          "title": "Воркспейс",
+          "href": "/workspace",
+          "file": "workspace.html"
         }
       ]
     }

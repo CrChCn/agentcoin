@@ -22,7 +22,7 @@ const D = {
     'gov.title': 'Голосование', 'gov.pass': 'Пройдет', 'gov.fail': 'Не пройдет', 'gov.open': 'Открыть голосование',
     'proc.title': 'Процессы', 'proc.sub': 'остальные — скрыто (резерв)', 'proc.all': 'все ноды на связи',
     'foot.note': 'PoW · C++ ядро · JS-нода · данные только из API ноды',
-    'err.addr': 'Ошибка: адрес должен быть 40 hex',
+    'err.addr': 'Ошибка: нужен адрес AGT + 40 hex',
   },
   en: {
     'nav.home': 'Home', 'nav.mine': 'Mining', 'nav.jobs': 'Jobs', 'nav.mbc20': 'Exchange',
@@ -44,7 +44,7 @@ const D = {
     'gov.title': 'Voting', 'gov.pass': 'Will pass', 'gov.fail': 'Will fail', 'gov.open': 'Open voting',
     'proc.title': 'Processes', 'proc.sub': 'others — hidden (reserve)', 'proc.all': 'all nodes reachable',
     'foot.note': 'PoW · C++ core · JS node · data only from node API',
-    'err.addr': 'Error: address must be 40 hex',
+    'err.addr': 'Error: AGT + 40 hex address required',
   },
 };
 

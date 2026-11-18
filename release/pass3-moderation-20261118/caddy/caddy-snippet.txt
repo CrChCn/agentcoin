@@ -1,0 +1,15 @@
+# Вставлено в /etc/caddy/Caddyfile (site-блок agentcoin.work).
+# /docs/view — СТРОГО выше handle /docs/* (иначе file_server отдаст 404).
+# Проверено: caddy validate OK + systemctl reload caddy (рестарта ноды не было).
+
+		handle /docs/view {
+			root * /srv/agentcoin-empire/current
+			rewrite * /docs/view.html
+			file_server
+		}
+		# AGT-WORKSPACE 20261118: read-only инспектор рабочей цепи.
+		handle /workspace {
+			root * /srv/agentcoin-empire/current
+			rewrite * /workspace.html
+			file_server
+		}

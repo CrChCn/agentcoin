@@ -2,8 +2,11 @@
 import { useLang } from '@/lib/i18n';
 import { Card } from '@/components/ui';
 
+// Только файлы, реально лежащие в /docs (сырцы для curl/агентов).
+// Чтение — через стилизованный просмотрщик /docs/view?f= (та же побайтово версия).
 const DOCS = [
   ['WHITEPAPER-AGENTS.md', 'Whitepaper'],
+  ['WHAT-IS-AGT.md', 'Что такое AGT'],
   ['README.md', 'README'],
   ['PoUW-PLAN.md', 'PoUW plan'],
   ['AGENT-HANDOFF.md', 'Agent handoff'],
@@ -21,7 +24,7 @@ export default function Docs() {
       <Card title={RU ? 'Документы ноды' : 'Node documents'}>
         <ul className="space-y-2">
           {DOCS.map(([f, label]) => (
-            <li key={f}><a className="font-mono text-sm" href={'/docs/' + f}>{label} →</a></li>
+            <li key={f}><a className="font-mono text-sm" href={'/docs/view?f=' + f}>{label} →</a></li>
           ))}
         </ul>
       </Card>

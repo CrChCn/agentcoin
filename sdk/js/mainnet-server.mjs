@@ -98,6 +98,20 @@ export function createMainnetGateway({ nodeApiBase, storeFile, policyFile, confi
       const s = store.get(String(body.orderId));
       if (!s) return send(res, 404, { error: 'settlement_not_found', hint: 'сначала /mainnet/obligations после приёмки' });
       if (s.state === 'confirmed') return send(res, 200, { settlement: s, replay: true, note: 'уже оплачено — повтор не нужен' });
+      // Автономные платежи — только в пределах политики владельца. Подпись сама
+      // по себе авторизует перевод (ключ только у владельца), политика — второй
+      // затвор против ошибочных/автономных отправок.
+      const policy = loadSpendPolicy(policyFile);
+      if (!policy) {
+        if (body.manualApprove !== true) return send(res, 409, { ok: false, error: 'no_policy_manual_approve_required', hint: 'политика владельца не задана: отправка только с явным manualApprove владельца' });
+      } else {
+        const dayStart = new Date().toISOString().slice(0, 10);
+        const daySpent = store.list()
+          .filter((x) => x.payer === s.payer && (x.state === 'sent' || x.state === 'confirmed') && new Date(x.createdAt).toISOString().slice(0, 10) === dayStart)
+          .reduce((sum, x) => sum + BigInt(x.amountAtomic), 0n);
+        const gate = checkSpendPolicy({ policy, amountAtomic: BigInt(s.amountAtomic), recipient: s.recipient, daySpentAtomic: daySpent, manualApprove: body.manualApprove === true });
+        if (!gate.ok) return send(res, 409, { ok: false, error: gate.reason, hint: 'политика расходов владельца: платеж заблокирован', settlement: s });
+      }
       const attached = store.attachSignedTx(String(body.orderId), { ...signedTx, txid: signedTx.txid || txDigest(signedTx) });
       if (attached && attached.ok === false) return send(res, 409, attached);
       // Отправка ТЕХ ЖЕ байтов в существующий приёмник ноды; несоответствие

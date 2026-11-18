@@ -266,12 +266,22 @@ async function checkStatus() {
       $('cOut').textContent = 'в цепи нет (пруф отсутствует). Проверьте mempool / повторите позже.';
       return;
     }
-    const h = proof.data.height;
-    const [slice, tipW] = await Promise.all([jget('/blocks?from=' + h + '&limit=1'), jget('/blocks?n=1')]);
-    const block = (slice.data.blocks || [])[0];
+    let h = proof.data.height;
+    let block = ((await jget('/blocks?from=' + h + '&limit=1')).data.blocks || [])[0];
+    if (block && proof.data.blockHash && block.hash !== proof.data.blockHash) {
+      // Вершина сменилась между запросами (быстрые блоки): один повтор по свежему пруфу.
+      $('cOut').textContent = 'цепь перестроилась между запросами — повторяю сверку по свежему пруфу…';
+      await new Promise((r) => setTimeout(r, 3000));
+      const proof2 = await jget('/api/v1/txproof/' + encodeURIComponent(txid));
+      if (proof2.status !== 200 || typeof proof2.data.height !== 'number') { setConf(0); $('cOut').textContent = 'в цепи нет (пруф отсутствует). Проверьте mempool / повторите позже.'; return; }
+      h = proof2.data.height;
+      block = ((await jget('/blocks?from=' + h + '&limit=1')).data.blocks || [])[0];
+      if (!block || (proof2.data.blockHash && block.hash !== proof2.data.blockHash)) { $('cOut').textContent = 'цепь сейчас перестраивается — подождите следующий блок и проверьте снова.'; return; }
+    }
     const tx = (block && block.txs || []).find((t) => t && t.txid === txid);
     if (!tx) { $('cOut').textContent = 'пруф есть, тела нет — нужна повторная сверка.'; return; }
-    const tip = (tipW.data.blocks || [])[0];
+    const tip = (((await jget('/blocks?n=1')).data.blocks) || [])[0];
+    if (!tip) { $('cOut').textContent = 'сверка недоступна: нет вершины.'; return; }
     const conf = tip.height - h + 1;
     setConf(conf);
     const okTo = String(tx.to) === to;

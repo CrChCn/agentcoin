@@ -93,7 +93,7 @@ export default function Mine() {
           <div className="mt-2 rounded-xl bg-[#0a0e13] p-3 font-mono text-[13px]">
             <span className={probe.status === 405 ? 'text-[#ffd75e]' : 'text-[#39d98a]'}>HTTP {probe.status}</span>
             <span className="text-[#8b93a1]"> — {probe.status === 405
-              ? (RU ? 'приём закрыт оператором, шар не уходят в никуда' : 'intake closed by operator, no shares go nowhere')
+              ? (RU ? 'приём закрыт оператором, шары никуда не уходят' : 'intake closed by operator, no shares go nowhere')
               : probe.body}</span>
           </div>
         )}

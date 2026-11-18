@@ -255,8 +255,14 @@ async function checkStatus() {
   if (!NET_OK) { $('cOut').textContent = 'отказ: сеть не сверена — проверка заблокирована.'; return; }
   const txid = $('cTxid').value.trim(), to = $('cTo').value.trim(), amt = $('cAmt').value.trim();
   let expectAtomic;
-  try { expectAtomic = parseAtomicStrict(amt); }
-  catch (err) { $('cOut').textContent = 'отказ: сумма сверки обязана быть целыми atomic: ' + String(err.message || err); return; }
+  try {
+    // Шаг 4 принимает ЦЕЛЫЕ atomic (магнеты), как написано на поле: «сумма atomic».
+    if (!/^\d+$/.test(amt)) throw new Error('введите целые atomic (магнеты), например 1000000 за 0.001 AGT');
+    expectAtomic = BigInt(amt);
+    if (expectAtomic <= 0n) throw new Error('сумма обязана быть положительной');
+    if (expectAtomic > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('сумма превышает безопасный диапазон tx');
+  }
+  catch (err) { $('cOut').textContent = 'отказ: ' + String(err.message || err); return; }
   if (!/^[0-9a-fA-F]{64}$/.test(txid)) { $('cOut').textContent = 'отказ: txid — 64 hex-символа.'; return; }
   $('cOut').textContent = 'сверка…';
   try {

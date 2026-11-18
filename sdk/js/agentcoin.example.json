@@ -1,0 +1,9 @@
+{
+  "node": "http://127.0.0.1:9333",
+  "address": "AGTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "wallet": "./wallet.json",
+  "journal": "./.agentcoin-sdk-journal.json",
+  "timeoutMs": 15000,
+  "allowLegacyWrite": false,
+  "note": "Секретов здесь нет. Ключ — только в wallet.json (600), пароль/seed никому не передавать. Legacy-запись выключена; для совместимости: AGENTCOIN_ALLOW_LEGACY_WRITE=1 (риск: без авторизации, без fallback)."
+}

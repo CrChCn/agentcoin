@@ -1,122 +1,308 @@
 #!/usr/bin/env node
-/* Agentcoin SDK (JS, zero-deps) — единый вход для сторонних ИИ-агентов.
-   Использует ТОЛЬКО существующие HTTP API ноды, новых endpoint не вводит:
-     GET  /info, /queue/status, /queue/history
-     GET  /balances?addresses=ADDR, /jobs/state, /escrow/state
-     POST /queue/join {address,handle}, /queue/claim {taker}, /queue/done {jobId,summary}
-   Подпись: ключ НЕ покидает локальный signer (файл кошелька читается только здесь).
-   Легаси-очередь ноды подписей не требует; подписанный путь v2 (queue-auth.mjs)
-   подключён как опция и проверяется тестами, но по умолчанию не отправляется.
-   Идемпотентность: локальный журнал operationId -> result переживает рестарт;
-   повтор claim возвращает то же назначение, повтор done не дублирует выплату. */
+/* Agentcoin SDK v0.2 (JS, zero-deps) — безопасный клиент.
+   Режимы:
+     read    — публичное состояние, ключ НЕ загружается;
+     signed  — изменения подписью ed25519 на ноде с /queue/auth-capabilities {signed:true};
+     legacy  — неподписанные POST /queue/*, ТОЛЬКО при allowLegacyWrite:true + риск в ответе.
+   Авто-fallback signed→legacy ЗАПРЕЩЁН: отказ signed не пробует legacy.
+   Обнаружение: GET /queue/auth-capabilities (документированный механизм стенда);
+   404 = signed не поддерживается. Угадывание по одному успешному запросу запрещено.
+   Журнал операций: operationId, network/genesis, signerAddress, action, bodyDigest,
+   nonce/expiry, state (reserved/sent/acked/needs_reconcile), result/reconcile.
+   404 неизвестной задачи — НЕ успех. Неопределённый исход — needs_reconcile. */
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const SDK_VERSION = '0.1.0';
+export const SDK_VERSION = '0.2.0';
+export const QUEUE_CHAIN = 'AGENTCOIN';
+const GENESIS_UNKNOWN = 'unknown';
 
-export function makeClient({ node, walletFile, journalFile, fetchImpl = fetch } = {}) {
+const sha256hex = (s) => crypto.createHash('sha256').update(String(s), 'utf8').digest('hex');
+function canonBody(b) {
+  const sort = (v) => Array.isArray(v) ? v.map(sort) : (v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sort(v[k])])) : v);
+  return JSON.stringify(sort(b || {}));
+}
+export const bodyDigest = (b) => sha256hex(canonBody(b));
+
+function loadOpFile(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return { ops: {} }; } }
+function saveOpFile(f, obj) {
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  const tmp = f + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, f);
+}
+// Межпроцессный резерв: mkdir-атомарный lock рядом с журналом (как queue-auth).
+function withJournalLock(journalFile, fn, timeoutMs = 5000) {
+  const lockDir = String(journalFile) + '.lock';
+  const start = Date.now();
+  for (;;) {
+    try { fs.mkdirSync(lockDir); break; }
+    catch (e) {
+      if (e && (e.code === 'EEXIST' || e.code === 'EACCES')) {
+        if (Date.now() - start > timeoutMs) throw new Error('OP_LOCK_TIMEOUT');
+        const end = Date.now() + 5;
+        while (Date.now() < end) {}
+        continue;
+      }
+      throw e;
+    }
+  }
+  try { return fn(); }
+  finally { try { fs.rmdirSync(lockDir); } catch {} }
+}
+
+export function makeClient({ node, address, walletFile, journalFile, allowLegacyWrite = false, timeoutMs = 15000, fetchImpl } = {}) {
+  const doFetch = fetchImpl || fetch;
   const base = String(node || process.env.AGENTCOIN_NODE || 'http://127.0.0.1:9333').replace(/\/$/, '');
   const jFile = journalFile || process.env.AGENTCOIN_JOURNAL || path.join(process.cwd(), '.agentcoin-sdk-journal.json');
-  let journal = {};
-  try { journal = JSON.parse(fs.readFileSync(jFile, 'utf8')); } catch { journal = {}; }
-  const saveJournal = () => { try { fs.mkdirSync(path.dirname(jFile), { recursive: true }); fs.writeFileSync(jFile, JSON.stringify(journal, null, 2)); } catch {} };
+  const legacyOptIn = allowLegacyWrite || process.env.AGENTCOIN_ALLOW_LEGACY_WRITE === '1';
+  let capCache = null;
 
   async function http(method, p, body) {
-    const r = await fetchImpl(base + p, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15000),
-    });
-    const data = await r.json().catch(() => ({}));
-    return { status: r.status, data };
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    if (t.unref) t.unref(); // Windows: форсированный exit при висящем таймере роняет libuv
+    try {
+      const r = await doFetch(base + p, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal, redirect: 'error', // подписанные запросы не пересылаем на другой origin
+      });
+      const data = await r.json().catch(() => ({}));
+      return { status: r.status, data };
+    } catch (e) {
+      if (e && (e.name === 'AbortError')) return { status: 0, data: {}, netError: 'timeout' };
+      return { status: 0, data: {}, netError: String(e.message || e).slice(0, 200) };
+    } finally { clearTimeout(t); }
   }
   const get = (p) => http('GET', p);
   const post = (p, body) => http('POST', p, body);
 
-  function loadWallet() {
-    if (!walletFile) throw new Error('walletFile required: путь к локальному wallet.json (ключ не отправляется на ноду)');
-    const w = JSON.parse(fs.readFileSync(walletFile, 'utf8'));
-    if (!w.address) throw new Error('bad_wallet: нет address');
-    return w;
+  async function capabilities() {
+    if (capCache) return capCache;
+    const r = await get('/queue/auth-capabilities');
+    if (r.status === 200 && r.data) capCache = { signed: r.data.signed === true, chain: r.data.chain || QUEUE_CHAIN, genesis: r.data.genesis || GENESIS_UNKNOWN, raw: r.data };
+    else capCache = { signed: false, legacy: true, chain: QUEUE_CHAIN, genesis: GENESIS_UNKNOWN, note: 'signed unsupported (404) — только legacy при явном opt-in' };
+    return capCache;
+  }
+  async function netId() {
+    const cap = await capabilities().catch(() => ({ genesis: GENESIS_UNKNOWN }));
+    let genesis = cap.genesis || GENESIS_UNKNOWN;
+    try { const i = await get('/info'); genesis = i.data?.genesisHash || i.data?.genesis || genesis; } catch {}
+    return { network: base, genesis: String(genesis) };
   }
 
-  // --- read-only: состояние сети, паспорт-заглушка, баланс, очередь ---
-  async function status(address) {
-    const [info, q, bal, jobs] = await Promise.all([
-      get('/info'), get('/queue/status'),
-      get(`/balances?addresses=${encodeURIComponent(address)}`),
-      get('/jobs/state'),
-    ]);
-    return { node: base, info: info.data, queue: q.data, balance: bal.data, jobs: jobs.data?.stats || null };
+  // --- публичное чтение: ключ не трогаем ---
+  async function status(addr) {
+    const [info, q, bal, jobs] = await Promise.all([get('/info'), get('/queue/status'), get(`/balances?addresses=${encodeURIComponent(addr)}`), get('/jobs/state')]);
+    return { node: base, info: info.data, queue: q.data, balance: bal.data, jobs: jobs.data?.stats || null, netError: info.netError || q.netError || undefined };
   }
-  async function myTask(address) {
+  async function myTask(addr) {
+    // Авторитетные источники по порядку (prod /queue/status отдаёт только счётчики):
+    // 1) стенд-only /queue/assignments {onDuty:{jobId:agent}}; 2) объектная форма onDuty;
+    // 3) журнал acked claim; иначе null = принадлежность неизвестна (сдача запрещена).
+    const ex = await get('/queue/assignments').catch(() => null);
+    if (ex && ex.status === 200 && ex.data?.onDuty) {
+      for (const [jobId, agent] of Object.entries(ex.data.onDuty)) if (String(agent) === String(addr)) return { jobId, agent, via: 'assignments' };
+      return null;
+    }
     const q = await get('/queue/status');
-    const onDuty = q.data?.onDuty || q.data?.on_duty || {};
-    for (const [jobId, agent] of Object.entries(onDuty)) if (agent === address) return { jobId, agent };
+    if (q.status === 200 && q.data?.onDuty && typeof q.data.onDuty === 'object') {
+      for (const [jobId, agent] of Object.entries(q.data.onDuty)) if (String(agent) === String(addr)) return { jobId, agent, via: 'status' };
+      return null;
+    }
+    const ops = loadOpFile(jFile).ops || {};
+    const mine = Object.values(ops).find(o => o.action === 'claim' && o.signerAddress === addr && o.state === 'acked');
+    if (mine?.result?.jobId) return { jobId: mine.result.jobId, agent: addr, via: 'journal' };
     return null;
   }
-  async function payments(address) {
+  async function queueHistory() { const h = await get('/queue/history'); return h.status === 200 ? (h.data?.history || []) : []; }
+  async function payments(addr) {
+    const done = await post_done_lookup(addr);
     const j = await get('/jobs/state?fresh=1');
-    const open = (j.data?.open || []).filter(e => e.worker === address);
-    const history = (j.data?.history || []).filter(e => e.worker === address);
-    const paid = history.filter(e => e.status === 'paid').reduce((s, e) => s + (Number(e.paidOut ?? e.amount) || 0), 0);
-    return { open, history, paidTotal: paid, fees: j.data?.fees || [] };
+    const open = ((j.data?.open) || []).filter(e => e.worker === addr);
+    const hist = ((j.data?.history) || []).filter(e => e.worker === addr);
+    const confirmed = hist.filter(e => e.status === 'paid');
+    return {
+      // Различаем стадии, не смешиваем submit/done/выплату:
+      accepted: done,                       // результат принят нодой (legacy /queue/done)
+      obligation: null,                      // V2 submit→review→obligation тут нет — legacy этого не даёт
+      txSent: done?.bounty?.txid || null,    // казначей отправил (если вернул txid)
+      confirmed,                             // on-chain выплаты из /jobs/state
+      open, missing: (!done && !confirmed.length && !open.length) ? 'нет данных по адресу' : null,
+      note: 'legacy /queue/done не реализует review/obligation; stand-no-fund выплатой не считается',
+    };
+  }
+  async function post_done_lookup(addr) {
+    const ops = loadOpFile(jFile).ops || {};
+    for (const op of Object.values(ops)) if (op.action === 'done' && op.signerAddress === addr && op.state === 'acked') return op.result;
+    const hist = await queueHistory();
+    const mine = hist.filter(h => h.agent === addr).slice(-1)[0];
+    return mine ? { closed: mine.jobId, via: 'history' } : null;
   }
 
-  // --- mutating только явным вызовом; operationId = nonce/адрес, журнал переживает рестарт ---
-  async function join(address, handle = '') {
-    const opId = `join:${address}`;
-    if (journal[opId]) return { ...journal[opId], replay: true };
-    const r = await post('/queue/join', { address, handle });
-    if (r.status === 200) { journal[opId] = { ok: true, result: r.data }; saveJournal(); return { ok: true, replay: false, result: r.data }; }
-    return { ok: false, status: r.status, error: r.data?.error || 'join_failed', detail: r.data };
+  function readSigner() {
+    if (!walletFile) throw new Error('wallet required только для записи');
+    const w = JSON.parse(fs.readFileSync(walletFile, 'utf8'));
+    const pem = w.privateKeyPem || w.privKey || w.private_key;
+    if (!pem) throw new Error('no_private_key: в wallet.json нет приватного ключа (чтение работает без него)');
+    return { w, pem };
   }
-  async function claim(address) {
-    // «только своя задача»: taker всегда = свой адрес, чужой claim SDK не отправляет.
-    const opId = `claim:${address}`;
-    if (journal[opId]?.result?.jobId) {
-      // сверяем с нодой: назначение всё ещё за нами — иначе помечаем устаревшим
-      const mine = await myTask(address).catch(() => null);
-      if (mine && mine.jobId === journal[opId].result.jobId) return { ...journal[opId], replay: true };
+  function checkAddr(explicitAddr) {
+    const a = explicitAddr || address || process.env.AGENTCOIN_ADDRESS || null;
+    if (!a) throw new Error('address required');
+    return a;
+  }
+
+  function opReserve({ operationId, action, body, signerAddress, net }) {
+    return withJournalLock(jFile, () => {
+      const file = loadOpFile(jFile); file.ops ||= {};
+      const ex = file.ops[operationId];
+      if (ex) {
+        if (ex.bodyDigest !== bodyDigest(body)) return { exists: true, mismatch: true, op: ex };
+        if (ex.network !== net.network || ex.genesis !== net.genesis) return { exists: true, wrongNet: true, op: ex };
+        return { exists: true, op: ex };
+      }
+      const nonce = String(Date.now()) + '-' + crypto.randomBytes(4).toString('hex');
+      const op = { operationId, network: net.network, genesis: net.genesis, signerAddress, action, bodyDigest: bodyDigest(body), body, nonce, expiry: Date.now() + 5 * 60_000, state: 'reserved', result: null };
+      file.ops[operationId] = op; saveOpFile(jFile, file);
+      return { exists: false, op };
+    });
+  }
+  function opSet(operationId, patch) {
+    withJournalLock(jFile, () => { const f = loadOpFile(jFile); if (f.ops[operationId]) { Object.assign(f.ops[operationId], patch); saveOpFile(jFile, f); } });
+  }
+  function opGet(operationId) { return (loadOpFile(jFile).ops || {})[operationId] || null; }
+
+  // --- запись: signed по умолчанию; legacy только при явном opt-in ---
+  async function join(addr, handle = '') {
+    const a = addr || checkAddr();
+    const cap = await capabilities();
+    if (cap.signed) return signedMutate({ addr: a, action: 'join', body: { address: a, handle } });
+    if (!legacyOptIn) return { ok: false, error: 'legacy_write_disabled', hint: 'нода не поддерживает подписи; legacy-запись только при AGENTCOIN_ALLOW_LEGACY_WRITE=1 (риск: без авторизации)' };
+    return legacyJoin(a, handle);
+  }
+  async function legacyJoin(a, handle) {
+    const net = await netId();
+    const operationId = `join:${a}`;
+    const r0 = opReserve({ operationId, action: 'join', body: { address: a, handle }, signerAddress: a, net });
+    if (r0.exists && !r0.mismatch && r0.op.state === 'acked') return { ok: true, replay: true, result: r0.op.result };
+    if (r0.wrongNet) return { ok: false, error: 'WRONG_NETWORK', hint: '����/genesis �� ��������� � ������ � ������ ���������' };
+    if (r0.mismatch) return { ok: false, error: 'BODY_MISMATCH', hint: 'изменённое тело не использует прежнюю бронь' };
+    if (r0.exists && r0.op.state === 'needs_reconcile') return { ok: false, error: 'needs_reconcile', reconcile: r0.op.reconcile };
+    opSet(operationId, { state: 'sent' });
+    const r = await post('/queue/join', { address: a, handle });
+    if (r.netError) { opSet(operationId, { state: 'needs_reconcile', reconcile: { check: 'GET /queue/status waiting includes address' } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
+    if (r.status === 200) { opSet(operationId, { state: 'acked', result: r.data }); return { ok: true, replay: false, result: r.data, legacy: true, risk: 'legacy без подписи' }; }
+    opSet(operationId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
+    return { ok: false, status: r.status, error: r.data?.error || 'join_failed' };
+  }
+
+  async function claim(addr) {
+    const a = addr || checkAddr();
+    const cap = await capabilities();
+    if (cap.signed) return signedMutate({ addr: a, action: 'claim', body: { taker: a } });
+    if (!legacyOptIn) return { ok: false, error: 'legacy_write_disabled', hint: 'нода не поддерживает подписи; legacy-запись только при AGENTCOIN_ALLOW_LEGACY_WRITE=1 (риск: без авторизации)' };
+    return legacyClaim(a);
+  }
+  async function legacyClaim(a) {
+    const net = await netId();
+    const operationId = `claim:${a}`;
+    const r0 = opReserve({ operationId, action: 'claim', body: { taker: a }, signerAddress: a, net });
+    if (r0.exists && !r0.mismatch && r0.op.state === 'acked') {
+      const mine = await myTask(a).catch(() => null);
+      if (mine && mine.jobId === r0.op.result?.jobId) return { ok: true, replay: true, result: r0.op.result, legacy: true };
+      // назначение ушло — не врём про успех, требуем сверки
+      return { ok: false, error: 'needs_reconcile', reconcile: { expected: r0.op.result?.jobId, mine } };
     }
-    const r = await post('/queue/claim', { taker: address });
+    if (r0.wrongNet) return { ok: false, error: 'WRONG_NETWORK', hint: '����/genesis �� ��������� � ������ � ������ ���������' };
+    if (r0.mismatch) return { ok: false, error: 'BODY_MISMATCH', hint: 'taker всегда = свой адрес' };
+    if (r0.exists && r0.op.state === 'needs_reconcile') return { ok: false, error: 'needs_reconcile', reconcile: r0.op.reconcile };
+    opSet(operationId, { state: 'sent' });
+    const r = await post('/queue/claim', { taker: a });
+    if (r.netError) { opSet(operationId, { state: 'needs_reconcile', reconcile: { check: 'GET /queue/status onDuty[taker]' } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
     if (r.status === 200 && r.data?.jobId) {
-      // потеря ответа лечится повтором: сервер вернёт repeat:true с тем же jobId
-      journal[opId] = { ok: true, result: { jobId: r.data.jobId, task: r.data.task || null, bountyAGT: r.data.bountyAGT ?? null, repeat: !!r.data.repeat } };
-      saveJournal();
-      return { ok: true, replay: !!r.data.repeat, result: journal[opId].result };
+      const res = { jobId: r.data.jobId, task: r.data.task || null, bountyAGT: r.data.bountyAGT ?? null, repeat: !!r.data.repeat };
+      opSet(operationId, { state: 'acked', result: res });
+      return { ok: true, replay: !!r.data.repeat, result: res, legacy: true, risk: 'legacy без подписи' };
     }
+    opSet(operationId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
     return { ok: false, status: r.status, error: r.data?.error || 'claim_failed', detail: r.data };
   }
-  async function submit(address, jobId, summary) {
-    const opId = `done:${jobId}`;
-    if (journal[opId]) return { ...journal[opId], replay: true };
+
+  async function submit(addr, jobId, summary) {
+    const a = addr || checkAddr();
     if (!jobId) return { ok: false, error: 'jobId required' };
-    if (String(summary || '').trim().length < 40) {
-      return { ok: false, error: 'summary_too_short', hint: 'минимум 40 символов содержательного отчёта (правило ноды)' };
-    }
+    if (String(summary || '').trim().length < 40) return { ok: false, error: 'summary_too_short', hint: 'минимум 40 символов (правило ноды); сеть не тронута' };
+    // Принадлежность: авторитетное состояние — /queue/status onDuty.
+    const mine = await myTask(a).catch(() => null);
+    const hist = await queueHistory().catch(() => []);
+    const wasMine = hist.some(h => String(h.jobId) === String(jobId) && String(h.agent) === String(a));
+    const op = opGet(`done:${jobId}:${bodyDigest({ jobId, summary })}`) || opGet(`done:${jobId}`);
+    if (mine && mine.jobId === jobId) { /* своё — сдаём ниже */ }
+    else if (op && op.state === 'acked') return { ok: true, replay: true, result: op.result };
+    else if (wasMine) return { ok: true, replay: true, result: { closed: jobId, via: 'history' } };
+    else if (mine) return { ok: false, error: 'foreign_task', hint: `у адреса другое назначение (${mine.jobId}), сдача ${jobId} запрещена` };
+    else return { ok: false, error: 'ownership_unknown', hint: `назначение ${jobId} за адресом не подтверждено /queue/status; сдача запрещена` };
+    const cap = await capabilities();
+    if (cap.signed) return signedMutate({ addr: a, action: 'done', body: { jobId, summary }, operationId: `done:${jobId}:${bodyDigest({ jobId, summary })}` });
+    if (!legacyOptIn) return { ok: false, error: 'legacy_write_disabled', hint: 'сдача меняет состояние; legacy только при AGENTCOIN_ALLOW_LEGACY_WRITE=1' };
+    return legacyDone(a, jobId, summary);
+  }
+  async function legacyDone(a, jobId, summary) {
+    const net = await netId();
+    const operationId = `done:${jobId}:${bodyDigest({ jobId, summary })}`;
+    const r0 = opReserve({ operationId, action: 'done', body: { jobId, summary }, signerAddress: a, net });
+    if (r0.exists && !r0.mismatch && r0.op.state === 'acked') return { ok: true, replay: true, result: r0.op.result };
+    if (r0.wrongNet) return { ok: false, error: 'WRONG_NETWORK', hint: '����/genesis �� ��������� � ������ � ������ ���������' };
+    if (r0.mismatch) return { ok: false, error: 'BODY_MISMATCH', hint: 'изменённое summary — новая операция, прежняя бронь не используется' };
+    if (r0.exists && r0.op.state === 'needs_reconcile') return { ok: false, error: 'needs_reconcile', reconcile: r0.op.reconcile };
+    // alias-бронь: тот же jobId с другим текстом — не переиспользуем результат
+    opSet(operationId, { state: 'sent' });
     const r = await post('/queue/done', { jobId, summary });
-    if (r.status === 200) { journal[opId] = { ok: true, result: r.data }; saveJournal(); return { ok: true, replay: false, result: r.data }; }
-    // 404 после потери ответа = работа уже закрыта: считаем успехом, фиксируем в журнале
-    if (r.status === 404 && String(r.data?.error || '') === 'job_not_found') {
-      journal[opId] = { ok: true, result: { closed: jobId, note: 'already-closed (идемпотентный повтор)' } };
-      saveJournal();
-      return { ...journal[opId], replay: true };
-    }
-    return { ok: false, status: r.status, error: r.data?.error || 'done_failed', detail: r.data };
+    if (r.netError) { opSet(operationId, { state: 'needs_reconcile', reconcile: { check: `GET /queue/history jobId=${jobId}` } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
+    if (r.status === 200) { opSet(operationId, { state: 'acked', result: { ...r.data, legacy: true } }); return { ok: true, replay: false, result: r.data, legacy: true, risk: 'legacy без подписи; выплата отдельно в payments()' }; }
+    // 404 здесь — НЕ успех: задача неизвестна/маршрут/потеря состояния.
+    opSet(operationId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data, hint: '404 ≠ успех: сверь /queue/status и /queue/history' } });
+    return { ok: false, status: r.status, error: r.data?.error || 'done_failed', reconcile: 'needs_reconcile' };
   }
 
-  return { base, status, myTask, payments, join, claim, submit, _journalFile: jFile };
-}
+  async function signedMutate({ addr, action, body, operationId }) {
+    let signer;
+    try { signer = readSigner(); } catch (e) { return { ok: false, error: 'signer_unavailable', hint: String(e.message || e) }; }
+    // Адрес из ключа сверяем с настроенным (core.mjs каноника).
+    try {
+      const { addressFromPub } = await import('../../core.mjs');
+      const crypto2 = await import('node:crypto');
+      const pubPem = signer.w.public_key_pem || signer.w.pub;
+      if (pubPem) {
+        const derived = addressFromPub(pubPem);
+        if (derived.toLowerCase() !== String(addr).toLowerCase()) return { ok: false, error: 'ADDRESS_MISMATCH', hint: 'адрес из ключа ≠ настроенный адрес' };
+        void crypto2;
+      }
+    } catch (e) { return { ok: false, error: 'signer_verify_failed', hint: String(e.message || e).slice(0, 160) }; }
+    const net = await netId();
+    if (net.genesis && !String(net.genesis).includes('unknown')) { /* сеть зафиксирована в операции */ }
+    const opId = operationId || `${action}:${addr}:${bodyDigest(body)}`;
+    const r0 = opReserve({ operationId: opId, action, body, signerAddress: addr, net });
+    if (r0.exists && !r0.mismatch && r0.op.state === 'acked') return { ok: true, replay: true, result: r0.op.result };
+    if (r0.mismatch) return { ok: false, error: 'BODY_MISMATCH' };
+    if (r0.exists && r0.op.state === 'needs_reconcile') return { ok: false, error: 'needs_reconcile', reconcile: r0.op.reconcile };
+    const { signAction } = await import('../../queue-auth.mjs');
+    let sig;
+    try { sig = signAction(signer.pem, { action, body, nonce: r0.op.nonce, expiry: r0.op.expiry }); }
+    catch (e) { opSet(opId, { state: 'needs_reconcile', reconcile: { error: 'sign_failed' } }); return { ok: false, error: 'sign_failed', hint: 'ошибка дешифрования/подписи прекращает действие' }; }
+    opSet(opId, { state: 'sent' });
+    const fromPub = signer.w.public_key_pem || signer.w.pub || '';
+    const r = await post(`/queue/signed/${action}`, { address: addr, fromPub, signature: sig.signature, action, body, nonce: r0.op.nonce, expiry: r0.op.expiry, chain: QUEUE_CHAIN });
+    if (r.netError) { opSet(opId, { state: 'needs_reconcile', reconcile: { check: 'reconcile via status/history' } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
+    if (r.status === 200) { opSet(opId, { state: 'acked', result: r.data }); return { ok: true, replay: false, result: r.data }; }
+    opSet(opId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
+    return { ok: false, status: r.status, error: r.data?.error || 'signed_failed' };
+  }
 
-// Подписанный путь v2 (queue-auth.mjs): ключ подписывает локально, нода проверяет.
-// По умолчанию НЕ отправляется — легаси-эндпоинты его не требуют; функция нужна
-// чтобы сторонний агент мог доказать владение адресом без отправки ключа.
-export async function signQueueAction({ walletPem, action, body = {}, nonce, expiry }) {
-  const { signAction } = await import('../../queue-auth.mjs');
-  return signAction(walletPem, { action, body, nonce, expiry });
+  return { base, status, myTask, payments, join, claim, submit, capabilities, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

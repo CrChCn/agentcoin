@@ -629,8 +629,8 @@ function agtNotify(path, rec) {
   set.forEach(function (fn) { try { fn(rec); } catch (e) {} });
 }
 async function agtFetch(path) {
-  // Нормализация: jget('/api/v1/X') и jget('/X') — один маршрут. Без этого fetch
-  // уходил на /api/v1/api/v1/X (удвоенный префикс, вечный HTTP 404).
+  // Нормализация: '/api/v1/X' и '/X' — один маршрут (внутренний jget-блок уже
+  // режет префикс до вызова; это страховка прямых вызовов window.AGTData.read).
   if (typeof path === 'string' && path.indexOf('/api/v1/') === 0) path = path.slice(7);
   // capabilities-список ноды неполон (нода отдаёт /memory/state, /compute/state мимо
   // него): отсутствие в списке — не запрет, а повод проверить маршрут напрямую.
@@ -639,13 +639,14 @@ async function agtFetch(path) {
   var pr = (async function () {
     var prev = AGTDataStore.get(path);
     try {
-      var r = await fetch('/api/v1' + path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
+      var usedSrc = '/api/v1' + path;
+      var r = await fetch(usedSrc, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
       if (r.status === 404) {
         // /api/v1-шлюз знает не все маршруты ноды (/queue/history, /memory/state,
         // /compute/state): честный фолбэк на корневой путь той же ноды (same-origin).
         try {
           var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
-          if (rTop.ok) r = rTop;
+          if (rTop.ok) { r = rTop; usedSrc = path; }
         } catch (fb) {}
       }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -656,7 +657,7 @@ async function agtFetch(path) {
       if (verr) throw new Error('Nepodderzhivaemyi-format: ' + verr);
       var now = Date.now();
       var st = agtStatusFor(path, data, now);
-      var rec = { data: data, status: st.status, source: '/api/v1' + path,
+      var rec = { data: data, status: st.status, source: usedSrc,
         fetchedAt: now, snapshotAt: st.snapshotAt,
         blockHeight: ((data.blocks != null && !Array.isArray(data.blocks)) ? data.blocks : (data.snapshotBlocks != null ? data.snapshotBlocks : (data.currentBlocks != null ? data.currentBlocks : null))),
         blockHash: (data.headHash || data.tipHash || null), error: null };

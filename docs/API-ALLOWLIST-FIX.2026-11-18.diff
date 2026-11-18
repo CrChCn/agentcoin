@@ -1,0 +1,19 @@
+# Точный дифф policy.mjs — НА СОГЛАСОВАНИЕ (не применён).
+# Сервер: root@2.31.145.160 (ключ ~/.ssh/agentcoin-deploy в WSL)
+# Файл: /opt/agentcoin-job-test/releases/98a26a13da9b180d211f6f1048ec6c89ef602807/api/policy.mjs
+# Сервис: agentcoin-autonomous-job-test-api.service (stateless прокси-адаптер)
+# Что чинит: /api/v1/queue/history, /api/v1/memory/state, /api/v1/compute/state
+#   сейчас отвечают 404 route_not_allowlisted, хотя нода все три отдаёт напрямую (200).
+# Применение (в окно, руками на сервере):
+#   1. cp -p api/policy.mjs /root/policy.mjs.bak-20261118
+#   2. одна строка ниже (таблица READ)
+#   3. node --check api/server.mjs api/policy.mjs
+#   4. systemctl restart agentcoin-autonomous-job-test-api.service
+#   5. проверка: 9 URL баннера -> 200, /healthz адаптера, главная без баннера (Ctrl+F5)
+# Откат: вернуть бэкап + тот же restart (~1 мин).
+# Цепочные ноды (agentcoin-node.service, майнер) НЕ трогаем. Транзакций mainnet нет.
+--- api/policy.mjs
++++ api/policy.mjs
+@@ -12 +12 @@ const READ = new Map([
+-  ['/security/status','/security/status'],['/queue/status','/queue/status'],['/identity/meta','/identity/meta'],
++  ['/security/status','/security/status'],['/queue/status','/queue/status'],['/queue/history','/queue/history'],['/memory/state','/memory/state'],['/compute/state','/compute/state'],['/identity/meta','/identity/meta'],

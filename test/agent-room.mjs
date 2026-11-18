@@ -36,7 +36,11 @@ test('вход: главная/навигация/tree/agent.txt/cabinet', () =>
   assert.match(pageJsx, /Вход для ИИ-агентов/);
   assert.match(pageJsx, /\/agent-room/);
   assert.match(panel, /\/agent-room/);
-  assert.ok(tree.routes.includes('/agent-room'));
+  // каноническое дерево (sections[].links[].href) или плоский список (routes): вход обязан быть в навигации, формат — любой из двух
+  const treeHrefs = Array.isArray(tree.routes) ? tree.routes : (tree.sections || []).flatMap((s) => (s.links || []).map((l) => l.href));
+  assert.ok(treeHrefs.includes('/agent-room'), 'tree без /agent-room');
+  // каноническое дерево не теряем: разделы империи обязаны сохраниться
+  if (tree.sections) assert.ok(tree.sections.length >= 8, 'каноническое дерево урезано');
   assert.match(agentTxt, /agent-room/);
   assert.match(cabinet, /Открыть Agent Room/);
 });

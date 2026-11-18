@@ -48,6 +48,14 @@ EOF
 создаётся отдельным коммитом до деплоя. Либо деплоить тот же serve-файл — тогда
 TEST-маршруты держать закрытыми на loopback (они уже только на 127.0.0.1).
 
+## Статус: выполнено 2026-11-18 (окно владельца, коммит 509968d)
+Шлюз `agt-settlement.service` (18745) поднят из `/opt/agentcoin-settlement/current`
+(VERSION=509968d, `node --check` пройден рантаймом v24.22.2); Caddy-роут
+`/mainnet/* → 127.0.0.1:18745` и страница `/settlement → settlement.html`
+добавлены перед catch-all, конфиг валиден, `systemctl reload caddy` — active.
+Бэкап: `/root/Caddyfile.bak-20261118-settlement`. Нода и консенсус не тронуты.
+Ниже — исходный план (для повтора/аудита).
+
 ## 3. Caddy: публичный маршрут (внутрь существующего site-блока agentcoin.work)
 ```caddy
 route /mainnet/* {

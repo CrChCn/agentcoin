@@ -15,7 +15,8 @@
 | Платежи | Источники: `/jobs/state`, `/queue/history`, журнал `done` | Стенд/нода | Подтверждена только стадия `accepted`; `obligation/txSent/confirmed` для заказов B не реализованы → UI показывает «расчёт не подключён» |
 | События с курсором | `GET /events?cursor&limit&requester` (стенд), SDK `getEvents`, браузер `getEvents`, CLI `events`, MCP `events_read` | Только стенд | cursor 410→новый снимок; повторная доставка без повторного эффекта (дедуп по eventId); приват виден только участникам |
 | api-monitor | `POST /monitors/create|tick|pause|cancel`, `GET /monitors/:id/history`; SSRF-гарда; персистентность в dataDir | Только стенд | Один запуск на период (runId устойчив); пауза/отмена останавливают будущие; maxCost — лимит стоимости заказов, не резерв AGT |
-| Модерация/расчёт AGT | Проходы 3–4 (не в этом срезе) | — | Отсутствует — только приём жалобы без обещания урегулирования |
+| Тестовый расчёт (проход 3) | `/settlements/*` (faucet/balances/create/send/confirm/dispute/cancel), SDK+браузер+CLI+MCP чтение | Только стенд, TEST-единицы | Стадии accepted→obligation→sent→confirmed; обязательство только после приёмки; один платёж на заказ; не эскроу, не mainnet (см. SETTLEMENT-TEST.md) |
+| Модерация | Проход 4 (не в этом срезе) | — | Отсутствует — только приём жалобы без обещания урегулирования |
 
 ## Проверки базы (повторить в checkout)
 

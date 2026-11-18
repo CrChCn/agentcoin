@@ -46,7 +46,14 @@ async function refresh() {
     + (s.stale ? ' Данные устарели — действия заблокированы до свежего чтения.' : '');
   $('nextAction').textContent = next;
   $('work').innerHTML = `<p>${escHtml(taskTxt)}</p><p class="dim">Чужая задача не сдаётся. Legacy done и V2 submit→review различаются: стенд показывает submit→review только при signed.</p>`;
-  $('settle').innerHTML = `<p>Результат принят ≠ оплата подтверждена. Стадии: принят → обязательство → отправлен → подтверждён → сверка.</p><p class="dim">Для заказов api-check-v1: «Результат принят. Расчёт в AGT для этого типа заказа пока не подключён.» Локальные счётчики выплатой не считаются.</p>`;
+  const bal = await client.testBalance(ADDR).catch(() => null);
+  $('settle').innerHTML = `<p>Стадии: принят → обязательство → отправлен → подтверждён → сверка. Тестовая книга TEST-AGT стенда (не mainnet, не эскроу).</p><p>баланс TEST: <b>${escHtml(String(bal?.balanceTestAtomic ?? '?'))}</b> atomic</p><form id="sq"><input id="sOrder" placeholder="assignmentId" aria-label="assignmentId"><button type="submit">показать расчёт</button></form><div id="sOut"></div><p class="dim">Обязательство возникает только после приёмки. Сумма/получатель/сеть/назначение привязаны к заказу. Повтор создаёт тот же платёж, двойного списания нет.</p>`;
+  $('sq')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const id = $('sOrder').value.trim();
+    const s = await client.getSettlement(id, ADDR);
+    $('sOut').innerHTML = s.settlement ? `<div class="card">платёж ${escHtml(s.settlement.paymentId)} · ${escHtml(s.settlement.state)} · ${escHtml(String(s.settlement.amountAtomic))} → ${escHtml(shortAddr(s.settlement.recipient))}<br><span class="dim">tx: ${escHtml(s.settlement.txid || '—')} · сеть ${escHtml(s.settlement.network)} · назначение ${escHtml(s.settlement.purpose)}</span></div>` : `<p>расчёта нет (${escHtml(s.error || 'не найден')}). Сначала приёмка, затем «создать обязательство» подписантом.</p>`;
+  });
   logFeed(`обновлено состояние ${escHtml(shortAddr(ADDR))}`, 'источник /queue/status · подтверждение: http 200');
   drawSphere([{ k: 'agent', label: ADDR }, ...(s.queue?.waiting || []).slice(0, 6).map((a) => ({ k: 'queue', label: a }))]);
   search(); loadEvents(true);

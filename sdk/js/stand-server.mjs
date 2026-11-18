@@ -30,10 +30,13 @@ export async function createStand(tmp) {
   Object.assign(offers, loadJson('offers.json', {}));
   Object.assign(orders, loadJson('orders.json', {}));
   for (const [k, v] of Object.entries(loadJson('idem.json', {}))) idemOrder.set(k, v);
+  const settlements = Object.assign({}, loadJson('settlements.json', {}));
+  const testBalances = Object.assign({}, loadJson('test-balances.json', {})); // тестовая книга TEST-AGT, не mainnet
   const persistMarket = () => {
     saveJson('events.json', events.slice(-500)); saveJson('monitors.json', monitors);
     saveJson('runs.json', runs.slice(-500)); saveJson('offers.json', offers);
     saveJson('orders.json', orders); saveJson('idem.json', Object.fromEntries(idemOrder));
+    saveJson('settlements.json', settlements); saveJson('test-balances.json', testBalances);
   };
   const emit = (eventType, entityId, entityVersion, visibility, payload, parties) => {
     const seq = events.length;
@@ -72,7 +75,7 @@ export async function createStand(tmp) {
     req.on('end', () => {
       let b = {}; try { b = body ? JSON.parse(body) : {}; } catch { return send(400, { error: 'bad_json' }); }
       if (u.pathname === '/info') return send(200, { chain: 'AGENTCOIN-stand', blocks: 1, genesisHash: GENESIS });
-      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel'] });
+      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel'] });
       if (u.pathname === '/queue/status') return send(200, queue.status());
       if (u.pathname === '/queue/assignments') return send(200, { onDuty: queue.state.onDuty }); // стенд-only: prod этого не отдаёт, там — ownership_unknown без журнала/истории
       if (u.pathname === '/queue/history') return send(200, { history: queue.state.history || [] });
@@ -180,7 +183,7 @@ export async function createStand(tmp) {
           return send(200, res);
         }
         const assignmentId = crypto.createHash('sha256').update([b.address, offerId, snap.version, idem || String(b.nonce)].join('|')).digest('hex').slice(0, 16);
-        const assignment = { assignmentId, offerId, offerVersion: snap.version, offerSnapshotHash: hashOf(snap), customer: b.address, provider: snap.provider, input: input || {}, acceptanceMethod: snap.acceptance.method, state: 'open', createdAt: Date.now() };
+        const assignment = { assignmentId, offerId, offerVersion: snap.version, offerSnapshotHash: hashOf(snap), priceAtomic: snap.priceAtomic, customer: b.address, provider: snap.provider, input: input || {}, acceptanceMethod: snap.acceptance.method, state: 'open', createdAt: Date.now() };
         const verr = validateAssignment(assignment);
         if (verr) return send(400, { error: verr });
         orders[assignmentId] = { assignment, artifacts: [], acceptance: null };
@@ -321,6 +324,92 @@ export async function createStand(tmp) {
         persistMarket();
         emit(act === 'mpause' ? 'monitor.paused' : 'monitor.canceled', mon.monitorId, '1', 'parties', { paused: mon.paused }, [mon.owner]);
         return send(200, { ok: true, monitor: mon });
+      }
+      // ---- Проход 3: тестовый расчёт TEST-AGT (стенд; не эскроу, не mainnet) ----
+      if (u.pathname === '/settlements/faucet' && req.method === 'POST') {
+        const to = String(b.address || ''); const amt = Number(b.amountAtomic || 0);
+        if (!to || !Number.isInteger(amt) || amt <= 0 || amt > 1000000) return send(400, { error: 'bad_faucet' });
+        testBalances[to] = (testBalances[to] || 0) + amt;
+        persistMarket();
+        emit('settlement.funded', to, '1', 'parties', { amountAtomic: amt, test: true }, [to]);
+        return send(200, { ok: true, address: to, balanceTestAtomic: testBalances[to], test: true });
+      }
+      if (u.pathname === '/settlements/balances' && req.method === 'GET') {
+        const a = u.searchParams.get('address') || '';
+        return send(200, { address: a, balanceTestAtomic: testBalances[a] || 0, test: true, note: 'тестовые единицы стенда, не AGT mainnet' });
+      }
+      const mset = u.pathname.match(/^\/settlements\/([a-f0-9]{16})$/);
+      if (mset && req.method === 'GET') {
+        const s = settlements[mset[1]];
+        if (!s) return send(404, { error: 'settlement_not_found' });
+        const rq = u.searchParams.get('requester') || '';
+        if (rq && rq !== s.payer && rq !== s.recipient) return send(403, { error: 'foreign_settlement' });
+        return send(200, { settlement: s });
+      }
+      if (u.pathname === '/settlements/create' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'settle', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prev = usedNonce.get(key);
+        if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
+        const { assignmentId } = b.body || {};
+        if (settlements[assignmentId]) { const res = { ok: true, settlement: settlements[assignmentId], replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+        const o = orders[assignmentId];
+        if (!o) return send(404, { error: 'order_not_found' });
+        if (o.assignment.state !== 'accepted') return send(409, { error: 'no_obligation', hint: 'обязательство возникает только после приёмки (accept)' });
+        if (b.address !== o.assignment.customer) return send(403, { error: 'foreign_settle' });
+        const amount = Number(o.assignment.priceAtomic ?? 0);
+        if (!Number.isInteger(amount) || amount < 0) return send(400, { error: 'bad_amount' });
+        if ((testBalances[b.address] || 0) < amount) return send(409, { error: 'insufficient_test_funds', hint: 'пополните тестовый баланс через /settlements/faucet' });
+        const s = { paymentId: 'pay-' + assignmentId, assignmentId, amountAtomic: amount, payer: o.assignment.customer, recipient: o.assignment.provider, network: 'AGENTCOIN-stand', genesis: GENESIS, purpose: assignmentId, state: 'obligation', txid: null, dispute: null, test: true, createdAt: Date.now() };
+        settlements[assignmentId] = s;
+        persistMarket();
+        emit('settlement.obligation', assignmentId, '1', 'parties', { paymentId: s.paymentId, amountAtomic: amount }, [s.payer, s.recipient]);
+        const res = { ok: true, settlement: s };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
+      }
+      if ((u.pathname === '/settlements/send' || u.pathname === '/settlements/confirm' || u.pathname === '/settlements/dispute' || u.pathname === '/settlements/cancel') && req.method === 'POST') {
+        const act = u.pathname.endsWith('/send') ? 'ssend' : u.pathname.endsWith('/confirm') ? 'sconfirm' : u.pathname.endsWith('/dispute') ? 'sdispute' : 'scancel';
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: act, body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const { assignmentId, reason } = b.body || {};
+        const s = settlements[assignmentId];
+        if (!s) return send(404, { error: 'settlement_not_found', hint: 'сначала /settlements/create после приёмки' });
+        if (act === 'ssend') {
+          if (b.address !== s.payer) return send(403, { error: 'foreign_settle' });
+          if (s.state === 'sent' || s.state === 'confirmed') return send(200, { ok: true, settlement: s, replay: true });
+          if (s.state !== 'obligation') return send(409, { error: 'bad_state', state: s.state });
+          if (s.dispute && !s.dispute.resolved) return send(409, { error: 'disputed', hint: 'спор открыт — отправка заблокирована до разрешения (проход 4)' });
+          if ((testBalances[s.payer] || 0) < s.amountAtomic) return send(409, { error: 'insufficient_test_funds' });
+          testBalances[s.payer] -= s.amountAtomic;
+          s.state = 'sent'; s.txid = 'test-tx-' + crypto.createHash('sha256').update(s.paymentId).digest('hex').slice(0, 16);
+          persistMarket();
+          emit('settlement.sent', assignmentId, '1', 'parties', { paymentId: s.paymentId, txid: s.txid }, [s.payer, s.recipient]);
+          return send(200, { ok: true, settlement: s });
+        }
+        if (act === 'sconfirm') {
+          if (s.state === 'confirmed') return send(200, { ok: true, settlement: s, replay: true });
+          if (s.state !== 'sent') return send(409, { error: 'bad_state', hint: 'подтверждается только sent' });
+          s.state = 'confirmed'; testBalances[s.recipient] = (testBalances[s.recipient] || 0) + s.amountAtomic;
+          persistMarket();
+          emit('settlement.confirmed', assignmentId, '1', 'parties', { paymentId: s.paymentId }, [s.payer, s.recipient]);
+          return send(200, { ok: true, settlement: s });
+        }
+        if (act === 'sdispute') {
+          if (s.state === 'confirmed') { s.dispute = { by: b.address, reason: String(reason || ''), at: Date.now(), note: 'спор после подтверждения выплату не отменяет (лимит прохода 3)' }; persistMarket(); return send(200, { ok: true, settlement: s, note: s.dispute.note }); }
+          if (s.state === 'canceled') return send(409, { error: 'bad_state' });
+          s.dispute = { by: b.address, reason: String(reason || ''), at: Date.now(), resolved: false };
+          persistMarket();
+          emit('settlement.disputed', assignmentId, '1', 'parties', { reason: s.dispute.reason }, [s.payer, s.recipient]);
+          return send(200, { ok: true, settlement: s });
+        }
+        if (b.address !== s.payer) return send(403, { error: 'foreign_settle' });
+        if (s.state !== 'obligation') return send(409, { error: 'bad_state', hint: 'отмена только до отправки' });
+        s.state = 'canceled';
+        persistMarket();
+        emit('settlement.canceled', assignmentId, '1', 'parties', { paymentId: s.paymentId }, [s.payer, s.recipient]);
+        return send(200, { ok: true, settlement: s });
       }
       return send(404, { error: 'not_found' });
     });

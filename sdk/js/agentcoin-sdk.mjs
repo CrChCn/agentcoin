@@ -299,6 +299,10 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     const r = await post(`/queue/signed/${action}`, { address: addr, fromPub, signature: sig.signature, action, body, nonce: r0.op.nonce, expiry: r0.op.expiry, chain: QUEUE_CHAIN });
     if (r.netError) { opSet(opId, { state: 'needs_reconcile', reconcile: { check: 'reconcile via status/history' } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
     if (r.status === 200) { opSet(opId, { state: 'acked', result: r.data }); return { ok: true, replay: false, result: r.data }; }
+    if (r.status >= 400 && r.status < 500) {
+      withJournalLock(jFile, () => { const f = loadOpFile(jFile); if (f.ops[opId]) { delete f.ops[opId]; saveOpFile(jFile, f); } });
+      return { ok: false, status: r.status, error: r.data?.error || 'signed_failed' };
+    }
     opSet(opId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
     return { ok: false, status: r.status, error: r.data?.error || 'signed_failed' };
   }
@@ -339,6 +343,11 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     const r = await post(endpoint, { address: addr, fromPub, signature: sig.signature, action, body, nonce: r0.op.nonce, expiry: r0.op.expiry, chain: QUEUE_CHAIN });
     if (r.netError) { opSet(opId, { state: 'needs_reconcile', reconcile: { check: endpoint } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
     if (r.status === 200) { opSet(opId, { state: 'acked', result: r.data }); return { ok: true, replay: false, result: r.data }; }
+    if (r.status >= 400 && r.status < 500) {
+      // Детерминированный отказ без изменения состояния: бронь снимаем, повтор разрешён свежими данными.
+      withJournalLock(jFile, () => { const f = loadOpFile(jFile); if (f.ops[opId]) { delete f.ops[opId]; saveOpFile(jFile, f); } });
+      return { ok: false, status: r.status, error: r.data?.error || action + '_failed', detail: r.data };
+    }
     opSet(opId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
     return { ok: false, status: r.status, error: r.data?.error || action + '_failed', detail: r.data };
   }
@@ -359,8 +368,17 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const monitorHistory = async (monitorId, requester) => (await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
   const pauseMonitor = (addr, monitorId, paused) => signedMarket({ addr, action: 'mpause', body: { monitorId, paused: !!paused }, endpoint: '/monitors/pause', operationId: `mpause:${monitorId}:${paused ? '1' : '0'}:${addr}` });
   const cancelMonitor = (addr, monitorId) => signedMarket({ addr, action: 'mcancel', body: { monitorId }, endpoint: '/monitors/cancel', operationId: `mcancel:${monitorId}:${addr}` });
+  // ---- Проход 3: тестовый расчёт TEST-AGT (стенд; не эскроу, не mainnet) ----
+  const faucet = async (addr, amountAtomic) => (await post('/settlements/faucet', { address: addr, amountAtomic })).data;
+  const testBalance = async (addr) => (await get(`/settlements/balances?address=${encodeURIComponent(addr)}`)).data;
+  const getSettlement = async (assignmentId, requester) => (await get(`/settlements/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+  const createSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'settle', body: { assignmentId }, endpoint: '/settlements/create', operationId: `settle:${assignmentId}:${addr}` });
+  const sendSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'ssend', body: { assignmentId }, endpoint: '/settlements/send', operationId: `ssend:${assignmentId}:${addr}` });
+  const confirmSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'sconfirm', body: { assignmentId }, endpoint: '/settlements/confirm', operationId: `sconfirm:${assignmentId}:${addr}` });
+  const disputeSettlement = (addr, assignmentId, reason) => signedMarket({ addr, action: 'sdispute', body: { assignmentId, reason: String(reason || '') }, endpoint: '/settlements/dispute', operationId: `sdispute:${assignmentId}:${bodyDigest({ assignmentId, reason })}` });
+  const cancelSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'scancel', body: { assignmentId }, endpoint: '/settlements/cancel', operationId: `scancel:${assignmentId}:${addr}` });
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

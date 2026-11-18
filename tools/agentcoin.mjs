@@ -62,6 +62,8 @@ function main() {
       else if (cmd === 'orders' && sub === 'get') { needAddr(); emit(await c.getOrder(String(a.order || ''), address)); }
       else if (cmd === 'events') { emit(await c.getEvents({ cursor: String(a.cursor || '0'), limit: Number(a.limit || 20), requester: address })); }
       else if (cmd === 'monitors' && sub === 'history') { needAddr(); emit(await c.monitorHistory(String(a.monitor || ''), address)); }
+      else if (cmd === 'settlements' && sub === 'get') { needAddr(); emit(await c.getSettlement(String(a.order || ''), address)); }
+      else if (cmd === 'settlements' && sub === 'balance') { needAddr(); emit(await c.testBalance(address)); }
       else { console.error('unknown command'); console.log(HELP); process.exit(2); }
     } catch (e) { console.error('error: ' + String(e.message || e).slice(0, 300)); process.exit(1); }
   })();

@@ -126,5 +126,14 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
   const acceptOrder = (addr, assignmentId, verdict, extra) => mutate({ action: 'accept', endpoint: '/orders/accept', body: { assignmentId, verdict }, ...(extra || {}) });
 
   const createMonitor = (monitor, extra) => mutate({ action: 'monitor', endpoint: '/monitors/create', body: { monitor }, ...(extra || {}) });
-  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, getEvents, monitorHistory, mutate, publishOffer, createOrder, submitArtifact, acceptOrder, createMonitor };
+  async function getSettlement(assignmentId, requester) {
+    const r = await get(`/settlements/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
+    return { ...r.data, _status: r.status, at: Date.now() };
+  }
+  async function testBalance(addr) {
+    const r = await get(`/settlements/balances?address=${encodeURIComponent(addr)}`);
+    return { ...r.data, _status: r.status, at: Date.now() };
+  }
+  const createSettlement = (assignmentId, extra) => mutate({ action: 'settle', endpoint: '/settlements/create', body: { assignmentId }, ...(extra || {}) });
+  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, getEvents, monitorHistory, getSettlement, testBalance, mutate, publishOffer, createOrder, submitArtifact, acceptOrder, createMonitor, createSettlement };
 }

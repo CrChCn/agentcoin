@@ -3,7 +3,19 @@
 # Файл: /opt/agentcoin-job-test/releases/98a26a13da9b180d211f6f1048ec6c89ef602807/api/policy.mjs
 # Сервис: agentcoin-autonomous-job-test-api.service (stateless прокси-адаптер)
 # Что чинит: /api/v1/queue/history, /api/v1/memory/state, /api/v1/compute/state
-#   сейчас отвечают 404 route_not_allowlisted, хотя нода все три отдаёт напрямую (200).
+#   сейчас отвечают 404 {"error":"route_not_allowlisted"} (явное тело отказа —
+#   проверено живым опросом https://agentcoin.work 2026-11-18).
+# Доказательства (тот же опрос):
+#   - корень (мимо /api/v1) отдаёт все три 200 с реальными данными:
+#     /queue/history — история задач; /memory/state — filecoin-калибровка,
+#     dataSetId 50595; /compute/state — akash sandbox-2 (available:false,
+#     причина: нет эскроу-депозита). Исполнители: нода/прямые сервисы за прокси.
+#   - /api/v1/capabilities РЕКЛАМИРУЕТ /queue/history (45 записей), но enforcement
+#     его же отклоняет route_not_allowlisted: capabilities != фактическому доступу.
+#     Memory/compute в gateway-capabilities отсутствуют.
+# Вывод: все три маршрута реально существуют — подключение через предназначенный
+# публичный шлюз законно. Клиентский фолбэк ограничен явным списком
+# AGT_DIRECT_PATHS (только эти три), общего автофолбэка нет.
 # Применение (в окно, руками на сервере):
 #   1. cp -p api/policy.mjs /root/policy.mjs.bak-20261118
 #   2. одна строка ниже (таблица READ)

@@ -456,6 +456,11 @@ var FRESHNESS_MS = {
   '/escrow/state': 30000, '/dxe/items': 60000, '/dxe/orders': 30000,
   '/memory/state': 120000, '/compute/state': 120000, '/network/nodes': 30000
 };
+// Явные разрешённые прямые пути (ТЗ п.2): фолбэк /api/v1 -> корень ноды разрешён
+// ТОЛЬКО для этих маршрутов. Доказано живым опросом прода 2026-11-18: корень
+// отдаёт 200 с реальными данными, /api/v1 отвечает явным route_not_allowlisted.
+// Общего автоматического фолбэка для любых маршрутов нет.
+var AGT_DIRECT_PATHS = { '/queue/history': true, '/memory/state': true, '/compute/state': true };
 var AGTDataStore = new Map();
 var AGTInflight = new Map();
 function agtBase(p) { return String(p).split('?')[0]; }
@@ -647,9 +652,9 @@ async function agtFetch(path) {
     try {
       var usedSrc = '/api/v1' + path;
       var r = await fetch(usedSrc, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
-      if (r.status === 404) {
-        // /api/v1-шлюз может знать не все маршруты ноды: честный фолбэк на корневой
-        // путь той же ноды (same-origin). Двойной 404 — нейтрально «маршрут не отвечает»;
+      if (r.status === 404 && AGT_DIRECT_PATHS[agtBase(path)]) {
+        // Только явные пути из AGT_DIRECT_PATHS: фолбэк на корневой путь той же
+        // ноды (same-origin). Двойной 404 — нейтрально «маршрут не отвечает»;
         // вывод «функция не подключена» — только при явном отказе в теле ответа.
         try {
           var rTop = await fetch(path, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
@@ -740,27 +745,22 @@ function agtKindOf(path, msg) {
   var rec = null;
   try { rec = AGTDataStore.get(path) || null; } catch (e) {}
   if (rec && rec.data && rec.status === 'stale') return 'stale';
-  if (rec && rec.data && rec.status === 'unknown') return 'unknown-age';
   if (/not_allow|unknown_route/i.test(msg || '')) return 'not-connected';
   if (/HTTP 404/.test(msg || '')) return 'http-404';
   return 'unavailable';
 }
 function showApiErrors() {
   if (!apiErrors.size) { hideSiteErr(); return; }
-  var groups = { 'unavailable': [], 'http-404': [], 'stale': [], 'unknown-age': [], 'not-connected': [] };
+  // В аварийном баннере — только ошибки получения. Неизвестная актуальность
+  // успешных ответов сюда не попадает (приёмка п.6): она видна нейтрально в панелях.
+  var groups = { 'unavailable': [], 'http-404': [], 'stale': [], 'not-connected': [] };
   apiErrors.forEach(function (msg, path) { groups[agtKindOf(path, msg)].push(path + ' (' + msg + ')'); });
   var parts = [];
   if (groups['unavailable'].length) parts.push('API недоступен (ответа нет): ' + groups['unavailable'].join('; '));
   if (groups['http-404'].length) parts.push('Маршрут не отвечает (HTTP 404, причина по ответу не установлена): ' + groups['http-404'].join('; '));
   if (groups['not-connected'].length) parts.push('Функция не подключена (сервер явно отклонил маршрут): ' + groups['not-connected'].join('; '));
   if (groups['stale'].length) parts.push('Данные устарели (показаны последние известные): ' + groups['stale'].join('; '));
-  if (groups['unknown-age'].length) parts.push(groups['unknown-age'].map(function (s) {
-    var p = s.slice(0, s.indexOf(' ('));
-    var rec = null;
-    try { rec = AGTDataStore.get(p) || null; } catch (e) {}
-    var when = rec && rec.fetchedAt ? new Date(rec.fetchedAt).toLocaleTimeString('ru-RU') : null;
-    return p + ' (ответ получен' + (when ? ' в ' + when : '') + '; актуальность источника неизвестна)';
-  }).join('; '));
+  if (!parts.length) { hideSiteErr(); return; }
   showSiteErr(parts.join(' | ') + '. Данные не подменяются.');
 }
 function unavailable(id, message) { set(id, message || 'Данные API недоступны'); }
@@ -1153,12 +1153,9 @@ async function tick() {
       var r = rsnap(p);
       if (r && r.status === 'stale') apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'снимок устарел — показаны последние известные данные');
       if (r && r.status === 'unknown' && r.data) {
-        // Ответ 200 получен только что (fetchedAt ~ сейчас): данные текущие,
-        // у эндпоинта просто нет метки снимка. Ошибка — только протухший опрос.
-        var ageMs = Date.now() - (r.fetchedAt || 0);
-        var limMs = (typeof agtFreshness === 'function') ? agtFreshness(p) : 30000;
-        if (!r.fetchedAt || ageMs < 0 || ageMs > limMs) apiErrors.set(p, (apiErrors.get(p) ? apiErrors.get(p) + '; ' : '') + 'давность снимка неизвестна');
-        else apiErrors.delete(p);
+        // Успешный ответ без даты: НЕ аварийный баннер (приёмка п.6).
+        // Актуальность таких ответов — нейтрально в панелях, здесь тревогу снять.
+        apiErrors.delete(p);
       }
     });
   } catch (e) {}
@@ -1338,6 +1335,15 @@ async function tick() {
     drawChartD(arr);
     var tipTime = Number(arr[0].header && arr[0].header.timestamp || 0);
     document.getElementById('eAge').textContent = tipTime ? Math.max(0, Math.floor(Date.now() / 1000 - tipTime)).toLocaleString('ru-RU') + ' с' : '—';
+    try {
+      // ТЗ п.4: три времени /life — отдельно, одно за другое не выдаём.
+      var ld = life || ((typeof rsnap === 'function') ? ((rsnap('/life') || {}).data || null) : null) || {};
+      var tResp = ld.checkedAt ? new Date(ld.checkedAt).toLocaleTimeString('ru-RU') : 'время неизвестно';
+      var tValid = ld.validationCheckedAt ? new Date(ld.validationCheckedAt).toLocaleTimeString('ru-RU') : 'время неизвестно';
+      var tMode = ld.validationMode ? ' (' + ld.validationMode + ')' : '';
+      var tAge = (ld.tipAgeSec != null && Number.isFinite(Number(ld.tipAgeSec))) ? Number(ld.tipAgeSec) + ' с (по времени блока, не ответа)' : 'неизвестен';
+      document.getElementById('eAgeH').textContent = 'ответ API: ' + tResp + ' · проверка цепи: ' + tValid + tMode + ' · возраст блока: ' + tAge;
+    } catch (eAgeHErr) {}
     var blockRows = arr.slice(0, 8).map(function (b) {
       return '<tr><td><b>' + esc(b.height) + '</b></td><td class="dimt">' + esc(new Date(Number(b.header && b.header.timestamp || 0) * 1000).toLocaleString('ru-RU')) + '</td><td>' + esc((b.txs || []).length) + '</td><td>2^' + esc(b.header && b.header.difficultyBits) + '</td><td class="mono">' + esc(b.header && b.header.nonce) + '</td><td class="mono gold">' + esc(String(b.hash || '').slice(0, 14)) + '</td></tr>';
     }).join('');

@@ -10,6 +10,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const GENESIS = '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e';
 const DEPTH = 6;
 let NET_OK = false;
+function boom(n) { try { if (window.NetworkCanvas && window.NetworkCanvas.pulse) window.NetworkCanvas.pulse(n || 3); } catch {} }
 let lastCheck = null; // { order, payer, to, atomic }
 let pollTimer = null;
 let netTimer = null;
@@ -98,6 +99,7 @@ async function boot(silent) {
       + '<div class="kv"><span>возраст вершины</span><b>' + esc(life.data.tipAgeSec) + ' с</b></div>'
       + '<div class="kv"><span>chainValid</span><b>' + esc(String(life.data.chainValid)) + '</b></div>';
     NET_OK = ok === true;
+    if (ok) boom(2);
     setGated(!NET_OK, ok ? 'синхронизировано' : 'РАСХОЖДЕНИЕ — отправка заблокирована');
     if (!ok) $('netOut').innerHTML += '<div class="err"><b>Отправка заблокирована: сеть не сверена.</b></div>';
   } catch (e) {
@@ -208,6 +210,7 @@ $('sForm').addEventListener('submit', async (e) => {
     if (r.status === 201) {
       const txid = r.data && (r.data.txid || r.data.id);
       $('sOut').innerHTML = 'принято нодой (mempool ' + esc(JSON.stringify(r.data)) + '). Статус — по пруфу на шаге 4, после потери ответа — сверка.';
+      boom(6);
       if (txid && $('cTxid')) {
         $('cTxid').value = String(txid);
         if ($('sTo').value.trim()) $('cTo').value = $('sTo').value.trim();
@@ -279,7 +282,7 @@ async function checkStatus() {
       + '<div class="kv"><span>получатель</span><b class="' + (okTo ? 'good' : 'err') + '">' + (okTo ? 'совпал' : 'НЕ совпал') + '</b></div>'
       + '<div class="kv"><span>сумма</span><b class="' + (okAmt ? 'good' : 'err') + '">' + (okAmt ? 'совпала' : 'НЕ совпала') + '</b></div>'
       + '<div class="kv"><span>оплачено</span><b class="' + (paid ? 'good' : '') + '">' + paid + '</b></div>';
-    if (paid) stopPoll();
+    if (paid) { stopPoll(); boom(10); }
     else startPoll();
     renderWatch();
   } catch (err) { $('cOut').textContent = 'сверка недоступна: ' + String(err.message || err); }

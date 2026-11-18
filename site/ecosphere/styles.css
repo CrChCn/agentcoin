@@ -43,6 +43,38 @@ button:not(:disabled):hover{filter:brightness(1.08)}
 .foot{margin-top:18px;display:flex;gap:14px;flex-wrap:wrap}
 .foot a{color:var(--ice)}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.netgrid{grid-template-columns:1fr 1fr}}
+/* ============ Settlement v0.5 · имперская тема (только body.settle; комнату не трогает) ============ */
+body.settle{background:radial-gradient(1400px 700px at 50% -8%,#1c2636 0%,#07090d 55%) fixed,#07090d;position:relative}
+body.settle>*{position:relative;z-index:1}
+body.settle #network-canvas{z-index:0}
+body.settle .stage-banner{background:linear-gradient(90deg,#2a2103,#4a3a05,#2a2103);color:#f0d78c;border-bottom:1px solid #d4af37;text-shadow:0 0 12px rgba(212,175,55,.5)}
+body.settle .kicker{color:#d4af37}
+body.settle .hero h1 .h-glow{background:linear-gradient(180deg,#f0d78c,#d4af37);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(212,175,55,.35))}
+body.settle .sub{color:#8fa3b8}
+body.settle .steps a{background:#10161f;border-color:#2a3646}
+body.settle .steps a.on{border-color:#d4af37;color:#f0d78c;box-shadow:0 0 14px rgba(212,175,55,.25)}
+body.settle .steps a.on b{background:#d4af37;color:#111}
+body.settle .netcard{background:linear-gradient(180deg,rgba(22,29,40,.92),rgba(16,22,31,.92));border:1px solid #2a3646;border-radius:12px;box-shadow:0 0 0 1px rgba(212,175,55,.08),0 8px 32px rgba(0,0,0,.5)}
+body.settle .pill.ok{box-shadow:0 0 12px rgba(57,217,138,.45);animation:pulse-ok 2.2s ease-in-out infinite}
+@keyframes pulse-ok{0%,100%{box-shadow:0 0 6px rgba(57,217,138,.3)}50%{box-shadow:0 0 16px rgba(57,217,138,.65)}}
+body.settle .card,body.settle .detail>div{background:linear-gradient(180deg,rgba(22,29,40,.9),rgba(13,17,23,.9));border:1px solid #2a3646;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+body.settle .card-h h2{color:#f0d78c}
+body.settle .card-h .n{background:linear-gradient(180deg,#f0d78c,#d4af37);box-shadow:0 0 12px rgba(212,175,55,.5)}
+body.settle .hint{color:#8fa3b8}
+body.settle .out{background:rgba(7,9,13,.7);border-color:#2a3646}
+body.settle input,body.settle textarea{background:#0a0e14;border:1px solid #2a3646;color:#e8eef5}
+body.settle input:focus,body.settle textarea:focus{outline:none;border-color:#d4af37;box-shadow:0 0 0 1px #d4af37,0 0 16px rgba(212,175,55,.3)}
+body.settle form button{background:linear-gradient(180deg,#f0d78c,#d4af37);color:#111;box-shadow:0 0 16px rgba(212,175,55,.35);transition:box-shadow .15s,transform .1s}
+body.settle form button:not(:disabled):hover{box-shadow:0 0 26px rgba(212,175,55,.6);filter:none;transform:translateY(-1px)}
+body.settle .ghost{background:transparent!important;color:#5aa2ff!important;border:1px solid #2a3646!important;box-shadow:none}
+body.settle .confbar{background:#0a0e14}
+body.settle .confbar i{background:linear-gradient(90deg,#d4af37,#f0d78c);box-shadow:0 0 12px rgba(212,175,55,.7);position:relative;overflow:hidden}
+body.settle .confbar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:shimmer 1.6s linear infinite}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+body.settle .confbar i.done{background:#39d98a;box-shadow:0 0 14px rgba(57,217,138,.7)}
+body.settle .confbar i.done::after{animation:none;display:none}
+body.settle .foot a{color:#5aa2ff}
+@media(prefers-reduced-motion:reduce){body.settle .pill.ok{animation:none}body.settle .confbar i::after{animation:none;display:none}body.settle form button:not(:disabled):hover{transform:none}}
 .stage-banner{background:#3a2b00;color:var(--gold);text-align:center;padding:6px;font-weight:700;letter-spacing:.04em}
 .top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:end}
 .sub{color:var(--dim);margin:0}.net{display:flex;gap:12px;flex-wrap:wrap;color:var(--dim)}

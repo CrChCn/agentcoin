@@ -26,6 +26,11 @@ export async function createStand(tmp) {
   let events = loadJson('events.json', []);
   const monitors = Object.assign({}, loadJson('monitors.json', {}));
   let runs = loadJson('runs.json', []);
+  // ---- Проход 4: модерация (отдельный операторский контур, не меняет подписи/артефакты/расчёты) ----
+  const OPERATOR = process.env.STAND_OPERATOR || loadJson('operator.json', { address: '' }).address || '';
+  const moderation = Object.assign({ hidden: {}, suspended: {}, complaints: [], decisions: [], pubLog: [] }, loadJson('moderation.json', {}));
+  let pubCount = loadJson('pubcount.json', {}); // provider -> [timestamps] антиспам
+  const persistMod = () => { saveJson('moderation.json', moderation); saveJson('pubcount.json', pubCount); saveJson('operator.json', { address: OPERATOR }); };
   // восстановление orders/offers тоже переживает рестарт стенда в том же tmp
   Object.assign(offers, loadJson('offers.json', {}));
   Object.assign(orders, loadJson('orders.json', {}));
@@ -75,7 +80,7 @@ export async function createStand(tmp) {
     req.on('end', () => {
       let b = {}; try { b = body ? JSON.parse(body) : {}; } catch { return send(400, { error: 'bad_json' }); }
       if (u.pathname === '/info') return send(200, { chain: 'AGENTCOIN-stand', blocks: 1, genesisHash: GENESIS });
-      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel'] });
+      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide'] });
       if (u.pathname === '/queue/status') return send(200, queue.status());
       if (u.pathname === '/queue/assignments') return send(200, { onDuty: queue.state.onDuty }); // стенд-only: prod этого не отдаёт, там — ownership_unknown без журнала/истории
       if (u.pathname === '/queue/history') return send(200, { history: queue.state.history || [] });
@@ -128,12 +133,12 @@ export async function createStand(tmp) {
       if (u.pathname === '/catalog/offers' && req.method === 'GET') {
         const skill = u.searchParams.get('skill') || '', maxP = u.searchParams.get('maxPriceAtomic'), fmt = u.searchParams.get('format') || '';
         const out = [];
-        for (const [id, e] of Object.entries(offers)) for (const o of e.versions) {
+        for (const [id, e] of Object.entries(offers)) { if (moderation.hidden[id]) continue; for (const o of e.versions) {
           if (skill && !(o.skills || []).some(s => String(s).includes(skill)) && !String(o.title).includes(skill)) continue;
           if (maxP !== null && maxP !== '' && Number(o.priceAtomic) > Number(maxP)) continue;
           if (fmt && !(o.acceptedInputFormats || []).includes(fmt) && !(o.producedOutputFormats || []).includes(fmt)) continue;
           out.push({ ...o, expired: Number(o.expiresAt) <= Date.now() });
-        }
+        } }
         return send(200, { offers: out });
       }
       const mo = u.pathname.match(/^\/catalog\/offers\/([A-Za-z0-9_-]+)$/);
@@ -149,6 +154,10 @@ export async function createStand(tmp) {
         const err = validateServiceOffer(o);
         if (err) return send(400, { error: err });
         if (o.provider !== b.address) return send(403, { error: 'provider_mismatch' });
+        const now = Date.now();
+        pubCount[b.address] = (pubCount[b.address] || []).filter((t) => now - t < 3600_000);
+        if (pubCount[b.address].length >= 10) return send(429, { error: 'spam_limited', hint: 'лимит публикаций: 10 в час на провайдера' });
+        pubCount[b.address].push(now); persistMod();
         const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
         const prev = usedNonce.get(key);
         if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
@@ -172,6 +181,7 @@ export async function createStand(tmp) {
         const { offerId, offerVersion, input, idempotencyKey } = b.body || {};
         const e = offers[offerId];
         if (!e) return send(404, { error: 'offer_not_found' });
+        if (moderation.suspended[offerId]) return send(409, { error: 'offer_suspended', hint: 'создание новых заказов по предложению приостановлено; существующие заказы не изменены' });
         const snap = offerVersion ? e.versions.find(x => x.version === offerVersion) : e.versions[e.versions.length - 1];
         if (!snap) return send(404, { error: 'offer_version_not_found' });
         if (Number(snap.expiresAt) <= Date.now()) return send(409, { error: 'offer_expired' });
@@ -410,6 +420,49 @@ export async function createStand(tmp) {
         persistMarket();
         emit('settlement.canceled', assignmentId, '1', 'parties', { paymentId: s.paymentId }, [s.payer, s.recipient]);
         return send(200, { ok: true, settlement: s });
+      }
+      // ---- Проход 4: модерация + метрики (операторский контур; деньги/артефакты/подписи не трогает) ----
+      if (u.pathname === '/ops/metrics' && req.method === 'GET') {
+        const orderStates = {}, settleStates = {};
+        for (const o of Object.values(orders)) orderStates[o.assignment.state] = (orderStates[o.assignment.state] || 0) + 1;
+        for (const s of Object.values(settlements)) settleStates[s.state] = (settleStates[s.state] || 0) + 1;
+        return send(200, { offers: Object.keys(offers).length, hidden: Object.keys(moderation.hidden).length, suspended: Object.keys(moderation.suspended).length, orders: orderStates, settlements: settleStates, events: events.length, monitors: Object.keys(monitors).length, runs: runs.length, complaintsOpen: moderation.complaints.filter((c) => c.status === 'open').length, decisions: moderation.decisions.length, genesis: GENESIS, test: true });
+      }
+      if (u.pathname === '/moderation/complaint' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'complain', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const { targetType, targetId, reason } = b.body || {};
+        if (!targetType || !targetId || !reason) return send(400, { error: 'bad_complaint' });
+        const c = { complaintId: 'c' + crypto.createHash('sha256').update([b.address, targetId, String(reason), String(b.nonce)].join('|')).digest('hex').slice(0, 10), targetType, targetId, reason: String(reason), by: b.address, at: Date.now(), status: 'open' };
+        moderation.complaints.push(c); persistMod();
+        emit('moderation.complaint', c.complaintId, '1', 'parties', { targetType, targetId }, [b.address]);
+        return send(200, { ok: true, complaint: c, note: 'жалоба принята; урегулирование споров по оплате — после фиксации правил (проход 4 принимает, но не обещает исход)' });
+      }
+      if (u.pathname === '/moderation/decide' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'mdecide', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        if (!OPERATOR || b.address !== OPERATOR) return send(403, { error: 'foreign_operator', hint: 'решение принимает только оператор стенда' });
+        const { complaintId, decision, reason } = b.body || {};
+        const c = moderation.complaints.find((x) => x.complaintId === complaintId);
+        if (!c) return send(404, { error: 'complaint_not_found' });
+        if (c.status !== 'open') return send(409, { error: 'complaint_closed' });
+        const before = { hidden: !!moderation.hidden[c.targetId], suspended: !!moderation.suspended[c.targetId] };
+        if (decision === 'hide_offer') moderation.hidden[c.targetId] = true;
+        else if (decision === 'unhide_offer') delete moderation.hidden[c.targetId];
+        else if (decision === 'suspend_offer') moderation.suspended[c.targetId] = true;
+        else if (decision === 'resume_offer') delete moderation.suspended[c.targetId];
+        else if (decision !== 'dismiss') return send(400, { error: 'bad_decision' });
+        c.status = 'decided'; c.decision = decision; c.decidedAt = Date.now(); c.decidedBy = b.address;
+        const after = { hidden: !!moderation.hidden[c.targetId], suspended: !!moderation.suspended[c.targetId] };
+        moderation.decisions.push({ who: b.address, what: decision + ':' + c.targetId, reason: String(reason || ''), at: Date.now(), before, after, complaintId });
+        persistMod();
+        emit('moderation.decision', complaintId, '1', 'public', { decision, targetId: c.targetId }, [b.address]);
+        return send(200, { ok: true, complaint: c, before, after, note: 'административное решение; не является решением блокчейна; подписи/артефакты/расчёты не изменены' });
+      }
+      if (u.pathname === '/moderation/history' && req.method === 'GET') {
+        const rq = u.searchParams.get('requester') || '';
+        if (!OPERATOR || rq !== OPERATOR) return send(403, { error: 'foreign_operator' });
+        return send(200, { complaints: moderation.complaints, decisions: moderation.decisions });
       }
       return send(404, { error: 'not_found' });
     });

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ecosphere — операторский раздел (staging)</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="stage-banner">STAGING · операторский раздел · тестовые средства · отдельно от пользовательского интерфейса</div>
+<h1>Модерация Ecosphere</h1>
+<p class="dim">Решения административные, не являются решениями блокчейна. Подписи, артефакты и расчёты не изменяются. Споры по оплате: жалобы принимаются, урегулирование — в пределах блокировки отправки (полные правила — позже).</p>
+<section class="card">
+<label>адрес оператора <input id="op" size="44" autocomplete="off"></label>
+<button id="load" type="button">загрузить</button>
+<span id="fresh" class="dim"></span>
+</section>
+<section class="card"><h2>Метрики</h2><div id="metrics">—</div></section>
+<section class="card"><h2>Жалобы и решения</h2><div id="hist">—</div>
+<h3>Решение</h3>
+<form id="decide"><input id="dId" placeholder="complaintId" aria-label="complaintId">
+<select id="dWhat" aria-label="решение"><option value="hide_offer">скрыть оффер</option><option value="unhide_offer">вернуть в каталог</option><option value="suspend_offer">приостановить заказы</option><option value="resume_offer">возобновить заказы</option><option value="dismiss">отклонить жалобу</option></select>
+<input id="dReason" placeholder="причина (обязательно)" aria-label="причина" size="40">
+<button type="submit">применить</button></form><div id="dOut"></div></section>
+<p class="dim"><a href="./">← в пользовательский модуль</a></p>
+<script type="module">
+import { makeBrowserClient, escHtml } from '../../sdk/js/agentcoin-browser.mjs';
+const $ = (id) => document.getElementById(id);
+const client = makeBrowserClient({ apiBase: '', signer: window.AgentcoinSigner || null });
+$('load').addEventListener('click', async () => {
+  const op = $('op').value.trim();
+  $('fresh').textContent = 'данные: ' + new Date().toLocaleTimeString();
+  try {
+    const mm = await client.opsMetrics();
+    if (mm._status !== 200) throw new Error('http ' + mm._status);
+    $('metrics').innerHTML = `<div>офферы: ${escHtml(String(mm.offers))} (скрыто ${escHtml(String(mm.hidden))}, приостановлено ${escHtml(String(mm.suspended))}) · заказы: ${escHtml(JSON.stringify(mm.orders))}</div><div>расчёты: ${escHtml(JSON.stringify(mm.settlements))} · события: ${escHtml(String(mm.events))} · жалобы открыты: ${escHtml(String(mm.complaintsOpen))}</div>`;
+  } catch { $('metrics').textContent = 'метрики недоступны'; }
+  try {
+    const h = await fetch(`/moderation/history?requester=${encodeURIComponent(op)}`).then((x) => x.json());
+    if (h.complaints) $('hist').innerHTML = h.complaints.map((c) => `<div class="card"><b>${escHtml(c.complaintId)}</b> ${escHtml(c.targetType)}:${escHtml(c.targetId)} · ${escHtml(c.status)}<br><span class="dim">${escHtml(c.reason)} · от ${escHtml(c.by)} · ${new Date(c.at).toLocaleTimeString()}</span></div>`).join('') + `<h3>История решений</h3>` + (h.decisions || []).map((d) => `<div class="card">${escHtml(d.who)} → ${escHtml(d.what)} · ${escHtml(d.reason)} · ${new Date(d.at).toLocaleTimeString()}<br><span class="dim">было ${escHtml(JSON.stringify(d.before))} → стало ${escHtml(JSON.stringify(d.after))}</span></div>`).join('');
+    else $('hist').textContent = 'доступ запрещён (только оператор): ' + escHtml(h.error || '');
+  } catch { $('hist').textContent = 'история недоступна'; }
+});
+$('decide').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('dOut').textContent = 'решение выполняется подписантом…';
+  const r = await client.mutate({ action: 'mdecide', endpoint: '/moderation/decide', body: { complaintId: $('dId').value.trim(), decision: $('dWhat').value, reason: $('dReason').value.trim() } });
+  $('dOut').innerHTML = r.ok ? `<p>применено: было ${escHtml(JSON.stringify(r.result.before))} → стало ${escHtml(JSON.stringify(r.result.after))}</p>` : `<p>отказ: ${escHtml(r.error || '')} — ${escHtml(r.hint || '')}</p>`;
+});
+</script>
+</body>
+</html>

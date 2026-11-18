@@ -24,6 +24,7 @@ const TOOLS = [
   { name: 'events_read', description: 'READ-ONLY: события с курсором (cursor/limit)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'number' } } } },
   { name: 'monitors_history', description: 'READ-ONLY: история запусков api-monitor', inputSchema: { type: 'object', properties: { address: { type: 'string' }, monitorId: { type: 'string' } }, required: ['address', 'monitorId'] } },
   { name: 'settlements_read', description: 'READ-ONLY: стадии тестового расчёта заказа', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' } }, required: ['address', 'assignmentId'] } },
+  { name: 'ops_metrics', description: 'READ-ONLY: эксплуатационные метрики стенда', inputSchema: { type: 'object', properties: {} } },
 ];
 function client(addr) {
   const a = addr || ADDRESS;
@@ -31,6 +32,7 @@ function client(addr) {
   return { c: makeClient({ node: NODE, address: a, walletFile: WALLET || undefined }), addr: a };
 }
 async function call(name, args = {}) {
+  if (name === 'ops_metrics') return await makeClient({ node: NODE }).opsMetrics();
   const { c, addr } = client(args.address);
   if (name === 'status') return await c.status(addr);
   if (name === 'my_task') return { task: await c.myTask(addr) };

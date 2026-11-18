@@ -377,8 +377,13 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const confirmSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'sconfirm', body: { assignmentId }, endpoint: '/settlements/confirm', operationId: `sconfirm:${assignmentId}:${addr}` });
   const disputeSettlement = (addr, assignmentId, reason) => signedMarket({ addr, action: 'sdispute', body: { assignmentId, reason: String(reason || '') }, endpoint: '/settlements/dispute', operationId: `sdispute:${assignmentId}:${bodyDigest({ assignmentId, reason })}` });
   const cancelSettlement = (addr, assignmentId) => signedMarket({ addr, action: 'scancel', body: { assignmentId }, endpoint: '/settlements/cancel', operationId: `scancel:${assignmentId}:${addr}` });
+  // ---- Проход 4: модерация + метрики ----
+  const opsMetrics = async () => (await get('/ops/metrics')).data;
+  const complain = (addr, targetType, targetId, reason) => signedMarket({ addr, action: 'complain', body: { targetType, targetId, reason }, endpoint: '/moderation/complaint', operationId: `complain:${addr}:${targetId}:${bodyDigest({ targetType, targetId, reason })}` });
+  const decide = (addr, complaintId, decision, reason) => signedMarket({ addr, action: 'mdecide', body: { complaintId, decision, reason }, endpoint: '/moderation/decide', operationId: `mdecide:${complaintId}:${decision}` });
+  const modHistory = async (addr) => (await get(`/moderation/history?requester=${encodeURIComponent(addr)}`)).data;
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

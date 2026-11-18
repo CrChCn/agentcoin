@@ -130,10 +130,14 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
     const r = await get(`/settlements/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
     return { ...r.data, _status: r.status, at: Date.now() };
   }
+  async function opsMetrics() {
+    const r = await get('/ops/metrics');
+    return { ...r.data, _status: r.status, at: Date.now() };
+  }
   async function testBalance(addr) {
     const r = await get(`/settlements/balances?address=${encodeURIComponent(addr)}`);
     return { ...r.data, _status: r.status, at: Date.now() };
   }
   const createSettlement = (assignmentId, extra) => mutate({ action: 'settle', endpoint: '/settlements/create', body: { assignmentId }, ...(extra || {}) });
-  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, getEvents, monitorHistory, getSettlement, testBalance, mutate, publishOffer, createOrder, submitArtifact, acceptOrder, createMonitor, createSettlement };
+  return { capabilities, netInfo, checkNetwork, status, myTask, searchOffers, getOrder, getEvents, monitorHistory, getSettlement, testBalance, opsMetrics, mutate, publishOffer, createOrder, submitArtifact, acceptOrder, createMonitor, createSettlement };
 }

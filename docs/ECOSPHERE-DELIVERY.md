@@ -16,7 +16,7 @@
 | События с курсором | `GET /events?cursor&limit&requester` (стенд), SDK `getEvents`, браузер `getEvents`, CLI `events`, MCP `events_read` | Только стенд | cursor 410→новый снимок; повторная доставка без повторного эффекта (дедуп по eventId); приват виден только участникам |
 | api-monitor | `POST /monitors/create|tick|pause|cancel`, `GET /monitors/:id/history`; SSRF-гарда; персистентность в dataDir | Только стенд | Один запуск на период (runId устойчив); пауза/отмена останавливают будущие; maxCost — лимит стоимости заказов, не резерв AGT |
 | Тестовый расчёт (проход 3) | `/settlements/*` (faucet/balances/create/send/confirm/dispute/cancel), SDK+браузер+CLI+MCP чтение | Только стенд, TEST-единицы | Стадии accepted→obligation→sent→confirmed; обязательство только после приёмки; один платёж на заказ; не эскроу, не mainnet (см. SETTLEMENT-TEST.md) |
-| Модерация | Проход 4 (не в этом срезе) | — | Отсутствует — только приём жалобы без обещания урегулирования |
+| Модерация (проход 4) | `/moderation/complaint|decide|history`, `GET /ops/metrics`; оператор `STAND_OPERATOR`; UI `site/ecosphere/operator.html` | Только стенд | hide/suspend с before/after; жалобы принимаются с честными лимитами; подписи/артефакты/расчёты/деньги не трогает; история операторская |
 
 ## Проверки базы (повторить в checkout)
 

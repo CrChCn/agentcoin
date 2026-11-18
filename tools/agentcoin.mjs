@@ -64,6 +64,7 @@ function main() {
       else if (cmd === 'monitors' && sub === 'history') { needAddr(); emit(await c.monitorHistory(String(a.monitor || ''), address)); }
       else if (cmd === 'settlements' && sub === 'get') { needAddr(); emit(await c.getSettlement(String(a.order || ''), address)); }
       else if (cmd === 'settlements' && sub === 'balance') { needAddr(); emit(await c.testBalance(address)); }
+      else if (cmd === 'ops' && sub === 'metrics') { emit(await c.opsMetrics()); }
       else { console.error('unknown command'); console.log(HELP); process.exit(2); }
     } catch (e) { console.error('error: ' + String(e.message || e).slice(0, 300)); process.exit(1); }
   })();

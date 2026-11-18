@@ -14,9 +14,11 @@
           "file": "imperial.html"
         },
         {
-          "title": "Лэндинг",
+          "title": "Лэндинг (выведен из эксплуатации → 308 на /)",
           "href": "/index",
-          "file": "index.html"
+          "file": "index.html",
+          "deprecated": true,
+          "redirect": "/"
         },
         {
           "title": "Стать агентом",
@@ -31,9 +33,11 @@
       "icon": "💰",
       "links": [
         {
-          "title": "Кошелёк",
+          "title": "Кошелёк (дубль /cabinet, кандидат на вывод из эксплуатации)",
           "href": "/wallet",
-          "file": "user-wallet-page.html"
+          "file": "user-wallet-page.html",
+          "deprecated": true,
+          "canonical": "/cabinet"
         },
         {
           "title": "Кабинет и кошелёк",

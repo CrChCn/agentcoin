@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'">
 <title>Нативные расчёты AGT — Ecosphere</title>
 <link rel="stylesheet" href="./styles.css">
 </head>
@@ -29,123 +30,43 @@
   <section class="card" aria-label="Баланс">
     <h2>1 · Баланс из живой ноды</h2>
     <p class="dim">POST /balance. Суммы — целыми атомарными единицами (float ноды округляется до магента, помечено).</p>
-    <form id="bForm"><input id="bAddr" size="44" placeholder="AGT-адрес" aria-label="адрес"><button type="submit">показать</button></form>
+    <form id="bForm" novalidate onsubmit="return false;"><input id="bAddr" size="44" placeholder="AGT-адрес" aria-label="адрес" autocomplete="off" spellcheck="false"><button id="bGo" type="submit" disabled>показать</button></form>
     <div id="bOut" class="dim">—</div>
   </section>
   <section class="card" aria-label="Предпросмотр">
     <h2>2 · Предпросмотр до подписи</h2>
     <p class="dim">Заказ, получатель, сумма, комиссия. Ключ в браузер не вводится и сайту не передаётся.</p>
-    <form id="pForm">
+    <form id="pForm" novalidate onsubmit="return false;">
       <input id="pOrder" placeholder="orderId" aria-label="orderId">
       <input id="pPayer" placeholder="плательщик (заказчик)" size="44" aria-label="плательщик">
       <input id="pTo" placeholder="получатель (исполнитель)" size="44" aria-label="получатель">
       <input id="pAmt" placeholder="сумма AGT (напр. 1.5)" aria-label="сумма">
-      <button type="submit">показать</button>
+      <button id="pGo" type="submit" disabled>показать</button>
     </form>
     <div id="pOut" class="dim">—</div>
   </section>
   <section class="card" aria-label="Отправка">
     <h2>3 · Отправка подписанного перевода</h2>
     <p class="dim">Владелец подписывает локально (свой подписант, ключ не покидает владельца) и вставляет сюда уже подписанный tx. Страница сверяет отправителя/получателя/сумму/сеть с заказом и только потом шлёт в существующий приёмник ноды POST /tx. Первый перевод — только из разрешённого кошелька на утверждённую сумму.</p>
-    <form id="sForm">
+    <form id="sForm" novalidate onsubmit="return false;">
       <input id="sOrder" placeholder="orderId" aria-label="orderId">
       <input id="sPayer" placeholder="плательщик" size="44" aria-label="плательщик">
       <input id="sTo" placeholder="получатель" size="44" aria-label="получатель">
       <input id="sAmt" placeholder="сумма atomic (магнеты)" aria-label="сумма atomic">
-      <textarea id="sTx" rows="4" cols="60" placeholder='{"from":"AGT…","to":"AGT…","amount":1.5,"nonce":…,"signature":"…"}' aria-label="подписанная транзакция"></textarea>
-      <button type="submit">сверить и отправить</button>
+      <textarea id="sTx" rows="4" cols="60" placeholder='{"from":"AGT…","to":"AGT…","amount":"1.5","nonce":…,"signature":"…"}' aria-label="подписанная транзакция" autocomplete="off" spellcheck="false"></textarea>
+      <button id="sGo" type="submit" disabled>сверить и отправить</button>
     </form>
     <div id="sOut" class="dim">—</div>
   </section>
   <section class="card" aria-label="Статус">
     <h2>4 · Статус оплаты по цепи</h2>
     <p class="dim">«Оплачено» — только после совпадения получателя/суммы, включения в каноническую цепь (пруф + тело блока) и глубины 6. Потеря ответа — сверка, не повтор вслепую.</p>
-    <form id="cForm"><input id="cTxid" placeholder="txid (64 hex)" size="68" aria-label="txid"><input id="cTo" placeholder="получатель" size="44" aria-label="получатель"><input id="cAmt" placeholder="сумма atomic" aria-label="сумма atomic"><button type="submit">проверить</button></form>
+    <form id="cForm" novalidate onsubmit="return false;"><input id="cTxid" placeholder="txid (64 hex)" size="68" aria-label="txid" autocomplete="off" spellcheck="false"><input id="cTo" placeholder="получатель" size="44" aria-label="получатель" autocomplete="off" spellcheck="false"><input id="cAmt" placeholder="сумма atomic" aria-label="сумма atomic" inputmode="numeric" autocomplete="off"><button id="cGo" type="submit" disabled>проверить</button></form>
     <div id="cOut" class="dim">—</div>
   </section>
   <p class="dim"><a href="./index.html">← к витрине</a> · политика расходов владельца — в шлюзе после деплоя модуля; до деплоя действует ручное утверждение владельцем</p>
 </main>
-<script type="module">
-const API = new URLSearchParams(location.search).get('api') || location.origin;
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));
-async function jget(p) {
-  const r = await fetch(API + p);
-  const t = await r.text();
-  try { return { status: r.status, data: JSON.parse(t) }; } catch { throw new Error('не-JSON от ' + p + ' (статус ' + r.status + ')'); }
-}
-async function jpost(p, body) {
-  const r = await fetch(API + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const t = await r.text();
-  try { return { status: r.status, data: JSON.parse(t) }; } catch { throw new Error('не-JSON от ' + p + ' (статус ' + r.status + ')'); }
-}
-async function boot() {
-  try {
-    const [info, life] = await Promise.all([jget('/info'), jget('/life')]);
-    const tip = await jget('/blocks?n=1');
-    const tb = (tip.data.blocks || [])[0] || {};
-    const ok = info.data.chainId === 'AGENTCOIN'
-      && String(info.data.genesisHash).toLowerCase() === '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e'
-      && info.data.blocks === life.data.blocks && tb.height === life.data.blocks - 1
-      && life.data.tipHash === tb.hash && life.data.fresh === true && life.data.chainValid === true;
-    $('mChain').textContent = info.data.chainId;
-    $('mGenesis').textContent = String(info.data.genesisHash).slice(0, 18) + '…';
-    $('mBlocks').textContent = info.data.blocks;
-    $('mSync').textContent = ok ? 'синхронизировано' : 'РАСХОЖДЕНИЕ — см. ниже';
-    $('netOut').innerHTML = `<div>высота info/life: ${esc(info.data.blocks)}/${esc(life.data.blocks)} · вершина life/блок: ${esc(String(life.data.tipHash).slice(0, 12))}…/${esc(String(tb.hash).slice(0, 12))}… · возраст вершины: ${esc(life.data.tipAgeSec)} с · chainValid: ${esc(String(life.data.chainValid))}</div>`;
-  } catch (e) { $('mSync').textContent = 'нет связи'; $('netOut').textContent = String(e.message || e); }
-}
-$('bForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    const r = await jpost('/balance', { address: $('bAddr').value.trim() });
-    const atomic = Math.round(Number(r.data.balance) * 1e9);
-    $('bOut').innerHTML = `баланс: <b>${esc(String(atomic))}</b> atomic ≈ ${esc(String(r.data.balance))} AGT (округлено до магента) · резерв: ${esc(String(r.data.reserve))}`;
-  } catch (err) { $('bOut').textContent = 'отказ: ' + String(err.message || err); }
-});
-$('pForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const amt = Math.round(Number($('pAmt').value) * 1e9);
-  $('pOut').innerHTML = `<div>заказ ${esc($('pOrder').value)} · ${esc($('pPayer').value)} → ${esc($('pTo').value)}<br>сумма <b>${esc(String(amt))}</b> atomic · комиссия 0<br><span class="dim">прямой перевод, без удержания. Проверьте получателя и сумму до подписи.</span></div>`;
-});
-$('sForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  let tx;
-  try { tx = JSON.parse($('sTx').value); } catch { $('sOut').textContent = 'отказ: не JSON'; return; }
-  const low = JSON.stringify(tx).toLowerCase();
-  if (/(privkey|privatekey|mnemonic|seed)/.test(low.replace(/[^a-z]/g, '')) && /(privkey|private_key|mnemonic)/.test(low)) { $('sOut').textContent = 'отказ: похоже на приватный ключ — сюда только подписанную tx'; return; }
-  const errs = [];
-  if (String(tx.from) !== $('sPayer').value.trim()) errs.push('отправитель ≠ плательщик заказа');
-  if (String(tx.to) !== $('sTo').value.trim()) errs.push('получатель ≠ исполнитель заказа');
-  if (String(Math.round(Number(tx.amount) * 1e9)) !== $('sAmt').value.trim()) errs.push('сумма ≠ сумма заказа');
-  if (typeof tx.signature !== 'string' || !tx.signature) errs.push('нет signature — подпишите локально у владельца');
-  if (errs.length) { $('sOut').innerHTML = 'отказ без отправки:<br>' + errs.map((x) => '· ' + esc(x)).join('<br>'); return; }
-  try {
-    const r = await jpost('/tx', tx);
-    $('sOut').innerHTML = r.status === 201
-      ? `принято нодой (mempool ${esc(JSON.stringify(r.data))}). Статус — по пруфу ниже, после потери ответа — сверка.`
-      : `отказ ноды (${r.status}): ${esc(r.data.error || r.data.reason || '?')} — это отказ платежа, повтор — теми же байтами после сверки.`;
-  } catch (err) { $('sOut').textContent = 'ответ потерян: состояние неизвестно — сверьтесь по txid ниже, не отправляйте другую подпись.'; }
-});
-$('cForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const txid = $('cTxid').value.trim(), to = $('cTo').value.trim(), amt = $('cAmt').value.trim();
-  try {
-    const proof = await jget('/api/v1/txproof/' + encodeURIComponent(txid));
-    if (proof.status !== 200 || typeof proof.data.height !== 'number') { $('cOut').textContent = 'в цепи нет (пруф отсутствует). Проверьте mempool/повторите позже.'; return; }
-    const h = proof.data.height;
-    const [slice, tipW] = await Promise.all([jget('/blocks?from=' + h + '&limit=1'), jget('/blocks?n=1')]);
-    const block = (slice.data.blocks || [])[0];
-    const tx = (block?.txs || []).find((t) => t && t.txid === txid);
-    if (!tx) { $('cOut').textContent = 'пруф есть, тела нет — нужна повторная сверка.'; return; }
-    const tip = (tipW.data.blocks || [])[0];
-    const conf = tip.height - h + 1;
-    const okTo = String(tx.to) === to, okAmt = String(Math.round(Number(tx.amount) * 1e9)) === amt;
-    const paid = okTo && okAmt && conf >= 6;
-    $('cOut').innerHTML = `высота ${esc(h)} · подтверждений ${esc(conf)} · получатель ${okTo ? 'совпал' : '<b>НЕ совпал</b>'} · сумма ${okAmt ? 'совпала' : '<b>НЕ совпала</b>'} · оплачено: <b>${paid}</b>`;
-  } catch (err) { $('cOut').textContent = 'сверка недоступна: ' + String(err.message || err); }
-});
-boot();
-</script>
+<script type="module" src="/ecosphere/mainnet.js"></script>
+<noscript><p style="color:#b00">Для расчётов нужен включённый JavaScript: без загруженного модуля формы заблокированы и никуда не отправляются.</p></noscript>
 </body>
 </html>

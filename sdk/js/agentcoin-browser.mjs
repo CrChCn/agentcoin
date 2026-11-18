@@ -86,8 +86,21 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
     const r = await get('/catalog/offers?' + q.toString());
     return { ...r.data, _status: r.status, at: Date.now(), stale: r.status !== 200 };
   }
+  async function readQuery(requester, resource, id) {
+    if (!requester) return '';
+    if (!signer || typeof signer.sign !== 'function') return '?requester=' + encodeURIComponent(requester);
+    try {
+      const nonce = String(Date.now()) + '-' + Math.random().toString(16).slice(2, 10);
+      const expiry = Date.now() + 5 * 60_000;
+      const body = { resource, id: String(id || ''), requester: String(requester) };
+      const sig = await signer.sign({ action: 'read', body, nonce, expiry, chain: QUEUE_CHAIN });
+      const env = sig.envelope || {};
+      const q = new URLSearchParams({ requester: String(requester), fromPub: env.fromPub || '', signature: env.signature || '', nonce, expiry: String(expiry) });
+      return '?' + q.toString();
+    } catch { return '?requester=' + encodeURIComponent(requester); }
+  }
   async function getOrder(assignmentId, requester) {
-    const r = await get(`/orders/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
+    const r = await get(`/orders/${assignmentId}${requester ? await readQuery(requester, 'order', assignmentId) : ''}`);
     return { ...r.data, _status: r.status, at: Date.now(), stale: r.status !== 200 && r.status !== 404 };
   }
   // Мутация: только signed через явный signer. Без signer или без capabilities.signed — явный отказ.
@@ -112,12 +125,16 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
   }
   async function getEvents({ cursor = '0', limit = 20, requester = '' } = {}) {
     const q = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
-    if (requester) q.set('requester', requester);
+    if (requester) {
+      const rq = await readQuery(requester, 'events', String(cursor));
+      const r = await get('/events?' + q.toString() + '&' + rq.slice(1));
+      return { ...r.data, _status: r.status, at: Date.now() };
+    }
     const r = await get('/events?' + q.toString());
     return { ...r.data, _status: r.status, at: Date.now() };
   }
   async function monitorHistory(monitorId, requester) {
-    const r = await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
+    const r = await get(`/monitors/${encodeURIComponent(monitorId)}/history${requester ? await readQuery(requester, 'monitor', monitorId) : ''}`);
     return { ...r.data, _status: r.status, at: Date.now() };
   }
   const publishOffer = (addr, offer, extra) => mutate({ action: 'publish', endpoint: '/catalog/publish', body: { offer }, ...(extra || {}) });
@@ -127,7 +144,7 @@ export function makeBrowserClient({ apiBase = '', fetchImpl = fetch, signer = nu
 
   const createMonitor = (monitor, extra) => mutate({ action: 'monitor', endpoint: '/monitors/create', body: { monitor }, ...(extra || {}) });
   async function getSettlement(assignmentId, requester) {
-    const r = await get(`/settlements/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`);
+    const r = await get(`/settlements/${assignmentId}${requester ? await readQuery(requester, 'settlement', assignmentId) : ''}`);
     return { ...r.data, _status: r.status, at: Date.now() };
   }
   async function opsMetrics() {

@@ -1,0 +1,12 @@
+14b0b7514da9db59b8d974182aaac6e886f3d358a23fc71d9c167a3bb11d8dc9 *./config/action-registry.json
+50fb17be8465f1426ce5f412d19c7f022e55307c576a14085c397740e7a98b23 *./config/system-registry.json
+3b914f677a9f731b00f6cac541f609cc6cbaab0980a9f5f944958ae37c37131e *./scripts/ecosphere-settlement-gateway.mjs
+adac48637054eed7585f44fa0b12d800e52bb8898fde0f3b581af040828806d2 *./sdk/js/agentcoin-browser.mjs
+5b2bd7f9e524095356f2b6c35de5dacab0648efff321e2e6b27441d9dec826f0 *./sdk/js/mainnet-node-api.mjs
+c6e12211314a4714203b6c8d42e664efeb2b1bf8535eb2fb67e8d3f58466a046 *./sdk/js/mainnet-server.mjs
+33a59e255d5229d9a55387bba3f47fe6045dd4acbac69b9a2ab4bd583df0ee20 *./sdk/js/mainnet-settlement.mjs
+c1ed25c877a9e6ec62699b4febc2d23f59200c3c7f950ff54469aabcc907add5 *./sdk/js/money.mjs
+02304038f4b5c6c3758c479554c04cfabc405663880c328031eed17f4aa372c1 *./site/ecosphere/mainnet.html
+f0721f6943c384d4d868f7aff3e74a26ef841ac89d217bca56c061ff1399e183 *./site/ecosphere/mainnet.js
+57f78651cf99aa179d51fcec5589e96718668547f6720b55c906cce4c93b80ff *./test/mainnet-amount-compat.mjs
+4160674d68c140a13d86c38f894a12750be5aa7f5874cb01898e810ce917a55b *./test/money.mjs

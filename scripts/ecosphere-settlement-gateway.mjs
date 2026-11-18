@@ -36,8 +36,11 @@ const server = http.createServer((req, res) => {
     return;
   }
   const chunks = [];
-  req.on('data', (c) => chunks.push(c));
+  let bodyBytes = 0;
+  let bodyTooLarge = false;
+  req.on('data', (c) => { bodyBytes += c.length; if (bodyBytes > 65536) { bodyTooLarge = true; try { req.destroy(); } catch {} return; } chunks.push(c); });
   req.on('end', async () => {
+    if (bodyTooLarge || bodyBytes > 65536) { res.writeHead(413, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'body_too_large' })); return; }
     let b = {};
     try { b = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}; }
     catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'bad_json' })); return; }

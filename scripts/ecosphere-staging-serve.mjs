@@ -69,8 +69,10 @@ const server = http.createServer((req, res) => {
   // Mainnet-маршруты — локально в этом процессе (цепь читается из файла, ключей нет).
   if (u.pathname.startsWith('/mainnet/')) {
     const chunks0 = [];
-    req.on('data', (c) => chunks0.push(c));
+    let n0 = 0;
+    req.on('data', (c) => { n0 += c.length; if (n0 > 65536) { try { req.destroy(); } catch {} return; } chunks0.push(c); });
     req.on('end', async () => {
+      if (n0 > 65536) { res.writeHead(413, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'body_too_large' })); return; }
       let b = {};
       try { b = chunks0.length ? JSON.parse(Buffer.concat(chunks0).toString('utf8')) : {}; }
       catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'bad_json' })); return; }

@@ -46,6 +46,9 @@ export function assertMainnetGenesis(genesisHash) {
 
 // Строгий перевод AGT-суммы в атомарные единицы (целые магнеты, без float).
 export function toAtomic(amount) {
+  if (typeof amount === 'string' && !/^\d+(\.\d+)?$/.test(amount.trim())) {
+    throw new Error('bad_amount: only plain decimal, no exponent');
+  }
   let u;
   try {
     u = unitsOfAmountBigInt(amount);
@@ -156,10 +159,13 @@ export function previewTransfer({ orderId, payer, recipient, amountAtomic, memo 
   };
 }
 
-// Сборка неподписанной tx из превью (сумма — точное число под подпись).
+// Сборка неподписанной tx из превью (сумма — number, требование консенсуса:
+// validateBlockAgainstChain/addTransaction отвергают не-number 'tx_bad_fields'.
+// Строгость без Number*1e9: atomic → точная decimal-строка → Number → обратная
+// сверка через unitsOfAmountBigInt; непредставимое как точный number — отказ.
 export function buildTransferTx({ from, fromPub, to, amountAtomic, nonce, memo = '' }) {
   const amt = BigInt(amountAtomic);
-  const amount = Number(amt) / 1e9;
+  const amount = Number(fromAtomic(amt));
   const back = unitsOfAmountBigInt(amount);
   if (back !== amt) throw new Error('bad_amount: not exact in protocol units');
   const tx = {
@@ -181,6 +187,30 @@ export function signTransfer(tx, privKeyPem) {
 }
 
 // Журнал orderId → obligationId → signed tx → txid (идемпотентность повторов).
+// Конкурентные attaching идут через межпроцессную блокировку mkdir (как в
+// queue-auth.withFileLock): без неё два процесса могли оба прочитать "нет подписи"
+// и отправить РАЗНЫЕ байты — двойная выплата. Повтор отправляет ТЕ ЖЕ байты.
+// Блокировка платежей (paused): останавливает новые подписи/отправки, сверка
+// уже отправленных остаётся доступной.
+function withStoreLockSync(file, fn, { timeoutMs = 5000 } = {}) {
+  const lockDir = String(file) + '.lock';
+  const start = Date.now();
+  for (;;) {
+    try { fs.mkdirSync(lockDir); break; }
+    catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      if (Date.now() - start > timeoutMs) {
+        const err = new Error('store_locked');
+        err.code = 'STORE_LOCKED';
+        throw err;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+  try { return fn(); }
+  finally { try { fs.rmdirSync(lockDir); } catch {} }
+}
+
 export function openSettlementStore(file) {
   const load = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { settlements: {} }; } };
   const save = (d) => {
@@ -189,10 +219,31 @@ export function openSettlementStore(file) {
     fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
     fs.renameSync(tmp, file);
   };
+  const locked = (fn) => withStoreLockSync(file, fn);
+  const isPaused = () => {
+    try {
+      const d = load();
+      if (d.paused === true) return true;
+    } catch {}
+    return process.env.AGT_SETTLEMENT_PAUSED === '1';
+  };
   return {
     file,
     get(orderId) { return load().settlements[String(orderId)] || null; },
+    isPaused,
+    setPaused(paused, reason = '') {
+      return locked(() => {
+        const d = load();
+        d.paused = paused === true;
+        d.pauseNote = String(reason || '').slice(0, 300);
+        d.pauseAt = Date.now();
+        save(d);
+        return { paused: d.paused };
+      });
+    },
     createObligation({ orderId, payer, recipient, amountAtomic, acceptedProof }) {
+      return locked(() => {
+      if (isPaused()) return { ok: false, error: 'payments_paused', hint: 'новые обязательства заблокированы; сверка уже отправленных доступна' };
       const d = load();
       const id = String(orderId);
       if (d.settlements[id]) return { ...d.settlements[id], replay: true };
@@ -225,8 +276,11 @@ export function openSettlementStore(file) {
       d.settlements[id] = s;
       save(d);
       return { ...s, replay: false };
+      });
     },
     attachSignedTx(orderId, signedTx) {
+      return locked(() => {
+      if (isPaused()) return { ok: false, error: 'payments_paused', hint: 'новые подписи/отправки заблокированы; сверка уже отправленных доступна' };
       const d = load();
       const s = d.settlements[String(orderId)];
       if (!s) return { ok: false, error: 'settlement_not_found' };
@@ -243,6 +297,7 @@ export function openSettlementStore(file) {
       d.settlements[String(orderId)] = s;
       save(d);
       return { ...s };
+      });
     },
     markConfirmed(orderId, { confirmations, blockHeight, blockHash }) {
       const d = load();

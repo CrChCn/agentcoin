@@ -16,6 +16,7 @@ import crypto from 'node:crypto';
 
 export const SDK_VERSION = '0.2.0';
 export const QUEUE_CHAIN = 'AGENTCOIN';
+export const SDK_VERSION_B = '0.3.0';
 const GENESIS_UNKNOWN = 'unknown';
 
 const sha256hex = (s) => crypto.createHash('sha256').update(String(s), 'utf8').digest('hex');
@@ -302,7 +303,52 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return { ok: false, status: r.status, error: r.data?.error || 'signed_failed' };
   }
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, _journalFile: jFile };
+  // ---- Stage B: каталог и заказы (чтение публичное, мутации подписанные) ----
+  async function searchOffers({ skill, maxPriceAtomic, format } = {}) {
+    const q = new URLSearchParams();
+    if (skill) q.set('skill', skill);
+    if (maxPriceAtomic !== undefined) q.set('maxPriceAtomic', String(maxPriceAtomic));
+    if (format) q.set('format', format);
+    const r = await get('/catalog/offers?' + q.toString());
+    return r.data;
+  }
+  async function signedMarket({ addr, action, body, endpoint, operationId }) {
+    let signer;
+    try { signer = readSigner(); } catch (e) { return { ok: false, error: 'signer_unavailable', hint: String(e.message || e) }; }
+    try {
+      const { addressFromPub } = await import('../../core.mjs');
+      const pubPem = signer.w.public_key_pem || signer.w.pub;
+      if (pubPem) {
+        const derived = addressFromPub(pubPem);
+        if (derived.toLowerCase() !== String(addr).toLowerCase()) return { ok: false, error: 'ADDRESS_MISMATCH', hint: 'адрес из ключа ≠ настроенный адрес' };
+      }
+    } catch (e) { return { ok: false, error: 'signer_verify_failed', hint: String(e.message || e).slice(0, 160) }; }
+    const net = await netId();
+    const opId = operationId || `${action}:${addr}:${bodyDigest(body)}`;
+    const r0 = opReserve({ operationId: opId, action, body, signerAddress: addr, net });
+    if (r0.wrongNet) return { ok: false, error: 'WRONG_NETWORK', hint: 'сеть/genesis не совпадают с бронью' };
+    if (r0.exists && !r0.mismatch && r0.op.state === 'acked') return { ok: true, replay: true, result: r0.op.result };
+    if (r0.mismatch) return { ok: false, error: 'BODY_MISMATCH' };
+    if (r0.exists && r0.op.state === 'needs_reconcile') return { ok: false, error: 'needs_reconcile', reconcile: r0.op.reconcile };
+    const { signAction } = await import('../../queue-auth.mjs');
+    let sig;
+    try { sig = signAction(signer.pem, { action, body, nonce: r0.op.nonce, expiry: r0.op.expiry }); }
+    catch { opSet(opId, { state: 'needs_reconcile', reconcile: { error: 'sign_failed' } }); return { ok: false, error: 'sign_failed' }; }
+    opSet(opId, { state: 'sent' });
+    const fromPub = signer.w.public_key_pem || signer.w.pub || '';
+    const r = await post(endpoint, { address: addr, fromPub, signature: sig.signature, action, body, nonce: r0.op.nonce, expiry: r0.op.expiry, chain: QUEUE_CHAIN });
+    if (r.netError) { opSet(opId, { state: 'needs_reconcile', reconcile: { check: endpoint } }); return { ok: false, error: 'net_error', reconcile: 'needs_reconcile' }; }
+    if (r.status === 200) { opSet(opId, { state: 'acked', result: r.data }); return { ok: true, replay: false, result: r.data }; }
+    opSet(opId, { state: 'needs_reconcile', reconcile: { status: r.status, body: r.data } });
+    return { ok: false, status: r.status, error: r.data?.error || action + '_failed', detail: r.data };
+  }
+  const publishOffer = (addr, offer) => signedMarket({ addr, action: 'publish', body: { offer }, endpoint: '/catalog/publish', operationId: `publish:${offer.offerId}:${offer.version}` });
+  const createOrder = (addr, offerId, input, idempotencyKey, offerVersion) => signedMarket({ addr, action: 'order', body: { offerId, offerVersion, input, idempotencyKey }, endpoint: '/orders/create', operationId: `order:${addr}:${offerId}:${idempotencyKey || bodyDigest({ offerId, input })}` });
+  const submitArtifact = (addr, assignmentId, artifact, contentB64) => signedMarket({ addr, action: 'artifact', body: { assignmentId, artifact, content: contentB64 }, endpoint: '/orders/submit-artifact', operationId: `artifact:${assignmentId}:${artifact.artifactId}` });
+  const acceptOrder = (addr, assignmentId, verdict) => signedMarket({ addr, action: 'accept', body: { assignmentId, verdict }, endpoint: '/orders/accept', operationId: `accept:${assignmentId}:${bodyDigest({ assignmentId, verdict })}` });
+  const getOrder = async (assignmentId, requester) => (await get(`/orders/${assignmentId}${requester ? '?requester=' + encodeURIComponent(requester) : ''}`)).data;
+
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

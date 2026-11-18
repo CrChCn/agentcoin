@@ -30,7 +30,7 @@ function parseArgs(argv) {
   }
   return out;
 }
-const KNOWN = new Set(['address', 'wallet', 'node', 'handle', 'job', 'summary', 'timeout', 'json', 'help']);
+const KNOWN = new Set(['address', 'wallet', 'node', 'handle', 'job', 'summary', 'timeout', 'json', 'help', 'skill', 'max', 'format', 'file', 'offer', 'input', 'idem', 'version', 'order', 'verdict']);
 function main() {
   const a = parseArgs(process.argv.slice(2));
   for (const k of Object.keys(a)) if (k !== '_' && k !== 'help' && !KNOWN.has(k)) { console.error(`unknown param --${k}`); process.exit(2); }
@@ -54,6 +54,12 @@ function main() {
       else if (cmd === 'join') { needAddr(); needWallet(); const r = await c.join(address, String(a.handle || '')); emit(r, r.ok ? 0 : (r.error === 'needs_reconcile' || r.error === 'net_error' ? 3 : 2)); }
       else if (cmd === 'jobs' && sub === 'claim') { needAddr(); needWallet(); const r = await c.claim(address); emit(r, r.ok ? 0 : (r.error === 'needs_reconcile' || r.error === 'net_error' ? 3 : 2)); }
       else if (cmd === 'jobs' && sub === 'submit') { needAddr(); needWallet(); const r = await c.submit(address, String(a.job || ''), String(a.summary || '')); emit(r, r.ok ? 0 : (r.error === 'needs_reconcile' || r.error === 'net_error' ? 3 : 2)); }
+      else if (cmd === 'offers' && sub === 'search') { emit(await c.searchOffers({ skill: String(a.skill || ''), maxPriceAtomic: a.max === undefined ? undefined : Number(a.max), format: String(a.format || '') })); }
+      else if (cmd === 'offers' && sub === 'publish') { needAddr(); needWallet(); const offer = JSON.parse(fs.readFileSync(String(a.file || ''), 'utf8')); const r = await c.publishOffer(address, offer); emit(r, r.ok ? 0 : 2); }
+      else if (cmd === 'orders' && sub === 'create') { needAddr(); needWallet(); const input = a.input ? JSON.parse(String(a.input)) : {}; const r = await c.createOrder(address, String(a.offer || ''), input, String(a.idem || ''), a.version ? String(a.version) : undefined); emit(r, r.ok ? 0 : 2); }
+      else if (cmd === 'orders' && sub === 'submit') { needAddr(); needWallet(); const art = JSON.parse(fs.readFileSync(String(a.file || ''), 'utf8')); const r = await c.submitArtifact(address, String(a.order || ''), art.meta, art.contentB64); emit(r, r.ok ? 0 : 2); }
+      else if (cmd === 'orders' && sub === 'accept') { needAddr(); needWallet(); const r = await c.acceptOrder(address, String(a.order || ''), String(a.verdict || 'accepted')); emit(r, r.ok ? 0 : 2); }
+      else if (cmd === 'orders' && sub === 'get') { needAddr(); emit(await c.getOrder(String(a.order || ''), address)); }
       else { console.error('unknown command'); console.log(HELP); process.exit(2); }
     } catch (e) { console.error('error: ' + String(e.message || e).slice(0, 300)); process.exit(1); }
   })();

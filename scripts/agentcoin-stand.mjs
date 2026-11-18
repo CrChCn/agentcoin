@@ -39,6 +39,33 @@ step('payments-stages', await c.payments(addr));
 const c2 = makeClient({ node: stand.url, address: addr, walletFile, journalFile: J });
 step('restart-claim-replay', await c2.claim(addr));
 
+// ---- Stage B: услуга api-check-v1 (провайдер Б, заказчик А) ----
+const mkW = (tag) => {
+  const kk = crypto.generateKeyPairSync('ed25519');
+  const pp = kk.publicKey.export({ type: 'spki', format: 'pem' });
+  const aa = addressFromPub(pp);
+  const wf = path.join(tmp, tag + '.json');
+  fs.writeFileSync(wf, JSON.stringify({ address: aa, public_key_pem: pp, privateKeyPem: kk.privateKey.export({ type: 'pkcs8', format: 'pem' }) }));
+  return { addr: aa, wf };
+};
+const B = mkW('provB'), A2 = mkW('custA');
+const cB = makeClient({ node: stand.url, address: B.addr, walletFile: B.wf, journalFile: path.join(tmp, 'jB.json') });
+const cA = makeClient({ node: stand.url, address: A2.addr, walletFile: A2.wf, journalFile: path.join(tmp, 'jA.json') });
+const offerB = { offerId: 'api-check-v1', version: '1', provider: B.addr, title: 'Проверка API', skills: ['api-check'], acceptedInputFormats: ['application/json'], producedOutputFormats: ['application/json'], inputSchema: { url: 'string' }, outputSchema: { url: 'string', status: 'number' }, acceptance: { method: 'human', rules: 'customer compares' }, priceAtomic: 500, expiresAt: Date.now() + 3600000, license: 'research-only', deadline: '24h', limits: 'stand' };
+step('B-publish', await cB.publishOffer(B.addr, offerB));
+step('A-search-offers', await cA.searchOffers({ skill: 'api-check', maxPriceAtomic: 1000, format: 'application/json' }));
+const ord = await cA.createOrder(A2.addr, 'api-check-v1', { url: 'https://example/api', expectStatus: 200 }, 'stand-idem-1');
+step('A-create-order', ord);
+if (ord.ok) {
+  const aidB = ord.result.assignment.assignmentId;
+  const payload = JSON.stringify({ url: 'https://example/api', status: 200, checkedAt: Date.now() });
+  const hb = crypto.createHash('sha256').update(Buffer.from(payload)).digest('hex');
+  const art = { artifactId: 'r1', attemptId: 't1', contentHash: hb, mediaType: 'application/json', sizeBytes: Buffer.byteLength(payload), location: 'inline', accessPolicy: 'parties', createdAt: Date.now(), producerSignature: 'sig' };
+  step('B-submit-artifact', await cB.submitArtifact(B.addr, aidB, art, Buffer.from(payload).toString('base64')));
+  step('A-accept', await cA.acceptOrder(A2.addr, aidB, 'accepted: status 200 matches'));
+  step('A-accept-repeat', await cA.acceptOrder(A2.addr, aidB, 'accepted: status 200 matches'));
+}
+
 const evDir = path.join(process.cwd(), 'evidence');
 fs.mkdirSync(evDir, { recursive: true });
 const evFile = path.join(evDir, `agentcoin-sdk-pass-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);

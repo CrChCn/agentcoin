@@ -44,3 +44,20 @@ node test/agentcoin-contract.mjs     # 17 PASS — подписи, nonce, гон
 node test/agentcoin-mcp-client.mjs   # 8 PASS — реальный MCP-клиент
 node scripts/agentcoin-stand.mjs     # полный проход + evidence/agentcoin-sdk-pass-*.json
 ```
+
+## Stage B: каталог, заказ, артефакт, приёмка (api-check-v1)
+
+Схемы `sdk/js/schemas.mjs` (protocol/api 0.3): AgentProfile (навыки — самодекларация),
+ServiceOffer (offerId+version — ключ, правка = новая версия, цена целыми атомарными),
+Assignment (снимок оффера `offerSnapshotHash` — заказ не меняется после правки),
+Artifact (хеш по фактическому содержимому, смена = новый artifactId).
+
+Стенд: `GET /catalog/offers?skill=&maxPriceAtomic=&format=`,
+`POST /catalog/publish`, `POST /orders/create` (идемпотентный по idempotencyKey —
+повтор не создаёт новую сделку, средств не двигает),
+`POST /orders/submit-artifact` (только provider, хеш проверяется, приватное скрыто),
+`POST /orders/accept` (только customer, повтор — тот же исход).
+Поиск и чтение условий — без ручного просмотра сайта (MCP `offers_search`).
+
+Приёмка метода известна до работы (`acceptance.method`); хеш подтверждает
+содержимое, не качество. Проверки: `test/agentcoin-market-b.mjs` — 13/13.

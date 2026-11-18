@@ -46,7 +46,7 @@ await new Promise((r) => setTimeout(r, 800));
 const init = await rpc('initialize', {});
 ok(init.result?.serverInfo?.name === 'agentcoin' && init.result?.protocolVersion, 'initialize + версия протокола');
 const list = await rpc('tools/list', {});
-ok(Array.isArray(list.result?.tools) && list.result.tools.length === 6, 'tools/list — 6 инструментов');
+  ok(Array.isArray(list.result?.tools) && list.result.tools.length === 11, 'tools/list — 11 инструментов (stage A+B)');
 const st = await rpc('tools/call', { name: 'status', arguments: { address: addr } });
 ok(st.result?.content?.[0]?.text?.includes('queue') || JSON.stringify(st).includes('queue'), 'tools/call status');
 const unk = await rpc('tools/call', { name: 'nope', arguments: {} });
@@ -57,7 +57,9 @@ ok(bad.error?.code === -32602, 'неверные аргументы — стру
 const [p1, p2] = await Promise.all([rpc('tools/call', { name: 'my_task', arguments: {} }), rpc('tools/call', { name: 'payments', arguments: {} })]);
 ok(p1.result && p2.result, 'параллельные вызовы');
 // мутирующий без wallet — отдельный процесс без WALLET
-ok(list.result.tools.filter(t => /MUTATING/.test(t.description)).length === 3, 'мутирующие помечены MUTATING (3)');
+  const mut = list.result.tools.filter(t => /MUTATING/.test(t.description)).length;
+  const ro = list.result.tools.filter(t => /READ-ONLY/.test(t.description)).length;
+  ok(mut === 7 && ro === 4, `мутирующие MUTATING (${mut}), чтение READ-ONLY (${ro})`);
 child.stdin.end();
 await new Promise((r) => child.on('exit', r));
 ok(true, 'чистый выход процесса');

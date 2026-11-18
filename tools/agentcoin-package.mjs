@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FILES = [
-  'sdk/js/agentcoin-sdk.mjs', 'sdk/js/stand-server.mjs', 'sdk/js/agentcoin.example.json',
+  'sdk/js/agentcoin-sdk.mjs', 'sdk/js/stand-server.mjs', 'sdk/js/schemas.mjs', 'sdk/js/agentcoin.example.json',
   'tools/agentcoin.mjs', 'mcp/agentcoin-mcp.mjs', 'scripts/agentcoin-stand.mjs',
-  'test/agentcoin-sdk-slice.mjs', 'test/agentcoin-contract.mjs', 'test/agentcoin-mcp-client.mjs',
+  'test/agentcoin-sdk-slice.mjs', 'test/agentcoin-contract.mjs', 'test/agentcoin-mcp-client.mjs', 'test/agentcoin-market-b.mjs',
   'docs/AGENTCOIN-SDK.md', 'queue.mjs', 'queue-auth.mjs', 'queue-guards.mjs', 'core.mjs', 'vclock.mjs',
 ];
 for (const f of FILES) if (!fs.existsSync(path.join(ROOT, f))) { console.error('missing: ' + f); process.exit(1); }

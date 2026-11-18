@@ -16,6 +16,11 @@ const TOOLS = [
   { name: 'queue_join', description: 'MUTATING (destructive): встать в очередь', inputSchema: { type: 'object', properties: { address: { type: 'string' }, handle: { type: 'string' } }, required: ['address'] } },
   { name: 'jobs_claim', description: 'MUTATING (destructive): взять только свою задачу', inputSchema: { type: 'object', properties: { address: { type: 'string' } }, required: ['address'] } },
   { name: 'jobs_submit', description: 'MUTATING (destructive): сдать работу (summary>=40)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, jobId: { type: 'string' }, summary: { type: 'string' } }, required: ['address', 'jobId', 'summary'] } },
+  { name: 'offers_search', description: 'READ-ONLY: поиск услуг по навыку/цене/формату', inputSchema: { type: 'object', properties: { skill: { type: 'string' }, maxPriceAtomic: { type: 'number' }, format: { type: 'string' } } } },
+  { name: 'offers_publish', description: 'MUTATING (destructive): опубликовать предложение услуги', inputSchema: { type: 'object', properties: { address: { type: 'string' }, offer: { type: 'object' } }, required: ['address', 'offer'] } },
+  { name: 'orders_create', description: 'MUTATING (destructive): создать заказ (идемпотентный)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, offerId: { type: 'string' }, input: { type: 'object' }, idempotencyKey: { type: 'string' } }, required: ['address', 'offerId'] } },
+  { name: 'orders_submit', description: 'MUTATING (destructive): сдать артефакт результата', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' }, artifact: { type: 'object' }, contentB64: { type: 'string' } }, required: ['address', 'assignmentId', 'artifact', 'contentB64'] } },
+  { name: 'orders_accept', description: 'MUTATING (destructive): принять результат заказа', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' }, verdict: { type: 'string' } }, required: ['address', 'assignmentId'] } },
 ];
 function client(addr) {
   const a = addr || ADDRESS;
@@ -27,6 +32,11 @@ async function call(name, args = {}) {
   if (name === 'status') return await c.status(addr);
   if (name === 'my_task') return { task: await c.myTask(addr) };
   if (name === 'payments') return await c.payments(addr);
+  if (name === 'offers_search') return await c.searchOffers({ skill: args.skill, maxPriceAtomic: args.maxPriceAtomic, format: args.format });
+  if (name === 'offers_publish') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.publishOffer(addr, args.offer); }
+  if (name === 'orders_create') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.createOrder(addr, String(args.offerId), args.input || {}, String(args.idempotencyKey || '')); }
+  if (name === 'orders_submit') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.submitArtifact(addr, String(args.assignmentId), args.artifact, String(args.contentB64)); }
+  if (name === 'orders_accept') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.acceptOrder(addr, String(args.assignmentId), String(args.verdict || 'accepted')); }
   if (name === 'queue_join') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.join(addr, String(args.handle || '')); }
   if (name === 'jobs_claim') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.claim(addr); }
   if (name === 'jobs_submit') {

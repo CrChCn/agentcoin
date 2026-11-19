@@ -6,7 +6,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { BLOCK_INTERVAL_SEC, HEX64_RE } from './net-collect.mjs';
+import { BLOCK_INTERVAL_SEC, HEX64_RE, unifyLocalState } from './net-collect.mjs';
+
+export const MONITOR_STALE_SEC = 180;
 
 function isPubCheck(o) {
   return /:pub-/.test(o.checkId) || /:caps/.test(o.checkId);
@@ -72,11 +74,32 @@ export function diff(reg, observations) {
   // --- монитор: локальные ответы vs публичный /network/nodes ---
   const monitor = { comparedAt: new Date().toISOString(), locals: {}, public: null, conclusion: '', proxySuspect: false, commonBlock: null, nodeCompare: [], proxyNote: '' };
   const findObs = (cid, suffix) => (byId.get(cid) || []).find((o) => o.checkId === `${cid}:${suffix}` && o.status === 'ok');
+  // fix5: единое локальное представление: blocks+tipHeight из local-info,
+  // tipHash из local-health иначе local-ws-status иначе local-life, с sources.
   for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
-    const o = findObs(cid, 'local-info') || (byId.get(cid) || []).find((x) => /local-info/.test(x.checkId));
-    monitor.locals[cid] = o
-      ? { status: o.status, blocks: o.observedValue?.blocks ?? null, tipHash: o.observedValue?.tipHash ?? null, chainId: o.observedValue?.chainId ?? null, genesis: o.observedValue?.genesisHash || o.observedValue?.genesis || null, error: o.error, evidenceFile: o.evidenceFile, startedAt: o.startedAt, completedAt: o.completedAt }
-      : { status: 'missing', error: 'no local-info observation' };
+    const compObs = byId.get(cid) || [];
+    const u = unifyLocalState(compObs, cid);
+    const info = compObs.find((o) => o.checkId === `${cid}:local-info`);
+    const tipSrcId = (u.sources && u.sources.tipHash) || null;
+    const tipObs = tipSrcId ? compObs.find((o) => o.checkId === tipSrcId) : null;
+    const primary = (info && info.status === 'ok') ? info : (tipObs && tipObs.status === 'ok' ? tipObs : (compObs.find((o) => /:local-(info|health|ws-status|life)$/.test(o.checkId)) || null));
+    if (u.blocks !== null && u.tipHeight !== null) {
+      monitor.locals[cid] = {
+        status: 'ok', blocks: u.blocks, tipHeight: u.tipHeight, tipHash: u.tipHash,
+        chainId: u.chainId, genesis: u.genesis, tipAgeSec: u.tipAgeSec ?? null, sources: u.sources,
+        error: u.tipHash ? null : 'local_tip_missing: no valid tipHash in local-health/ws-status/life',
+        evidenceFile: info?.evidenceFile || null, tipEvidenceFile: tipObs?.evidenceFile || null,
+        startedAt: primary?.startedAt || null, completedAt: primary?.completedAt || null,
+      };
+    } else {
+      monitor.locals[cid] = {
+        status: info ? info.status : 'missing', blocks: null, tipHeight: null, tipHash: u.tipHash,
+        chainId: u.chainId, genesis: u.genesis, tipAgeSec: null, sources: u.sources,
+        error: info ? (info.error || 'no local blocks>=1 in local-info') : 'no local-info observation',
+        evidenceFile: info?.evidenceFile || null, tipEvidenceFile: null,
+        startedAt: primary?.startedAt || null, completedAt: primary?.completedAt || null,
+      };
+    }
   }
   const pubNodes = (byId.get('node-monitor') || []).find((o) => o.checkId === 'node-monitor:pub-nodes');
   if (pubNodes && pubNodes.status === 'ok') {
@@ -118,28 +141,65 @@ export function diff(reg, observations) {
     const n2Entry = entries ? pick((n) => /node2/i.test(String(n.name || ''))) : null;
     const n3Entry = entries ? pick((n) => /node3/i.test(String(n.name || ''))) : null;
     const map = { 'mainnet-node-1': selfEntry, 'mainnet-node-2': n2Entry, 'mainnet-node-3': n3Entry };
+    // fix5: tipHash:null никогда не DIVERGENT; без сравнимого хэша — INSUFFICIENT;
+    // расхождение времени больше допуска — STALE.
     for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
       const local = monitor.locals[cid];
       const entry = map[cid];
-      if (!entry || !local || local.status !== 'ok' || !Number.isSafeInteger(local.blocks)) {
+      const base = {
+        componentId: cid,
+        localBlocks: local?.blocks ?? null, localTipHeight: local?.tipHeight ?? null, localTip: local?.tipHash ?? null,
+        localSources: local?.sources ?? null,
+        monitorBlocks: entry?.blocks ?? null, monitorTip: entry?.tipHash ?? null,
+        at: local?.completedAt ?? null,
+      };
+      if (!entry) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'no monitor entry' });
+        continue;
+      }
+      if (!local || local.status !== 'ok' || !Number.isSafeInteger(local.blocks) || local.tipHeight === null) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: `local ${local?.status || 'missing'}: no comparable blocks/tipHeight`, localError: local?.error || null });
+        continue;
+      }
+      if (typeof local.tipHash !== 'string' || !HEX64_RE.test(local.tipHash)) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'local_tip_missing: no valid tipHash in local-health/ws-status/life', localError: local.error || null });
+        continue;
+      }
+      if (!Number.isSafeInteger(entry.blocks)) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor blocks missing' });
+        continue;
+      }
+      if (typeof entry.tipHash !== 'string' || !HEX64_RE.test(entry.tipHash)) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor tip missing' });
+        continue;
+      }
+      const lt = Date.parse(local.completedAt);
+      const pt = Date.parse(monitor.public?.completedAt || monitor.public?.startedAt);
+      let dtSec = null;
+      if (Number.isFinite(lt) && Number.isFinite(pt)) dtSec = Math.abs(lt - pt) / 1000;
+      const blocksEqual = entry.blocks === local.blocks;
+      const tipEqual = String(entry.tipHash).toLowerCase() === String(local.tipHash).toLowerCase();
+      if (dtSec !== null && dtSec > MONITOR_STALE_SEC) {
         monitor.nodeCompare.push({
-          componentId: cid, result: 'INSUFFICIENT',
-          reason: !entry ? 'no monitor entry' : `local ${local.status}`,
-          localBlocks: local?.blocks ?? null, localTip: local?.tipHash ?? null,
-          monitorBlocks: entry?.blocks ?? null, monitorTip: entry?.tipHash ?? null,
+          ...base, result: 'STALE', reason: `time_separated ${Math.round(dtSec)}s > ${MONITOR_STALE_SEC}s`,
+          blocksEqual, tipEqual, dtSec: Math.round(dtSec),
+          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
         });
         continue;
       }
-      const blocksEqual = entry.blocks === local.blocks;
-      const tipEqual = entry.tipHash && local.tipHash ? entry.tipHash === local.tipHash : null;
-      monitor.nodeCompare.push({
-        componentId: cid, result: blocksEqual && tipEqual ? 'CONSISTENT' : 'DIVERGENT',
-        localBlocks: local.blocks, localTip: local.tipHash,
-        monitorBlocks: entry.blocks ?? null, monitorTip: entry.tipHash ?? null,
-        blocksEqual, tipEqual,
-        monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
-        at: local.completedAt,
-      });
+      if (blocksEqual && tipEqual) {
+        monitor.nodeCompare.push({
+          ...base, result: 'CONSISTENT', reason: 'comparable height+hash match within time window',
+          blocksEqual, tipEqual, dtSec,
+          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
+        });
+      } else {
+        monitor.nodeCompare.push({
+          ...base, result: 'DIVERGENT', reason: 'comparable values differ',
+          blocksEqual, tipEqual, dtSec,
+          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
+        });
+      }
     }
   } catch (e) {
     monitor.nodeCompare.push({ componentId: '*', result: 'INSUFFICIENT', reason: `compare-error ${String((e && e.message) || e).slice(0, 120)}` });
@@ -234,7 +294,7 @@ export function renderMarkdown(reg, observations, d) {
   if (d.monitor.proxyNote) L.push(`- proxy-note: ${d.monitor.proxyNote}`);
   for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
     const l = d.monitor.locals[cid];
-    L.push(`- ${cid} local: status=${l.status} blocks=${l.blocks ?? '—'} tip=${l.tipHash ? String(l.tipHash).slice(0, 12) + '…' : '—'} err=${l.error || '—'} proof=${l.evidenceFile || '—'}`);
+    L.push(`- ${cid} local: status=${l.status} blocks=${l.blocks ?? '—'} tipHeight=${l.tipHeight ?? '—'} tip=${l.tipHash ? String(l.tipHash).slice(0, 12) + '…' : '—'} src=${l.sources ? JSON.stringify(l.sources) : '—'} err=${l.error || '—'} proof=${l.evidenceFile || '—'}`);
   }
   L.push(`- public /network/nodes: status=${d.monitor.public ? d.monitor.public.status : 'missing'} err=${(d.monitor.public && d.monitor.public.error) || '—'} proof=${(d.monitor.public && d.monitor.public.evidenceFile) || '—'}`);
   for (const nc of (d.monitor.nodeCompare || [])) {

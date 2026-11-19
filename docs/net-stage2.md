@@ -36,7 +36,7 @@
 
 ```
 node test/registry-check.mjs   # 33/33 (25 этапа 1 сохранены + observe-кейсы)
-node test/net-collect.mjs      # 25/25, изолированно (fetch/ssh — моки)
+node test/net-collect.mjs      # 31/25+6 fix5, изолированно (fetch/ssh — моки)
 ```
 
 Обязательные сценарии покрыты: исправный ответ; тайм-аут; 403/404/500;
@@ -54,6 +54,15 @@ fix4: `ps -eo`, `ss -ltnp` отклоняются);
 (без хэша — unknown, без вывода о совпадении; совпадение истории не
 доказывает отсутствие расхождения выше); монитор nodeCompare с
 INSUFFICIENT; цепочка raw→collect→diff.
+fix5: семантика высоты — /info.blocks это число блоков, tipHeight=blocks-1
+(blocks>=1 обязательно), общий блок min(blocks-1); запрос одного блока на
+commonHeight, приём только при returned.height===commonHeight и 64-hex.
+Локальное представление ноды едино: blocks/tipHeight/chainId/genesis из
+local-info, tipHash из local-health иначе local-ws-status иначе local-life,
+источник каждого поля — в sources. Сравнение: CONSISTENT — сравнимые
+высота+хэш совпали в допуске 180с; DIVERGENT — сравнимые значения реально
+различаются; INSUFFICIENT — нет сравнимого хэша (tipHash:null никогда не
+DIVERGENT); STALE — данные разделены временем больше допуска.
 
 Вердикты компонентов: `match` — только когда все наблюдения `ok`.
 Любые `not_checked`/`unavailable`/`unknown` исключают полный `match`

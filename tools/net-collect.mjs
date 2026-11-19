@@ -242,6 +242,73 @@ export function isParamPath(p) {
   return /:[a-zA-Z_]|[{}\[\]*<>]/.test(String(p || ''));
 }
 
+export function tipHeightFromBlocks(blocks) {
+  if (!Number.isSafeInteger(blocks) || blocks < 1) return null;
+  return blocks - 1;
+}
+
+export function commonTipHeight(blocksArr) {
+  if (!Array.isArray(blocksArr) || !blocksArr.length) return null;
+  for (const b of blocksArr) {
+    if (!Number.isSafeInteger(b) || b < 1) return null;
+  }
+  return Math.min(...blocksArr.map((b) => b - 1));
+}
+
+// fix5: единое локальное представление ноды. blocks — только из local-info
+// (число блоков, не высота); tipHeight = blocks - 1; tipHash — только из
+// local-health, иначе local-ws-status, иначе local-life; молча не подставляем —
+// источник каждого поля фиксируется в sources.
+export function unifyLocalState(allObservations, componentId) {
+  const list = Array.isArray(allObservations)
+    ? allObservations.filter((o) => o && o.componentId === componentId)
+    : [];
+  const findOk = (re) => list.find((o) => o && re.test(o.checkId || '') && o.status === 'ok' && o.observedValue);
+  const info = findOk(/:local-info$/);
+  const health = findOk(/:local-health$/);
+  const ws = findOk(/:local-ws-status$/);
+  const life = findOk(/:local-life$/);
+  const sources = {};
+  let blocks = null;
+  if (info && Number.isSafeInteger(info.observedValue.blocks) && info.observedValue.blocks >= 1) {
+    blocks = info.observedValue.blocks;
+    sources.blocks = info.checkId;
+  }
+  const tipHeight = tipHeightFromBlocks(blocks);
+  if (tipHeight !== null) sources.tipHeight = `${sources.blocks || 'local-info'}: blocks-1`;
+  let tipHash = null;
+  let tipSrc = null;
+  for (const cand of [health, ws, life]) {
+    const h = cand && cand.observedValue && cand.observedValue.tipHash;
+    if (typeof h === 'string' && HEX64_RE.test(h.trim())) {
+      tipHash = h.trim();
+      tipSrc = cand.checkId;
+      break;
+    }
+  }
+  if (tipHash) sources.tipHash = tipSrc;
+  let chainId = null;
+  let chainSrc = null;
+  for (const cand of [info, health, ws]) {
+    const v = cand && cand.observedValue && (cand.observedValue.chainId || cand.observedValue.network);
+    if (typeof v === 'string' && v) { chainId = v; chainSrc = cand.checkId; break; }
+  }
+  if (chainId) sources.chainId = chainSrc;
+  let genesis = null;
+  let genSrc = null;
+  for (const cand of [info, ws, health]) {
+    const v = cand && cand.observedValue && (cand.observedValue.genesisHash || cand.observedValue.genesis);
+    if (typeof v === 'string' && HEX64_RE.test(v.trim())) { genesis = v.trim(); genSrc = cand.checkId; break; }
+  }
+  if (genesis) sources.genesis = genSrc;
+  let tipAgeSec = null;
+  for (const cand of [health, ws, life, info]) {
+    const v = cand && cand.observedValue && cand.observedValue.tipAgeSec;
+    if (Number.isSafeInteger(v)) { tipAgeSec = v; break; }
+  }
+  return { blocks, tipHeight, tipHash, chainId, genesis, tipAgeSec, sources };
+}
+
 export function extractCommonBlock(body, wantHeight) {
   const j = tryJson(body);
   if (!j.ok || !isPlainObject(j.value)) return { ok: false, error: 'no_valid_hash' };
@@ -966,17 +1033,21 @@ export async function collect(reg, opts = {}) {
     }
   } catch { /* необязательно: частичный сбой не уничтожает фазу 1 */ }
 
-  // Фаза 2: общий номер блока — минимальная ok-высота по локальным info, сверка хэша одного блока.
+  // Фаза 2 fix5: /info.blocks — число блоков, tip-высота = blocks - 1.
+  // Общий блок — min(blocks - 1) по локальным info (только blocks >= 1).
+  // Запрашиваем один блок на commonHeight, принимаем только returned.height === commonHeight + valid 64-hex.
   try {
     const heights = [];
     for (const o of observations) {
       if (!o || o.status !== 'ok' || !o.observedValue) continue;
-      if (!/:(local-info|pub-info)$/.test(o.checkId)) continue;
+      if (!/:(local-info)$/.test(o.checkId)) continue;
       const b = o.observedValue.blocks;
-      if (Number.isSafeInteger(b)) heights.push({ checkId: o.checkId, componentId: o.componentId, blocks: b });
+      if (Number.isSafeInteger(b) && b >= 1) heights.push({ checkId: o.checkId, componentId: o.componentId, blocks: b });
     }
     if (heights.length >= 2 && !ctx.publicOnly) {
-      const minH = Math.min(...heights.map((h) => h.blocks));
+      const minH = commonTipHeight(heights.map((h) => h.blocks));
+      if (minH === null) throw { done: true };
+      const tipNote = heights.map((h) => `${h.componentId}=blocks${h.blocks}/tip${h.blocks - 1}`).join(', ');
       const comps = [...new Set(heights.map((h) => h.componentId))];
       const byComp = new Map();
       for (const c of (reg.components || [])) {
@@ -990,7 +1061,7 @@ export async function collect(reg, opts = {}) {
           componentId: cid, checkId: `${cid}:common-block-${minH}`,
           via: 'ssh', ssh,
           command: `curl -sS -m 8 -i 'http://127.0.0.1:9335/blocks?from=${minH}&limit=1'`,
-          sourceEndpoint: `loopback /blocks?from=${minH}&limit=1 via ssh`,
+          sourceEndpoint: `loopback /blocks?from=${minH}&limit=1 via ssh (common tipHeight; ${tipNote})`,
           expectJson: true, kind: 'common-block', endpoint: '/blocks', wantHeight: minH,
         });
       }

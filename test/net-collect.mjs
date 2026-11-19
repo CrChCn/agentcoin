@@ -4,7 +4,7 @@
 // общий блок без хэша, SSH allowlist, структуры ответов, монитор,
 // параллелизм 4, лимит тела потоком. Плюс цепочка raw→collect→diff.
 // fix4: безопасный SSH (без глобального ps, без сырого ss, со scrub секретов).
-import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES, scrubSecrets, parsePidCheck, filterSsLines } from '../tools/net-collect.mjs';
+import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES, scrubSecrets, parsePidCheck, filterSsLines, tipHeightFromBlocks, commonTipHeight, unifyLocalState } from '../tools/net-collect.mjs';
 import { diff } from '../tools/net-diff.mjs';
 
 const PIN = { network: 'AGENTCOIN', genesis: '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e' };
@@ -466,6 +466,146 @@ await run('fix4 package deps present', async () => {
   const plan = buildPlan(testReg());
   assert(!plan.some((p) => p.command === 'ps -eo pid,user,args'), 'no global ps in plan');
   assert(!plan.some((p) => p.command === 'ss -ltnp'), 'no raw ss in plan');
+});
+
+// fix5-1. blocks=50448/50448/50447 выбирает общий блок 50446 (min(blocks-1))
+await run('fix5 common tip height 50446', async () => {
+  assert(tipHeightFromBlocks(50448) === 50447, 'tip 50448->50447');
+  assert(tipHeightFromBlocks(50447) === 50446, 'tip 50447->50446');
+  assert(tipHeightFromBlocks(0) === null && tipHeightFromBlocks(-1) === null, 'blocks>=1 required');
+  assert(commonTipHeight([50448, 50448, 50447]) === 50446, 'common 50446');
+  assert(commonTipHeight([50448, 50448]) === 50447, 'common 2 nodes');
+  assert(commonTipHeight([1]) === 0, 'genesis-adjacent');
+  assert(commonTipHeight([0, 10]) === null && commonTipHeight([]) === null, 'invalid -> null');
+  // интеграция: collect запрашивает именно 50446, а не min(blocks)
+  const mkReg3 = (hosts) => ({
+    version: 2, updatedAt: '2026-11-20T10:00Z', chain: { network: PIN.network, genesis: PIN.genesis, confirmDepth: 6, feeAtomic: '0' },
+    sources: {}, statusVocabulary: ['confirmed'],
+    components: hosts.map(([cid, host, blocks]) => ({
+      componentId: cid, kind: 'blockchain-node', purpose: 't', env: 'mainnet',
+      host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [],
+      storage: null, dependsOn: [], network: 'n', expected: {}, observed: {},
+      verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: '2026-11-20T10:00Z' },
+      checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis },
+      observe: { ssh: { host, user: 'root', port: 22 }, localBase: 'http://127.0.0.1:9335', localEndpoints: ['/info'], units: [], files: [], listenPorts: [], publicBase: 'https://x' },
+      _blocks: blocks,
+    })),
+  });
+  const reg3 = mkReg3([['mainnet-node-1', '10.0.0.1', 50448], ['mainnet-node-2', '10.0.0.2', 50448], ['mainnet-node-3', '10.0.0.3', 50447]]);
+  const byHost = { '10.0.0.1': 50448, '10.0.0.2': 50448, '10.0.0.3': 50447 };
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.includes('/blocks?from=')) {
+      const m = cmd.match(/from=(\d+)&/);
+      const want = Number(m && m[1]);
+      assert(want === 50446, 'requested common must be 50446, got ' + want + ' cmd=' + cmd);
+      return { stdout: curlI(200, 'application/json', JSON.stringify({ blocks: [{ height: want, hash: TIP_A }] })), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('curl ')) {
+      const b = byHost[ssh.host];
+      const body = JSON.stringify({ chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: b });
+      return { stdout: curlI(200, 'application/json', body), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
+    return { stdout: 'x\n', stderr: '', exitCode: 0 };
+  };
+  const { observations } = await collect(reg3, { fetchFn: async () => ({ httpStatus: 404, contentType: 'text/plain', body: 'x' }), sshFn, evidenceDir: null });
+  const commons = observations.filter((o) => /:common-block-/.test(o.checkId));
+  assert(commons.length === 3, 'three common-block obs: ' + JSON.stringify(commons.map((o) => o.checkId)));
+  assert(commons.every((o) => o.checkId.endsWith(':common-block-50446')), 'all request 50446: ' + JSON.stringify(commons.map((o) => o.checkId)));
+  assert(commons.every((o) => o.status === 'ok' && o.observedValue.height === 50446), 'all ok at 50446');
+});
+
+// fix5-2. /info без tipHash + /health с ним — корректное объединение с sources
+await run('fix5 merge info+health', async () => {
+  const T = new Date().toISOString();
+  const obs = [
+    { componentId: 'mainnet-node-1', checkId: 'mainnet-node-1:local-info', status: 'ok', observedValue: { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 50448 }, error: null, evidenceFile: 'e1', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+    { componentId: 'mainnet-node-1', checkId: 'mainnet-node-1:local-health', status: 'ok', observedValue: { blocks: 50448, tipHash: TIP_A, tipAgeSec: 4 }, error: null, evidenceFile: 'e2', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+  ];
+  const u = unifyLocalState(obs, 'mainnet-node-1');
+  assert(u.blocks === 50448 && u.tipHeight === 50447, 'blocks/tipHeight: ' + JSON.stringify(u));
+  assert(u.tipHash === TIP_A, 'tip merged');
+  assert(u.sources.blocks === 'mainnet-node-1:local-info' && u.sources.tipHash === 'mainnet-node-1:local-health', 'sources kept: ' + JSON.stringify(u.sources));
+  assert(u.chainId === 'AGENTCOIN' && u.genesis === PIN.genesis, 'pin kept');
+});
+
+// fix5-3. хэша нет ни в /health, ни в /ws-status → INSUFFICIENT (никогда DIVERGENT)
+await run('fix5 missing hash insufficient', async () => {
+  const T = new Date().toISOString();
+  const mkLocal = (cid) => ([
+    { componentId: cid, checkId: `${cid}:local-info`, status: 'ok', observedValue: { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 100 }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+  ]);
+  const reg = testReg();
+  reg.components.push(
+    { componentId: 'mainnet-node-2', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+    { componentId: 'mainnet-node-3', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+    { componentId: 'node-monitor', kind: 'monitor', purpose: 'm', env: 'shared', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', observe: { publicBase: 'https://agentcoin.work' } },
+  );
+  const nodesBody = JSON.stringify({ ok: true, nodes: [
+    { name: 'node1', reachable: true, blocks: 100, tipHash: TIP_A, status: 'responding' },
+    { name: 'node2', reachable: true, blocks: 100, tipHash: TIP_A, status: 'responding' },
+    { name: 'node3', reachable: true, blocks: 100, tipHash: TIP_A, status: 'responding' },
+  ] });
+  const obs = [...mkLocal('mainnet-node-1'), ...mkLocal('mainnet-node-2'), ...mkLocal('mainnet-node-3'),
+    { componentId: 'node-monitor', checkId: 'node-monitor:pub-nodes', status: 'ok', observedValue: JSON.parse(nodesBody), error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T }];
+  const d = diff(reg, obs);
+  assert(d.monitor.nodeCompare.length === 3, 'three compares');
+  assert(d.monitor.nodeCompare.every((x) => x.result === 'INSUFFICIENT'), 'all INSUFFICIENT without local tip: ' + JSON.stringify(d.monitor.nodeCompare));
+  assert(!d.monitor.nodeCompare.some((x) => x.result === 'DIVERGENT'), 'never DIVERGENT on null tip');
+});
+
+// fix5-4. одинаковые сравнимые значения → CONSISTENT
+await run('fix5 consistent on equal', async () => {
+  const T = new Date().toISOString();
+  const mk = (cid) => ([
+    { componentId: cid, checkId: `${cid}:local-info`, status: 'ok', observedValue: { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 200 }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+    { componentId: cid, checkId: `${cid}:local-health`, status: 'ok', observedValue: { blocks: 200, tipHash: TIP_A }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+  ]);
+  const reg = testReg();
+  reg.components.push(
+    { componentId: 'mainnet-node-2', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+    { componentId: 'mainnet-node-3', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+    { componentId: 'node-monitor', kind: 'monitor', purpose: 'm', env: 'shared', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', observe: { publicBase: 'https://agentcoin.work' } },
+  );
+  const nodesBody = JSON.stringify({ ok: true, nodes: [
+    { name: 'node1 self', reachable: true, blocks: 200, tipHash: TIP_A, status: 'responding' },
+    { name: 'node2', reachable: true, blocks: 200, tipHash: TIP_A, status: 'responding' },
+    { name: 'node3', reachable: true, blocks: 200, tipHash: TIP_A, status: 'responding' },
+  ] });
+  const obs = [...mk('mainnet-node-1'), ...mk('mainnet-node-2'), ...mk('mainnet-node-3'),
+    { componentId: 'node-monitor', checkId: 'node-monitor:pub-nodes', status: 'ok', observedValue: JSON.parse(nodesBody), error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T }];
+  const d = diff(reg, obs);
+  assert(d.monitor.nodeCompare.every((x) => x.result === 'CONSISTENT'), 'all CONSISTENT: ' + JSON.stringify(d.monitor.nodeCompare));
+});
+
+// fix5-5. разные сравнимые хэши одной высоты → DIVERGENT
+await run('fix5 divergent on hash diff', async () => {
+  const T = new Date().toISOString();
+  const obs = [
+    { componentId: 'mainnet-node-1', checkId: 'mainnet-node-1:local-info', status: 'ok', observedValue: { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 200 }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+    { componentId: 'mainnet-node-1', checkId: 'mainnet-node-1:local-health', status: 'ok', observedValue: { blocks: 200, tipHash: TIP_A }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+    { componentId: 'node-monitor', checkId: 'node-monitor:pub-nodes', status: 'ok', observedValue: { ok: true, nodes: [{ name: 'node1 self', reachable: true, blocks: 200, tipHash: TIP_B, status: 'responding' }] }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T },
+  ];
+  const reg = testReg();
+  reg.components.push({ componentId: 'node-monitor', kind: 'monitor', purpose: 'm', env: 'shared', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', observe: { publicBase: 'https://agentcoin.work' } });
+  const d = diff(reg, obs);
+  const c1 = d.monitor.nodeCompare.find((x) => x.componentId === 'mainnet-node-1');
+  assert(c1 && c1.result === 'DIVERGENT', 'divergent on hash diff: ' + JSON.stringify(c1));
+});
+
+// fix5-6. три ответа блока 50446 с одним хэшем → sameChain:true только для этой высоты
+await run('fix5 common block 50446 sameChain', async () => {
+  const T = new Date().toISOString();
+  const mkObs = (cid) => ({ componentId: cid, checkId: `${cid}:common-block-50446`, status: 'ok', observedValue: { height: 50446, hash: TIP_A, requestedHeight: 50446 }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T });
+  const mkLocal = (cid, blocks) => ({ componentId: cid, checkId: `${cid}:local-info`, status: 'ok', observedValue: { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks }, error: null, evidenceFile: 'e', sourceHost: 'h', sourceEndpoint: 's', startedAt: T, completedAt: T });
+  const reg = testReg();
+  reg.components.push(
+    { componentId: 'mainnet-node-2', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+    { componentId: 'mainnet-node-3', kind: 'blockchain-node', purpose: 't', env: 'mainnet', host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [], storage: null, dependsOn: [], network: 'n', expected: {}, observed: {}, verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: T }, checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis } },
+  );
+  const d = diff(reg, [mkObs('mainnet-node-1'), mkObs('mainnet-node-2'), mkObs('mainnet-node-3'), mkLocal('mainnet-node-1', 50448), mkLocal('mainnet-node-2', 50448), mkLocal('mainnet-node-3', 50447)]);
+  assert(d.monitor.commonBlock && d.monitor.commonBlock.height === '50446', 'height 50446: ' + JSON.stringify(d.monitor.commonBlock));
+  assert(d.monitor.commonBlock.sameChain === true && d.monitor.commonBlock.validCount === 3, 'sameChain true x3: ' + JSON.stringify(d.monitor.commonBlock));
 });
 
 let fail = 0;

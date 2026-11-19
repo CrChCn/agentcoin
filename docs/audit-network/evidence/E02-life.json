@@ -1,0 +1,36 @@
+{
+  "alive": true,
+  "blocks": 50044,
+  "tipHash": "00163681df48b37dc27610ee71d83ca0d9d2215afe34256eda59a286833a30ed",
+  "tipAgeSec": 6,
+  "fresh": true,
+  "chainValid": true,
+  "chainIssue": null,
+  "vclock": {
+    "agentcoin-staging": 26374,
+    "LAPTOP-IH54QPIF": 9874
+  },
+  "validationMode": "compatibility",
+  "validationCheckedAt": "2026-11-19T09:24:02.551Z",
+  "tips": [],
+  "security": {
+    "banned": 1,
+    "attacks": 0
+  },
+  "checkedAt": "2026-11-19T09:24:02.551Z",
+  "peers": {
+    "peer_count": 0,
+    "inbound": 0,
+    "outbound": 0,
+    "withIp": 0,
+    "subnets": [],
+    "subnetsOk": false,
+    "note": "subnetsOk=false, если все пиры в одной /24 — eclipse-предупреждение (одиночный хост)"
+  },
+  "shield": {
+    "loopLagMs": 1,
+    "overloaded": false,
+    "rateMapSize": 2,
+    "maxConnections": 256
+  }
+}

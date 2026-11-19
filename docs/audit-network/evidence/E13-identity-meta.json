@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "version": 1,
+  "domain": "AGT-IDENTITY-V1",
+  "network": "AGENTCOIN",
+  "audience": "agentcoin-node:9335",
+  "issuerFingerprint": "sha256:40e07160793b3086927c06eb75ee659236de5ea15c7a1c11729db5457151f69d",
+  "issuerPub": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAox/5AMaKbTy361vONKNsdD3XwdkQ0SZYAOdd2HkdHu8=\n-----END PUBLIC KEY-----\n",
+  "trustedIssuers": [
+    "sha256:40e07160793b3086927c06eb75ee659236de5ea15c7a1c11729db5457151f69d"
+  ],
+  "challengeTtlMs": 300000,
+  "role": "issuer",
+  "enrollmentEnabled": true,
+  "passportIssuerFingerprint": "sha256:40e07160793b3086927c06eb75ee659236de5ea15c7a1c11729db5457151f69d"
+}

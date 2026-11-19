@@ -1,0 +1,7 @@
+E22 — Резервы: источник текста 403 и фактический Caddy/upstream, SSH read-only.
+- node2 (91.99.191.236, hostname agentcoin-node2-fsn) /etc/caddy/Caddyfile дословно:
+  # Managed-By: agentcoin-leader-v1 (AC-6: единый сайт — Leader=node1)
+  # Reserve dark: публичная плоскость скрыта (403), P2P /ws и пиры разрешены.
+  node2.agentcoin.work { @ws { path /ws /ws/* } handle @ws { reverse_proxy 127.0.0.1:9335 } encode/header...; @peer { remote_ip 127.0.0.1 ::1 2.31.145.160 64.225.104.125 100.64.0.0/10 } handle @peer { reverse_proxy https://node1.agentcoin.work { header_up Host node1.agentcoin.work; transport http { tls } } } handle { respond "reserve node: dark (use https://agentcoin.work)" 403 } }
+- node3 (64.225.104.125, hostname agentcoin-node3-do): тот же шаблон для node3.agentcoin.work (шапка и правило 403 дословно те же; полный файл постранично не снимался — head показал идентичные первые строки).
+- Вывод: источник текста — Caddy-файлы резервных машин (НЕ H1: там grep dark пуст; НЕ репозиторий: git grep пуст). Внешний /ws/status 200 объясняется правилом @ws (/ws/* -> локальная нода); внешний /health 403 — правило handle по умолчанию.

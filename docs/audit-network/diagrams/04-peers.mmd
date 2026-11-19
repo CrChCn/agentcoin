@@ -1,0 +1,12 @@
+graph TB
+  N1[node1 главная<br/>50043 00480c09<br/>seed=2]
+  N2[node2<br/>50043 00480c09<br/>selfUrl клон]
+  N3[node3<br/>50043 00480c09<br/>selfUrl клон]
+  N1 -- "HTTP /health probe responding E04<br/>подтверждено" --> N2
+  N1 -- "HTTP /health probe responding E04<br/>подтверждено" --> N3
+  N1 -- "HTTP gossip accepted 349 E06<br/>подтверждено" --> N2
+  N1 -- "HTTP gossip accepted 195 E06<br/>подтверждено" --> N3
+  N1 -. "WS full-mesh<br/>wsPeers=0 НЕ ВИДНО" .-> N2
+  N1 -. "WS full-mesh<br/>wsPeers=0 НЕ ВИДНО" .-> N3
+  N2 -. "WS<br/>НЕ ВИДНО" .-> N3
+  SEED[(seed-конфиг 2 URL<br/>содержимое НЕ ЧИТАЛОСЬ)] -. "merge при старте<br/>код node.mjs:2954" .-> N1

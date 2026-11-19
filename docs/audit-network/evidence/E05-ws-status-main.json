@@ -1,0 +1,25 @@
+{
+  "wsPeers": 0,
+  "roster": [],
+  "selfUrl": "http://127.0.0.1:9335",
+  "publicUrl": "https://node1.agentcoin.work",
+  "blocks": 50044,
+  "tipHash": "00163681df48b37dc27610ee71d83ca0d9d2215afe34256eda59a286833a30ed",
+  "tipAgeSec": 7,
+  "fresh": true,
+  "chainValid": true,
+  "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+  "p2p": {
+    "peer_count": 0,
+    "inbound": 0,
+    "outbound": 0,
+    "withIp": 0,
+    "subnets": [],
+    "subnetsOk": false,
+    "note": "subnetsOk=false, если все пиры в одной /24 — eclipse-предупреждение (одиночный хост)",
+    "maxInbound": 25,
+    "maxOutbound": 10,
+    "eclipseWarn": true,
+    "seed": 2
+  }
+}

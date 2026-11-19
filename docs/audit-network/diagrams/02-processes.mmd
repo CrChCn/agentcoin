@@ -1,0 +1,17 @@
+graph TB
+  subgraph H1[SRV-H1]
+    CADDY[Caddy :80/:443<br/>TLS + прокси<br/>конфиг НЕ ЧИТАЛСЯ V02]
+    NODE[agt-node 127.0.0.1:9335<br/>node.mjs core/sync/ws<br/>E01/E02/E05 жив]
+    GW[agt-settlement 127.0.0.1:18745<br/>шлюз /mainnet/*<br/>E11 жив]
+    STATIC[static bundle<br/>site + web-next<br/>E12 release null]
+    MINER[auto-miner tick 60с<br/>miner-client headers-only<br/>запуск НЕ ПРОВЕРЕН]
+    Q[queue/orders/catalog<br/>server-side JSON<br/>E10 waiting 5]
+  end
+  CADDY --> STATIC
+  CADDY --> NODE
+  CADDY --> GW
+  GW --> NODE
+  MINER --> NODE
+  Q --> NODE
+  NODE --> DATA[(DATA_DIR chain.json<br/>mempool.json peers.json<br/>НЕ ЧИТАЛСЯ V01)]
+  GW --> JOURNAL[(mainnet-settlements.json<br/>НЕ ЧИТАЛСЯ)]

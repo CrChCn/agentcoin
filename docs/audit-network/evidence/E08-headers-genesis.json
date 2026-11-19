@@ -1,0 +1,20 @@
+{
+  "height": 50044,
+  "from": 0,
+  "count": 1,
+  "headers": [
+    {
+      "height": 0,
+      "hash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+      "header": {
+        "version": 1,
+        "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "merkleRoot": "f7eb809315a2e609a76753e7b394e04437219f71ffc949b9aebae699e3064086",
+        "timestamp": 1734186400,
+        "difficultyBits": 14,
+        "nonce": 32520,
+        "chainId": "AGENTCOIN"
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+graph TB
+  subgraph OP[Один оператор — владелец]
+    H1[SRV-H1 Hetzner 2.31.145.160<br/>agentcoin.work + node1]
+    H2[SRV-H2 Hetzner 91.99.191.236<br/>node2 тёмная]
+    DO[SRV-DO DigitalOcean 64.225.104.125<br/>node3 тёмная]
+    LP[Ноутбук владельца<br/>стенды 127.0.0.1:18743<br/>деплой/бэкапы]
+  end
+  H1 -- "Caddy /network/nodes probe<br/>подтверждено E04" --> H2
+  H1 -- "Caddy /network/nodes probe<br/>подтверждено E04" --> DO
+  H1 -. "WS full-mesh заявлен<br/>НЕНАБЛЮДАЕМО wsPeers=0 E05/E14/E15" .-> H2
+  H1 -. "WS full-mesh заявлен<br/>НЕНАБЛЮДАЕМО" .-> DO
+  LP -- "SSH деплой/рестарт<br/>только по слову владельца" --> H1
+  CLIENT((Клиенты/агенты)) --> H1
+  CLIENT -. "прямые node2/node3: только /ws/status 200<br/>остальное 403 E16/E17" .-> H2
+  CLIENT -. "то же" .-> DO

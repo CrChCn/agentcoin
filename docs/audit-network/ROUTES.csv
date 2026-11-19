@@ -1,0 +1,30 @@
+domain,path,method,auth,rate_limit,upstream,process,data_source,response,evidence,status
+agentcoin.work,/,GET,none,не проверено,Caddy static (imperial канон),site static,файл imperial.html,200 text/html,E19,подтверждено
+agentcoin.work,/agent-room,GET,none,не проверено,Caddy static,site static,site/agent-room.html,200 text/html,E19,подтверждено
+agentcoin.work,/cabinet,GET,none,не проверено,Caddy static + 308 /wallet->/cabinet (память),site static,site/cabinet.html (#nodes3 блок),200 text/html,E19,подтверждено
+agentcoin.work,/settlement,GET,none,не проверено,Caddy static,site static,site/ecosphere/mainnet.html v0.3,200 text/html,E19,подтверждено
+agentcoin.work,/workspace,GET,none,не проверено,Next-оболочка (catch-all риск по реестру),web-next,не проверено,200 text/html,E19,подтверждено частично (тело — оболочка; содержимое не разбиралось)
+agentcoin.work,/ecosphere/ /ecosphere/index.html,GET,none,—,—,—,—,404,E19,противоречие (реестр: implemented)
+agentcoin.work,/info,GET,none,не проверено,Caddy -> 127.0.0.1:9335,agt-node,Blockchain.info() node=PUBLIC_URL,200 JSON chainId/genesis/blocks/tip/mempool,E01,подтверждено
+agentcoin.work,/life,GET,none,не проверено,Caddy -> нода,agt-node,life+peers+shield+vclock,200 JSON alive/fresh/chainValid,E02,подтверждено
+agentcoin.work,/health,GET,none,не проверено,Caddy -> нода,agt-node,blocks/tip/loopLag,200 JSON ok/service,проход 09:19 (до E-файлов),подтверждено
+agentcoin.work,/capabilities /api/v1/capabilities,GET,none,не проверено,Caddy -> нода,agt-node,PUB allowlist (node.mjs:139),200 JSON get[] без админ-токена,E03,подтверждено
+agentcoin.work,/network/nodes /api/v1/network/nodes,GET,none (только операторские цели; посетитель URL не задаёт),TTL 10с (код),нода selfHealth + probe configured targets,node-monitor.mjs,targets(имена захардкожены) + /health целей,200 JSON 3/3 responding,E04,подтверждено
+agentcoin.work,/ws/status,GET,none,не проверено,Caddy -> нода,agt-node+WsHub,hub.count/roster/selfUrl/publicUrl/p2p,200 JSON wsPeers 0,E05,подтверждено
+agentcoin.work,/headers?from=&limit=,GET,none,не проверено,нода,agt-node,chain headers,200 JSON,E08,подтверждено
+agentcoin.work,/blocks?n=1 /blocks?from=&limit=,GET,none,не проверено,нода,agt-node,chain bodies (включая tx образца E07),200 JSON,E07,подтверждено
+agentcoin.work,/api/v1/mempool?full=1,GET,none,не проверено,нода (голый /mempool отдаёт оболочка!),agt-node,mempool.json,200 JSON size/txs,E09 + sdk-комментарий,подтверждено
+agentcoin.work,/mempool (bare),GET,none,—,Next-оболочка (не цепь),web-next,—,200 text/html,E19 (проход),подтверждено (не использовать для цепи)
+agentcoin.work,/peers/meta,GET,none,не проверено,нода,agt-node,peer-meta.json strikes/accepted,200 JSON node2 349 node3 195,E06,подтверждено
+agentcoin.work,/peers/bootstrap,GET,none,—,—,—,—,404,E19,подтверждено (закрыт)
+agentcoin.work,/gateway/list,GET,none,—,—,—,—,404,E19,подтверждено (закрыт)
+agentcoin.work,/mine (GET),GET,none,—,Next-оболочка (POST /mine — админ ноды x-admin-token с петли),web-next vs agt-node,—,200 text/html,E19,подтверждено частично (POST не тестировался — мутация запрещена)
+agentcoin.work,/tx (POST) /tx/preflight,POST,подпись tx (verifyTransaction до сети; шлюз: +settle-approve),rate-limit шлюза 60 POST/мин (docs) лимиты ноды не проверены,нода напрямую / шлюз /mainnet/submit,agt-node / agt-settlement,mempool + журнал settlements,не вызывался (запрет отправок); SDK: 201 accepted / duplicate_tx / insufficient_funds,sdk/js/mainnet-node-api.mjs,код + путь; живьём не тестировался
+agentcoin.work,/mainnet/*,GET+POST,GET none / POST подпись+approve,64KB тела 60 POST/мин paused-флаг (docs),Caddy -> 127.0.0.1:18745,agt-settlement,нода + journal + policy,200 /mainnet/info (E11); остальные не тестировались,E11,подтверждено частично
+agentcoin.work,/queue/status,GET,none,не проверено,нода/stand,queue.mjs,queue JSON waiting/onDuty,200 JSON waiting 5,E10,подтверждено
+agentcoin.work,/site/release,GET,none,не проверено,нода SiteReleaseManager,site bundle hashes,200 JSON apiVersion 2 release null,E12,подтверждено
+agentcoin.work,/identity/meta,GET,none,не проверено,нода AgentIdentityRegistry,issuer fingerprint+pin,200 JSON,E13,подтверждено
+agentcoin.work,/agent-state?address=,GET,none (чтение; чужой адрес прав не даёт),не проверено,нода/очередь,queue+passport+gate,200 JSON passport none,E-проход 09:22,подтверждено
+agentcoin.work,/txproof/xxx (bare),GET,none,—,—,—,—,404 (голый; канон /api/v1/txproof/:txid по SDK),E-проход,подтверждено
+node2/node3 .work,/health /info /blocks /peers/meta,GET,—,—,Caddy тёмных (правило вне репозитория),reserve node,—,403 reserve node: dark,E16/E17,подтверждено
+node2/node3 .work,/ws/status,GET,none,не проверено,напрямую резервная нода,WsHub резервов,локальные счётчики,200 JSON wsPeers 0,E14/E15,подтверждено

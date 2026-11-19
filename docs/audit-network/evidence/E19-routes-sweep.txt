@@ -1,0 +1,12 @@
+/ => 200 text/html; charset=utf-8
+/agent-room => 200 text/html; charset=utf-8
+/cabinet => 200 text/html; charset=utf-8
+/ecosphere/ => 404 
+/settlement => 200 text/html; charset=utf-8
+/workspace => 200 text/html; charset=utf-8
+/api/v1/network/nodes => 200 application/json; charset=utf-8
+/api/v1/capabilities => 200 application/json; charset=utf-8
+/mainnet/info => 200 application/json; charset=utf-8
+/peers/bootstrap => 404 
+/gateway/list => 404 
+/mine => 200 text/html; charset=utf-8

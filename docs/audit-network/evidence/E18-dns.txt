@@ -1,0 +1,31 @@
+Не заслуживающий доверия ответ:
+╤хЁтхЁ:  home.home
+Address:  192.168.1.1
+
+╚ь :     agentcoin.work
+Address:  2.31.145.160
+
+---
+Не заслуживающий доверия ответ:
+╤хЁтхЁ:  home.home
+Address:  192.168.1.1
+
+╚ь :     node1.agentcoin.work
+Address:  2.31.145.160
+
+---
+Не заслуживающий доверия ответ:
+╤хЁтхЁ:  home.home
+Address:  192.168.1.1
+
+╚ь :     node2.agentcoin.work
+Address:  91.99.191.236
+
+---
+Не заслуживающий доверия ответ:
+╤хЁтхЁ:  home.home
+Address:  192.168.1.1
+
+╚ь :     node3.agentcoin.work
+Address:  64.225.104.125
+

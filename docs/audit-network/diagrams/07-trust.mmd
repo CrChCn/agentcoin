@@ -1,0 +1,12 @@
+graph TB
+  subgraph T1[Доверие: ЕДИНЫЙ оператор]
+    OP[Владелец<br/>DNS+Caddy+3 ноды+шлюз+политика]
+  end
+  OP -- "компрометация сайта<br/>→ фишинг to/amount" --> CLI((Агенты/клиенты))
+  OP -- "компрометация подписанта<br/>→ средства казны requires 2" --> TREA[Казна]
+  OP -- "останов node1<br/>→ всё чтение/запись встаёт<br/>резервы только /ws/status" --> NET[Сеть]
+  DNS[DNS/registrar] -- "смерть DNS<br/>→ все домены + probes ложатся" --> NET
+  CADDY[Caddy] -- "смерть Caddy<br/>→ 80/443 молчит<br/>loopback жив но недостижим" --> NET
+  MINER[1 майнер] -- "стоп<br/>→ tipAgeSec→stale<br/>mempool растёт" --> NET
+  LAPTOP[Ноутбук] -. "потеря<br/>→ прод живёт<br/>деплои/бэкапы встают" .-> NET
+  TEST[(TEST-книга)] -. "перекрёст<br/>→ prod случайно в test?" .-> GW[Шлюз]

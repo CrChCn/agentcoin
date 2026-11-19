@@ -1,0 +1,26 @@
+id,time_utc,env,command,result,linked_facts,limitation
+E01,2026-11-19T09:24Z,mainnet prod,curl -sS -m 12 https://agentcoin.work/info,E01-info.json: blocks 50043 difficultyBits 9 genesis 00026d18.. node node1,F02/F10,внешняя точка; внутренности ноды не видны
+E02,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/life,E02-life.json: validationMode compatibility chainValid true,V05/C06,режим смягчения не раскрыт
+E03,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/capabilities,E03-capabilities.json: get[] без токена,F04/§4,allowlist-код node.mjs:139/514
+E04,2026-11-19T09:23Z,mainnet prod,curl -sS https://agentcoin.work/network/nodes,E04-network-nodes.json: 3/3 responding tip 00480c09 50043,F06/C02,монитор видит то что нам закрыто
+E05,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/ws/status,E05: wsPeers 0 selfUrl 127.0.0.1:9335 publicUrl node1 seed 2,F05/F07/C01/C03,транспорт 0 при HTTP-знании
+E06,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/peers/meta,E06: node2 accepted 349 node3 195 strikes 0,F07/§6,знание ≠ транспорт
+E07,2026-11-19T09:24Z,mainnet prod,curl -sS "https://agentcoin.work/blocks?n=1",E07 tip-block (образец heartbeat 0.001 + coinbase),F09/V06,один образец; историю не качали
+E08,2026-11-19T09:24Z,mainnet prod,curl -sS "https://agentcoin.work/headers?from=0&limit=1",E08 genesis header (пин цепи),F02,genesis совпал
+E09,2026-11-19T09:24Z,mainnet prod,curl -sS "https://agentcoin.work/api/v1/mempool?full=1",E09 size 0 tipHash 006e14d6 (лаг опроса vs E04),F09/F13,моментальный снимок
+E10,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/queue/status,E10 waiting 5 onDuty 5,F11,прикладное состояние а не цепь
+E11,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/mainnet/info,E11 chainId+genesis+infoBlocks 50042,F11/§10,остальные /mainnet/* не тестировались
+E12,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/site/release,E12 apiVersion 2 release null manifestHash null,§3,релиз не именован; откат — предыдущий бандл
+E13,2026-11-19T09:24Z,mainnet prod,curl -sS https://agentcoin.work/identity/meta,E13 issuerFingerprint sha256:40e07160..,F11/V09,пин сверять независимым каналом
+E14,2026-11-19T09:24Z,mainnet prod,curl -sS https://node2.agentcoin.work/ws/status,E14 blocks/tip/genesis selfUrl клон,F05/C03,версия/флаги/DATA_DIR неизвестны
+E15,2026-11-19T09:24Z,mainnet prod,curl -sS https://node3.agentcoin.work/ws/status,E15 то же,F05/C03,то же
+E16,2026-11-19T09:24Z,mainnet prod,curl -sS https://node2.agentcoin.work/health,E16 403 reserve node dark,F04/C02,правило вне репозитория (V02)
+E17,2026-11-19T09:24Z,mainnet prod,curl -sS https://node3.agentcoin.work/health,E17 403 reserve node dark,F04/C02,то же
+E18,2026-11-19T09:24Z,public DNS,nslookup agentcoin.work node1/2/3,E18: 2.31.145.160 2.31.145.160 91.99.191.236 64.225.104.125,§2/F03,резолв с одного хоста; провайдер по памяти
+E19,2026-11-19T09:24Z,mainnet prod,loop curl 12 маршрутов (коды+CT),E19: / /agent-room /cabinet /settlement /workspace 200; /ecosphere/ 404; /peers/bootstrap /gateway/list 404,F12/F13/C04,тела оболочек не разбирались
+E20,2026-11-19T09:33Z,SRV-H1 SSH read-only,systemctl/ss/ps/proc/environ(фильтр)/sha256,E20: unit/user/порты/RAM/диск/env/версии,F16,V01 done; секреты не читались
+E21,2026-11-19T09:33Z,SRV-H1 SSH read-only,cat peers/monitor-targets/mine-cron + Caddy grep,E21: DATA_DIR/peers/meta/chain/monitor-targets/Caddy690,F16/F18,монитор-цели + Caddy H1
+E22,2026-11-19T09:33Z,резервы SSH read-only,cat /etc/caddy/Caddyfile,E22: дословные dark-правила node2/node3,F20/C02,источник 403 установлен
+E23,2026-11-19T09:33Z,H1+node2 SSH read-only,сравнение health локально vs через домены,E23: H1==via-node2==via-node3 ≠ node2-local,F19/C02,монитор показывает node1 трижды
+E24,2026-11-19T09:33Z,резервы SSH read-only,local health/chain/peers/sha/units/res,E24: процессы/хранилища/версии/ресурсы/drift,F17/F18/F22/C08,дифф версий — следующий шаг
+E25,2026-11-19T09:33Z,код a5bd038,node.mjs:235 + core.mjs:1598 validate + :1015,E25: смысл compatibility,F21,strict только на приёме

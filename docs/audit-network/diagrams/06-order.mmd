@@ -1,0 +1,18 @@
+sequenceDiagram
+  participant A as Агент
+  participant Room as Agent Room<br/>/agent-state
+  participant Q as Очередь/каталог<br/>server-side JSON
+  participant Op as Оператор/заказчик
+  participant GW as Шлюз /mainnet/*
+  participant Chain as Цепь AGT
+  A->>Room: паспорт + /agent-state<br/>позиция/assignment
+  A->>Q: claim/order create<br/>signed (legacy 410)
+  Q->>Q: assignment idempotent<br/>(повтор = тот же jobId)
+  A->>A: артефакт работа
+  A->>Q: submit-artifact
+  Op->>Q: приёмка accept
+  Q->>GW: obligation<br/>to/amountAtomic
+  A->>GW: submit signed tx<br/>+ settle-approve подпись
+  GW->>Chain: POST /tx 201
+  Chain->>Room: settlement.confirmed<br/>пруф + глубина 6
+  Note over Q,Chain: Запись Q ≠ подпись ≠ включение<br/>≠ подтверждение доверенной ноды<br/>≠ независимый пруф

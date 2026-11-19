@@ -1,0 +1,42 @@
+{
+  "blocks": [
+    {
+      "height": 50043,
+      "hash": "00163681df48b37dc27610ee71d83ca0d9d2215afe34256eda59a286833a30ed",
+      "header": {
+        "version": 1,
+        "prevHash": "00480c091eede293ff3b844205588a40ab93d50b52fda4c8359f85cd9190b1e3",
+        "merkleRoot": "83757b5a49f5e907929ac31043f06c40a5b705f90d96313583341ea5d7590ee1",
+        "timestamp": 1795080236,
+        "difficultyBits": 9,
+        "nonce": 817,
+        "chainId": "AGENTCOIN"
+      },
+      "txs": [
+        {
+          "from": "AGT3de1add99abb515ecb018227663eecc7d1f07ee0",
+          "fromPub": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASf+GQlxcG5TXdEuCgrwvkLrDkLHbCqC0ImtMGLyuuDU=\n-----END PUBLIC KEY-----\n",
+          "to": "AGT3de1add99abb515ecb018227663eecc7d1f07ee0",
+          "amount": 0.001,
+          "nonce": 1795080194874,
+          "ts": 1795080194,
+          "memo": "ecosystem heartbeat 2026-11-19T09:23",
+          "signature": "f410c99b226a5458804d93d74a914021a369ddbb7b0a0db592e4f804f9e70b5c79217c96b67d1565c3a7909a15ca4014fa92ab7c6ce9cb6656ab8c88b060b100",
+          "txid": "f07a8e3c2226354832f426012088a28865290c5473b31703e75d40349951a760"
+        },
+        {
+          "from": "COINBASE",
+          "to": "AGT9120b1704493736a5af9317c3814d1940732b658",
+          "amount": 50,
+          "nonce": 50043,
+          "ts": 1795080236,
+          "memo": "block 50043",
+          "txid": "249f1d3586d87b206541453a66fe3e3cde5e9fafa8cf472d740670b6380c7b09"
+        }
+      ],
+      "minedAt": 1795080236260,
+      "mineMs": 37,
+      "miner": "AGT9120b1704493736a5af9317c3814d1940732b658"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+sequenceDiagram
+  participant Skill as Skill/CLI агента<br/>(ключи локально)
+  participant UI as Сайт /settlement<br/>(превью+статус)
+  participant Node as Нода node1 :9335
+  participant P as Пиры node2/node3
+  participant Chain as Цепь chain.json
+  Skill->>Skill: реквизиты from/to<br/>decimal-строка ≤9 знаков<br/>core.mjs:928 unitsOfAmountBigInt
+  Skill->>Skill: подпись Ed25519<br/>канона from/to/amount/nonce/ts/memo<br/>core.mjs:656/700 signTransactionV2
+  Skill->>UI: вставка signed JSON<br/>(сайт ключ не видит)
+  UI->>Node: POST /tx или /mainnet/submit<br/>verifyTransaction до сети
+  Node->>Node: проверка подписи+средств+nonce<br/>mempool-правила vs блока
+  Node->>Node: mempool.json append<br/>персистент
+  Node->>P: gossipTx inv-tx<br/>sync.mjs:484 (дубликат не ре-экспорт)
+  P-->>Node: (WS-транспорт НЕ ВИДЕН<br/>HTTP-знание есть E06)
+  Node->>Chain: /mine упаковка<br/>usableMempoolTxs → блок PoW 30с
+  Chain->>UI: /api/v1/txproof + /blocks<br/>глубина 6 = confirmed
+  Note over UI,Chain: Реорг: proof↔тело↔headers<br/>mismatch → reorg_detected

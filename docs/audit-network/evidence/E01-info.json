@@ -1,0 +1,43 @@
+{
+  "chainId": "AGENTCOIN",
+  "ticker": "AGT",
+  "blocks": 50044,
+  "difficultyBits": 9,
+  "nextReward": 50,
+  "totalSupplyCirculating": 2502150.0000000047,
+  "maxSupply": 21000000,
+  "halvingIn": 159956,
+  "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+  "genesisNonce": 32520,
+  "genesisSeed": "The Times 03/Jan/2009 Chancellor on brin...",
+  "mempool": 0,
+  "retargetIn": 6,
+  "security": {
+    "rules": {
+      "spoof_signature": "ban",
+      "double_spend": "ban",
+      "invalid_block": "ban",
+      "duplicate_tx_spam": "ban_after_5",
+      "flood": "ban_after_5"
+    },
+    "attacksSeen": 0,
+    "lastAttack": null,
+    "bannedCount": 1,
+    "banned": [
+      "AGTc0ffee4e1526281b1342290df80bfe113e79da01"
+    ],
+    "registryHash": "32003547fe6985ff1fe7ce7c400c2ba1bef0feee899d5f39e70222802ab1beeb",
+    "evidenceSummary": {
+      "eventCount": 0,
+      "confirmedAttackCount": 0,
+      "unverifiedEventCount": 0,
+      "requestErrorCount": 0,
+      "bannedAddressCount": 1,
+      "bannedAgentAddressCount": 1,
+      "bannedEscrowAddressCount": 0,
+      "bannedUnknownAddressCount": 0,
+      "provenance": "unknown"
+    }
+  },
+  "node": "https://node1.agentcoin.work"
+}

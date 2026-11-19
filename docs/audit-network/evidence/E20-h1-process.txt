@@ -1,0 +1,9 @@
+E20 — SRV-H1 (2.31.145.160, hostname agentcoin-staging) внутренние процессы, 2026-11-19T09:31-09:33Z, SSH read-only (ключ уже настроен; секреты не читались).
+- agentcoin-node.service: active/running. ExecStart=/opt/agentcoin-staging/runtime/node-v24.22.2/bin/node /opt/agentcoin-node/src/node.mjs 9335, pid 96843, user root, cwd /, старт 2026-11-18 23:39:12 UTC (пережил uptime 1д 9:50 — рестарт ноды был 18.11, не в этом проходе).
+- agt-settlement.service: active. pid 54413 user agt-settlement cwd /opt/agentcoin-settlement/current, cmd scripts/ecosphere-settlement-gateway.mjs 18745.
+- Старое имя agt-node.service: inactive (переименовано в agentcoin-node.service).
+- Слушают (ss -ltnp): 127.0.0.1:9335 (pid 96843), 127.0.0.1:18745 (pid 54413), 127.0.0.1:19335 (testnet pid 967 user agt-staging), 127.0.0.1:19443 (testnet api pid 970), *:80/:443 caddy pid 825 user caddy (/usr/bin/caddy run --config /etc/caddy/Caddyfile).
+- Юниты active: agentcoin-miner.service (майнер-демон), agentcoin-watchdog.service, agentcoin-heartbeat.timer (pulse каждую минуту; сам service inactive — по таймеру), testnet/staging-юниты, боты чтения.
+- Ресурсы H1: RAM 3819M total / 2182M available; диск /dev/sda1 38G, свободно 28G (24%).
+- Env pid 96843 (только несекретные): AGT_DATA_DIR=/opt/agentcoin-node/data, AGT_SEED_NODES=https://node2.agentcoin.work,https://node3.agentcoin.work, AGT_PUBLIC_URL=https://node1.agentcoin.work, AGT_MONITOR_TARGETS_FILE=/opt/agentcoin-node/monitor-targets.json.
+- Версии H1: node.mjs fb81f609… = локальный a5bd038 (совпадает), core.mjs 0e286f00… (совпадает), ws.mjs 6571c2ee… (совпадает), sync.mjs abbad0f2… (ОТЛИЧАЕТСЯ от локального dcf8fa33… — дрейф версии).

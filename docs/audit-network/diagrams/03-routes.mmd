@@ -1,0 +1,12 @@
+graph LR
+  CLI((Клиент)) -- "HTTPS" --> CADDY[Caddy agentcoin.work]
+  CADDY -- "/ static 200 E19" --> STATIC[/imperial /agent-room<br/>/cabinet /settlement<br/>/workspace/]
+  CADDY -- "/ecosphere/ 404 E19<br/>ПРОТИВОРЕЧИЕ C04" --> MISS[/404/]
+  CADDY -- "/info /life /health<br/>/headers /blocks 200" --> NODE[agt-node]
+  CADDY -- "/network/nodes /ws/status<br/>/peers/meta /queue/status 200" --> NODE
+  CADDY -- "/api/v1/mempool?full=1 200<br/>bare /mempool 200 HTML!" --> NODE
+  CADDY -- "/mainnet/* 200 E11" --> GW[agt-settlement :18745]
+  GW -- "read" --> NODE
+  CADDY -. "POST /api/v1/tx<br/>route_not_allowlisted" .-> ADAPT[Next-адаптер<br/>блокирует приём]
+  NODE2[node2 403 кроме /ws/status] -. "тёмная" .-> CLI
+  NODE3[node3 403 кроме /ws/status] -. "тёмная" .-> CLI

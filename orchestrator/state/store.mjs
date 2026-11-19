@@ -39,8 +39,13 @@ const ZERO_HASH = '0'.repeat(64);
 const nowIso = () => new Date().toISOString();
 
 export class Store {
-  constructor(root) {
+  constructor(root, { operationId = null, readOnly = false } = {}) {
     this.root = path.resolve(root);
+    /* operationId попадает в каждое событие критической секции: по журналу
+       видно, какой именно процесс зарезервировал переход. */
+    this.operationId = operationId;
+    /* readOnly отключает починку снимка: чтение статуса не должно писать без lock. */
+    this.readOnly = readOnly;
   }
 
   stateDir(taskId) { return path.join(this.root, 'state', taskId); }
@@ -64,7 +69,7 @@ export class Store {
       from,
       to,
       iteration,
-      payload: { ...extra, iteration, patch },
+      payload: { ...extra, iteration, operationId: this.operationId, patch },
       prevHash,
     };
     event.hash = sha256(canonical(event));
@@ -72,7 +77,7 @@ export class Store {
     return event;
   }
 
-  init(task, { implementer, reviewer }) {
+  init(task, { implementer, reviewer, mode = 'fixture', realAgentsArmed = false }) {
     const taskSha256 = sha256(canonical(task));
     if (this.exists(task.taskId)) {
       const current = this.load(task.taskId);
@@ -92,6 +97,8 @@ export class Store {
       iteration: 0,
       implementer,
       reviewer,
+      mode,
+      realAgentsArmed,
       createdAt: at,
       updatedAt: at,
       history: [],
@@ -110,8 +117,8 @@ export class Store {
       action: 'task.created',
       actor: 'orchestrator',
       iteration: 0,
-      patch: { reason: 'task accepted, contract constraints validated' },
-      extra: { taskSha256 },
+      patch: { reason: 'task accepted, contract constraints validated', mode, realAgentsArmed },
+      extra: { taskSha256, mode, realAgentsArmed },
     });
     return { created: true, state: this.load(task.taskId) };
   }
@@ -166,7 +173,7 @@ export class Store {
     if (taskSha256 !== state.taskSha256) {
       throw Object.assign(new Error('task snapshot does not match its recorded hash'), { code: 'TASK_TAMPERED' });
     }
-    if (base.state !== state.state || base.iteration !== state.iteration) {
+    if (!this.readOnly && (base.state !== state.state || base.iteration !== state.iteration)) {
       writeJsonAtomic(this.stateFile(taskId), state);
     }
     return state;

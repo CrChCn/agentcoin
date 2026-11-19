@@ -31,6 +31,8 @@ const REQUIRED_MODULES = [
   'lib/secrets.mjs',
   'lib/package.mjs',
   'lib/cleanroom.mjs',
+  'lib/safefs.mjs',
+  'lib/lock.mjs',
   'adapters/resolver.mjs',
   'adapters/codex-cli.mjs',
   'adapters/codex-implementer.mjs',
@@ -41,8 +43,13 @@ const REQUIRED_MODULES = [
   'policies/policy.mjs',
   'tools/pack.mjs',
   'tools/clean-check.mjs',
+  'tools/environment-matrix.mjs',
   'tests/helpers.mjs',
   'tests/codex-cli-double.mjs',
+  'tests/lock-holder.mjs',
+  'tests/lock.test.mjs',
+  'tests/symlink.test.mjs',
+  'tests/test-isolation.test.mjs',
 ];
 
 test('every runtime module imported by the orchestrator exists', () => {

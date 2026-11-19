@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { CLI, ORCH, TASKS, tempRoot } from './helpers.mjs';
+import { CLI, ORCH, TASKS, tempRoot, testEnv } from './helpers.mjs';
 import * as codex from '../adapters/codex-cli.mjs';
 
 /* Проводка реальных адаптеров проверяется процессным двойником CLI.
@@ -12,11 +12,12 @@ import * as codex from '../adapters/codex-cli.mjs';
    usage и JSONL пишутся, а невалидный вывод не превращается в успех. */
 
 const FAKE = path.join(ORCH, 'tests', 'codex-cli-double.mjs');
+const DOUBLE_ENV = { CODEX_BIN: FAKE, ORCH_TEST_ALLOW_DOUBLE: '1' };
 
 function stepWith(root, taskId, env) {
   const result = spawnSync(process.execPath, [CLI, 'step', '--task', taskId, '--root', root], {
     encoding: 'utf8',
-    env: { ...process.env, CODEX_BIN: FAKE, ...env },
+    env: testEnv({ ...DOUBLE_ENV, ...env }),
   });
   if (result.status !== 0) throw new Error(`step failed: ${result.stdout}\n${result.stderr}`);
   return JSON.parse(result.stdout);
@@ -25,8 +26,9 @@ function stepWith(root, taskId, env) {
 function initReal(root) {
   const result = spawnSync(process.execPath, [
     CLI, 'init', '--task', path.join(TASKS, 'lesson-01.json'),
-    '--implementer', 'codex-implementer', '--reviewer', 'codex-reviewer', '--root', root,
-  ], { encoding: 'utf8', env: { ...process.env, CODEX_BIN: FAKE } });
+    '--implementer', 'codex-implementer', '--reviewer', 'codex-reviewer',
+    '--confirm-real-agents', 'lesson-01', '--root', root,
+  ], { encoding: 'utf8', env: testEnv(DOUBLE_ENV) });
   if (result.status !== 0) throw new Error(`init failed: ${result.stdout}\n${result.stderr}`);
   return JSON.parse(result.stdout);
 }
@@ -103,6 +105,8 @@ test('adapter failures are BLOCKED, never a successful result', async () => {
   const workspace = path.join(root, 'ws');
   fs.mkdirSync(workspace);
   process.env.CODEX_BIN = FAKE;
+  process.env.ORCH_TEST_ALLOW_DOUBLE = '1';
+  delete process.env.FAKE_CODEX_LOGIN;
 
   const base = {
     role: 'implementer', prompt: 'x', workspace,

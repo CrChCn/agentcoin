@@ -4,10 +4,11 @@
 исправление → приёмка, с hash-журналом, восстановлением после остановки и
 типизированными действиями.
 
-> **Статус: Stage A fix1 — архив самодостаточен, проверен из чистой распаковки.**
-> Реальный двухагентный цикл ещё не выполнялся: `preflight` доходит до
-> проверки адаптеров и возвращает `BLOCKED` с единственной причиной
-> `agent_unauthenticated` — на этой машине не выполнен `codex login`.
+> **Статус: Stage A fix2 — изоляция тестов, symlink-защита и межпроцессный lock.**
+> Настоящий агент не запускается ни одним unit-тестом: в тестовом процессе
+> адаптер возвращает `REAL_AGENT_DISABLED_IN_TEST` даже при установленном,
+> авторизованном Codex и ключе в окружении. Реальный двухагентный цикл ещё не
+> выполнялся — `codex login` не запрашивался.
 > Тестовый двойник CLI используется **только** в тестах проводки
 > (`tests/real-harness.test.mjs`) и нигде не выдаётся за Codex.
 > Production, сайт, ноды, очередь и деньги не затрагивались.
@@ -48,9 +49,61 @@ sha256sum -c SHA256SUMS
 Пересобрать архив и заново прогнать чистую проверку:
 
 ```bash
-node tools/pack.mjs                       # сборка + clean room + evidence
-node tools/clean-check.mjs <archive.zip>  # проверка готового архива
+node tools/pack.mjs                            # сборка + clean room + evidence
+node tools/clean-check.mjs <archive.zip>       # проверка готового архива
+node tools/environment-matrix.mjs <archive.zip>  # четыре окружения Codex
 ```
+
+`environment-matrix` прогоняет весь набор тестов в четырёх средах: Codex
+отсутствует; присутствует, но без входа; присутствует и авторизован; заданы
+`CODEX_API_KEY`/`OPENAI_API_KEY`. Результат обязан совпасть — unit-тесты не
+зависят от состояния машины. Настоящий CLI не вызывается ни в одном варианте.
+
+---
+
+## 0.1 Изоляция unit-тестов
+
+- `tests/helpers.mjs` задаёт единое тестовое окружение: `CODEX_BIN` — либо
+  объявленный двойник, либо гарантированно отсутствующий путь; `CODEX_API_KEY`
+  и `OPENAI_API_KEY` удаляются; наследованные `FAKE_CODEX_*` не протекают.
+- В процессе теста (`NODE_TEST_CONTEXT` или `ORCH_TEST_MODE=1`) адаптер
+  возвращает `REAL_AGENT_DISABLED_IN_TEST` до любого `spawn`. Единственное
+  исключение — `tests/codex-cli-double.mjs` при `ORCH_TEST_ALLOW_DOUBLE=1`.
+- `tests/test-isolation.test.mjs` подкладывает исполняемый файл, который пишет
+  факт запуска, и доказывает, что файл не создан.
+
+## 0.2 Symlink-защита
+
+До чтения каждого изменённого файла проверяется `lstat` каждого компонента:
+разрешён только обычный файл, symlink/каталог/FIFO/device/socket — отказ
+(`UNSAFE_FILE_TYPE`, `SYMLINK_ESCAPE`), realpath обязан остаться внутри
+workspace. Артефакт применяется только через проверенные родительские
+каталоги и атомарную замену файла; удаление через symlink запрещено.
+`tests/symlink.test.mjs` покрывает девять сценариев плюс сквозную блокировку
+итерации, закоммитившей symlink наружу.
+
+## 0.3 Межпроцессный lock
+
+`lib/lock.mjs` захватывает `locks/<taskId>/` атомарным rename уже заполненного
+каталога. Критическая секция: `load state → verify journal → reserve → шаг →
+append → snapshot → release`; `operationId` пишется в каждое событие журнала.
+Второй процесс получает `TASK_BUSY` (exit 75) и ничего не запускает. Мёртвый
+lock не снимается сам: `NEEDS_RECONCILE` (exit 76), затем явный
+`node orchestrator.mjs reconcile --task <id> --force` после проверки журнала.
+
+## 0.4 Запуск настоящих агентов
+
+```bash
+node orchestrator.mjs real \
+  --task fixtures/tasks/lesson-01.json \
+  --root runs/real-1 \
+  --confirm-real-agents lesson-01
+```
+
+Без `--confirm-real-agents <taskId>` команда `real`, а также `init` с реальным
+адаптером возвращают `BLOCKED REAL_AGENT_NOT_ARMED` и ничего не создают.
+Режим (`mode`, `realAgentsArmed`) сохраняется в состоянии при инициализации,
+поэтому подменить fixture-адаптер реальным позже нельзя.
 
 ---
 

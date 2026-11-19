@@ -1,22 +1,22 @@
 #!/usr/bin/env node
-import fs from 'node:fs';
-import path from 'node:path';
+/* Применение артефакта в чистый каталог.
+   Архив приходит извне и не считается доверенным, даже если хеш совпал:
+   каждый путь проверяется через lstat по компонентам, symlink запрещён и в
+   цели, и в родителях. Запись — атомарная (временный файл + rename), поэтому
+   частично применённый файл не остаётся. */
 
-/* Применение артефакта в чистый каталог. Путь проверяется ещё раз: архив
-   приходит извне и не считается доверенным, даже если его хеш совпал. */
+import { deleteRegularFileWithin, writeFileAtomicWithin, safeRootDir } from '../lib/safefs.mjs';
+
 export function applyArtifactEntries(destDir, entries, deletions = []) {
-  const root = path.resolve(destDir);
+  const rootReal = safeRootDir(destDir);
+  let written = 0;
   for (const entry of entries) {
     if (entry.name === 'manifest.json') continue;
-    const target = path.resolve(root, entry.name);
-    if (!target.startsWith(root + path.sep)) throw new Error(`artifact: entry escapes workspace: ${entry.name}`);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, entry.data);
+    writeFileAtomicWithin(rootReal, entry.name, entry.data);
+    written += 1;
   }
   for (const rel of deletions) {
-    const target = path.resolve(root, rel);
-    if (!target.startsWith(root + path.sep)) throw new Error(`artifact: deletion escapes workspace: ${rel}`);
-    fs.rmSync(target, { force: true });
+    deleteRegularFileWithin(rootReal, rel);
   }
-  return entries.length;
+  return written;
 }

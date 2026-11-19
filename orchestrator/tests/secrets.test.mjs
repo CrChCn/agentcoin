@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { CLI, ORCH, TASKS, tempRoot } from './helpers.mjs';
+import { CLI, ORCH, TASKS, tempRoot, testEnv } from './helpers.mjs';
 import * as codex from '../adapters/codex-cli.mjs';
 import { buildArtifact } from '../artifacts/store.mjs';
 import { scanTree } from '../lib/secrets.mjs';
@@ -51,6 +51,8 @@ test('adapter output, argv, metadata, JSONL, prompt and error text are redacted'
     const outputPath = path.join(dir, 'logs', 'result.json');
 
     process.env.CODEX_BIN = FAKE;
+    process.env.ORCH_TEST_ALLOW_DOUBLE = '1';
+    delete process.env.FAKE_CODEX_LOGIN;
     process.env.FAKE_CODEX_MODE = 'leak-implement';
     process.env.FAKE_BASE_COMMIT = 'a'.repeat(40);
     process.env.FAKE_ITERATION = '1';
@@ -127,10 +129,14 @@ test('a full two-agent cycle leaves no secret anywhere under the run root', () =
     const root = tempRoot('secret-cycle');
     const run = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args, '--root', root], {
       encoding: 'utf8',
-      env: { ...process.env, CODEX_BIN: FAKE, ...env },
+      env: testEnv({ CODEX_BIN: FAKE, ORCH_TEST_ALLOW_DOUBLE: '1', ...env }),
     });
 
-    const init = run(['init', '--task', path.join(TASKS, 'lesson-01.json'), '--implementer', 'codex-implementer', '--reviewer', 'codex-reviewer']);
+    const init = run([
+      'init', '--task', path.join(TASKS, 'lesson-01.json'),
+      '--implementer', 'codex-implementer', '--reviewer', 'codex-reviewer',
+      '--confirm-real-agents', 'lesson-01',
+    ]);
     assert.equal(init.status, 0, init.stderr);
 
     assert.equal(run(['step', '--task', 'lesson-01']).status, 0);

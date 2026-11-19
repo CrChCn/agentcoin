@@ -14,6 +14,8 @@ import { canonical, copyTree, ensureDir, readJson, rmrf, sha256, writeJsonAtomic
 import { changedFiles, cloneAt, initRepo, revParse } from './git.mjs';
 import { applyArtifactTo, buildArtifact, verifyArtifactFiles } from '../artifacts/store.mjs';
 import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } from '../policies/policy.mjs';
+import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
+import { acquireLock } from './lock.mjs';
 import { implementerPrompt, reviewerPrompt } from './prompts.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -207,13 +209,45 @@ function appendLog(file, entry) {
   fs.appendFileSync(file, `${JSON.stringify({ at: nowIso(), ...entry })}\n`);
 }
 
-export function initTask({ root, taskFile, implementer = 'fixture-implementer', reviewer = 'fixture-reviewer' }) {
+/* Режим задания неизменяем: id адаптеров пишутся в состояние при инициализации,
+   повторный init с другим содержимым отклоняется (taskId immutable). */
+export function taskMode(state) {
+  if (state.mode === 'real' || state.mode === 'fixture') return state.mode;
+  const realById = String(state.implementer || '').startsWith('codex-')
+    || String(state.reviewer || '').startsWith('codex-');
+  return realById ? 'real' : 'fixture';
+}
+
+function modeViolation(state) {
+  const mode = taskMode(state);
+  if (state.mode && state.mode !== mode) {
+    return { code: 'AGENT_MODE_MISMATCH', detail: `recorded mode ${state.mode} does not match adapters ${state.implementer}/${state.reviewer}` };
+  }
+  if (mode === 'real' && state.realAgentsArmed !== true) {
+    return { code: 'REAL_AGENT_NOT_ARMED', detail: 'real agent adapters require an explicit --confirm-real-agents <taskId> at init' };
+  }
+  return null;
+}
+
+export function initTask({
+  root, taskFile, implementer = 'fixture-implementer', reviewer = 'fixture-reviewer', confirmRealAgents = null,
+}) {
   const task = loadTask(taskFile);
-  assertRole(implementer, 'implementer');
-  assertRole(reviewer, 'reviewer');
+  const implementerAdapter = assertRole(implementer, 'implementer');
+  const reviewerAdapter = assertRole(reviewer, 'reviewer');
   if (implementer === reviewer) throw Object.assign(new Error('implementer and reviewer must differ'), { code: 'SELF_REVIEW' });
+
+  const real = implementerAdapter.simulated !== true || reviewerAdapter.simulated !== true;
+  if (real && confirmRealAgents !== task.taskId) {
+    throw Object.assign(
+      new Error(`real agent adapters require explicit confirmation: --confirm-real-agents ${task.taskId}`),
+      { code: 'REAL_AGENT_NOT_ARMED', taskId: task.taskId },
+    );
+  }
   const store = new Store(root);
-  return store.init(task, { implementer, reviewer });
+  return store.init(task, {
+    implementer, reviewer, mode: real ? 'real' : 'fixture', realAgentsArmed: real && confirmRealAgents === task.taskId,
+  });
 }
 
 function checkout({ store, root, state }) {
@@ -265,6 +299,12 @@ function capabilityBlock(store, state, capability) {
 
 async function runImplementer({ store, root, state }) {
   const task = state.task;
+  const modeIssue = modeViolation(state);
+  if (modeIssue) {
+    return store.markBlocked(task.taskId, {
+      action: 'agent_mode_check', actor: 'orchestrator', code: modeIssue.code, detail: modeIssue.detail,
+    });
+  }
   if (deadlinePassed(task)) {
     return store.markBlocked(task.taskId, {
       action: 'deadline_check', actor: 'orchestrator', code: 'deadline_exceeded',
@@ -376,6 +416,39 @@ async function runImplementer({ store, root, state }) {
   }
 
   const changed = changedFiles(implementerDir, state.baseCommit);
+
+  /* Проверка типов файлов до любого чтения: symlink внутрь/наружу, FIFO,
+     device и socket в workspace — остановка, а не «прочитать что получится». */
+  const unsafeFiles = [];
+  const implementerRoot = safeRootDir(implementerDir);
+  for (const item of changed) {
+    try {
+      if (item.status === 'deleted') {
+        const parent = item.file.split('/').slice(0, -1).join('/');
+        if (parent) assertSafeParents(implementerRoot, parent);
+        continue;
+      }
+      assertRegularFileWithin(implementerRoot, item.file);
+    } catch (err) {
+      unsafeFiles.push({ code: err.code || 'UNSAFE_FILE_TYPE', file: item.file, detail: err.message });
+    }
+  }
+  for (const link of findSymlinks(implementerDir)) {
+    if (!unsafeFiles.some((entry) => entry.file === link)) {
+      unsafeFiles.push({ code: 'SYMLINK_ESCAPE', file: link, detail: 'symlink inside the implementer workspace' });
+    }
+  }
+  if (unsafeFiles.length) {
+    appendLog(logFile, { phase: 'file_safety', unsafeFiles });
+    return store.markBlocked(task.taskId, {
+      action: 'file_safety_check',
+      actor: 'orchestrator',
+      code: unsafeFiles[0].code,
+      detail: `workspace contains paths that are not regular files inside it: ${unsafeFiles.map((v) => `${v.file} (${v.code})`).join(', ')}`,
+      patch: { ...evidence, unsafeFiles },
+    });
+  }
+
   const violations = [
     ...scanEscape(wsRoot, [implementerDir, reviewerDir]),
     ...checkResult(task, { ...state, iteration }, modelResult, changed),
@@ -410,7 +483,9 @@ async function runImplementer({ store, root, state }) {
     return store.markBlocked(task.taskId, {
       action: 'build_artifact',
       actor: 'orchestrator',
-      code: err.code === 'SECRET_IN_ARTIFACT' ? 'secret_leak_in_artifact' : 'artifact_build_failed',
+      code: err.code === 'SECRET_IN_ARTIFACT'
+        ? 'secret_leak_in_artifact'
+        : (err.code === 'SYMLINK_ESCAPE' || err.code === 'UNSAFE_FILE_TYPE' ? err.code : 'artifact_build_failed'),
       detail: String(err.message || err),
       patch: { ...evidence, secretFiles: err.names ? [err.file] : null },
     });
@@ -452,6 +527,12 @@ async function runImplementer({ store, root, state }) {
 
 async function runReviewer({ store, root, state }) {
   const task = state.task;
+  const modeIssue = modeViolation(state);
+  if (modeIssue) {
+    return store.markBlocked(task.taskId, {
+      action: 'agent_mode_check', actor: 'orchestrator', code: modeIssue.code, detail: modeIssue.detail,
+    });
+  }
   if (state.reviewer === state.implementer) {
     return store.markBlocked(task.taskId, {
       action: 'independence_check', actor: 'orchestrator', code: 'reviewer_not_independent',
@@ -679,8 +760,25 @@ function nextIteration({ store, root, state }) {
   });
 }
 
+/* Критическая секция одного шага. Lock берётся до чтения состояния и
+   снимается после записи снимка; параллельный процесс получает отказ
+   TASK_BUSY и ничего не запускает. */
 export async function step({ root, taskId }) {
-  const store = new Store(root);
+  const lock = acquireLock(root, taskId, { action: 'step' });
+  if (!lock.ok) {
+    throw Object.assign(new Error(`task ${taskId} is locked: ${lock.code}`), {
+      code: lock.code, lock: lock.lock, reason: lock.reason || null,
+    });
+  }
+  try {
+    return await stepLocked({ root, taskId, operationId: lock.operationId });
+  } finally {
+    lock.release();
+  }
+}
+
+async function stepLocked({ root, taskId, operationId }) {
+  const store = new Store(root, { operationId });
   const state = store.load(taskId);
   if (TERMINAL.has(state.state)) return state;
   try {
@@ -705,7 +803,7 @@ export async function step({ root, taskId }) {
 }
 
 export async function run({ root, taskId, stopAfter = null, maxSteps = 40 }) {
-  const store = new Store(root);
+  const store = new Store(root, { readOnly: true });
   for (let i = 0; i < maxSteps; i++) {
     const state = store.load(taskId);
     if (TERMINAL.has(state.state)) return state;
@@ -756,7 +854,7 @@ export function verifyArtifact({ root, taskId, file }) {
 const providerOf = (adapter) => (adapter.startsWith('codex') ? 'codex' : adapter.startsWith('fixture-') ? 'fixture' : adapter.startsWith('freebuff') ? 'freebuff' : adapter);
 
 export function report({ root, taskId }) {
-  const store = new Store(root);
+  const store = new Store(root, { readOnly: true });
   const state = store.load(taskId);
   const journal = store.verifyJournal(taskId);
   const summary = {

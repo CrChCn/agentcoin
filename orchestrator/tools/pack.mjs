@@ -85,7 +85,12 @@ async function main() {
       delivered = { built, attempts: attempt, verified: false, clean: null };
       break;
     }
-    const clean = runCleanRoom(built.zip, { archiveName: name, codexBin });
+    /* На машине без Codex preflight честно отвечает agent_unavailable;
+       оба варианта означают: модули и адаптеры дошли до проверки входа.
+       Строгий критерий (только agent_unauthenticated) проверяет clean-check. */
+    const clean = runCleanRoom(built.zip, {
+      archiveName: name, codexBin, allowedBlockers: ['agent_unauthenticated', 'agent_unavailable'],
+    });
     const signature = JSON.stringify(clean.signature);
     if (previousSignature && signature === previousSignature && clean.ok) {
       /* Архив, собранный на этом шаге, уже содержал evidence предыдущего

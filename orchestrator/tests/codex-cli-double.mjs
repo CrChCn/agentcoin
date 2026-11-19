@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /* Тестовый двойник CLI Codex для проверки ПРОВОДКИ оркестратора.
-   Это не агент и не доказательство реального цикла: он нужен только чтобы
-   прогнать успешный и отказные пути без сети и без учётных данных.
+   Это не агент: он не ходит в сеть и не тратит токены. Он запускается только
+   с ORCH_TEST_ALLOW_DOUBLE=1 и только по пути tests/codex-cli-double.mjs.
    Режим задаётся FAKE_CODEX_MODE:
      implement | review | invalid-json | missing-commit | sleep |
-     ignore-sigterm | final-no-newline | leak-implement | leak-fail */
+     ignore-sigterm | final-no-newline | leak-implement | leak-fail |
+     symlink-escape */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +17,10 @@ if (argv.includes('--version')) {
   process.exit(0);
 }
 if (argv[0] === 'login') {
+  if (process.env.FAKE_CODEX_LOGIN === 'not-logged-in') {
+    process.stderr.write('Not logged in\n');
+    process.exit(1);
+  }
   process.stdout.write('Logged in using ChatGPT\n');
   process.exit(0);
 }
@@ -27,8 +32,24 @@ const flag = (name) => {
 const cwd = flag('-C') || process.cwd();
 const outputPath = flag('--output-last-message');
 const mode = process.env.FAKE_CODEX_MODE || 'review';
-const role = process.env.FAKE_ROLE || (mode === 'implement' || mode === 'leak-implement' ? 'implementer' : 'reviewer');
+const role = process.env.FAKE_ROLE || (mode === 'implement' || mode === 'leak-implement' || mode === 'symlink-escape' ? 'implementer' : 'reviewer');
 const canary = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || '';
+
+/* Журнал фактических запусков агента: им проверяется ровно один вызов. */
+if (process.env.FAKE_CODEX_LOG) {
+  try {
+    fs.appendFileSync(process.env.FAKE_CODEX_LOG, `${new Date().toISOString()} ${mode}\n`);
+  } catch {
+    /* журнал не обязателен */
+  }
+}
+
+/* Удержание процесса: нужно, чтобы второй процесс гарантированно успел
+   упереться в lock. */
+const delayMs = Number(process.env.FAKE_CODEX_DELAY_MS || 0);
+if (Number.isFinite(delayMs) && delayMs > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
 
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 emit({ type: 'thread.started', thread_id: `fake-${role}-${process.pid}` });
@@ -49,14 +70,10 @@ const finish = (payload) => {
 if (mode === 'sleep') {
   setInterval(() => {}, 1000);
 } else if (mode === 'ignore-sigterm') {
-  /* Процесс, который не реагирует на вежливую остановку: нужен, чтобы
-     доказать эскалацию до принудительного убийства дерева. */
   process.on('SIGTERM', () => {});
   process.on('SIGINT', () => {});
   setInterval(() => {}, 1000);
 } else if (mode === 'final-no-newline') {
-  /* Последняя запись JSONL без завершающего перевода строки: и thread_id,
-     и usage приходят именно ею. */
   const last = JSON.stringify({
     type: 'turn.completed',
     thread_id: `fake-${role}-final`,
@@ -91,6 +108,29 @@ if (mode === 'sleep') {
     commandsRun: [],
     tests: [],
     knownLimitations: ['harness double without commit'],
+    status: 'submitted',
+  });
+} else if (mode === 'symlink-escape') {
+  /* Разрешённый путь, который на деле ведёт наружу. */
+  const target = process.env.FAKE_CODEX_TARGET;
+  const link = path.join(cwd, 'src', 'result.txt');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(target, link);
+  const git = (...args) => execFileSync('git', [
+    '-c', 'user.name=Double', '-c', 'user.email=double@example.invalid', '-c', 'commit.gpgsign=false', ...args,
+  ], { cwd, encoding: 'utf8' }).trim();
+  git('add', '-A');
+  git('commit', '-q', '-m', 'symlink escape attempt');
+  finish({
+    taskId: process.env.FAKE_TASK || 'lesson-01',
+    iteration: Number(process.env.FAKE_ITERATION || 1),
+    baseCommit: process.env.FAKE_BASE_COMMIT,
+    resultCommit: git('rev-parse', 'HEAD'),
+    changedFiles: ['src/result.txt'],
+    commandsRun: [],
+    tests: [],
+    knownLimitations: ['symlink to a file outside the workspace'],
     status: 'submitted',
   });
 } else if (mode === 'implement' || mode === 'leak-implement') {

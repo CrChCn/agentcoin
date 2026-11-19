@@ -9,6 +9,13 @@ import * as codex from '../adapters/codex-cli.mjs';
 const FAKE = path.join(ORCH, 'tests', 'codex-cli-double.mjs');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/* Двойник объявлен явно: без этого тестовый режим запрещает любой агент.
+   Состояние входа двойника тоже фиксируется: набор не должен зависеть от
+   переменных, унаследованных из окружения запуска. */
+process.env.CODEX_BIN = FAKE;
+process.env.ORCH_TEST_ALLOW_DOUBLE = '1';
+delete process.env.FAKE_CODEX_LOGIN;
+
 function prepare(label) {
   const root = tempRoot(label);
   const workspace = path.join(root, 'ws');

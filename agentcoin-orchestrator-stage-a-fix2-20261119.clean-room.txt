@@ -1,0 +1,350 @@
+Agentcoin orchestrator — clean-room verification
+archive: agentcoin-orchestrator-stage-a-fix2-20261119.zip
+files in archive: 66
+extractor: unzip
+workspace root: <CLEANROOM>
+$ unzip -q agentcoin-orchestrator-stage-a-fix2-20261119.zip -d unpacked
+exit 0
+--- stdout ---
+
+--- stderr ---
+
+
+$ node --test tests/*.test.mjs
+exit 0
+--- stdout ---
+✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
+✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
+(node:11364) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
+✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
+✔ Codex CLI present but not logged in: agent_unauthenticated, no agent is started (<ms>)
+✔ real adapters cannot be initialised without per-task confirmation (<ms>)
+✔ a non-programmatic implementer results in BLOCKED, not a simulated success (<ms>)
+✔ task contract rejects production writes, money, consensus and relaxed limits (<ms>)
+✔ task contract rejects path traversal and shell commands that pass the schema pattern (<ms>)
+✔ taskId is immutable: same id with different content is refused (<ms>)
+✔ orchestrator exposes only typed actions and refuses deployment (<ms>)
+✔ two-agent loop: defect -> findings -> fix -> ACCEPTED, all hashes journaled (<ms>)
+✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
+✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
+✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
+(node:14616) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ every runtime module imported by the orchestrator exists (<ms>)
+✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
+✔ the closure of runtime and test entrypoints is complete and self-contained (<ms>)
+✔ orchestrator, adapters and test entrypoints load as modules (<ms>)
+✔ unpacked archive is complete: SHA256SUMS covers every file (<ms>)
+✔ two real adapter processes: distinct thread_id, JSONL, usage, ACCEPTED (<ms>)
+✔ reviewer ACCEPTED with a failing executed check is downgraded, not accepted (<ms>)
+✔ adapter failures are BLOCKED, never a successful result (<ms>)
+✔ restart: journal wins over a stale snapshot and the loop continues in a new process (<ms>)
+✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
+✔ an artifact that would carry a secret is refused instead of packaged (<ms>)
+✔ a full two-agent cycle leaves no secret anywhere under the run root (<ms>)
+✔ a normal regular file still works end to end (<ms>)
+﹣ 1. an allowed path that is a symlink to an outside file is refused before reading (<ms>) # symlinks are not permitted for this user/platform
+﹣ 2. a symlink to an outside directory cannot be used as a path component (<ms>) # symlinks are not permitted for this user/platform
+﹣ 3. a symlink to a file inside the workspace is still refused (<ms>) # symlinks are not permitted for this user/platform
+﹣ 4. a dangling symlink is refused instead of being followed (<ms>) # symlinks are not permitted for this user/platform
+﹣ 5. a FIFO is not a regular file and is refused (<ms>) # mkfifo is not available on this platform
+﹣ 6. applying an artifact through a symlinked parent cannot write outside (<ms>) # symlinks are not permitted for this user/platform
+﹣ 7. deleting through a symlinked parent cannot remove an outside file (<ms>) # symlinks are not permitted for this user/platform
+﹣ 8. an external file with an unknown secret never reaches the artifact (<ms>) # symlinks are not permitted for this user/platform
+﹣ the orchestrator blocks an iteration that commits a symlink to an outside file (<ms>) # symlinks are not permitted for this user/platform
+✔ a process that ignores SIGTERM still ends the run: BLOCKED, never a hang (<ms>)
+✔ termination plan: SIGTERM, grace, forced tree kill, abandoned promises settle (<ms>)
+✔ the last JSONL record is parsed even without a trailing newline (<ms>)
+✔ a real CLI that records its launch is never executed under node --test (<ms>)
+✔ an installed and authorised Codex is still refused in a test process (<ms>)
+✔ the declared test double runs only with an explicit opt-in (<ms>)
+✔ ORCH_TEST_MODE alone is enough to disable real agents (<ms>)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 9
+ℹ todo 0
+ℹ duration_ms 140968.929
+--- stderr ---
+
+
+$ node orchestrator.mjs capabilities
+exit 0
+--- stdout ---
+{
+  "orchestrator": "stage-a/1",
+  "adapters": [
+    {
+      "id": "fixture-implementer",
+      "roles": [
+        "implementer"
+      ],
+      "simulated": true,
+      "capability": {
+        "available": true,
+        "programmatic": true,
+        "authenticated": true,
+        "simulated": true,
+        "version": "fixture/1",
+        "reason": "детерминированный тестовый дублёр; не является запуском Buffy",
+        "requiresHuman": null
+      }
+    },
+    {
+      "id": "fixture-reviewer",
+      "roles": [
+        "reviewer"
+      ],
+      "simulated": true,
+      "capability": {
+        "available": true,
+        "programmatic": true,
+        "authenticated": true,
+        "simulated": true,
+        "version": "fixture/1",
+        "reason": "детерминированный независимый проверяющий; не является запуском Codex",
+        "requiresHuman": null
+      }
+    },
+    {
+      "id": "freebuff-cli",
+      "roles": [
+        "implementer",
+        "reviewer"
+      ],
+      "simulated": false,
+      "capability": {
+        "available": true,
+        "programmatic": false,
+        "authenticated": false,
+        "version": "0.1.6",
+        "reason": "официальный CLI интерактивный: нет prompt-аргумента и scriptable JSON-режима",
+        "requiresHuman": "сессию Freebuff ведёт человек в TUI/Desktop; программного API запуска задачи нет",
+        "evidence": "https://docs.freebuff.page/cli/",
+        "evidenceQuote": "The CLI takes a short list of flags. It is an interactive client: it does not accept an initial prompt as an argument, and it is not a scriptable JSON mode.",
+        "observedFlags": [
+          "--version",
+          "--continue",
+          "--cwd",
+          "--trust-agents",
+          "--help"
+        ],
+        "observedHelpExitCode": 0
+      }
+    },
+    {
+      "id": "codex-cli",
+      "roles": [
+        "implementer",
+        "reviewer"
+      ],
+      "simulated": false,
+      "capability": {
+        "available": false,
+        "programmatic": true,
+        "authenticated": false,
+        "reason": "spawnSync codex ENOENT",
+        "install": "npm i -g @openai/codex",
+        "binary": "codex",
+        "evidence": "https://developers.openai.com/codex/noninteractive"
+      }
+    },
+    {
+      "id": "codex-implementer",
+      "roles": [
+        "implementer"
+      ],
+      "simulated": false,
+      "capability": {
+        "available": false,
+        "programmatic": true,
+        "authenticated": false,
+        "reason": "spawnSync codex ENOENT",
+        "install": "npm i -g @openai/codex",
+        "binary": "codex",
+        "evidence": "https://developers.openai.com/codex/noninteractive",
+        "adapter": "codex-implementer",
+        "provider": "codex"
+      }
+    },
+    {
+      "id": "codex-reviewer",
+      "roles": [
+        "reviewer"
+      ],
+      "simulated": false,
+      "capability": {
+        "available": false,
+        "programmatic": true,
+        "authenticated": false,
+        "reason": "spawnSync codex ENOENT",
+        "install": "npm i -g @openai/codex",
+        "binary": "codex",
+        "evidence": "https://developers.openai.com/codex/noninteractive",
+        "adapter": "codex-reviewer",
+        "provider": "codex"
+      }
+    }
+  ]
+}
+--- stderr ---
+(node:17028) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+$ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
+exit 3
+--- stdout ---
+{
+  "status": "BLOCKED",
+  "ready": false,
+  "taskId": "lesson-01",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-lxDv2v\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "budgets": {
+    "maxIterations": 3,
+    "maxRuntimePerAgentMinutes": 20,
+    "maxTotalRuntimeMinutes": 60,
+    "maxTotalTokens": 200000,
+    "monetaryLimit": null,
+    "note": "CLI does not expose a hard monetary limit; the orchestrator counts recorded tokens and stops new iterations by local policy."
+  },
+  "adapters": [
+    {
+      "role": "implementer",
+      "id": "codex-implementer",
+      "simulated": false,
+      "available": true,
+      "programmatic": true,
+      "authenticated": false,
+      "authKind": "none",
+      "version": "codex-cli 0.170.0",
+      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
+      "reason": "codex CLI установлен, но вход не выполнен и CODEX_API_KEY/OPENAI_API_KEY не заданы",
+      "requiresHuman": "codex login",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-implementer",
+      "provider": "codex"
+    },
+    {
+      "role": "reviewer",
+      "id": "codex-reviewer",
+      "simulated": false,
+      "available": true,
+      "programmatic": true,
+      "authenticated": false,
+      "authKind": "none",
+      "version": "codex-cli 0.170.0",
+      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
+      "reason": "codex CLI установлен, но вход не выполнен и CODEX_API_KEY/OPENAI_API_KEY не заданы",
+      "requiresHuman": "codex login",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-reviewer",
+      "provider": "codex"
+    }
+  ],
+  "schemas": [
+    {
+      "file": "contracts/implementer-result.schema.json",
+      "present": true
+    },
+    {
+      "file": "contracts/review-result.schema.json",
+      "present": true
+    }
+  ],
+  "blockers": [
+    {
+      "role": "implementer",
+      "code": "agent_unauthenticated",
+      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    },
+    {
+      "role": "reviewer",
+      "code": "agent_unauthenticated",
+      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    }
+  ],
+  "nextCommand": "codex login"
+}
+--- stderr ---
+
+
+$ sha256sum -c SHA256SUMS
+exit 0
+--- stdout ---
+.gitignore: OK
+README.md: OK
+adapters/codex-cli.mjs: OK
+adapters/codex-implementer.mjs: OK
+adapters/codex-reviewer.mjs: OK
+adapters/contract.mjs: OK
+adapters/fixture-implementer.mjs: OK
+adapters/fixture-reviewer.mjs: OK
+adapters/freebuff-cli.mjs: OK
+adapters/resolver.mjs: OK
+artifacts/.gitkeep: OK
+artifacts/apply.mjs: OK
+artifacts/store.mjs: OK
+contracts/event.schema.json: OK
+contracts/implementer-result.schema.json: OK
+contracts/review-result.schema.json: OK
+contracts/state.schema.json: OK
+contracts/task.schema.json: OK
+evidence/demo.txt: OK
+evidence/package-clean-test.txt: OK
+evidence/preflight-clean.json: OK
+evidence/preflight.json: OK
+evidence/tests.txt: OK
+fixtures/reviewer-checks/reviewer.extra.test.mjs: OK
+fixtures/task-src/README.md: OK
+fixtures/task-src/src/pricing.mjs: OK
+fixtures/task-src/tests/acceptance.test.mjs: OK
+fixtures/tasks/lesson-01-escalation.json: OK
+fixtures/tasks/lesson-01.json: OK
+lib/cleanroom.mjs: OK
+lib/engine.mjs: OK
+lib/fsx.mjs: OK
+lib/git.mjs: OK
+lib/lock.mjs: OK
+lib/package.mjs: OK
+lib/prompts.mjs: OK
+lib/safefs.mjs: OK
+lib/schema.mjs: OK
+lib/secrets.mjs: OK
+lib/zip.mjs: OK
+logs/.gitkeep: OK
+orchestrator.mjs: OK
+policies/policy.mjs: OK
+state/.gitkeep: OK
+state/store.mjs: OK
+tests/artifact-swap.test.mjs: OK
+tests/authority.test.mjs: OK
+tests/capabilities.test.mjs: OK
+tests/codex-cli-double.mjs: OK
+tests/contracts.test.mjs: OK
+tests/e2e.test.mjs: OK
+tests/helpers.mjs: OK
+tests/lock-holder.mjs: OK
+tests/lock.test.mjs: OK
+tests/package-closure.test.mjs: OK
+tests/real-harness.test.mjs: OK
+tests/restart.test.mjs: OK
+tests/secrets.test.mjs: OK
+tests/symlink.test.mjs: OK
+tests/termination.test.mjs: OK
+tests/test-isolation.test.mjs: OK
+tools/clean-check.mjs: OK
+tools/environment-matrix.mjs: OK
+tools/pack.mjs: OK
+FILELIST.txt: OK
+--- stderr ---
+
+summary:
+  tests: exit 0, pass 35, fail 0
+  capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
+  preflight: exit 3, blockers agent_unauthenticated
+  sha256sum: exit 0
+  verdict: PASS

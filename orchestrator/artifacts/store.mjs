@@ -9,6 +9,7 @@ import path from 'node:path';
 import { canonical, ensureDir, readJson, sha256, writeJsonAtomic } from '../lib/fsx.mjs';
 import { createZip, readZip } from '../lib/zip.mjs';
 import { findSecrets } from '../lib/secrets.mjs';
+import { readRegularFileWithin } from '../lib/safefs.mjs';
 import { applyArtifactEntries } from './apply.mjs';
 
 export const ARTIFACT_FORMAT = 'agentcoin-orchestrator-artifact/1';
@@ -24,9 +25,9 @@ export function buildArtifact({ root, taskId, iteration, baseCommit, resultCommi
       manifestFiles.push({ path: change.file, status: 'deleted' });
       continue;
     }
-    const abs = path.join(workspace, change.file);
-    if (!fs.existsSync(abs)) throw new Error(`artifact: change declared but file missing: ${change.file}`);
-    const data = fs.readFileSync(abs);
+    /* Чтение только обычного файла внутри workspace: symlink, FIFO, device и
+       выход realpath за пределы дерева отклоняются до чтения байтов. */
+    const { bytes: data } = readRegularFileWithin(workspace, change.file);
     /* Артефакт не должен разносить секреты окружения: если агент записал
        ключ в файл, архив не собирается вовсе. Имя значения не печатается. */
     const leaked = findSecrets(data.toString('utf8'));

@@ -2,7 +2,7 @@
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix1-clean-xxJYTd\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-B4fglX\\unpacked\\orchestrator\\runs\\preflight-clean",
   "budgets": {
     "maxIterations": 3,
     "maxRuntimePerAgentMinutes": 20,

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { redactText, redactValue, secretPairs } from '../lib/secrets.mjs';
+import { ORCH_ROOT } from '../lib/package.mjs';
 
 export const id = 'codex-cli';
 export const roles = ['implementer', 'reviewer'];
@@ -60,6 +61,24 @@ function jsEntrypoint(shim) {
     path.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+/* В тестовом процессе настоящий агент не запускается ни при каких условиях:
+   ни при наличии Codex в PATH, ни при действующем входе, ни при ключе в env.
+   Разрешён только объявленный тестовый двойник внутри пакета. */
+export const TEST_DOUBLE = path.join(ORCH_ROOT, 'tests', 'codex-cli-double.mjs');
+
+export function testGuard() {
+  const inTest = process.env.ORCH_TEST_MODE === '1' || Boolean(process.env.NODE_TEST_CONTEXT);
+  if (!inTest) return null;
+  const allowDouble = process.env.ORCH_TEST_ALLOW_DOUBLE === '1';
+  const raw = process.env.CODEX_BIN || 'codex';
+  const isDeclaredDouble = allowDouble && path.resolve(raw) === path.resolve(TEST_DOUBLE);
+  if (isDeclaredDouble) return null;
+  return {
+    code: 'REAL_AGENT_DISABLED_IN_TEST',
+    detail: 'unit tests must never run a real agent: set CODEX_BIN to a missing path, or to tests/codex-cli-double.mjs with ORCH_TEST_ALLOW_DOUBLE=1',
+  };
 }
 
 export function resolveBin() {
@@ -261,6 +280,24 @@ export function execWithEvents({
   timeoutMs = 600000, signal, transcriptPath, promptPath, metaPath,
   graceMs = graceMsFromEnv(), reapMs = reapMsFromEnv(),
 }) {
+  const guard = testGuard();
+  if (guard) {
+    return Promise.resolve({
+      ok: false,
+      blocked: guard,
+      events: [],
+      exitCode: null,
+      timedOut: false,
+      cancelled: false,
+      sessionId: null,
+      usage: null,
+      rawUsage: null,
+      lastMessage: null,
+      stderr: '',
+      transcriptPath: transcriptPath || null,
+      argv: [],
+    });
+  }
   const pairs = secretPairs();
   if (promptPath) {
     fs.mkdirSync(path.dirname(promptPath), { recursive: true });
@@ -422,6 +459,8 @@ export function execWithEvents({
 export async function run(ctx) {
   const { role, prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, graceMs, reapMs } = ctx;
   const pairs = secretPairs();
+  const guard = testGuard();
+  if (guard) return { blocked: guard };
   const capability = probe();
   if (!capability.available) return { blocked: { code: 'agent_unavailable', detail: capability.reason } };
   if (!capability.authenticated) return { blocked: { code: 'agent_unauthenticated', detail: capability.requiresHuman || capability.reason } };
@@ -429,6 +468,7 @@ export async function run(ctx) {
   const result = await execWithEvents({
     prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, graceMs, reapMs,
   });
+  if (result.blocked) return { blocked: result.blocked };
   if (result.timedOut) {
     const how = result.termination && result.termination.escalated ? 'after SIGTERM grace period, process tree was force-killed' : 'process tree was terminated';
     return { blocked: { code: 'agent_timeout', detail: `codex exec exceeded ${timeoutMs} ms; ${how}` } };

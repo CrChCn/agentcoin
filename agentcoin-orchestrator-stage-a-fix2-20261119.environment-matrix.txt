@@ -1,0 +1,20 @@
+variant codex-absent: tests exit 0, pass 35, fail 0
+variant codex-present-not-logged-in: tests exit 0, pass 35, fail 0
+variant codex-installed-real-binary: tests exit 0, pass 35, fail 0
+variant api-keys-present: tests exit 0, pass 35, fail 0
+Environment matrix — node --test tests/*.test.mjs
+archive: agentcoin-orchestrator-stage-a-fix2-20261119.zip (342645 bytes, sha256 ff0e9ab622c33c8b067912af40ea1c082f0d2bfb5e9a809b073cebcaba548f72)
+real agent calls: none (test mode disables the real adapter)
+
+auth state of the real CLI is shown by the blockers column; nothing is started
+
+variant | pass | fail | exit | preflight | blockers
+codex-absent | 35 | 0 | 0 | 3 | agent_unavailable
+codex-present-not-logged-in | 35 | 0 | 0 | 3 | agent_unauthenticated
+codex-installed-real-binary | 35 | 0 | 0 | 3 | agent_unauthenticated
+api-keys-present | 35 | 0 | 0 | 0 | 
+
+identical outcomes: yes
+all suites passed: yes
+verdict: PASS
+EXIT=0

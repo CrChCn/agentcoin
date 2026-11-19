@@ -14,6 +14,7 @@ import {
 import { Store } from './state/store.mjs';
 import { getAdapter, listAdapters } from './adapters/resolver.mjs';
 import { readJson } from './lib/fsx.mjs';
+import { reconcileLock, lockStatus } from './lib/lock.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const DEFAULT_ROOT = ORCH_ROOT;
@@ -68,7 +69,7 @@ function preflight({ root, taskFile }) {
   }
   if (adapters[0].id === adapters[1].id) blockers.push({ code: 'SELF_REVIEW', detail: 'implementer and reviewer must be different adapters' });
 
-  const store = new Store(root);
+  const store = new Store(root, { readOnly: true });
   if (store.exists(task.taskId)) {
     const existing = store.load(task.taskId);
     if (existing.implementer !== 'codex-implementer' || existing.reviewer !== 'codex-reviewer') {
@@ -115,8 +116,25 @@ function statusOf(state) {
     findings: (state.findings || []).map((f) => f.code),
     blockedCode: state.blockedCode || null,
     reason: state.reason || null,
+    mode: state.mode || null,
+    realAgentsArmed: state.realAgentsArmed === true,
     journalEvents: state.seq,
   };
+}
+
+/* Lock-отказы не меняют состояние задания: это ответ «занято», а не BLOCKED. */
+function reportLockFailure(err, taskId) {
+  if (err.code !== 'TASK_BUSY' && err.code !== 'NEEDS_RECONCILE') throw err;
+  print({
+    taskId,
+    blockedCode: err.code,
+    lock: err.lock || null,
+    reason: err.reason || err.message,
+    note: err.code === 'TASK_BUSY'
+      ? 'another process holds the task lock; this process ran nothing'
+      : `inspect the lock, then run: node orchestrator.mjs reconcile --task ${taskId} --force`,
+  });
+  return err.code === 'TASK_BUSY' ? 75 : 76;
 }
 
 function usage() {
@@ -125,9 +143,10 @@ function usage() {
     '',
     '  capabilities                        показать официальные интерфейсы адаптеров',
     '  preflight [--task <file>] [--root dir] [--codex-bin <path>]  проверить точку запуска',
-    '  real --task <file> --root <dir> [--codex-bin <path>]        настоящий цикл codex-implementer + codex-reviewer',
-    '  init --task <file> [--implementer id] [--reviewer id] [--root dir]',
+    '  real --task <file> --root <dir> --confirm-real-agents <taskId>   настоящий цикл (требует явного подтверждения)',
+    '  init --task <file> [--implementer id] [--reviewer id] [--confirm-real-agents taskId] [--root dir]',
     '  step --task <taskId>                выполнить один типизированный переход',
+    '  reconcile --task <taskId> [--force] снять мёртвый lock после разбора журнала',
     '  run  --task <taskId> [--stop-after STATE]',
     '  status --task <taskId>',
     '  verify --task <taskId> --artifact <file>   проверить байты и отозвать приёмку',
@@ -205,18 +224,38 @@ async function main() {
       if (!opts.task || !opts.root) { console.error('real requires --task <file> and --root <dir>'); return 64; }
       if (opts['codex-bin']) process.env.CODEX_BIN = path.resolve(String(opts['codex-bin']));
       const taskFile = path.resolve(String(opts.task));
+      const task = loadTask(taskFile);
+
+      /* Реальные адаптеры не запускаются без явного подтверждения именно
+         этого задания: ни preflight, ни init, ни один агент. */
+      if (String(opts['confirm-real-agents'] || '') !== task.taskId) {
+        print({
+          status: 'BLOCKED',
+          blockedCode: 'REAL_AGENT_NOT_ARMED',
+          taskId: task.taskId,
+          required: `--confirm-real-agents ${task.taskId}`,
+          note: 'no preflight, no agent run and no state change were performed',
+        });
+        return 3;
+      }
+
       const check = preflight({ root, taskFile });
       if (!check.ready) {
         print(check);
         return 3;
       }
-      const task = loadTask(taskFile);
-      initTask({ root, taskFile, implementer: 'codex-implementer', reviewer: 'codex-reviewer' });
+      initTask({
+        root, taskFile, implementer: 'codex-implementer', reviewer: 'codex-reviewer', confirmRealAgents: task.taskId,
+      });
       const trail = [];
-      let state = new Store(root).load(task.taskId);
-      for (let i = 0; i < 40 && !TERMINAL.has(state.state); i++) {
-        state = await step({ root, taskId: task.taskId });
-        trail.push(statusOf(state));
+      let state = new Store(root, { readOnly: true }).load(task.taskId);
+      try {
+        for (let i = 0; i < 40 && !TERMINAL.has(state.state); i++) {
+          state = await step({ root, taskId: task.taskId });
+          trail.push(statusOf(state));
+        }
+      } catch (err) {
+        return reportLockFailure(err, task.taskId);
       }
       const final = report({ root, taskId: task.taskId });
       print({ preflight: check, trail, final });
@@ -224,28 +263,71 @@ async function main() {
     }
     case 'init': {
       if (!opts.task) { console.error('init requires --task <file>'); return 64; }
-      const result = initTask({
-        root,
-        taskFile: opts.task,
-        implementer: opts.implementer || 'fixture-implementer',
-        reviewer: opts.reviewer || 'fixture-reviewer',
-      });
+      let result;
+      try {
+        result = initTask({
+          root,
+          taskFile: opts.task,
+          implementer: opts.implementer || 'fixture-implementer',
+          reviewer: opts.reviewer || 'fixture-reviewer',
+          confirmRealAgents: opts['confirm-real-agents'] ? String(opts['confirm-real-agents']) : null,
+        });
+      } catch (err) {
+        if (err.code === 'REAL_AGENT_NOT_ARMED') {
+          print({
+            status: 'BLOCKED',
+            blockedCode: err.code,
+            taskId: err.taskId,
+            required: `--confirm-real-agents ${err.taskId}`,
+            note: 'nothing was created',
+          });
+          return 3;
+        }
+        throw err;
+      }
       print({ created: result.created, ...statusOf(result.state) });
       return 0;
     }
     case 'step': {
       if (!opts.task) { console.error('step requires --task <taskId>'); return 64; }
-      print(statusOf(await step({ root, taskId: opts.task })));
-      return 0;
+      try {
+        print(statusOf(await step({ root, taskId: opts.task })));
+        return 0;
+      } catch (err) {
+        return reportLockFailure(err, opts.task);
+      }
     }
     case 'run': {
       if (!opts.task) { console.error('run requires --task <taskId>'); return 64; }
-      print(statusOf(await run({ root, taskId: opts.task, stopAfter: opts['stop-after'] || null })));
-      return 0;
+      try {
+        print(statusOf(await run({ root, taskId: opts.task, stopAfter: opts['stop-after'] || null })));
+        return 0;
+      } catch (err) {
+        return reportLockFailure(err, opts.task);
+      }
     }
     case 'status': {
-      print(statusOf(new Store(root).load(opts.task)));
+      const view = statusOf(new Store(root, { readOnly: true }).load(opts.task));
+      print({ ...view, lock: lockStatus(root, opts.task) });
       return 0;
+    }
+    case 'reconcile': {
+      if (!opts.task) { console.error('reconcile requires --task <taskId>'); return 64; }
+      const store = new Store(root, { readOnly: true });
+      let journal = null;
+      try {
+        journal = store.verifyJournal(opts.task);
+      } catch {
+        journal = null;
+      }
+      if (journal && !journal.ok) {
+        print({ ok: false, code: 'JOURNAL_CORRUPT', errors: journal.errors });
+        return 2;
+      }
+      const result = reconcileLock(root, opts.task, { force: Boolean(opts.force) });
+      print(result);
+      if (result.ok) return 0;
+      return result.code === 'TASK_BUSY' ? 75 : 76;
     }
     case 'verify': {
       if (!opts.task || !opts.artifact) { console.error('verify requires --task and --artifact'); return 64; }

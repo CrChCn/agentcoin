@@ -1,0 +1,22 @@
+Agentcoin Autonomous Engineering Loop — stage A demo
+task: lesson-01 | implementer: fixture-implementer (SIMULATED) | reviewer: fixture-reviewer (SIMULATED)
+separate OS processes: 8 | iterations: 2 | elapsed: 14.6s
+
+trail:
+  CREATED
+  READY findings=
+  ARTIFACT_SUBMITTED (iteration 1) findings=
+  CHANGES_REQUESTED (iteration 1) findings=ACCEPTANCE_TEST_FAILED,ACCEPTANCE_TEST_FAILED
+  IMPLEMENTING (iteration 2) findings=ACCEPTANCE_TEST_FAILED,ACCEPTANCE_TEST_FAILED
+  ARTIFACT_SUBMITTED (iteration 2) findings=ACCEPTANCE_TEST_FAILED,ACCEPTANCE_TEST_FAILED
+  ACCEPTED (iteration 2) findings=
+
+final: ACCEPTED
+base commit: 54696f7093aa312771a3a0c060fdb4c59c622f5d
+result commit: 24143975625f2ddd2a5560fa2627df0c9bc51610
+accepted artifact: 696592f1eb9d815389ddd68ffb81addf9c77fbd0e52963a99904d094fe688807
+journal: 10 events, head 8937e8be078b80d9f6e58922ace8378fa12148e60e9381cbb2b7ca1250d66c83, chain verified=true
+report: logs/lesson-01/report.json
+
+NOTE: оба агента — детерминированные дублёры, а не Codex. Настоящий цикл
+запускается командой `real` и требует `codex login` на этой машине.

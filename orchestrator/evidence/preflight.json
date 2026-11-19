@@ -1,0 +1,71 @@
+{
+  "status": "BLOCKED",
+  "ready": false,
+  "taskId": "lesson-01",
+  "root": "C:\\Users\\Mark\\Desktop\\agentcoin\\orchestrator\\runs\\real-1",
+  "budgets": {
+    "maxIterations": 3,
+    "maxRuntimePerAgentMinutes": 20,
+    "maxTotalRuntimeMinutes": 60,
+    "maxTotalTokens": 200000,
+    "monetaryLimit": null,
+    "note": "CLI does not expose a hard monetary limit; the orchestrator counts recorded tokens and stops new iterations by local policy."
+  },
+  "adapters": [
+    {
+      "role": "implementer",
+      "id": "codex-implementer",
+      "simulated": false,
+      "available": true,
+      "programmatic": true,
+      "authenticated": false,
+      "authKind": "none",
+      "version": "codex-cli 0.170.0",
+      "binary": "C:/Users/Mark/AppData/Local/Temp/agt-codex-probe/node_modules/@openai/codex/bin/codex.js",
+      "reason": "codex CLI установлен, но вход не выполнен и CODEX_API_KEY/OPENAI_API_KEY не заданы",
+      "requiresHuman": "codex login",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-implementer",
+      "provider": "codex"
+    },
+    {
+      "role": "reviewer",
+      "id": "codex-reviewer",
+      "simulated": false,
+      "available": true,
+      "programmatic": true,
+      "authenticated": false,
+      "authKind": "none",
+      "version": "codex-cli 0.170.0",
+      "binary": "C:/Users/Mark/AppData/Local/Temp/agt-codex-probe/node_modules/@openai/codex/bin/codex.js",
+      "reason": "codex CLI установлен, но вход не выполнен и CODEX_API_KEY/OPENAI_API_KEY не заданы",
+      "requiresHuman": "codex login",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-reviewer",
+      "provider": "codex"
+    }
+  ],
+  "schemas": [
+    {
+      "file": "contracts/implementer-result.schema.json",
+      "present": true
+    },
+    {
+      "file": "contracts/review-result.schema.json",
+      "present": true
+    }
+  ],
+  "blockers": [
+    {
+      "role": "implementer",
+      "code": "agent_unauthenticated",
+      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    },
+    {
+      "role": "reviewer",
+      "code": "agent_unauthenticated",
+      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    }
+  ],
+  "nextCommand": "codex login"
+}

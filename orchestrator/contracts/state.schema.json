@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentcoin/orchestrator/contracts/state.schema.json",
+  "title": "Persisted orchestrator state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "taskId",
+    "task",
+    "taskSha256",
+    "state",
+    "iteration",
+    "implementer",
+    "reviewer",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "task": { "type": "object" },
+    "taskSha256": { "type": "string", "format": "sha256" },
+    "state": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "READY",
+        "IMPLEMENTING",
+        "ARTIFACT_SUBMITTED",
+        "REVIEWING",
+        "CHANGES_REQUESTED",
+        "ACCEPTED",
+        "BLOCKED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "iteration": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "implementer": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "reviewer": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "baseCommit": { "type": "string", "pattern": "[a-f0-9]{40}" },
+    "workspaces": { "type": "object" },
+    "history": { "type": "array" },
+    "findings": { "type": "array" },
+    "artifacts": { "type": "array" },
+    "result": { "type": ["object", "null"] },
+    "review": { "type": ["object", "null"] },
+    "reason": { "type": ["string", "null"] },
+    "blockedCode": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 0 }
+  }
+}

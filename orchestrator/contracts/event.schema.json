@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentcoin/orchestrator/contracts/event.schema.json",
+  "title": "Append-only journal event",
+  "description": "Журнал — источник истины о состоянии. Каждое событие связано с предыдущим hash-цепочкой, поэтому удаление или правка строки обнаруживается при replay.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seq", "at", "type", "taskId", "action", "actor", "from", "to", "iteration", "payload", "prevHash", "hash"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 0 },
+    "at": { "type": "string", "format": "date-time" },
+    "type": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "taskId": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "action": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "actor": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "from": { "type": "string" },
+    "to": { "type": "string" },
+    "iteration": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "payload": { "type": "object" },
+    "prevHash": { "type": "string", "pattern": "[a-f0-9]{64}" },
+    "hash": { "type": "string", "pattern": "[a-f0-9]{64}" }
+  }
+}

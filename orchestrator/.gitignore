@@ -1,0 +1,9 @@
+# Сгенерированные данные прогонов: подкаталог на задачу.
+# Игнорируются только каталоги: state/store.mjs, artifacts/store.mjs и
+# artifacts/apply.mjs — исходный код, они обязаны попадать и в git, и в ZIP.
+state/*/
+logs/*/
+artifacts/*/
+workspaces/
+runs/
+dist/

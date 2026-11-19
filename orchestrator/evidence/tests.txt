@@ -1,0 +1,44 @@
+$ node --test tests/*.test.mjs
+exit 0
+--- stdout ---
+✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
+✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
+(node:8092) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
+✔ Codex: official CLI is programmatic (codex exec) (<ms>)
+✔ a non-programmatic implementer results in BLOCKED, not a simulated success (<ms>)
+✔ an unavailable or unauthenticated Codex results in BLOCKED (<ms>)
+✔ task contract rejects production writes, money, consensus and relaxed limits (<ms>)
+✔ task contract rejects path traversal and shell commands that pass the schema pattern (<ms>)
+✔ taskId is immutable: same id with different content is refused (<ms>)
+✔ orchestrator exposes only typed actions and refuses deployment (<ms>)
+✔ two-agent loop: defect -> findings -> fix -> ACCEPTED, all hashes journaled (<ms>)
+(node:9144) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ every runtime module imported by the orchestrator exists (<ms>)
+✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
+✔ the closure of runtime and test entrypoints is complete and self-contained (<ms>)
+✔ orchestrator, adapters and test entrypoints load as modules (<ms>)
+✔ unpacked archive is complete: SHA256SUMS covers every file (<ms>)
+✔ two real adapter processes: distinct thread_id, JSONL, usage, ACCEPTED (<ms>)
+✔ reviewer ACCEPTED with a failing executed check is downgraded, not accepted (<ms>)
+✔ adapter failures are BLOCKED, never a successful result (<ms>)
+✔ restart: journal wins over a stale snapshot and the loop continues in a new process (<ms>)
+✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
+✔ an artifact that would carry a secret is refused instead of packaged (<ms>)
+✔ a full two-agent cycle leaves no secret anywhere under the run root (<ms>)
+✔ a process that ignores SIGTERM still ends the run: BLOCKED, never a hang (<ms>)
+✔ termination plan: SIGTERM, grace, forced tree kill, abandoned promises settle (<ms>)
+✔ the last JSONL record is parsed even without a trailing newline (<ms>)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 126659.6806
+--- stderr ---
+
+

@@ -1,0 +1,31 @@
+{
+  "taskId": "lesson-01",
+  "title": "Pricing module: discount and free-shipping threshold",
+  "objective": "Implement applyDiscount(totalCents, pct) and qualifiesForFreeShipping(totalCents) in src/pricing.mjs. Free shipping starts at exactly 5000 cents, inclusive. Keep only src/pricing.mjs and tests/implementer.test.mjs inside scope; never edit tests/acceptance.test.mjs.",
+  "scope": {
+    "allowedPaths": ["src", "tests/implementer.test.mjs"],
+    "forbiddenPaths": ["tests/acceptance.test.mjs", "config", ".env"],
+    "environment": "isolated"
+  },
+  "acceptance": [
+    "AC-1: applyDiscount(10000, 10) === 9000",
+    "AC-2: applyDiscount(999, 33) === 669",
+    "AC-3: pct 0 returns the total, pct 100 returns 0",
+    "AC-4: negative, fractional or out-of-range inputs throw RangeError",
+    "AC-5: qualifiesForFreeShipping(4999) === false, (5000) === true, (5001) === true"
+  ],
+  "commandsAllowed": [
+    "node --test tests/acceptance.test.mjs",
+    "node --test tests/implementer.test.mjs",
+    "node --test tests/reviewer.extra.test.mjs"
+  ],
+  "networkPolicy": "none",
+  "productionWrites": false,
+  "moneyOperations": false,
+  "consensusChanges": false,
+  "maxIterations": 3,
+  "maxRuntimePerAgentMinutes": 20,
+  "maxTotalRuntimeMinutes": 60,
+  "maxTotalTokens": 200000,
+  "deadline": "2027-12-31T00:00:00Z"
+}

@@ -1,0 +1,157 @@
+{
+  "ok": true,
+  "failed": 0,
+  "total": 30,
+  "results": [
+    {
+      "name": "GET / -> 200 html",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "GET /imperial -> 308 /",
+      "ok": true,
+      "detail": "status=308 loc=/"
+    },
+    {
+      "name": "GET /imperial.html -> 308 /",
+      "ok": true,
+      "detail": "status=308"
+    },
+    {
+      "name": "GET /imperial?x=1 -> 308 /?x=1",
+      "ok": true,
+      "detail": "loc=/?x=1"
+    },
+    {
+      "name": "redirect loop excluded (/imperial target is /, not /imperial)",
+      "ok": true,
+      "detail": "loc=/"
+    },
+    {
+      "name": "canonical is https://agentcoin.work/",
+      "ok": true,
+      "detail": "canonical present"
+    },
+    {
+      "name": "no /imperial links in nav",
+      "ok": true,
+      "detail": "nav clean"
+    },
+    {
+      "name": "shared css on all three",
+      "ok": true,
+      "detail": "{\"/\":1,\"/agent-room\":1,\"/settlement\":1}"
+    },
+    {
+      "name": "shared shell.js on all three",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "shared app.js on all three (one module bundle)",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "no per-page divergent module scripts",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "release marker non-empty and identical",
+      "ok": true,
+      "detail": "stage4-candidate-20261119|stage4-candidate-20261119|stage4-candidate-20261119"
+    },
+    {
+      "name": "nav identical (navHash equal)",
+      "ok": true,
+      "detail": "len=241"
+    },
+    {
+      "name": "exactly one h1 per page",
+      "ok": true,
+      "detail": "{\"/\":1,\"/agent-room\":1,\"/settlement\":1}"
+    },
+    {
+      "name": "no links to removed doubles",
+      "ok": true,
+      "detail": "no href=/imperial"
+    },
+    {
+      "name": "noscript with page name + nav",
+      "ok": true,
+      "detail": "noscript present"
+    },
+    {
+      "name": "viewport present",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "CSP without unsafe-inline bypass",
+      "ok": true,
+      "detail": "csp clean"
+    },
+    {
+      "name": "modules preserved (distinct titles)",
+      "ok": true,
+      "detail": "distinct"
+    },
+    {
+      "name": "staging POST /working/cabinet/login -> 404 staging_mutation_unavailable",
+      "ok": true,
+      "detail": "404 {\"ok\":false,\"error\":\"staging_mutation_unavailable\"}"
+    },
+    {
+      "name": "staging POST never reaches mainnet mock",
+      "ok": true,
+      "detail": "mainnetHits=0"
+    },
+    {
+      "name": "fake admin header does not change result",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "name": "no fallback: mainnet still unhit after fake header",
+      "ok": true,
+      "detail": "mainnetHits=0"
+    },
+    {
+      "name": "redirect to mainnet forbidden (no 3xx to mainnet)",
+      "ok": true,
+      "detail": "status=404"
+    },
+    {
+      "name": "strip_prefix does not change env owner (still closed, mainnet unhit)",
+      "ok": true,
+      "detail": "status=404"
+    },
+    {
+      "name": "staging GET /working/txproof/* -> staging owner (single)",
+      "ok": true,
+      "detail": "{\"ok\":true,\"owner\":\"staging-mock\",\"path\":\"/txproof/abc\"}"
+    },
+    {
+      "name": "candidate staging block references no 127.0.0.1:9335/node1",
+      "ok": true,
+      "detail": "clean"
+    },
+    {
+      "name": "ghost routes stay 404 (advertisement removed)",
+      "ok": true,
+      "detail": "404,404,404"
+    },
+    {
+      "name": "/ecosphere is 404 not published",
+      "ok": true,
+      "detail": "status=404"
+    },
+    {
+      "name": "/ecosphere not advertised in home nav",
+      "ok": true,
+      "detail": "clean"
+    }
+  ]
+}

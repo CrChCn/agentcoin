@@ -1,0 +1,456 @@
+{
+ "generatedBy": "candidate-stage4/stand/accept.mjs + static build (isolated stand, no production contact)",
+ "observations": [
+  {
+   "checkId": "site-static:page-root",
+   "componentId": "site-static",
+   "status": "ok",
+   "observedValue": {
+    "httpStatus": 200,
+    "path": "/"
+   },
+   "evidenceFile": "evidence/site-static-page-root.json"
+  },
+  {
+   "checkId": "site-static:pages-summary",
+   "componentId": "site-static",
+   "status": "ok",
+   "observedValue": {
+    "rootDuplicate": null,
+    "shellProfiles": [
+     {
+      "path": "/",
+      "shellScript": [
+       "/_shell/shell.js",
+       "/app.js"
+      ],
+      "stylesheet": [
+       "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+     },
+     {
+      "path": "/agent-room",
+      "shellScript": [
+       "/_shell/shell.js",
+       "/app.js"
+      ],
+      "stylesheet": [
+       "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+     },
+     {
+      "path": "/settlement",
+      "shellScript": [
+       "/_shell/shell.js",
+       "/app.js"
+      ],
+      "stylesheet": [
+       "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+     }
+    ]
+   },
+   "evidenceFile": "evidence/site-static-pages-summary.json"
+  },
+  {
+   "checkId": "site-static:page-agent-room",
+   "componentId": "site-static",
+   "status": "ok",
+   "observedValue": {
+    "httpStatus": 200,
+    "path": "/agent-room"
+   },
+   "evidenceFile": "evidence/site-static-page-agent-room.json"
+  },
+  {
+   "checkId": "site-static:page-settlement",
+   "componentId": "site-static",
+   "status": "ok",
+   "observedValue": {
+    "httpStatus": 200,
+    "path": "/settlement"
+   },
+   "evidenceFile": "evidence/site-static-page-settlement.json"
+  },
+  {
+   "checkId": "site-static:page-ecosphere",
+   "componentId": "site-static",
+   "status": "ok",
+   "observedValue": {
+    "path": "/ecosphere",
+    "httpStatus": 404,
+    "documentedMissing": true
+   },
+   "evidenceFile": "evidence/site-static-page-ecosphere.json"
+  },
+  {
+   "checkId": "caddy-h1:config",
+   "componentId": "caddy-h1",
+   "status": "ok",
+   "observedValue": {
+    "config": "candidate"
+   },
+   "evidenceFile": "evidence/caddy-h1-config.json"
+  },
+  {
+   "checkId": "caddy-h1:map",
+   "componentId": "caddy-h1",
+   "status": "ok",
+   "observedValue": {
+    "overlapGroups": [],
+    "routes": [
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/balance"
+      ],
+      "publicPaths": [
+       "/balance"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/identity/meta"
+      ],
+      "publicPaths": [
+       "/identity/meta"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/peers/list"
+      ],
+      "publicPaths": [
+       "/peers/list"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/peers/health"
+      ],
+      "publicPaths": [
+       "/peers/health"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "api-staging.agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/working/txproof/*"
+      ],
+      "publicPaths": [
+       "/working/txproof/*"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "api-staging.agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/working/balance"
+      ],
+      "publicPaths": [
+       "/working/balance"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "api-staging.agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/working/node-info"
+      ],
+      "publicPaths": [
+       "/working/node-info"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+     },
+     {
+      "kind": "handle_path",
+      "hosts": [
+       "api-staging.agentcoin.work"
+      ],
+      "methods": [
+       "GET"
+      ],
+      "paths": [
+       "/working/identity/meta"
+      ],
+      "publicPaths": [
+       "/working/identity/meta"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+     }
+    ]
+   },
+   "evidenceFile": "evidence/caddy-h1-map.json"
+  },
+  {
+   "checkId": "caddy-h1:guard-scan",
+   "componentId": "caddy-h1",
+   "status": "ok",
+   "observedValue": {
+    "findings": []
+   },
+   "evidenceFile": "evidence/caddy-h1-guard-scan.json"
+  },
+  {
+   "checkId": "caddy-h1:adapted",
+   "componentId": "caddy-h1",
+   "status": "ok",
+   "observedValue": {
+    "orderedDials": [
+     29335
+    ],
+    "note": "staging host dials only staging; no 9335 on staging host"
+   },
+   "evidenceFile": "evidence/caddy-h1-adapted.json"
+  },
+  {
+   "checkId": "miner-stack:units",
+   "componentId": "miner-stack",
+   "status": "ok",
+   "observedValue": {
+    "minerLike": [
+     "agentcoin-miner.service"
+    ]
+   },
+   "evidenceFile": "evidence/miner-stack-units.json"
+  },
+  {
+   "checkId": "miner-stack:cron",
+   "componentId": "miner-stack",
+   "status": "ok",
+   "observedValue": {
+    "cron": [
+     "mine-cron 10min"
+    ]
+   },
+   "evidenceFile": "evidence/miner-stack-cron.json"
+  },
+  {
+   "checkId": "miner-stack:miner-unit",
+   "componentId": "miner-stack",
+   "status": "ok",
+   "observedValue": {
+    "unit": "agentcoin-miner.service"
+   },
+   "evidenceFile": "evidence/miner-stack-miner-unit.json"
+  },
+  {
+   "checkId": "miner-stack:recent-blocks",
+   "componentId": "miner-stack",
+   "status": "ok",
+   "observedValue": {
+    "producers": [
+     "AGTaaa111",
+     "AGTaab222",
+     "AGTaba333",
+     "AGTabb444",
+     "AGTbaa555",
+     "AGTbab666",
+     "AGTbbb777"
+    ],
+    "uniqueCount": 7,
+    "note": "rotation addresses of one observed miner service; count proves nothing about operator independence"
+   },
+   "evidenceFile": "evidence/miner-stack-recent-blocks.json"
+  },
+  {
+   "checkId": "miner-stack:schedule",
+   "componentId": "miner-stack",
+   "status": "ok",
+   "observedValue": {
+    "operatorsIndependent": "UNKNOWN: one observed miner service, address count proves nothing"
+   },
+   "evidenceFile": "evidence/miner-stack-schedule.json"
+  },
+  {
+   "checkId": "miner-stack:operators",
+   "componentId": "miner-stack",
+   "status": "unknown",
+   "observedValue": {
+    "operatorsIndependent": "UNKNOWN: one observed miner service with N rotation addresses counts as one operator; independence unproven"
+   },
+   "error": "UNKNOWN: independence unproven",
+   "evidenceFile": "evidence/miner-stack-operators.json"
+  },
+  {
+   "checkId": "mainnet-node-1:local-info",
+   "componentId": "mainnet-node-1",
+   "status": "ok",
+   "observedValue": {
+    "chainId": "AGENTCOIN"
+   },
+   "evidenceFile": "evidence/mainnet-node-1-local-info.json"
+  },
+  {
+   "checkId": "mainnet-node-1:proc-unit-show",
+   "componentId": "mainnet-node-1",
+   "status": "ok",
+   "observedValue": {
+    "unit": "agentcoin-node.service"
+   },
+   "evidenceFile": "evidence/mainnet-node-1-proc-unit-show.json"
+  },
+  {
+   "checkId": "mainnet-node-1:caps",
+   "componentId": "mainnet-node-1",
+   "status": "ok",
+   "observedValue": {
+    "advertisedReads": [
+     "GET /info",
+     "GET /balance",
+     "GET /identity/meta",
+     "GET /peers/list",
+     "GET /peers/health",
+     "GET /working/txproof/*",
+     "GET /working/balance",
+     "GET /working/node-info",
+     "GET /working/identity/meta"
+    ]
+   },
+   "evidenceFile": "evidence/mainnet-node-1-caps.json"
+  },
+  {
+   "checkId": "env-mainnet:env-unit",
+   "componentId": "env-mainnet",
+   "status": "ok",
+   "observedValue": {
+    "user": "root"
+   },
+   "evidenceFile": "evidence/env-mainnet-env-unit.json"
+  },
+  {
+   "checkId": "env-mainnet:env-chain",
+   "componentId": "env-mainnet",
+   "status": "ok",
+   "observedValue": {
+    "chainId": "AGENTCOIN",
+    "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e"
+   },
+   "evidenceFile": "evidence/env-mainnet-env-chain.json"
+  },
+  {
+   "checkId": "env-mainnet:env-data",
+   "componentId": "env-mainnet",
+   "status": "ok",
+   "observedValue": {
+    "dataDir": "/opt/agentcoin-node/data"
+   },
+   "evidenceFile": "evidence/env-mainnet-env-data.json"
+  },
+  {
+   "checkId": "env-staging:env-unit",
+   "componentId": "env-staging",
+   "status": "ok",
+   "observedValue": {
+    "user": "agt-staging"
+   },
+   "evidenceFile": "evidence/env-staging-env-unit.json"
+  },
+  {
+   "checkId": "env-staging:env-chain",
+   "componentId": "env-staging",
+   "status": "ok",
+   "observedValue": {
+    "chainId": "AGT_TESTNET",
+    "genesis": "00022668STAGING000000000000000000000000000000000000000000203f8c"
+   },
+   "evidenceFile": "evidence/env-staging-env-chain.json"
+  },
+  {
+   "checkId": "env-staging:env-data",
+   "componentId": "env-staging",
+   "status": "ok",
+   "observedValue": {
+    "dataDir": "/opt/agentcoin-staging/data"
+   },
+   "evidenceFile": "evidence/env-staging-env-data.json"
+  },
+  {
+   "checkId": "security:secret-scan",
+   "componentId": "security",
+   "status": "ok",
+   "observedValue": {
+    "scanned": 24,
+    "hits": 0
+   },
+   "evidenceFile": "evidence/security-secret-scan.json"
+  },
+  {
+   "checkId": "security:mutation-not-called",
+   "componentId": "security",
+   "status": "ok",
+   "observedValue": {
+    "mutationCalled": false
+   },
+   "evidenceFile": "evidence/security-mutation-not-called.json"
+  }
+ ]
+}

@@ -1,0 +1,149 @@
+{
+  "overlapGroups": [],
+  "routes": [
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/balance"
+      ],
+      "publicPaths": [
+        "/balance"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/identity/meta"
+      ],
+      "publicPaths": [
+        "/identity/meta"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/peers/list"
+      ],
+      "publicPaths": [
+        "/peers/list"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/peers/health"
+      ],
+      "publicPaths": [
+        "/peers/health"
+      ],
+      "owner": "mainnet-node-1",
+      "upstream": "http://127.0.0.1:9335",
+      "line": 341
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "api-staging.agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/working/txproof/*"
+      ],
+      "publicPaths": [
+        "/working/txproof/*"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "api-staging.agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/working/balance"
+      ],
+      "publicPaths": [
+        "/working/balance"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "api-staging.agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/working/node-info"
+      ],
+      "publicPaths": [
+        "/working/node-info"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+    },
+    {
+      "kind": "handle_path",
+      "hosts": [
+        "api-staging.agentcoin.work"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/working/identity/meta"
+      ],
+      "publicPaths": [
+        "/working/identity/meta"
+      ],
+      "owner": "env-staging",
+      "upstream": "http://127.0.0.1:29335",
+      "line": 44
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+# STAGE 4 CANDIDATE — Caddy site blocks (production NOT changed).
+# Server path (deploy window only): /etc/caddy/Caddyfile (site blocks agentcoin.work + api-staging.agentcoin.work).
+# Requires: caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --pretty ; caddy validate --config ... (in deploy window).
+# What changed vs production 2026-11-19:
+#  1) DUPLICATE_ROOT_PRODUCT: /imperial + /imperial.html -> 308 / (query preserved), no second product body.
+#  2) SITE_SHELL_INCONSISTENT: static files served from single-shell candidate dir; no per-page shell divergence.
+#  3) TEST_MUTATION_TO_MAINNET: staging mutations closed with 404 JSON, never proxied to 127.0.0.1:9335.
+#  4) ROUTE_PATTERN_OVERLAP: single owner for /working/txproof/* on staging (env-staging 127.0.0.1:29335).
+
+agentcoin.work, www.agentcoin.work {
+	root * /srv/agentcoin-empire/current
+
+	# --- fix 1: canonical home only. /imperial* is not a product, always 308 to / (query preserved) ---
+	@imperial path /imperial /imperial.html /imperial/
+	redir @imperial / 308
+
+	# --- single-shell static pages (same shell.css/shell.js/release on all three) ---
+	handle / {
+		root * /srv/agentcoin-empire/current
+		rewrite * /index.html
+		file_server
+	}
+	handle /agent-room {
+		root * /srv/agentcoin-empire/current
+		rewrite * /agent-room.html
+		file_server
+	}
+	handle /settlement {
+		root * /srv/agentcoin-empire/current
+		rewrite * /settlement.html
+		file_server
+	}
+
+	# --- mainnet mutation/API routes UNCHANGED (this fix does not touch mainnet behavior) ---
+	# ... existing mainnet handles (POST /tx, /balance, GET /info, etc.) stay exactly as in production ...
+
+	# --- shared static shell ---
+	handle /_shell/* {
+		root * /srv/agentcoin-empire/current
+		file_server
+	}
+
+	# --- fallback: existing file_server / reverse_proxy chain unchanged below ---
+	handle {
+		root * /srv/agentcoin-empire/current
+		file_server
+	}
+}
+
+api-staging.agentcoin.work {
+	# --- fix 3: staging mutations CLOSED. No proxy to mainnet, no fallback. ---
+	@staging_mutation {
+		path /working/cabinet/* /cabinet/*
+		method POST PUT PATCH DELETE
+	}
+	handle @staging_mutation {
+		header Content-Type application/json
+		respond `{"ok":false,"error":"staging_mutation_unavailable"}` 404
+	}
+
+	# --- fix 4: single owner for txproof reads on staging (was shadowed by mainnet L35). ---
+	handle /working/txproof/* {
+		uri strip_prefix /working
+		reverse_proxy 127.0.0.1:29335
+	}
+
+	# --- staging reads that exist in registry stay on staging; mainnet 9335 NEVER referenced on this host ---
+	handle /working/node-info /working/identity/meta /working/balance {
+		uri strip_prefix /working
+		reverse_proxy 127.0.0.1:29335
+	}
+}

@@ -1,0 +1,211 @@
+{
+  "verdict": "WARN",
+  "blockers": [],
+  "warnings": [
+    {
+      "code": "MODULE_NOT_PUBLISHED",
+      "componentId": "site-static",
+      "checkId": "site-static:page-ecosphere",
+      "message": "модуль /ecosphere документированно не опубликован (404), backing не выдаётся за работающий",
+      "evidence": []
+    }
+  ],
+  "unknowns": [
+    {
+      "code": "COVERAGE_UNKNOWN",
+      "componentId": "miner-stack",
+      "checkId": null,
+      "message": "покрытие: нет обязательных проверок: operators",
+      "evidence": []
+    },
+    {
+      "code": "MINER_OPERATOR_INDEPENDENCE_UNKNOWN",
+      "componentId": "miner-stack",
+      "checkId": "miner-stack:operators",
+      "message": "UNKNOWN: one observed miner service with N rotation addresses counts as one operator; independence unproven",
+      "evidence": [
+        "evidence/miner-stack-operators.json"
+      ]
+    }
+  ],
+  "coverage": {
+    "components": {
+      "site-static": {
+        "status": "PASS",
+        "role": "mainnet",
+        "critical": true,
+        "required": [
+          "page-root",
+          "pages-summary"
+        ],
+        "missingRequired": [],
+        "checks": 5,
+        "ok": 5,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 0,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/site-static-page-agent-room.json",
+          "evidence/site-static-page-ecosphere.json",
+          "evidence/site-static-page-root.json",
+          "evidence/site-static-page-settlement.json",
+          "evidence/site-static-pages-summary.json"
+        ]
+      },
+      "caddy-h1": {
+        "status": "PASS",
+        "role": "infra",
+        "critical": true,
+        "required": [
+          "config",
+          "map",
+          "guard-scan",
+          "adapted"
+        ],
+        "missingRequired": [],
+        "checks": 4,
+        "ok": 4,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 0,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/caddy-h1-adapted.json",
+          "evidence/caddy-h1-config.json",
+          "evidence/caddy-h1-guard-scan.json",
+          "evidence/caddy-h1-map.json"
+        ]
+      },
+      "miner-stack": {
+        "status": "UNKNOWN",
+        "role": "mainnet",
+        "critical": true,
+        "required": [
+          "units",
+          "cron",
+          "miner-unit",
+          "recent-blocks",
+          "schedule",
+          "operators"
+        ],
+        "missingRequired": [
+          "operators"
+        ],
+        "checks": 6,
+        "ok": 5,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 1,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/miner-stack-cron.json",
+          "evidence/miner-stack-miner-unit.json",
+          "evidence/miner-stack-operators.json",
+          "evidence/miner-stack-recent-blocks.json",
+          "evidence/miner-stack-schedule.json",
+          "evidence/miner-stack-units.json"
+        ]
+      },
+      "mainnet-node-1": {
+        "status": "PASS",
+        "role": "mainnet",
+        "critical": true,
+        "required": [
+          "local-info",
+          "proc-unit-show",
+          "caps"
+        ],
+        "missingRequired": [],
+        "checks": 3,
+        "ok": 3,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 0,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/mainnet-node-1-caps.json",
+          "evidence/mainnet-node-1-local-info.json",
+          "evidence/mainnet-node-1-proc-unit-show.json"
+        ]
+      },
+      "env-mainnet": {
+        "status": "PASS",
+        "role": "mainnet",
+        "critical": true,
+        "required": [
+          "env-unit",
+          "env-chain",
+          "env-data"
+        ],
+        "missingRequired": [],
+        "checks": 3,
+        "ok": 3,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 0,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/env-mainnet-env-chain.json",
+          "evidence/env-mainnet-env-data.json",
+          "evidence/env-mainnet-env-unit.json"
+        ]
+      },
+      "env-staging": {
+        "status": "PASS",
+        "role": "staging",
+        "critical": true,
+        "required": [
+          "env-unit",
+          "env-chain",
+          "env-data"
+        ],
+        "missingRequired": [],
+        "checks": 3,
+        "ok": 3,
+        "mismatch": 0,
+        "unavailable": 0,
+        "unknown": 0,
+        "not_checked": 0,
+        "evidence": [
+          "evidence/env-staging-env-chain.json",
+          "evidence/env-staging-env-data.json",
+          "evidence/env-staging-env-unit.json"
+        ]
+      }
+    },
+    "summary": {
+      "components": 6,
+      "PASS": 5,
+      "UNKNOWN": 1,
+      "observations": 26
+    }
+  },
+  "evidence": [
+    "evidence/caddy-h1-adapted.json",
+    "evidence/caddy-h1-config.json",
+    "evidence/caddy-h1-guard-scan.json",
+    "evidence/caddy-h1-map.json",
+    "evidence/env-mainnet-env-chain.json",
+    "evidence/env-mainnet-env-data.json",
+    "evidence/env-mainnet-env-unit.json",
+    "evidence/env-staging-env-chain.json",
+    "evidence/env-staging-env-data.json",
+    "evidence/env-staging-env-unit.json",
+    "evidence/mainnet-node-1-caps.json",
+    "evidence/mainnet-node-1-local-info.json",
+    "evidence/miner-stack-cron.json",
+    "evidence/miner-stack-miner-unit.json",
+    "evidence/miner-stack-recent-blocks.json",
+    "evidence/miner-stack-schedule.json",
+    "evidence/miner-stack-units.json",
+    "evidence/site-static-page-agent-room.json",
+    "evidence/site-static-page-ecosphere.json",
+    "evidence/site-static-page-root.json",
+    "evidence/site-static-page-settlement.json",
+    "evidence/site-static-pages-summary.json"
+  ],
+  "nextActions": [
+    "Опубликовать модуль или убрать его из ожиданий единого сайта."
+  ]
+}

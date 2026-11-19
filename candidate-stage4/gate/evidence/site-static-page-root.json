@@ -1,0 +1,7 @@
+{
+  "path": "/",
+  "httpStatus": 200,
+  "sha256": "9b18847efffb70e13a42f1aaeb9b593bd55c63c6ccc095e0814512e4b07e12b4",
+  "canonical": "https://agentcoin.work/",
+  "note": "stand: GET / -> 200"
+}

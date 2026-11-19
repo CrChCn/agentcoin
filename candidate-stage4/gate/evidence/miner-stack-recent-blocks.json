@@ -1,0 +1,13 @@
+{
+  "producers": [
+    "AGTaaa111",
+    "AGTaab222",
+    "AGTaba333",
+    "AGTabb444",
+    "AGTbaa555",
+    "AGTbab666",
+    "AGTbbb777"
+  ],
+  "uniqueCount": 7,
+  "note": "rotation addresses of one observed miner service; count proves nothing about operator independence"
+}

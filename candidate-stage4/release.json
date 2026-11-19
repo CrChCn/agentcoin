@@ -1,0 +1,1 @@
+{"release": "stage4-candidate-20261119", "source": "candidate-stage4/release.json", "note": "Single release source for stage 4 candidate. All three shell pages inject meta agentcoin-release from this file at build time; never edited per-page."}

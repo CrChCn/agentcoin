@@ -1,0 +1,47 @@
+{
+  "rootDuplicate": null,
+  "imperialRedirect": "308 / (query preserved)",
+  "shellProfiles": [
+    {
+      "path": "/",
+      "shellScript": [
+        "/_shell/shell.js",
+        "/app.js"
+      ],
+      "stylesheet": [
+        "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+    },
+    {
+      "path": "/agent-room",
+      "shellScript": [
+        "/_shell/shell.js",
+        "/app.js"
+      ],
+      "stylesheet": [
+        "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+    },
+    {
+      "path": "/settlement",
+      "shellScript": [
+        "/_shell/shell.js",
+        "/app.js"
+      ],
+      "stylesheet": [
+        "/_shell/shell.css"
+      ],
+      "releaseMarker": "stage4-candidate-20261119"
+    }
+  ],
+  "pageSha256": {
+    "/": "9b18847efffb70e13a42f1aaeb9b593bd55c63c6ccc095e0814512e4b07e12b4",
+    "/agent-room": "8f0847cda3f46f2684917761de783a15b4c4050c6a6671f51e9895573beb08d9",
+    "/settlement": "762772f030e6f2e3216d2572e673f30f33cac8f7dedeeea2507a1f64ad6b4cb6"
+  },
+  "navHash": "d0c3d601b2d15194b08dac702384e591bf4ffc5424e3f344052d815be548caeb",
+  "acceptTotal": 30,
+  "acceptFailed": 0
+}

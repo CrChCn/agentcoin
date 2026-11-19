@@ -1,0 +1,18 @@
+{
+  "advertisedReads": [
+    "GET /info",
+    "GET /balance",
+    "GET /identity/meta",
+    "GET /peers/list",
+    "GET /peers/health",
+    "GET /working/txproof/*",
+    "GET /working/balance",
+    "GET /working/node-info",
+    "GET /working/identity/meta"
+  ],
+  "ghostsRemoved": [
+    "/peers/bootstrap",
+    "/ops/watchdog/state",
+    "/gateway/list"
+  ]
+}

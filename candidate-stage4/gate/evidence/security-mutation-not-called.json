@@ -1,0 +1,4 @@
+{
+  "mutationCalled": false,
+  "note": "stand performed only GET + closed-mutation POST probes expecting 404"
+}

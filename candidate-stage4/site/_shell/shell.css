@@ -1,0 +1,23 @@
+/* Agentcoin shared shell v1 (stage4 candidate). Single base CSS for /, /agent-room, /settlement. */
+:root{--bg:#07090d;--panel:#10161f;--line:#2a3646;--gold:#d4af37;--gold2:#f0d78c;--txt:#e8eef5;--dim:#8fa3b8;--ok:#39d98a;--bad:#ff5c7a}
+*{box-sizing:border-box;margin:0}
+body{background:radial-gradient(1400px 700px at 50% -8%,#1c2636 0%,var(--bg) 55%);color:var(--txt);font:15px/1.5 system-ui,'Segoe UI',sans-serif;padding:0 0 40px}
+a{color:var(--gold2)}
+.skip{position:absolute;left:-9999px;top:0;background:var(--gold);color:#111;padding:8px 12px;z-index:99}
+.skip:focus{left:8px;top:8px}
+.shell-header{border-bottom:1px solid var(--line);background:rgba(7,9,13,.9);padding:12px 16px}
+.shell-brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.06em;color:var(--gold)}
+.shell-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.shell-nav a{color:var(--txt);text-decoration:none;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:13px}
+.shell-nav a[aria-current="page"]{border-color:var(--gold);color:var(--gold2)}
+.shell-nav a:hover{border-color:var(--gold)}
+.wrap{max-width:960px;margin:0 auto;padding:0 16px}
+.netcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:16px 0}
+.netcard .pill{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px}
+.pill.ok{color:var(--ok);border-color:var(--ok)}
+.pill.bad{color:var(--bad);border-color:var(--bad)}
+.pill.idle{color:var(--gold2);border-color:var(--gold)}
+.out{background:#0d141f;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px}
+.dim{color:var(--dim)}
+h1{font-size:30px;margin:18px 0 8px}
+@media (max-width:560px){h1{font-size:24px}.shell-nav a{padding:6px 9px;font-size:12px}}

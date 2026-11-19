@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "root": "/",
+  "note": "Каноническое дерево империи. Канонический адрес узла — href. /imperial и /imperial.html не являются продуктом: постоянный редирект 308 на /. Файл imperial.html остаётся backing-файлом на диске и не обслуживается.",
+  "sections": [
+    {
+      "id": "home",
+      "title": "Империя",
+      "icon": "⚜",
+      "links": [
+        {
+          "title": "Тронный зал",
+          "href": "/",
+          "file": "index.html"
+        },
+        {
+          "title": "Лэндинг (выведен из эксплуатации → 308 на /)",
+          "href": "/index",
+          "file": "index.html",
+          "deprecated": true,
+          "redirect": "/"
+        },
+        {
+          "title": "Стать агентом",
+          "href": "/create-wallet",
+          "file": "create-wallet.html"
+        }
+      ]
+    },
+    {
+      "id": "treasury",
+      "title": "Казна",
+      "icon": "💰",
+      "links": [
+        {
+          "title": "Кошелёк (редирект → /cabinet)",
+          "href": "/wallet",
+          "deprecated": true,
+          "redirect": "/cabinet"
+        },
+        {
+          "title": "Кабинет и кошелёк",
+          "href": "/cabinet",
+          "file": "user-wallet-page.html"
+        },
+        {
+          "title": "Кабинет оператора",
+          "href": "/operator-cabinet",
+          "file": "operator-cabinet.html"
+        },
+        {
+          "title": "Паспорт-кабинет",
+          "href": "/passport-cabinet",
+          "file": "cabinet.html"
+        }
+      ]
+    },
+    {
+      "id": "mine",
+      "title": "Шахта",
+      "icon": "⛏",
+      "links": [
+        {
+          "title": "Майнинг",
+          "href": "/mine",
+          "file": "mine.html"
+        },
+        {
+          "title": "Мемпул",
+          "href": "/mempool",
+          "file": "mempool.html"
+        }
+      ]
+    },
+    {
+      "id": "senate",
+      "title": "Сенат",
+      "icon": "🏛",
+      "links": [
+        {
+          "title": "Голосование",
+          "href": "/gov",
+          "file": "gov.html"
+        }
+      ]
+    },
+    {
+      "id": "market",
+      "title": "Базар",
+      "icon": "💱",
+      "links": [
+        {
+          "title": "Биржа MBC-20",
+          "href": "/mbc20",
+          "file": "mbc20.html"
+        },
+        {
+          "title": "Джобборд",
+          "href": "/jobs",
+          "file": "jobs.html"
+        }
+      ]
+    },
+    {
+      "id": "city",
+      "title": "Город",
+      "icon": "🌆",
+      "links": [
+        {
+          "title": "Чат",
+          "href": "/chat",
+          "file": "chat.html"
+        },
+        {
+          "title": "Карантин",
+          "href": "/jail",
+          "file": "jail.html"
+        }
+      ]
+    },
+    {
+      "id": "temple",
+      "title": "Храм",
+      "icon": "🕯",
+      "links": [
+        {
+          "title": "Баффи",
+          "href": "/buffy",
+          "file": "buffy.html"
+        },
+        {
+          "title": "Баффи-опс",
+          "href": "/buffy-ops",
+          "file": "buffy-ops.html"
+        },
+        {
+          "title": "Крещение",
+          "href": "/baptism",
+          "file": "baptism.html"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Машинное",
+      "icon": "⚙",
+      "links": [
+        {
+          "title": "Пульт",
+          "href": "/dashboard",
+          "file": "dashboard.html"
+        },
+        {
+          "title": "Витрина",
+          "href": "/stats",
+          "generated": true
+        },
+        {
+          "title": "Терминал",
+          "href": "/terminal",
+          "file": "terminal.html"
+        },
+        {
+          "title": "Сеть",
+          "href": "/network",
+          "file": "network.html"
+        },
+        {
+          "title": "Эфир",
+          "href": "/live",
+          "file": "live.html"
+        },
+        {
+          "title": "Вычисления",
+          "href": "/compute",
+          "file": "compute.html"
+        },
+        {
+          "title": "Память",
+          "href": "/memory",
+          "file": "memory.html"
+        },
+        {
+          "title": "Доки",
+          "href": "/docs",
+          "file": "docs.html"
+        },
+        {
+          "title": "Агент",
+          "href": "/agent",
+          "file": "agent.html"
+        },
+        {
+          "title": "Комната агентов",
+          "href": "/agent-room",
+          "file": "agent-room.html"
+        },
+        {
+          "title": "Воркспейс",
+          "href": "/workspace",
+          "file": "workspace.html"
+        }
+      ]
+    }
+  ],
+  "updatedAt": "2026-11-18"
+}

@@ -1,1 +1,1501 @@
-{"chain":{"confirmDepth":6,"feeAtomic":"0","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","network":"AGENTCOIN"},"components":[{"actionIds":[],"chain":{"activationParams":"depth6/fee0/shareDiff12/difficulty9@50043/compat(E25: strict только на приёме)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с /headers+/blocks + sync по событиям (sync.mjs:191/484); WS-сессий 0 (E05) — inv-gossip молчит, догон таймером"},"checkMethod":"GET /info /life /health /blocks /headers (E01/E02/E04/E07/E08) + SSH read-only E20/E21 (systemctl/ss/ps/sha256, без секретов)","componentId":"mainnet-node-1","dependsOn":["caddy-h1","node-monitor"],"env":"mainnet","expected":{"role":"writer-hub","serves":"agentcoin.work -> 127.0.0.1:9335"},"expectedVersion":"a5bd038(H1: fb81f609/0e286f00; sync отличается)","host":"SRV-H1 2.31.145.160 (agentcoin.work + node1.agentcoin.work)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"chainValid":true,"height":50053,"loadedReleaseId":null,"tip":"005f7bf1 (E24, 09:33Z); внешнее окно: 50043/00480c09 (E04)","uptime":"pid 96843, старт 18.11 23:39Z, user root (E20)","validationMode":"compatibility (E25)"},"observedVersion":"H1 file fb81f609/0e286f00 (E20); процесс как сервис a5bd038-серии","process":"systemd agentcoin-node.service (бывш. agt-node): node node.mjs 9335","proofSource":"E01/E02/E04/E05/E06/E07/E08 + E20/E21/E23/E24/E25; audit19 evidence/chain-consistency.txt, source-snapshots/h1, config-redacted/h1.txt","purpose":"Пишущая нода mainnet: API цепи, упаковка /mine, монитор /network/nodes (данные самой node1 — петля E23)","routes":[{"host":"agentcoin.work","method":"GET","note":"Caddy -> 127.0.0.1:9335; пин chainId+genesis","owner":true,"path":"/info"},{"host":"agentcoin.work","method":"GET","note":"alive/fresh/chainValid/validationMode","owner":true,"path":"/life"},{"host":"agentcoin.work","method":"GET","note":"ok/service/blocks/tipHash/tipAgeSec","owner":true,"path":"/health"},{"host":"agentcoin.work","method":"GET","note":"тела блоков (?n=1 / ?from=&limit=); образец E07","owner":true,"path":"/blocks"},{"host":"agentcoin.work","method":"GET","note":"заголовки (?from=&limit=); генезис-пин E08","owner":true,"path":"/headers"},{"host":"agentcoin.work","method":"POST","note":"приём подписанной tx (verifyTransaction до mempool); живьём не вызывался — запрет отправок","owner":true,"path":"/tx"},{"host":"agentcoin.work","method":"GET","note":"hub.count/roster; wsPeers 0 (E05) — только факт отсутствия WS-сессий","owner":true,"path":"/ws/status"},{"host":"agentcoin.work","method":"GET","note":"монитор TTL10с; записи node2/3 = данные node1 через @peer-прокси (петля E23), синхронность резервов этим не доказывается","owner":true,"path":"/network/nodes"},{"host":"agentcoin.work","method":"GET","note":"канон API; эквивалент /network/nodes","owner":true,"path":"/api/v1/network/nodes"},{"host":"agentcoin.work","method":"GET","note":"peer-meta: node2 accepted 349 / node3 195, strikes 0 (E06) — HTTP-знание, не транспорт","owner":true,"path":"/peers/meta"},{"host":"agentcoin.work","method":"GET","note":"канон ?full=1 (E09); голый /mempool отдаёт оболочка web-next — не использовать для цепи","owner":true,"path":"/api/v1/mempool"},{"host":"agentcoin.work","method":"GET","note":"канон с :txid (SDK); голый /txproof/xxx 404","owner":true,"path":"/api/v1/txproof"},{"host":"agentcoin.work","method":"GET","note":"PUB allowlist (node.mjs:139/514), без админ-токена (E03)","owner":true,"path":"/capabilities"},{"host":"agentcoin.work","method":"GET","note":"alias карты на /capabilities; порядок: прямой путь ноды","owner":false,"path":"/api/v1/capabilities","aliasOf":"/capabilities"},{"host":"agentcoin.work","method":"GET","note":"владелец queue-orders-catalog; процесс совмещён в agt-node","owner":false,"path":"/queue/status"},{"host":"agentcoin.work","method":"GET","note":"владелец queue-orders-catalog (assignment/очередь)","owner":false,"path":"/agent-state"},{"host":"agentcoin.work","method":"GET","note":"SiteReleaseManager ноды; release null (E12)","owner":true,"path":"/site/release"}],"sources":["config/system-registry.json#money-core,mainnet-node-api","node.mjs","core.mjs","sync.mjs","ws.mjs","docs/audit-network/NODES.csv","docs/audit-network/evidence/E20-h1-process.txt"],"storage":"/opt/agentcoin-node/data (своя chain.json/mempool.json/peers.json; файлы не читались, E21)","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E01","E02","E04","E05","E20","E23","E24","E25","docs/audit-network/evidence/E01-info.json","config/system-registry.json"],"status":"partial","unknowns":["Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса)","Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25)","Оператор: один владелец по имеющимся сведениям; независимых операторов нет"]}},{"actionIds":[],"chain":{"activationParams":"файлы node aed5a948/core bed82d3e ≠ H1 (C08) — одинаковость правил НЕ доказана","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с с главной (E24: node2 50052 tip 00127a17 догоняет); WS 0"},"checkMethod":"GET /ws/status (E14) + прямые /health /info /blocks 403 (E16) + SSH read-only E22/E24 (процессы/chain.json/sha, без секретов)","componentId":"mainnet-node-2","dependsOn":["caddy-reserve"],"env":"mainnet","expected":{"role":"reading-mirror-dark"},"expectedVersion":"aed5a948(node)/bed82d3e(core) файлы (E24); sync abbad0f2, ws 6571c2ee везде","host":"SRV-H2 91.99.191.236 (node2.agentcoin.work)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"chainLocal":"50052 tip 00127a17 (E24) — на 1 блок ниже H1 на момент среза","loadedReleaseId":null,"uptime":"pid 349882, uptime 17д, user root (E24)","viaMonitor":"responding в E04 — но это данные node1 через петлю (E23), не локальная синхронность"},"observedVersion":"файлы aed5a948/bed82d3e (E24); загруженный процесс — не установлен отдельно","process":"systemd agentcoin-node: node node.mjs 9335","proofSource":"E14/E16 + E22/E23/E24; audit19 source-snapshots/node2, config-redacted/node2.txt, diffs/node-h1-node2-full.diff","purpose":"Резервная читающая нода (тёмная): отдельное хранилище, догоняет главную HTTP-синком","routes":[{"host":"node2.agentcoin.work","method":"GET","note":"локальные счётчики; wsPeers 0 (E14)","owner":true,"path":"/ws/status"},{"host":"node2.agentcoin.work","method":"GET","note":"извне 403 reserve node: dark (E16); с allowlisted-IP — прокси на node1 (петля E23)","owner":true,"path":"/health"},{"host":"node2.agentcoin.work","method":"GET","note":"тёмный извне (403); локально цепь 50052 (E24)","owner":true,"path":"/info"},{"host":"node2.agentcoin.work","method":"GET","note":"тёмный извне (403); локально догоняет","owner":true,"path":"/blocks"}],"sources":["node.mjs","core.mjs","sync.mjs","docs/audit-network/NODES.csv","docs/audit-network/evidence/E22-reserves-caddy-dark.txt"],"storage":"/opt/agentcoin-node/data на SRV-H2 (своя chain.json 50052; E24)","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E14","E16","E22","E23","E24","docs/audit-network/evidence/E14-ws-status-node2.json"],"status":"partial","unknowns":["Версия загруженного процесса не установлена","Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено)","Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)"]}},{"actionIds":[],"chain":{"activationParams":"файлы = node2 (aed5a948/bed82d3e) ≠ H1 (C08)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с (E24: node3 50053 tip 005f7bf1 = tip H1 — вровень)"},"checkMethod":"GET /ws/status (E15) + прямые 403 (E17) + SSH read-only E22/E24","componentId":"mainnet-node-3","dependsOn":["caddy-reserve"],"env":"mainnet","expected":{"role":"reading-mirror-dark"},"expectedVersion":"= node2 файлам (E24); sync/ws совпадают везде","host":"SRV-DO 64.225.104.125 (node3.agentcoin.work)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"chainLocal":"50053 tip 005f7bf1 = tip H1 (E24)","loadedReleaseId":null,"uptime":"pid 125851, uptime 17д, user root (E24)"},"observedVersion":"файлы = node2 (E24); загруженный процесс — не установлен отдельно","process":"systemd agentcoin-node: node node.mjs 9335","proofSource":"E15/E17 + E22/E23/E24; audit19 source-snapshots/node3, config-redacted/node3.txt","purpose":"Резервная читающая нода (тёмная): отдельное хранилище, на срезе вровень с главной","routes":[{"host":"node3.agentcoin.work","method":"GET","note":"локальные счётчики; wsPeers 0 (E15)","owner":true,"path":"/ws/status"},{"host":"node3.agentcoin.work","method":"GET","note":"извне 403 (E17); allowlisted — прокси на node1","owner":true,"path":"/health"},{"host":"node3.agentcoin.work","method":"GET","note":"тёмный извне; локально 50053 (E24)","owner":true,"path":"/info"},{"host":"node3.agentcoin.work","method":"GET","note":"тёмный извне; локально вровень","owner":true,"path":"/blocks"}],"sources":["node.mjs","core.mjs","sync.mjs","docs/audit-network/NODES.csv"],"storage":"своя DATA_DIR на SRV-DO (chain.json 50053; E24)","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E15","E17","E22","E23","E24","docs/audit-network/evidence/E15-ws-status-node3.json"],"status":"partial","unknowns":["Версия загруженного процесса не установлена","Одинаковость правил с H1 (C08)","Оператор не установлен"]}},{"actionIds":[],"checkMethod":"код auto-miner.mjs/miner-client.mjs/tools/miner-watchdog.mjs + E02 tipAgeSec/fresh; планировщики cron/AGTAutoMiner — по коду/docs, живьём не опрашивались","componentId":"miner-stack","dependsOn":["mainnet-node-1"],"env":"mainnet","expected":{"payout":"coinbase по ротации 7 адресов (память проекта)","schedule":"auto-miner tick 60с + miner-client headers-only + watchdog 60с/stale300 + cron */10 mine-cron.sh + AGTAutoMiner 15мин"},"expectedVersion":"код 2026-10/11 (auto-miner tick 60с)","host":"SRV-H1 (предположительно; место выполнения живьём не проверено)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"chainEffect":"блоки ~30с (E04/E24 дрейф высот); difficultyBits 9 при shareDiff 12 (C05 — шары труднее блока)","launchProven":false,"txs":"образец heartbeat 0.001 + coinbase (E07)"},"observedVersion":null,"process":"auto-miner.mjs [port] [minerAddress] [intervalSec] + miner-client.mjs MINER_URL + tools/miner-watchdog.mjs (процессы живьём не снимались)","proofSource":"E02/E07 + auto-miner.mjs:60s tick + miner-client headers-only + tools/miner-watchdog.mjs; contradiction C05 зафиксирован","purpose":"Майнинг и сторож свежести: solo-блоки в node1, watchdog поднимает тонкий майнер при stale","routes":[{"host":"127.0.0.1:9335","method":"GET","note":"опрос свежести; владелец mainnet-node-1","owner":false,"path":"/life"},{"host":"127.0.0.1:9335","method":"POST","note":"шаблон/сабмит блока (miner-client headers-only); владелец mainnet-node-1; x-admin-token с петли по коду","owner":false,"path":"/mine"}],"sources":["auto-miner.mjs","miner-client.mjs","tools/miner-watchdog.mjs","core.mjs:534-541/594/608/614","docs/audit-network/FACTS.csv#F10"],"storage":"chain.json (запись блоков) + data/autominer/health-log.csv + data/miner-watchdog.log (содержимое не читалось)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["F10","E02","E07","tools/miner-watchdog.mjs"],"status":"partial","unknowns":["Факт запуска на проде НЕ проверен (планировщики не опрашивались)","Число независимых майнеров не установлено","Журнал выплат пула не проверен (код делит по долям)","observedVersion: наблюдаемая версия расписаний не снималась"]}},{"actionIds":["route.verify-public"],"checkMethod":"E19 sweep (коды+CT) + E01/E02/E05 отвечают через Caddy; сам Caddyfile H1 (690 строк, E21) — состав известен, дословное правило не снималось","componentId":"caddy-h1","dependsOn":["mainnet-node-1","site-static","settlement-gateway"],"env":"mainnet","expected":{"role":"TLS termination + static + reverse-proxy /api + /mainnet"},"expectedVersion":"Caddyfile H1 690 строк (E21); unit caddy active user caddy (E20)","host":"SRV-H1 :80/:443 (agentcoin.work, node1.agentcoin.work)","navIds":[],"network":"neutral","observed":{"defaults":"дефолт agentcoin.work ведёт на node1/127.0.0.1:9335 (память проекта; конфиг не читался)","exposed":"порты 9335/18745 loopback, 80/443 наружу (E20)"},"observedVersion":null,"process":"caddy (pid 825 user caddy) + agentcoin.work static root + proxy","proofSource":"E01/E02/E05/E11/E19 живьём через Caddy + E20/E21 (unit/порты/upstream-память)","purpose":"Вход mainnet: TLS и маршрутизация static/API/шлюз; единая точка отказа внешнего доступа","routes":[{"host":"agentcoin.work","method":"GET","note":"порядок: static file (imperial канон), иначе proxy; владелец контента site-static","owner":false,"path":"/"},{"host":"agentcoin.work","method":"GET","note":"порядок: proxy -> 127.0.0.1:9335; владелец mainnet-node-1","owner":false,"path":"/info"},{"host":"agentcoin.work","method":"GET","note":"порядок: proxy -> 127.0.0.1:18745; владелец settlement-gateway","owner":false,"path":"/mainnet/info"}],"sources":["caddy-routes.conf (фрагмент AC-1/AC-2, не прод-правило)","docs/audit-network/ROUTES.csv","docs/audit-network/evidence/E21-h1-store-caddy.txt"],"storage":"static bundle (/srv/agentcoin-empire/current по памяти; release null E12) + Caddyfile /etc/caddy (690 строк)","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E19","E20","E21","docs/audit-network/ROUTES.csv"],"status":"partial","unknowns":["Дословный прод-Caddyfile H1 не снимался (V02)","TLS-терминация: конфиг не читался","observedVersion: версия Caddy не снималась"]}},{"actionIds":[],"checkMethod":"дословные Caddy-файлы резервов (E22) + живьём /ws/status 200 vs прямых 403 + петля E23","componentId":"caddy-reserve","dependsOn":["mainnet-node-2","mainnet-node-3"],"env":"mainnet","expected":{"peerRule":"@peer remote_ip 127.0.0.1 ::1 2.31.145.160 64.225.104.125 100.64.0.0/10 -> proxy https://node1.agentcoin.work","wsRule":"@ws /ws/* -> 127.0.0.1:9335"},"expectedVersion":"Caddy-файлы резервов (E22 дословно)","host":"SRV-H2 + SRV-DO :80/:443","navIds":[],"network":"neutral","observed":{"darkDefault":"остальное — respond 403 reserve node: dark (E16/E17/E22)","loop":"монитор node1 с allowlisted-IP получает данные node1 (E23)"},"observedVersion":null,"process":"caddy на каждой резервной машине (units active, E24)","proofSource":"E14/E15/E16/E17 + E22 дословно + E23/E24","purpose":"Тёмный вход резервов: наружу только /ws/*, операторскому кругу — прокси на node1, остальное 403","routes":[{"host":"node2.agentcoin.work","method":"GET","note":"порядок: @ws -> локальная нода; причина открытости — исключение E22","owner":false,"path":"/ws/status"},{"host":"node2.agentcoin.work","method":"GET","note":"порядок: @peer -> node1, иначе 403; владелец контента mainnet-node-2","owner":false,"path":"/health"},{"host":"node3.agentcoin.work","method":"GET","note":"то же исключение @ws (E22)","owner":false,"path":"/ws/status"},{"host":"node3.agentcoin.work","method":"GET","note":"то же правило @peer/403","owner":false,"path":"/health"}],"sources":["docs/audit-network/evidence/E22-reserves-caddy-dark.txt","docs/audit-network/CONNECTIONS.csv"],"storage":"Caddyfile резервов (/etc/caddy) + локальные bundle не требуются","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E16","E17","E22","E23","docs/audit-network/evidence/E22-reserves-caddy-dark.txt"],"status":"partial","unknowns":["Кем и когда сделано исключение /ws — не установлено (V02 §2)","Оператор резервов не установлен","observedVersion: версии Caddy резервов не снимались"]}},{"actionIds":["route.verify-public"],"checkMethod":"E19 sweep + site/tree.json + site-release.mjs/release.json; 200 с чужим экраном = дефект маршрутизации","componentId":"site-static","dependsOn":["caddy-h1"],"env":"mainnet-public","expected":{"canon":"/ = imperial.html; /index -> 308 /; /wallet -> 308 /cabinet","count":"35 html + ecosphere/* + panel.js"},"expectedVersion":"site-v3 (release null E12)","host":"agentcoin.work static (Caddy file_server)","navIds":["/","/create-wallet","/cabinet","/operator-cabinet","/passport-cabinet","/mine","/mempool","/gov","/jobs","/mbc20","/chat","/jail","/buffy","/dashboard","/terminal","/network","/live","/docs","/agent","/settlement"],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"e19":"/ /agent-room /cabinet /settlement 200; /workspace 200 (оболочка); /ecosphere/ 404 (C04); /peers/bootstrap /gateway/list 404","ecosphereGap":"/ecosphere/ и /ecosphere/index.html 404 при implemented в старом реестре — противоречие C04"},"observedVersion":"release null manifestHash null (E12)","process":"Caddy static + site-release.mjs (откат — предыдущий bundle)","proofSource":"E19 + site/tree.json + config/system-registry.json#site-static + C04","purpose":"Статика империи: канонические экраны, кабинет/кошелёк, settlement-UI, файлы агент-комнаты","routes":[{"host":"agentcoin.work","method":"GET","note":"канон; Next /index -> 308 / (F01)","owner":true,"path":"/"},{"host":"agentcoin.work","method":"GET","note":"WASM-кошелёк (фрагмент caddy-routes AC-1)","owner":true,"path":"/create-wallet"},{"host":"agentcoin.work","method":"GET","note":"канон кабинета; /wallet 308 -> /cabinet; блок #nodes3 читает 3 ноды GET-only","owner":true,"path":"/cabinet"},{"host":"agentcoin.work","method":"GET","note":"файл user-wallet-page.html; порядок static vs Next для этого пути не доказан живьём","owner":false,"path":"/workspace"},{"host":"agentcoin.work","method":"GET","note":"оболочка E19; владелец web-next","owner":false,"path":"/mempool"},{"host":"agentcoin.work","method":"GET","note":"файл mine.html есть; публично отдаёт оболочка web-next — порядок не доказан","owner":false,"path":"/mine"},{"host":"agentcoin.work","method":"GET","note":"404 публично (C04); файлы backing есть — карта/прод расходятся","owner":false,"path":"/ecosphere"},{"host":"agentcoin.work","method":"GET","note":"static v0.3 mainnet.html (settlement-UI)","owner":true,"path":"/settlement"},{"host":"agentcoin.work","method":"GET","note":"backing-файл agent-room.html; владелец agent-room","owner":false,"path":"/agent-room"},{"host":"agentcoin.work","method":"GET","note":"backing-файл agent-room.json; владелец agent-room","owner":false,"path":"/agent-room.json"}],"sources":["site/tree.json","site/imperial.html","site/cabinet.html","site/ecosphere/mainnet.html","config/system-registry.json#site-static"],"storage":"static bundle + site/release.json (E12)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E19","F01","C04","site/tree.json","config/system-registry.json"],"status":"partial","unknowns":["Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём","C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда"]}},{"actionIds":[],"checkMethod":"E19 (/workspace 200 оболочка; голый /mempool HTML) + web/app/*/page.jsx; POST /mine и /api/v1/tx живьём не тестировались (запрет мутаций)","componentId":"web-next","dependsOn":["caddy-h1","mainnet-node-1"],"env":"mainnet-public","expected":{"routes":"/agent /docs /gov /jobs /mbc20 /mine /shield (+/workspace оболочка)"},"expectedVersion":"web-unknown (сверить)","host":"agentcoin.work (Next catch-all риск)","navIds":["/workspace"],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"bareApi":"/mempool bare -> HTML (не цепь); /mine GET -> HTML (POST — админ ноды, не тестировался)","orderRisk":"catch-all может отдавать HTML на API — SDK помечает route_not_allowlisted"},"observedVersion":null,"process":"Next build (откат — предыдущий build)","proofSource":"E09/E19 + sdk/js/mainnet-node-api.mjs:9 + web/app/shield/page.jsx","purpose":"Next-оболочка: /mine /shield /gov /jobs /mbc20 /docs /agent + прокси /api/v1/*; риск catch-all на API","routes":[{"host":"agentcoin.work","method":"GET","note":"оболочка E19; файл site-static — backing (порядок не доказан)","owner":true,"path":"/workspace"},{"host":"agentcoin.work","method":"GET","note":"оболочка; голый путь — не цепь (канон /api/v1/mempool у mainnet-node-1)","owner":true,"path":"/mempool"},{"host":"agentcoin.work","method":"GET","note":"оболочка; POST /mine — админ ноды, не тестировался","owner":true,"path":"/mine"},{"host":"agentcoin.work","method":"GET","note":"карточка «Ноды чтение по трём» + Stale; читает /api/v1/network/nodes GET-only 30с","owner":true,"path":"/shield"},{"host":"agentcoin.work","method":"GET","note":"прокси к ноде; владелец mainnet-node-1","owner":false,"path":"/api/v1/network/nodes"},{"host":"agentcoin.work","method":"GET","note":"оболочки; порядок static vs catch-all не доказан","owner":true,"path":"/gov"},{"host":"agentcoin.work","method":"GET","note":"оболочки; порядок не доказан","owner":true,"path":"/jobs"}],"sources":["web/app/shield/page.jsx","web/app/mine/page.jsx","site/tree.json"],"storage":"Next build bundle","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E09","E19","F14","site/tree.json"],"status":"partial","unknowns":["Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан","observedVersion: версия Next-билда не сверена","Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)"]}},{"actionIds":["room.net-check","room.my-state","room.claim","room.order-create","room.transfer"],"checkMethod":"без JS: разделы 1-7 читаются; JSON валиден; API из реестра существуют; /agent-room 200 text/html (E19)","componentId":"agent-room","dependsOn":["site-static","queue-orders-catalog","settlement-gateway"],"env":"mainnet-public","expected":{"api":"0.3","protocol":"0.3.0","room":"v1"},"expectedVersion":"room v1 / api 0.3 / protocol 0.3.0","host":"agentcoin.work static (same-origin live API)","navIds":["/agent-room"],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"secondQueue":"второй очереди/рынка нет — только существующие API","sections":"7 разделов + первая инструкция без JS"},"observedVersion":"static (site-release.mjs)","process":"static-site + browser inline module (мутации только при window.__roomNet.ok)","proofSource":"E19 + site/agent-room.html + site/agent-room.json + config/action-registry.json","purpose":"Публичный вход для ИИ-агентов: 7 разделов, browser+JSON, только существующие API","routes":[{"host":"agentcoin.work","method":"GET","note":"канон комнаты (backing site-static)","owner":true,"path":"/agent-room"},{"host":"agentcoin.work","method":"GET","note":"машиночитаемая комната; сверка с HTML","owner":true,"path":"/agent-room.json"}],"sources":["site/agent-room.html","site/agent-room.json","docs/AGENT-ROOM.md","site/tree.json","config/action-registry.json"],"storage":"static bundle","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E19","F14","site/tree.json","config/action-registry.json"],"status":"partial","unknowns":["Живая сверка всех room-действий с прод-API после C07 — по слову владельца"]}},{"actionIds":["settle.net-boot","settle.preview","settle.submit-signed","settle.confirm-check"],"checkMethod":"GET /version + GET /mainnet/info 200 (E11); остальные /mainnet/* живьём не тестировались (мутации/деньги запрещены)","componentId":"settlement-gateway","dependsOn":["mainnet-node-1"],"env":"mainnet","expected":{"policy":"settlement-policy.json (владелец)","role":"шлюз /mainnet/*: obligations/submit только подписанной tx + подпись settle-approve, журнал с lock, paused, rate-limit"},"expectedVersion":"0.2","host":"SRV-H1 127.0.0.1:18745 -> Caddy /mainnet/*","navIds":["/settlement"],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"info":"/mainnet/info 200 chainId+genesis+infoBlocks (E11)","untested":"preview/obligations/submit/settlements — код + тесты, живьём не вызывались"},"observedVersion":"agt-settlement user, unit agt-settlement.service (E20 — юнит виден, файлы не читались)","process":"agt-settlement.service: scripts/ecosphere-settlement-gateway.mjs (ручной деплой только по слову владельца)","proofSource":"E11 + sdk/js/mainnet-server.mjs + sdk/js/mainnet-settlement.mjs + test/mainnet-settlement.mjs (память)","purpose":"Платёжный сервис: серверные обязательства и приём подписанных расчётов (журнал не откатывать)","routes":[{"host":"agentcoin.work","method":"GET","note":"200 E11; чтения цепи из ноды","owner":true,"path":"/mainnet/info"},{"host":"agentcoin.work","method":"POST","note":"серверный preview без секретов; живьём не вызывался","owner":true,"path":"/mainnet/preview"},{"host":"agentcoin.work","method":"POST","note":"только подписанная tx + settle-approve; second_payment_refused на новую подпись","owner":true,"path":"/mainnet/submit"},{"host":"agentcoin.work","method":"POST","note":"obligations под lock; живьём не вызывался","owner":true,"path":"/mainnet/obligations"},{"host":"agentcoin.work","method":"GET","note":"статус settlement по журналу; живьём не вызывался","owner":true,"path":"/mainnet/settlements"}],"sources":["sdk/js/mainnet-server.mjs","sdk/js/mainnet-settlement.mjs","scripts/ecosphere-settlement-gateway.mjs","config/system-registry.json#settlement-gateway"],"storage":".settlement-gateway/mainnet-settlements.json + settlement-policy.json (не читались — секреты/политика вне прохода)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E11","F11","config/action-registry.json"],"status":"partial","unknowns":["Юнит-файл и журнал живьём не снимались","Все POST /mainnet/* живьём не тестировались (запрет мутаций)","Содержимое policy/journal не читалось (вне прохода)"]}},{"actionIds":["room.claim","room.order-create","settle.balance-read"],"checkMethod":"E10 waiting 5 + legacy POST /queue/join -> 410 (код) + sconfirm/tick правила (код); прод-файлы очереди не читались","componentId":"queue-orders-catalog","dependsOn":["mainnet-node-1"],"env":"staging-only (прод-очереди требуют аудита подписей каждого маршрута)","expected":{"rules":"FIFO/ротация, head-only claim, signed-only, legacy 410, idempotencyKey"},"expectedVersion":"signed-only (legacy 410)","host":"внутри agt-node DATA_DIR (прод) + stand-server (стенд)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"live":"E10 waiting 5 onDuty 5 (прикладное состояние, не цепь)","sameProcess":"несколько функций очереди живут внутри процесса ноды — не отдельный сервис"},"observedVersion":"queue.mjs AgentQueue (cap 5000, onDuty 25)","process":"agt-node embedded + stand-server.mjs (staging); прод-статус limited","proofSource":"E10 + queue.mjs + queue-auth.mjs + sdk/js/stand-server.mjs","purpose":"Очередь/заказы/каталог/события: серверное состояние (НЕ блокчейн-подтверждение)","routes":[{"host":"agentcoin.work","method":"GET","note":"прикладное состояние; транспорт — нода (процесс совмещён)","owner":true,"path":"/queue/status"},{"host":"agentcoin.work","method":"GET","note":"assignment/очередь; чужой адрес прав не даёт","owner":true,"path":"/agent-state"},{"host":"agentcoin.work","method":"POST","note":"идемпотентно по idempotencyKey; BODY_MISMATCH при смене тела","owner":true,"path":"/orders/create"},{"host":"agentcoin.work","method":"GET","note":"поиск офферов","owner":true,"path":"/catalog/offers"},{"host":"agentcoin.work","method":"GET","note":"события с курсором","owner":true,"path":"/events"}],"sources":["queue.mjs","queue-auth.mjs","queue-guards.mjs","sdk/js/stand-server.mjs","config/system-registry.json#queue-orders-catalog"],"storage":"локальный JSON store стенда; прод — серверное состояние (файлы не читались)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E10","F11","config/action-registry.json"],"status":"partial","unknowns":["Прод-файлы очереди/журналы не читались","Открытие прод-очередей — только после аудита каждого маршрута (limited)"]}},{"actionIds":[],"checkMethod":"код node-monitor.mjs (49 строк) + test/node-monitor.mjs 4/4 + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07","componentId":"node-monitor","dependsOn":["mainnet-node-1"],"env":"shared","expected":{"rule":"только операторские цели; посетитель URL не задаёт; TTL 10с; stale tipAgeSec>300/unreachable/invalid/lower"},"expectedVersion":"node-monitor 49 строк (TTL10с, probe 2.5с, cap 16)","host":"n/a (library + browser hooks)","navIds":[],"network":"neutral","observed":{"loopEffect":"записи node2/3 = данные node1 (E23) — монитор доказывает жив Caddy резервов + жив node1, не синхронность резервов","tests":"4/4 pass (память прохода)"},"observedVersion":"код 2026-10-20 (TTL 10с)","process":"browser/Next hooks (cabinet #nodes3 30с, shield useApi 30с) + node lib","proofSource":"E04/E06/E23 + node-monitor.mjs + site/cabinet.html + web/app/shield/page.jsx","purpose":"Мониторинг 3 нод: чтение /network/nodes GET-only, stale-флаги; без админ-API","routes":[{"host":"agentcoin.work","method":"GET","note":"опрос целей t.url + /health (2.5с, TTL10с); владелец mainnet-node-1","owner":false,"path":"/network/nodes"}],"sources":["node-monitor.mjs","site/cabinet.html#nodes3","web/app/shield/page.jsx","test/node-monitor.mjs"],"storage":"monitor-targets.json (имена захардкожены; E21)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["E04","F06","F14","test/node-monitor.mjs"],"status":"confirmed","unknowns":["Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)"]}},{"actionIds":[],"checkMethod":"пин chainId+genesis (E01/E08) + высоты/tip (E04/E07/E24) + глубина 6 единиц (код/доки)","componentId":"env-mainnet","dependsOn":[],"env":"mainnet","expected":{"isolation":"network/genesis-чеки отбрасывают чужие пиры/блоки","params":"chainId AGENTCOIN, genesis 00026d18…b9188e4e, confirmDepth 6, fee 0"},"expectedVersion":"пин E01/E08","host":"n/a (среда: SRV-H1 + SRV-H2 + SRV-DO)","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"height":"50043 tip 00480c09 (E04 09:23Z); H1 50053/node3 50053/node2 50052 (E24 09:33Z)","ports":"9335 (рядом testnet 19335/19443, job-test 19336/19444 — по памяти, живьём не опрашивались)"},"observedVersion":"факт E04/E24","process":"три процесса mainnet-node-{1,2,3} + Caddy + miner-stack + settlement-gateway","proofSource":"E01/E04/E07/E08/E24 + chain-consistency (audit19 evidence)","purpose":"Среда mainnet: каноническая цепь и её параметры изоляции","routes":[],"sources":["core.mjs:528 CHAIN_ID","docs/audit-network/NODES.csv","config/system-registry.json#chain"],"storage":"три отдельных DATA_DIR (E24)","verification":{"checkedAt":"2026-11-19T09:33Z","evidence":["E01","E04","E08","E24","docs/audit-network/NODES.csv"],"status":"partial","unknowns":["Накопленная chainWork числом не снята","Локальные политики резервов не наблюдаемы"]}},{"actionIds":[],"checkMethod":"код tools/testnet.mjs (AGT_CHAIN_ID=AGT_TESTNET, свой DATA_DIR/порты/bootstrap); живьём не запускался и не опрашивался","componentId":"env-testnet","dependsOn":[],"env":"testnet","expected":{"isolation":"свой networkId -> свой genesisHash; main-пиры отфильтровываются"},"expectedVersion":"код R-03 (порт по умолчанию 19933)","host":"n/a (изолированный локальный запуск)","navIds":[],"network":"AGT_TESTNET/00022668","observed":{"liveProven":false},"observedVersion":null,"process":"node tools/testnet.mjs [порт] [--reset] (spawn node.mjs с env)","proofSource":"tools/testnet.mjs (код) — прод-доступ не использовался","purpose":"Изолированная тестовая сеть AGT (не mainnet)","routes":[],"sources":["tools/testnet.mjs"],"storage":"testnet/data + testnet/bootstrap.json (локально)","verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["tools/testnet.mjs"],"status":"unknown","unknowns":["Живьём не запускалась и не опрашивалась в этом проходе","Генезис testnet числом не сверялся","observedVersion: наблюдаемая версия не снималась"]}},{"actionIds":[],"checkMethod":"код/память проекта (порты 19336/19444); живьём не опрашивались, вне скоупа mainnet-карты","componentId":"env-jobtest","dependsOn":[],"env":"job-test","expected":{"isolation":"отдельные DATA_DIR/порты/генезис-пин 0001b918… (память проекта)"},"expectedVersion":"пин по памяти проекта","host":"n/a","navIds":[],"network":"AGT_JOBTEST/0001b918","observed":{"liveProven":false},"observedVersion":null,"process":"не обследовался (вне mainnet-карты)","proofSource":"docs/audit-network/SERVICES.csv (row testnet/job-test) — без прод-опроса","purpose":"Среда отработки заданий (изоляция от mainnet)","routes":[],"sources":["docs/audit-network/SERVICES.csv"],"storage":null,"verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["docs/audit-network/SERVICES.csv"],"status":"unknown","unknowns":["DATA_DIR/порты/генезис живьём не проверены","storage: неизвестно (честно)","observedVersion: не снималась"]}},{"actionIds":[],"checkMethod":"реестр + стенд-порты (127.0.0.1:18743 — стенд, не прод); прод-опросы стенда не проводились","componentId":"env-staging","dependsOn":[],"env":"staging","expected":{"content":"stand-server signed-only (legacy 410), тестовые книги отдельно env/prod-каталогами"},"expectedVersion":"staging-only","host":"ноутбук 127.0.0.1:18743 + staging-стенды","navIds":[],"network":"AGENTCOIN/00026d18b9188e4e","observed":{"rule":"127.0.0.1:18743 — локальный стенд, не опубликован"},"observedVersion":null,"process":"stand-server / staging (sdk/js/stand-server.mjs)","proofSource":"config/system-registry.json + config/action-registry.json (без прод-доступа)","purpose":"Стендовая среда действий/рынка до аудита подписей","routes":[],"sources":["sdk/js/stand-server.mjs","config/action-registry.json"],"storage":"локальный JSON store стенда","verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["config/system-registry.json","config/action-registry.json"],"status":"unknown","unknowns":["Прод-границы стенда vs mainnet — только по реестру","observedVersion: не снималась"]}},{"actionIds":["settle.net-boot","settle.preview","room.net-check"],"checkMethod":"node --check + unit money (знаки/round-trip) + test/mainnet-node-api.mjs (память); не-JSON -> fail-closed","componentId":"sdk-js","dependsOn":["mainnet-node-1"],"env":"shared","expected":{"modules":"mainnet-node-api 0.2 + money 0.1.0 + agentcoin-sdk 0.3 + browser-core 0.1.0"},"expectedVersion":"0.2/0.1.0/0.3","host":"n/a (client library browser+node)","navIds":[],"network":"neutral","observed":{"compat":"netEvidence, submitSignedTx (проверка до сети), checkConfirmation (пруф+тело+глубина 6)"},"observedVersion":"файлы 2026-10/11 (без прод-версии)","process":"library (local import, без npm-публикации)","proofSource":"sdk/js/mainnet-node-api.mjs + sdk/js/money.mjs + config/action-registry.json","purpose":"Клиентская библиотека чтения/проверки/подтверждений (подпись только у владельца)","routes":[{"host":"agentcoin.work","method":"POST","note":"вызов через submitSignedTx; владелец mainnet-node-1","owner":false,"path":"/tx"},{"host":"agentcoin.work","method":"GET","note":"вызов через checkConfirmation; владелец mainnet-node-1","owner":false,"path":"/api/v1/txproof"}],"sources":["sdk/js/mainnet-node-api.mjs","sdk/js/money.mjs","sdk/js/agentcoin-sdk.mjs","sdk/js/agentcoin-browser.mjs"],"storage":"n/a (stateless)","verification":{"checkedAt":"2026-11-19T09:24Z","evidence":["F09","F13","sdk/js/agentcoin-sdk.mjs"],"status":"partial","unknowns":["Версия в прод-бандле не сверена (pin файла)"]}},{"actionIds":[],"checkMethod":"--help + коды выхода (ok:false -> exit 1, args -> exit 2); секреты только из --wallet-файла","componentId":"cli","dependsOn":["sdk-js"],"env":"shared","expected":{"semantics":"одна семантика с SDK/MCP; stdout ровно один JSON, диагностика stderr"},"expectedVersion":"0.3.0","host":"n/a (client)","navIds":[],"network":"neutral","observed":{"mutatingSet":"queue/order/monitor/settlement команды через SDK (код)"},"observedVersion":"файл 2026-11-19","process":"node sdk/js/agentcoin-cli.mjs <команда>","proofSource":"sdk/js/agentcoin-cli.mjs (шапка v0.3, zero-deps)","purpose":"CLI-клиент: те же операции, что SDK/MCP, без своих состояний","routes":[{"host":"agentcoin.work","method":"POST","note":"вызов через CLI settlement/order команды; владелец mainnet-node-1/settlement-gateway по команде","owner":false,"path":"/tx"}],"sources":["sdk/js/agentcoin-cli.mjs"],"storage":"n/a (+ --wallet файл у пользователя, не читался)","verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["sdk/js/agentcoin-cli.mjs"],"status":"partial","unknowns":["Живой прогон CLI против прод — не выполнялся (запрет мутаций)"]}},{"actionIds":[],"checkMethod":"шапка v0.2 (stdio, zero-deps); мутирующие помечены destructive; живьём не вызывался","componentId":"mcp","dependsOn":["sdk-js"],"env":"shared","expected":{"tools":"status/my_task/payments/events/offers_search — read-only; queue/order/monitor — destructive"},"expectedVersion":"0.2","host":"n/a (client stdio)","navIds":[],"network":"neutral","observed":{"defaultNode":"AGENTCOIN_NODE по умолчанию 127.0.0.1:9333 (env) — стенд, не прод"},"observedVersion":"файл 2026-11-19","process":"node mcp/agentcoin-mcp.mjs (stdout только протокол)","proofSource":"mcp/agentcoin-mcp.mjs (шапка)","purpose":"MCP-клиент для агентов: тот же набор операций SDK через stdio","routes":[{"host":"agentcoin.work","method":"GET","note":"вызов status/my_task; владелец mainnet-node-1/queue","owner":false,"path":"/queue/status"}],"sources":["mcp/agentcoin-mcp.mjs"],"storage":"n/a","verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["mcp/agentcoin-mcp.mjs"],"status":"partial","unknowns":["Живой вызов MCP против прод — не выполнялся"]}},{"actionIds":[],"checkMethod":"код api-gateway.mjs (offline pilot, no HTTP listener); вне прод-карты mainnet","componentId":"api-gateway-pilot","dependsOn":[],"env":"offline-pilot","expected":{"scope":"пилот ядра без сети; журнал v1 + lock; лимиты MAX_PRICE_UNITS"},"expectedVersion":"pilot v1","host":"n/a (offline)","navIds":[],"network":null,"observed":{"prodUse":false},"observedVersion":null,"process":"class ApiGatewayPilot (no listener)","proofSource":"api-gateway.mjs (шапка offline) + docs/audit-network/SERVICES.csv (вне карты)","purpose":"Офлайн-пилот ядра (НЕ прод-сервис): зафиксирован, чтобы не путать с прод-шлюзом","routes":[],"sources":["api-gateway.mjs"],"storage":"файловый журнал пилота (lock 0600)","verification":{"checkedAt":"2026-11-19T00:00Z","evidence":["docs/audit-network/SERVICES.csv"],"status":"unknown","unknowns":["В прод-карту не входит; детали вне скоупа","network: неприменимо (честно)","observedVersion: не снималась"]}}],"sources":{"actionRegistry":"config/action-registry.json (11 действий settle/room/route)","auditDocs":"docs/audit-network/ (REPORT + FACTS/NODES/SERVERS/SERVICES/ROUTES/CONNECTIONS/DEPENDENCIES + CONTRADICTIONS + evidence E01-E25) + agentcoin-infrastructure-audit-20261119/ (снапшоты/diffs/config-redacted/validation-matrix)","navTree":"site/tree.json (canon / = imperial.html; /wallet -> /cabinet; /index -> /)","systemRegistry":"config/system-registry.json v1 (11 компонентов-источников, статусы implemented/limited/published)"},"statusVocabulary":["confirmed","partial","unknown","contradiction"],"updatedAt":"2026-11-19","version":1}
+{
+  "chain": {
+    "confirmDepth": 6,
+    "feeAtomic": "0",
+    "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+    "network": "AGENTCOIN"
+  },
+  "components": [
+    {
+      "actionIds": [],
+      "chain": {
+        "activationParams": "chain: depth6/fee0 (канон F02/корень); PoW-наблюдение: difficultyBits 9 при shareDiff 12 на ~50043 (E01/F10) — не параметры активации; activation heights/versions: неизвестны (см. unknowns); validation: compatibility strict-только-на-приёме (E25)",
+        "chainId": "AGENTCOIN",
+        "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+        "syncSource": "HTTP syncAll 90с /headers+/blocks + sync по событиям (sync.mjs:191/484); WS-сессий 0 (E05) — inv-gossip молчит, догон таймером"
+      },
+      "checkMethod": "GET /info /life /health /blocks /headers (E01/E02/E04/E07/E08) + SSH read-only E20/E21 (systemctl/ss/ps/sha256, без секретов)",
+      "componentId": "mainnet-node-1",
+      "dependsOn": [
+        "caddy-h1",
+        "node-monitor"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "role": "writer-hub",
+        "serves": "agentcoin.work -> 127.0.0.1:9335"
+      },
+      "expectedVersion": "a5bd038(H1: fb81f609/0e286f00; sync отличается)",
+      "host": "SRV-H1 2.31.145.160 (agentcoin.work + node1.agentcoin.work)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "chainValid": true,
+        "height": 50053,
+        "loadedReleaseId": null,
+        "tip": "005f7bf1 (E24, 09:33Z); внешнее окно: 50043/00480c09 (E04)",
+        "uptime": "pid 96843, старт 18.11 23:39Z, user root (E20)",
+        "validationMode": "compatibility (E25)"
+      },
+      "observedVersion": "H1 file fb81f609/0e286f00 (E20); процесс как сервис a5bd038-серии",
+      "process": "systemd agentcoin-node.service (бывш. agt-node): node node.mjs 9335",
+      "proofSource": "E01/E02/E04/E05/E06/E07/E08 + E20/E21/E23/E24/E25; audit19 evidence/chain-consistency.txt, source-snapshots/h1, config-redacted/h1.txt",
+      "purpose": "Пишущая нода mainnet: API цепи, упаковка /mine, монитор /network/nodes (данные самой node1 — петля E23)",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "Caddy -> 127.0.0.1:9335; пин chainId+genesis",
+          "owner": true,
+          "path": "/info"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "alive/fresh/chainValid/validationMode",
+          "owner": true,
+          "path": "/life"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "ok/service/blocks/tipHash/tipAgeSec",
+          "owner": true,
+          "path": "/health"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "тела блоков (?n=1 / ?from=&limit=); образец E07",
+          "owner": true,
+          "path": "/blocks"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "заголовки (?from=&limit=); генезис-пин E08",
+          "owner": true,
+          "path": "/headers"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "приём подписанной tx (verifyTransaction до mempool); живьём не вызывался — запрет отправок",
+          "owner": true,
+          "path": "/tx"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "hub.count/roster; wsPeers 0 (E05) — только факт отсутствия WS-сессий",
+          "owner": true,
+          "path": "/ws/status"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "монитор TTL10с; записи node2/3 = данные node1 через @peer-прокси (петля E23), синхронность резервов этим не доказывается",
+          "owner": true,
+          "path": "/network/nodes"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон API; эквивалент /network/nodes",
+          "owner": true,
+          "path": "/api/v1/network/nodes"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "peer-meta: node2 accepted 349 / node3 195, strikes 0 (E06) — HTTP-знание, не транспорт",
+          "owner": true,
+          "path": "/peers/meta"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон ?full=1 (E09); голый /mempool отдаёт оболочка web-next — не использовать для цепи",
+          "owner": true,
+          "path": "/api/v1/mempool"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон с :txid (SDK); голый /txproof/xxx 404",
+          "owner": true,
+          "path": "/api/v1/txproof"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "PUB allowlist (node.mjs:139/514), без админ-токена (E03)",
+          "owner": true,
+          "path": "/capabilities"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "alias карты на /capabilities; порядок: прямой путь ноды",
+          "owner": false,
+          "path": "/api/v1/capabilities",
+          "aliasOf": "/capabilities"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "владелец queue-orders-catalog; процесс совмещён в agt-node",
+          "owner": false,
+          "path": "/queue/status"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "владелец queue-orders-catalog (assignment/очередь)",
+          "owner": false,
+          "path": "/agent-state"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "SiteReleaseManager ноды; release null (E12)",
+          "owner": true,
+          "path": "/site/release"
+        }
+      ],
+      "sources": [
+        "config/system-registry.json#money-core,mainnet-node-api",
+        "node.mjs",
+        "core.mjs",
+        "sync.mjs",
+        "ws.mjs",
+        "docs/audit-network/NODES.csv",
+        "docs/audit-network/evidence/E20-h1-process.txt"
+      ],
+      "storage": "/opt/agentcoin-node/data (своя chain.json/mempool.json/peers.json; файлы не читались, E21)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E01",
+          "E02",
+          "E04",
+          "E05",
+          "E20",
+          "E23",
+          "E24",
+          "E25",
+          "docs/audit-network/evidence/E01-info.json",
+          "config/system-registry.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса)",
+          "Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25)",
+          "Оператор: один владелец по имеющимся сведениям; независимых операторов нет",
+          "Параметры активации консенсусных правил (высоты включения) неизвестны и отделены от depth6/fee0 и PoW-наблюдения"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "chain": {
+        "activationParams": "файлы node aed5a948/core bed82d3e ≠ H1 (C08) — одинаковость правил НЕ доказана",
+        "chainId": "AGENTCOIN",
+        "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+        "syncSource": "HTTP syncAll 90с с главной (E24: node2 50052 tip 00127a17 догоняет); WS 0"
+      },
+      "checkMethod": "GET /ws/status (E14) + прямые /health /info /blocks 403 (E16) + SSH read-only E22/E24 (процессы/chain.json/sha, без секретов)",
+      "componentId": "mainnet-node-2",
+      "dependsOn": [
+        "caddy-reserve"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "role": "reading-mirror-dark"
+      },
+      "expectedVersion": "aed5a948(node)/bed82d3e(core) файлы (E24); sync abbad0f2, ws 6571c2ee везде",
+      "host": "SRV-H2 91.99.191.236 (node2.agentcoin.work)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "chainLocal": "50052 tip 00127a17 (E24) — на 1 блок ниже H1 на момент среза",
+        "loadedReleaseId": null,
+        "uptime": "pid 349882, uptime 17д, user root (E24)",
+        "viaMonitor": "responding в E04 — но это данные node1 через петлю (E23), не локальная синхронность"
+      },
+      "observedVersion": "файлы aed5a948/bed82d3e (E24); загруженный процесс — не установлен отдельно",
+      "process": "systemd agentcoin-node: node node.mjs 9335",
+      "proofSource": "E14/E16 + E22/E23/E24; audit19 source-snapshots/node2, config-redacted/node2.txt, diffs/node-h1-node2-full.diff",
+      "purpose": "Резервная читающая нода (тёмная): отдельное хранилище, догоняет главную HTTP-синком",
+      "routes": [
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "локальные счётчики; wsPeers 0 (E14)",
+          "owner": true,
+          "path": "/ws/status"
+        },
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "извне 403 reserve node: dark (E16); с allowlisted-IP — прокси на node1 (петля E23)",
+          "owner": true,
+          "path": "/health"
+        },
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "тёмный извне (403); локально цепь 50052 (E24)",
+          "owner": true,
+          "path": "/info"
+        },
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "тёмный извне (403); локально догоняет",
+          "owner": true,
+          "path": "/blocks"
+        }
+      ],
+      "sources": [
+        "node.mjs",
+        "core.mjs",
+        "sync.mjs",
+        "docs/audit-network/NODES.csv",
+        "docs/audit-network/evidence/E22-reserves-caddy-dark.txt"
+      ],
+      "storage": "/opt/agentcoin-node/data на SRV-H2 (своя chain.json 50052; E24)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E14",
+          "E16",
+          "E22",
+          "E23",
+          "E24",
+          "docs/audit-network/evidence/E14-ws-status-node2.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Версия загруженного процесса не установлена",
+          "Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено)",
+          "Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "chain": {
+        "activationParams": "файлы = node2 (aed5a948/bed82d3e) ≠ H1 (C08)",
+        "chainId": "AGENTCOIN",
+        "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+        "syncSource": "HTTP syncAll 90с (E24: node3 50053 tip 005f7bf1 = tip H1 — вровень)"
+      },
+      "checkMethod": "GET /ws/status (E15) + прямые 403 (E17) + SSH read-only E22/E24",
+      "componentId": "mainnet-node-3",
+      "dependsOn": [
+        "caddy-reserve"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "role": "reading-mirror-dark"
+      },
+      "expectedVersion": "= node2 файлам (E24); sync/ws совпадают везде",
+      "host": "SRV-DO 64.225.104.125 (node3.agentcoin.work)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "chainLocal": "50053 tip 005f7bf1 = tip H1 (E24)",
+        "loadedReleaseId": null,
+        "uptime": "pid 125851, uptime 17д, user root (E24)"
+      },
+      "observedVersion": "файлы = node2 (E24); загруженный процесс — не установлен отдельно",
+      "process": "systemd agentcoin-node: node node.mjs 9335",
+      "proofSource": "E15/E17 + E22/E23/E24; audit19 source-snapshots/node3, config-redacted/node3.txt",
+      "purpose": "Резервная читающая нода (тёмная): отдельное хранилище, на срезе вровень с главной",
+      "routes": [
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "локальные счётчики; wsPeers 0 (E15)",
+          "owner": true,
+          "path": "/ws/status"
+        },
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "извне 403 (E17); allowlisted — прокси на node1",
+          "owner": true,
+          "path": "/health"
+        },
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "тёмный извне; локально 50053 (E24)",
+          "owner": true,
+          "path": "/info"
+        },
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "тёмный извне; локально вровень",
+          "owner": true,
+          "path": "/blocks"
+        }
+      ],
+      "sources": [
+        "node.mjs",
+        "core.mjs",
+        "sync.mjs",
+        "docs/audit-network/NODES.csv"
+      ],
+      "storage": "своя DATA_DIR на SRV-DO (chain.json 50053; E24)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E15",
+          "E17",
+          "E22",
+          "E23",
+          "E24",
+          "docs/audit-network/evidence/E15-ws-status-node3.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Версия загруженного процесса не установлена",
+          "Одинаковость правил с H1 (C08)",
+          "Оператор не установлен"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "код auto-miner.mjs/miner-client.mjs/tools/miner-watchdog.mjs + E02 tipAgeSec/fresh; планировщики cron/AGTAutoMiner — по коду/docs, живьём не опрашивались",
+      "componentId": "miner-stack",
+      "dependsOn": [
+        "mainnet-node-1"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "payout": "coinbase по ротации 7 адресов (память проекта)",
+        "schedule": "auto-miner tick 60с + miner-client headers-only + watchdog 60с/stale300 + cron */10 mine-cron.sh + AGTAutoMiner 15мин"
+      },
+      "expectedVersion": "код 2026-10/11 (auto-miner tick 60с)",
+      "host": "SRV-H1 (предположительно; место выполнения живьём не проверено)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "units": "agentcoin-miner.service active, agentcoin-heartbeat.timer active (E20) — активность юнитов наблюдалась",
+        "chainEffect": "блоки ~30с (E04/E24 дрейф высот); difficultyBits 9 при shareDiff 12 (E01/F10) — наблюдение PoW на срезе, не параметры активации",
+        "txs": "образец heartbeat 0.001 + coinbase (E07)",
+        "launchProven": false
+      },
+      "observedVersion": null,
+      "process": "auto-miner.mjs [port] [minerAddress] [intervalSec] + miner-client.mjs MINER_URL + tools/miner-watchdog.mjs (процессы живьём не снимались)",
+      "proofSource": "E02/E07 + auto-miner.mjs:60s tick + miner-client headers-only + tools/miner-watchdog.mjs; contradiction C05 зафиксирован",
+      "purpose": "Майнинг и сторож свежести: solo-блоки в node1, watchdog поднимает тонкий майнер при stale",
+      "routes": [
+        {
+          "host": "127.0.0.1:9335",
+          "method": "GET",
+          "note": "опрос свежести; владелец mainnet-node-1",
+          "owner": false,
+          "path": "/life"
+        },
+        {
+          "host": "127.0.0.1:9335",
+          "method": "POST",
+          "note": "шаблон/сабмит блока (miner-client headers-only); владелец mainnet-node-1; x-admin-token с петли по коду",
+          "owner": false,
+          "path": "/mine"
+        }
+      ],
+      "sources": [
+        "auto-miner.mjs",
+        "miner-client.mjs",
+        "tools/miner-watchdog.mjs",
+        "core.mjs:534-541/594/608/614",
+        "docs/audit-network/FACTS.csv#F10"
+      ],
+      "storage": "chain.json (запись блоков) + data/autominer/health-log.csv + data/miner-watchdog.log (содержимое не читалось)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "F10",
+          "E02",
+          "E07",
+          "tools/miner-watchdog.mjs"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Успешная добыча именно процессом agentcoin-miner.service не доказана (активность юнита ≠ доказанная добыча)",
+          "Число независимых майнеров неизвестно",
+          "Журнал выплат пула не проверен (код делит по долям)",
+          "Параметры активации консенсусных правил (высоты/версии включения) неизвестны и отделены от depth6/fee0 и от PoW-наблюдения shareDiff12/difficulty9",
+          "observedVersion: наблюдаемая версия расписаний не снималась"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "route.verify-public"
+      ],
+      "checkMethod": "E19 sweep (коды+CT) + E01/E02/E05 отвечают через Caddy; сам Caddyfile H1 (690 строк, E21) — состав известен, дословное правило не снималось",
+      "componentId": "caddy-h1",
+      "dependsOn": [
+        "mainnet-node-1",
+        "site-static",
+        "settlement-gateway"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "role": "TLS termination + static + reverse-proxy /api + /mainnet"
+      },
+      "expectedVersion": "Caddyfile H1 690 строк (E21); unit caddy active user caddy (E20)",
+      "host": "SRV-H1 :80/:443 (agentcoin.work, node1.agentcoin.work)",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "defaults": "дефолт agentcoin.work ведёт на node1/127.0.0.1:9335 (память проекта; конфиг не читался)",
+        "exposed": "порты 9335/18745 loopback, 80/443 наружу (E20)"
+      },
+      "observedVersion": null,
+      "process": "caddy (pid 825 user caddy) + agentcoin.work static root + proxy",
+      "proofSource": "E01/E02/E05/E11/E19 живьём через Caddy + E20/E21 (unit/порты/upstream-память)",
+      "purpose": "Вход mainnet: TLS и маршрутизация static/API/шлюз; единая точка отказа внешнего доступа",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "порядок: static file (imperial канон), иначе proxy; владелец контента site-static",
+          "owner": false,
+          "path": "/"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "порядок: proxy -> 127.0.0.1:9335; владелец mainnet-node-1",
+          "owner": false,
+          "path": "/info"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "порядок: proxy -> 127.0.0.1:18745; владелец settlement-gateway",
+          "owner": false,
+          "path": "/mainnet/info"
+        }
+      ],
+      "sources": [
+        "caddy-routes.conf (фрагмент AC-1/AC-2, не прод-правило)",
+        "docs/audit-network/ROUTES.csv",
+        "docs/audit-network/evidence/E21-h1-store-caddy.txt"
+      ],
+      "storage": "static bundle (/srv/agentcoin-empire/current по памяти; release null E12) + Caddyfile /etc/caddy (690 строк)",
+      "verification": {
+        "checkedAt": "2026-11-19T09:33Z",
+        "evidence": [
+          "E19",
+          "E20",
+          "E21",
+          "docs/audit-network/ROUTES.csv"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Дословный прод-Caddyfile H1 не снимался (V02)",
+          "TLS-терминация: конфиг не читался",
+          "observedVersion: версия Caddy не снималась"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "дословные Caddy-файлы резервов (E22) + живьём /ws/status 200 vs прямых 403 + петля E23",
+      "componentId": "caddy-reserve",
+      "dependsOn": [
+        "mainnet-node-2",
+        "mainnet-node-3"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "peerRule": "@peer remote_ip 127.0.0.1 ::1 2.31.145.160 64.225.104.125 100.64.0.0/10 -> proxy https://node1.agentcoin.work",
+        "wsRule": "@ws /ws/* -> 127.0.0.1:9335"
+      },
+      "expectedVersion": "Caddy-файлы резервов (E22 дословно)",
+      "host": "SRV-H2 + SRV-DO :80/:443",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "darkDefault": "остальное — respond 403 reserve node: dark (E16/E17/E22)",
+        "loop": "монитор node1 с allowlisted-IP получает данные node1 (E23)"
+      },
+      "observedVersion": null,
+      "process": "caddy на каждой резервной машине (units active, E24)",
+      "proofSource": "E14/E15/E16/E17 + E22 дословно + E23/E24",
+      "purpose": "Тёмный вход резервов: наружу только /ws/*, операторскому кругу — прокси на node1, остальное 403",
+      "routes": [
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "порядок: @ws -> локальная нода; причина открытости — исключение E22",
+          "owner": false,
+          "path": "/ws/status"
+        },
+        {
+          "host": "node2.agentcoin.work",
+          "method": "GET",
+          "note": "порядок: @peer -> node1, иначе 403; владелец контента mainnet-node-2",
+          "owner": false,
+          "path": "/health"
+        },
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "то же исключение @ws (E22)",
+          "owner": false,
+          "path": "/ws/status"
+        },
+        {
+          "host": "node3.agentcoin.work",
+          "method": "GET",
+          "note": "то же правило @peer/403",
+          "owner": false,
+          "path": "/health"
+        }
+      ],
+      "sources": [
+        "docs/audit-network/evidence/E22-reserves-caddy-dark.txt",
+        "docs/audit-network/CONNECTIONS.csv"
+      ],
+      "storage": "Caddyfile резервов (/etc/caddy) + локальные bundle не требуются",
+      "verification": {
+        "checkedAt": "2026-11-19T09:33Z",
+        "evidence": [
+          "E16",
+          "E17",
+          "E22",
+          "E23",
+          "docs/audit-network/evidence/E22-reserves-caddy-dark.txt"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Кем и когда сделано исключение /ws — не установлено (V02 §2)",
+          "Оператор резервов не установлен",
+          "observedVersion: версии Caddy резервов не снимались"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "route.verify-public"
+      ],
+      "checkMethod": "E19 sweep + site/tree.json + site-release.mjs/release.json; 200 с чужим экраном = дефект маршрутизации",
+      "componentId": "site-static",
+      "dependsOn": [
+        "caddy-h1"
+      ],
+      "env": "mainnet-public",
+      "expected": {
+        "canon": "/ = imperial.html; /index -> 308 /; /wallet -> 308 /cabinet",
+        "count": "35 html + ecosphere/* + panel.js"
+      },
+      "expectedVersion": "site-v3 (release null E12)",
+      "host": "agentcoin.work static (Caddy file_server)",
+      "navIds": [
+        "/",
+        "/create-wallet",
+        "/cabinet",
+        "/operator-cabinet",
+        "/passport-cabinet",
+        "/mine",
+        "/mempool",
+        "/gov",
+        "/jobs",
+        "/mbc20",
+        "/chat",
+        "/jail",
+        "/buffy",
+        "/dashboard",
+        "/terminal",
+        "/network",
+        "/live",
+        "/docs",
+        "/agent"
+      ],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "e19": "/ /agent-room /cabinet /settlement 200; /workspace 200 (оболочка); /ecosphere/ 404 (C04); /peers/bootstrap /gateway/list 404",
+        "ecosphereGap": "/ecosphere/ и /ecosphere/index.html 404 при implemented в старом реестре — противоречие C04"
+      },
+      "observedVersion": "release null manifestHash null (E12)",
+      "process": "Caddy static + site-release.mjs (откат — предыдущий bundle)",
+      "proofSource": "E19 + site/tree.json + config/system-registry.json#site-static + C04",
+      "purpose": "Статика империи: канонические экраны, кабинет/кошелёк, settlement-UI, файлы агент-комнаты",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон; Next /index -> 308 / (F01)",
+          "owner": true,
+          "path": "/"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "WASM-кошелёк (фрагмент caddy-routes AC-1)",
+          "owner": true,
+          "path": "/create-wallet"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон кабинета; /wallet 308 -> /cabinet; блок #nodes3 читает 3 ноды GET-only",
+          "owner": true,
+          "path": "/cabinet"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "файл user-wallet-page.html; порядок static vs Next для этого пути не доказан живьём",
+          "owner": false,
+          "path": "/workspace"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочка E19; владелец web-next",
+          "owner": false,
+          "path": "/mempool"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "файл mine.html есть; публично отдаёт оболочка web-next — порядок не доказан",
+          "owner": false,
+          "path": "/mine"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "404 публично (C04); файлы backing есть — карта/прод расходятся",
+          "owner": false,
+          "path": "/ecosphere"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "static v0.3 mainnet.html (settlement-UI)",
+          "owner": true,
+          "path": "/settlement"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "backing-файл agent-room.html; владелец agent-room",
+          "owner": false,
+          "path": "/agent-room"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "backing-файл agent-room.json; владелец agent-room",
+          "owner": false,
+          "path": "/agent-room.json"
+        }
+      ],
+      "sources": [
+        "site/tree.json",
+        "site/imperial.html",
+        "site/cabinet.html",
+        "site/ecosphere/mainnet.html",
+        "config/system-registry.json#site-static"
+      ],
+      "storage": "static bundle + site/release.json (E12)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E19",
+          "F01",
+          "C04",
+          "site/tree.json",
+          "config/system-registry.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём",
+          "C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда",
+          "/settlement: живой маршрут static v0.3 (E19) отсутствует в site/tree.json — навигационный пробел, navIds честно не заявляет"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "E19 (/workspace 200 оболочка; голый /mempool HTML) + web/app/*/page.jsx; POST /mine и /api/v1/tx живьём не тестировались (запрет мутаций)",
+      "componentId": "web-next",
+      "dependsOn": [
+        "caddy-h1",
+        "mainnet-node-1"
+      ],
+      "env": "mainnet-public",
+      "expected": {
+        "routes": "/agent /docs /gov /jobs /mbc20 /mine /shield (+/workspace оболочка)"
+      },
+      "expectedVersion": "web-unknown (сверить)",
+      "host": "agentcoin.work (Next catch-all риск)",
+      "navIds": [
+        "/workspace"
+      ],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "bareApi": "/mempool bare -> HTML (не цепь); /mine GET -> HTML (POST — админ ноды, не тестировался)",
+        "orderRisk": "catch-all может отдавать HTML на API — SDK помечает route_not_allowlisted"
+      },
+      "observedVersion": null,
+      "process": "Next build (откат — предыдущий build)",
+      "proofSource": "E09/E19 + sdk/js/mainnet-node-api.mjs:9 + web/app/shield/page.jsx",
+      "purpose": "Next-оболочка: /mine /shield /gov /jobs /mbc20 /docs /agent + прокси /api/v1/*; риск catch-all на API",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочка E19; файл site-static — backing (порядок не доказан)",
+          "owner": true,
+          "path": "/workspace"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочка; голый путь — не цепь (канон /api/v1/mempool у mainnet-node-1)",
+          "owner": true,
+          "path": "/mempool"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочка; POST /mine — админ ноды, не тестировался",
+          "owner": true,
+          "path": "/mine"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "карточка «Ноды чтение по трём» + Stale; читает /api/v1/network/nodes GET-only 30с",
+          "owner": true,
+          "path": "/shield"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "прокси к ноде; владелец mainnet-node-1",
+          "owner": false,
+          "path": "/api/v1/network/nodes"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочки; порядок static vs catch-all не доказан",
+          "owner": true,
+          "path": "/gov"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "оболочки; порядок не доказан",
+          "owner": true,
+          "path": "/jobs"
+        }
+      ],
+      "sources": [
+        "web/app/shield/page.jsx",
+        "web/app/mine/page.jsx",
+        "site/tree.json"
+      ],
+      "storage": "Next build bundle",
+      "verification": {
+        "checkedAt": "2026-11-19T09:24Z",
+        "evidence": [
+          "E09",
+          "E19",
+          "F14",
+          "site/tree.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан",
+          "observedVersion: версия Next-билда не сверена",
+          "Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "room.net-check",
+        "room.my-state",
+        "room.claim",
+        "room.order-create",
+        "room.transfer"
+      ],
+      "checkMethod": "без JS: разделы 1-7 читаются; JSON валиден; API из реестра существуют; /agent-room 200 text/html (E19)",
+      "componentId": "agent-room",
+      "dependsOn": [
+        "site-static",
+        "queue-orders-catalog",
+        "settlement-gateway"
+      ],
+      "env": "mainnet-public",
+      "expected": {
+        "api": "0.3",
+        "protocol": "0.3.0",
+        "room": "v1"
+      },
+      "expectedVersion": "room v1 / api 0.3 / protocol 0.3.0",
+      "host": "agentcoin.work static (same-origin live API)",
+      "navIds": [
+        "/agent-room"
+      ],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "secondQueue": "второй очереди/рынка нет — только существующие API",
+        "sections": "7 разделов + первая инструкция без JS"
+      },
+      "observedVersion": "static (site-release.mjs)",
+      "process": "static-site + browser inline module (мутации только при window.__roomNet.ok)",
+      "proofSource": "E19 + site/agent-room.html + site/agent-room.json + config/action-registry.json",
+      "purpose": "Публичный вход для ИИ-агентов: 7 разделов, browser+JSON, только существующие API",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "канон комнаты (backing site-static)",
+          "owner": true,
+          "path": "/agent-room"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "машиночитаемая комната; сверка с HTML",
+          "owner": true,
+          "path": "/agent-room.json"
+        }
+      ],
+      "sources": [
+        "site/agent-room.html",
+        "site/agent-room.json",
+        "docs/AGENT-ROOM.md",
+        "site/tree.json",
+        "config/action-registry.json"
+      ],
+      "storage": "static bundle",
+      "verification": {
+        "checkedAt": "2026-11-19T09:24Z",
+        "evidence": [
+          "E19",
+          "F14",
+          "site/tree.json",
+          "config/action-registry.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Живая сверка всех room-действий с прод-API после C07 — по слову владельца"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "settle.net-boot",
+        "settle.preview",
+        "settle.submit-signed",
+        "settle.confirm-check"
+      ],
+      "checkMethod": "GET /version + GET /mainnet/info 200 (E11); остальные /mainnet/* живьём не тестировались (мутации/деньги запрещены)",
+      "componentId": "settlement-gateway",
+      "dependsOn": [
+        "mainnet-node-1"
+      ],
+      "env": "mainnet",
+      "expected": {
+        "policy": "settlement-policy.json (владелец)",
+        "role": "шлюз /mainnet/*: obligations/submit только подписанной tx + подпись settle-approve, журнал с lock, paused, rate-limit"
+      },
+      "expectedVersion": "0.2",
+      "host": "SRV-H1 127.0.0.1:18745 -> Caddy /mainnet/*",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "info": "/mainnet/info 200 chainId+genesis+infoBlocks (E11)",
+        "untested": "preview/obligations/submit/settlements — код + тесты, живьём не вызывались"
+      },
+      "observedVersion": "agt-settlement user, unit agt-settlement.service (E20 — юнит виден, файлы не читались)",
+      "process": "agt-settlement.service: scripts/ecosphere-settlement-gateway.mjs (ручной деплой только по слову владельца)",
+      "proofSource": "E11 + sdk/js/mainnet-server.mjs + sdk/js/mainnet-settlement.mjs + test/mainnet-settlement.mjs (память)",
+      "purpose": "Платёжный сервис: серверные обязательства и приём подписанных расчётов (журнал не откатывать)",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "200 E11; чтения цепи из ноды",
+          "owner": true,
+          "path": "/mainnet/info"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "серверный preview без секретов; живьём не вызывался",
+          "owner": true,
+          "path": "/mainnet/preview"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "только подписанная tx + settle-approve; second_payment_refused на новую подпись",
+          "owner": true,
+          "path": "/mainnet/submit"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "obligations под lock; живьём не вызывался",
+          "owner": true,
+          "path": "/mainnet/obligations"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "статус settlement по журналу; живьём не вызывался",
+          "owner": true,
+          "path": "/mainnet/settlements"
+        }
+      ],
+      "sources": [
+        "sdk/js/mainnet-server.mjs",
+        "sdk/js/mainnet-settlement.mjs",
+        "scripts/ecosphere-settlement-gateway.mjs",
+        "config/system-registry.json#settlement-gateway"
+      ],
+      "storage": ".settlement-gateway/mainnet-settlements.json + settlement-policy.json (не читались — секреты/политика вне прохода)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E11",
+          "F11",
+          "config/action-registry.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Юнит-файл и журнал живьём не снимались",
+          "Все POST /mainnet/* живьём не тестировались (запрет мутаций)",
+          "Содержимое policy/journal не читалось (вне прохода)",
+          "/settlement: путь живьём (E19) отсутствует в site/tree.json — navIds оставлен пустым, связь только через routes"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "room.claim",
+        "room.order-create",
+        "settle.balance-read"
+      ],
+      "checkMethod": "E10 waiting 5 + legacy POST /queue/join -> 410 (код) + sconfirm/tick правила (код); прод-файлы очереди не читались",
+      "componentId": "queue-orders-catalog",
+      "dependsOn": [
+        "mainnet-node-1"
+      ],
+      "env": "staging-only (прод-очереди требуют аудита подписей каждого маршрута)",
+      "expected": {
+        "rules": "FIFO/ротация, head-only claim, signed-only, legacy 410, idempotencyKey"
+      },
+      "expectedVersion": "signed-only (legacy 410)",
+      "host": "внутри agt-node DATA_DIR (прод) + stand-server (стенд)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "live": "E10 waiting 5 onDuty 5 (прикладное состояние, не цепь)",
+        "sameProcess": "несколько функций очереди живут внутри процесса ноды — не отдельный сервис"
+      },
+      "observedVersion": "queue.mjs AgentQueue (cap 5000, onDuty 25)",
+      "process": "agt-node embedded + stand-server.mjs (staging); прод-статус limited",
+      "proofSource": "E10 + queue.mjs + queue-auth.mjs + sdk/js/stand-server.mjs",
+      "purpose": "Очередь/заказы/каталог/события: серверное состояние (НЕ блокчейн-подтверждение)",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "прикладное состояние; транспорт — нода (процесс совмещён)",
+          "owner": true,
+          "path": "/queue/status"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "assignment/очередь; чужой адрес прав не даёт",
+          "owner": true,
+          "path": "/agent-state"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "идемпотентно по idempotencyKey; BODY_MISMATCH при смене тела",
+          "owner": true,
+          "path": "/orders/create"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "поиск офферов",
+          "owner": true,
+          "path": "/catalog/offers"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "события с курсором",
+          "owner": true,
+          "path": "/events"
+        }
+      ],
+      "sources": [
+        "queue.mjs",
+        "queue-auth.mjs",
+        "queue-guards.mjs",
+        "sdk/js/stand-server.mjs",
+        "config/system-registry.json#queue-orders-catalog"
+      ],
+      "storage": "локальный JSON store стенда; прод — серверное состояние (файлы не читались)",
+      "verification": {
+        "checkedAt": "2026-11-19T09:24Z",
+        "evidence": [
+          "E10",
+          "F11",
+          "config/action-registry.json"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Прод-файлы очереди/журналы не читались",
+          "Открытие прод-очередей — только после аудита каждого маршрута (limited)"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "код node-monitor.mjs (49 строк) + файл test/node-monitor.mjs (приложен, живой прогон не воспроизводился) + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07",
+      "componentId": "node-monitor",
+      "dependsOn": [
+        "mainnet-node-1"
+      ],
+      "env": "shared",
+      "expected": {
+        "rule": "только операторские цели; посетитель URL не задаёт; TTL 10с; stale tipAgeSec>300/unreachable/invalid/lower"
+      },
+      "expectedVersion": "node-monitor 49 строк (TTL10с, probe 2.5с, cap 16)",
+      "host": "n/a (library + browser hooks)",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "apiResponse": "E04 /network/nodes 3/3 responding наблюдался (E04) — подтверждено этим evidence",
+        "loopEffect": "записи node2/3 = данные node1 (E23) — монитор доказывает жив Caddy резервов + жив node1, не синхронность резервов",
+        "tests": "test/node-monitor.mjs 4/4 pass — результат интерпретирован по памяти прохода, сам файл приложен но живой прогон в пакете не воспроизведён"
+      },
+      "observedVersion": "код 2026-10-20 (TTL 10с)",
+      "process": "browser/Next hooks (cabinet #nodes3 30с, shield useApi 30с) + node lib",
+      "proofSource": "E04/E06/E23 + node-monitor.mjs + site/cabinet.html + web/app/shield/page.jsx",
+      "purpose": "Мониторинг 3 нод: чтение /network/nodes GET-only, stale-флаги; без админ-API",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "опрос целей t.url + /health (2.5с, TTL10с); владелец mainnet-node-1",
+          "owner": false,
+          "path": "/network/nodes"
+        }
+      ],
+      "sources": [
+        "node-monitor.mjs",
+        "site/cabinet.html#nodes3",
+        "web/app/shield/page.jsx",
+        "test/node-monitor.mjs"
+      ],
+      "storage": "monitor-targets.json (имена захардкожены; E21)",
+      "verification": {
+        "checkedAt": "2026-11-19T18:00Z",
+        "evidence": [
+          "E04",
+          "F06",
+          "F14",
+          "test/node-monitor.mjs"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Корректность реализации всех отображений (cabinet #nodes3, shield) — не доказана: E04 подтверждает только ответ API, не код рендера",
+          "Живой прогон test/node-monitor.mjs в этом пакете не выполнялся (файл приложен как артефакт, не как воспроизведённый прогон)",
+          "Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "пин chainId+genesis (E01/E08) + высоты/tip (E04/E07/E24) + глубина 6 единиц (код/доки)",
+      "componentId": "env-mainnet",
+      "dependsOn": [],
+      "env": "mainnet",
+      "expected": {
+        "isolation": "network/genesis-чеки отбрасывают чужие пиры/блоки",
+        "params": "chainId AGENTCOIN, genesis 00026d18…b9188e4e, confirmDepth 6, fee 0"
+      },
+      "expectedVersion": "пин E01/E08",
+      "host": "n/a (среда: SRV-H1 + SRV-H2 + SRV-DO)",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "height": "50043 tip 00480c09 (E04 09:23Z); H1 50053/node3 50053/node2 50052 (E24 09:33Z)",
+        "ports": "9335 (рядом testnet 19335/19443, job-test 19336/19444 — по памяти, живьём не опрашивались)"
+      },
+      "observedVersion": "факт E04/E24",
+      "process": "три процесса mainnet-node-{1,2,3} + Caddy + miner-stack + settlement-gateway",
+      "proofSource": "E01/E04/E07/E08/E24 + chain-consistency (audit19 evidence)",
+      "purpose": "Среда mainnet: каноническая цепь и её параметры изоляции",
+      "routes": [],
+      "sources": [
+        "core.mjs:528 CHAIN_ID",
+        "docs/audit-network/NODES.csv",
+        "config/system-registry.json#chain"
+      ],
+      "storage": "три отдельных DATA_DIR (E24)",
+      "verification": {
+        "checkedAt": "2026-11-19T09:33Z",
+        "evidence": [
+          "E01",
+          "E04",
+          "E08",
+          "E24",
+          "docs/audit-network/NODES.csv"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Накопленная chainWork числом не снята",
+          "Локальные политики резервов не наблюдаемы"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "код tools/testnet.mjs (AGT_CHAIN_ID=AGT_TESTNET, свой DATA_DIR/порты/bootstrap); живьём не запускался и не опрашивался",
+      "componentId": "env-testnet",
+      "dependsOn": [],
+      "env": "testnet",
+      "expected": {
+        "isolation": "свой networkId -> свой genesisHash; main-пиры отфильтровываются"
+      },
+      "expectedVersion": "код R-03 (порт по умолчанию 19933)",
+      "host": "n/a (изолированный локальный запуск)",
+      "navIds": [],
+      "network": "AGT_TESTNET/00022668",
+      "observed": {
+        "liveProven": false
+      },
+      "observedVersion": null,
+      "process": "node tools/testnet.mjs [порт] [--reset] (spawn node.mjs с env)",
+      "proofSource": "tools/testnet.mjs (код) — прод-доступ не использовался",
+      "purpose": "Изолированная тестовая сеть AGT (не mainnet)",
+      "routes": [],
+      "sources": [
+        "tools/testnet.mjs"
+      ],
+      "storage": "testnet/data + testnet/bootstrap.json (локально)",
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "tools/testnet.mjs"
+        ],
+        "status": "unknown",
+        "unknowns": [
+          "Живьём не запускалась и не опрашивалась в этом проходе",
+          "Генезис testnet числом не сверялся",
+          "observedVersion: наблюдаемая версия не снималась"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "код/память проекта (порты 19336/19444); живьём не опрашивались, вне скоупа mainnet-карты",
+      "componentId": "env-jobtest",
+      "dependsOn": [],
+      "env": "job-test",
+      "expected": {
+        "isolation": "отдельные DATA_DIR/порты/генезис-пин 0001b918… (память проекта)"
+      },
+      "expectedVersion": "пин по памяти проекта",
+      "host": "n/a",
+      "navIds": [],
+      "network": "AGT_JOBTEST/0001b918",
+      "observed": {
+        "liveProven": false
+      },
+      "observedVersion": null,
+      "process": "не обследовался (вне mainnet-карты)",
+      "proofSource": "docs/audit-network/SERVICES.csv (row testnet/job-test) — без прод-опроса",
+      "purpose": "Среда отработки заданий (изоляция от mainnet)",
+      "routes": [],
+      "sources": [
+        "docs/audit-network/SERVICES.csv"
+      ],
+      "storage": null,
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "docs/audit-network/SERVICES.csv"
+        ],
+        "status": "unknown",
+        "unknowns": [
+          "DATA_DIR/порты/генезис живьём не проверены",
+          "storage: неизвестно (честно)",
+          "observedVersion: не снималась"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "реестр + стенд-порты (127.0.0.1:18743 — стенд, не прод); прод-опросы стенда не проводились",
+      "componentId": "env-staging",
+      "dependsOn": [],
+      "env": "staging",
+      "expected": {
+        "content": "stand-server signed-only (legacy 410), тестовые книги отдельно env/prod-каталогами"
+      },
+      "expectedVersion": "staging-only",
+      "host": "ноутбук 127.0.0.1:18743 + staging-стенды",
+      "navIds": [],
+      "network": "AGENTCOIN/00026d18b9188e4e",
+      "observed": {
+        "rule": "127.0.0.1:18743 — локальный стенд, не опубликован"
+      },
+      "observedVersion": null,
+      "process": "stand-server / staging (sdk/js/stand-server.mjs)",
+      "proofSource": "config/system-registry.json + config/action-registry.json (без прод-доступа)",
+      "purpose": "Стендовая среда действий/рынка до аудита подписей",
+      "routes": [],
+      "sources": [
+        "sdk/js/stand-server.mjs",
+        "config/action-registry.json"
+      ],
+      "storage": "локальный JSON store стенда",
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "config/system-registry.json",
+          "config/action-registry.json"
+        ],
+        "status": "unknown",
+        "unknowns": [
+          "Прод-границы стенда vs mainnet — только по реестру",
+          "observedVersion: не снималась"
+        ]
+      }
+    },
+    {
+      "actionIds": [
+        "settle.net-boot",
+        "settle.preview",
+        "room.net-check"
+      ],
+      "checkMethod": "node --check + unit money (знаки/round-trip) + test/mainnet-node-api.mjs (память); не-JSON -> fail-closed",
+      "componentId": "sdk-js",
+      "dependsOn": [
+        "mainnet-node-1"
+      ],
+      "env": "shared",
+      "expected": {
+        "modules": "mainnet-node-api 0.2 + money 0.1.0 + agentcoin-sdk 0.3 + browser-core 0.1.0"
+      },
+      "expectedVersion": "0.2/0.1.0/0.3",
+      "host": "n/a (client library browser+node)",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "compat": "netEvidence, submitSignedTx (проверка до сети), checkConfirmation (пруф+тело+глубина 6)"
+      },
+      "observedVersion": "файлы 2026-10/11 (без прод-версии)",
+      "process": "library (local import, без npm-публикации)",
+      "proofSource": "sdk/js/mainnet-node-api.mjs + sdk/js/money.mjs + config/action-registry.json",
+      "purpose": "Клиентская библиотека чтения/проверки/подтверждений (подпись только у владельца)",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "вызов через submitSignedTx; владелец mainnet-node-1",
+          "owner": false,
+          "path": "/tx"
+        },
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "вызов через checkConfirmation; владелец mainnet-node-1",
+          "owner": false,
+          "path": "/api/v1/txproof"
+        }
+      ],
+      "sources": [
+        "sdk/js/mainnet-node-api.mjs",
+        "sdk/js/money.mjs",
+        "sdk/js/agentcoin-sdk.mjs",
+        "sdk/js/agentcoin-browser.mjs"
+      ],
+      "storage": "n/a (stateless)",
+      "verification": {
+        "checkedAt": "2026-11-19T09:24Z",
+        "evidence": [
+          "F09",
+          "F13",
+          "sdk/js/agentcoin-sdk.mjs"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Версия в прод-бандле не сверена (pin файла)"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "--help + коды выхода (ok:false -> exit 1, args -> exit 2); секреты только из --wallet-файла",
+      "componentId": "cli",
+      "dependsOn": [
+        "sdk-js"
+      ],
+      "env": "shared",
+      "expected": {
+        "semantics": "одна семантика с SDK/MCP; stdout ровно один JSON, диагностика stderr"
+      },
+      "expectedVersion": "0.3.0",
+      "host": "n/a (client)",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "mutatingSet": "queue/order/monitor/settlement команды через SDK (код)"
+      },
+      "observedVersion": "файл 2026-11-19",
+      "process": "node sdk/js/agentcoin-cli.mjs <команда>",
+      "proofSource": "sdk/js/agentcoin-cli.mjs (шапка v0.3, zero-deps)",
+      "purpose": "CLI-клиент: те же операции, что SDK/MCP, без своих состояний",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "POST",
+          "note": "вызов через CLI settlement/order команды; владелец mainnet-node-1/settlement-gateway по команде",
+          "owner": false,
+          "path": "/tx"
+        }
+      ],
+      "sources": [
+        "sdk/js/agentcoin-cli.mjs"
+      ],
+      "storage": "n/a (+ --wallet файл у пользователя, не читался)",
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "sdk/js/agentcoin-cli.mjs"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Живой прогон CLI против прод — не выполнялся (запрет мутаций)"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "шапка v0.2 (stdio, zero-deps); мутирующие помечены destructive; живьём не вызывался",
+      "componentId": "mcp",
+      "dependsOn": [
+        "sdk-js"
+      ],
+      "env": "shared",
+      "expected": {
+        "tools": "status/my_task/payments/events/offers_search — read-only; queue/order/monitor — destructive"
+      },
+      "expectedVersion": "0.2",
+      "host": "n/a (client stdio)",
+      "navIds": [],
+      "network": "neutral",
+      "observed": {
+        "defaultNode": "AGENTCOIN_NODE по умолчанию 127.0.0.1:9333 (env) — стенд, не прод"
+      },
+      "observedVersion": "файл 2026-11-19",
+      "process": "node mcp/agentcoin-mcp.mjs (stdout только протокол)",
+      "proofSource": "mcp/agentcoin-mcp.mjs (шапка)",
+      "purpose": "MCP-клиент для агентов: тот же набор операций SDK через stdio",
+      "routes": [
+        {
+          "host": "agentcoin.work",
+          "method": "GET",
+          "note": "вызов status/my_task; владелец mainnet-node-1/queue",
+          "owner": false,
+          "path": "/queue/status"
+        }
+      ],
+      "sources": [
+        "mcp/agentcoin-mcp.mjs"
+      ],
+      "storage": "n/a",
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "mcp/agentcoin-mcp.mjs"
+        ],
+        "status": "partial",
+        "unknowns": [
+          "Живой вызов MCP против прод — не выполнялся"
+        ]
+      }
+    },
+    {
+      "actionIds": [],
+      "checkMethod": "код api-gateway.mjs (offline pilot, no HTTP listener); вне прод-карты mainnet",
+      "componentId": "api-gateway-pilot",
+      "dependsOn": [],
+      "env": "offline-pilot",
+      "expected": {
+        "scope": "пилот ядра без сети; журнал v1 + lock; лимиты MAX_PRICE_UNITS"
+      },
+      "expectedVersion": "pilot v1",
+      "host": "n/a (offline)",
+      "navIds": [],
+      "network": null,
+      "observed": {
+        "prodUse": false
+      },
+      "observedVersion": null,
+      "process": "class ApiGatewayPilot (no listener)",
+      "proofSource": "api-gateway.mjs (шапка offline) + docs/audit-network/SERVICES.csv (вне карты)",
+      "purpose": "Офлайн-пилот ядра (НЕ прод-сервис): зафиксирован, чтобы не путать с прод-шлюзом",
+      "routes": [],
+      "sources": [
+        "api-gateway.mjs"
+      ],
+      "storage": "файловый журнал пилота (lock 0600)",
+      "verification": {
+        "checkedAt": "2026-11-19T00:00Z",
+        "evidence": [
+          "docs/audit-network/SERVICES.csv"
+        ],
+        "status": "unknown",
+        "unknowns": [
+          "В прод-карту не входит; детали вне скоупа",
+          "network: неприменимо (честно)",
+          "observedVersion: не снималась"
+        ]
+      }
+    }
+  ],
+  "sources": {
+    "actionRegistry": "config/action-registry.json (11 действий settle/room/route)",
+    "auditDocs": "docs/audit-network/ (REPORT + FACTS/NODES/SERVERS/SERVICES/ROUTES/CONNECTIONS/DEPENDENCIES + CONTRADICTIONS + evidence E01-E25) + agentcoin-infrastructure-audit-20261119/ (снапшоты/diffs/config-redacted/validation-matrix)",
+    "navTree": "site/tree.json (canon / = imperial.html; /wallet -> /cabinet; /index -> /)",
+    "systemRegistry": "config/system-registry.json v1 (11 компонентов-источников, статусы implemented/limited/published)"
+  },
+  "statusVocabulary": [
+    "confirmed",
+    "partial",
+    "unknown",
+    "contradiction"
+  ],
+  "updatedAt": "2026-11-19T18:00Z",
+  "version": 2
+}

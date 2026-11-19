@@ -1,88 +1,338 @@
 #!/usr/bin/env node
 // registry-check.mjs — машинная проверка единого реестра (Этап 1).
 // Zero-deps. Ненулевой код при некорректном реестре.
-// Проверки: дубли ID; ссылки на отсутствующие; обязательные поля;
-// недопустимые статусы; «подтверждено» без доказательств;
-// конфликт владельцев точного публичного маршрута; несовпадение сети у связанных.
+// Контракт: config/registry.schema.json — единственный источник ограничений.
+// Валидатор ОБЯЗАН читать схему и применять её required/типы/паттерны.
+// Расхождение схемы и валидатора запрещено.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ALLOWED_STATUS = new Set(['confirmed', 'partial', 'unknown', 'contradiction']);
-const EVIDENCE_RE = /^(E\d{2}|F\d{2}|C\d{2}|V\d{2}|config\/|site\/|tools\/|test\/|source-snapshots\/|config-redacted\/|docs\/|evidence\/|sdk\/|mcp\/)/;
+const ISO_DT_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z$/;
+const COMP_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+const CHAIN_ID_RE = /^[A-Z][A-Z0-9_]*$/;
+const GENESIS_RE = /^[0-9a-f]{64}$/;
+const BARE_EVIDENCE_RE = /^[EFVC][0-9]{2}(-[A-Z0-9-]+)?$/;
 
 function normPath(p) {
   if (typeof p !== 'string') return p;
   if (p.length > 1 && p.endsWith('/') && p !== '/') return p.slice(0, -1);
   return p;
 }
-function routeKey(r) {
-  const m = String(r.method || 'GET').toUpperCase();
-  return m + ' ' + String(r.host || '') + ' ' + normPath(String(r.path || ''));
+function baseEnv(env) {
+  const s = String(env || '').trim().toLowerCase();
+  if (s.startsWith('mainnet')) return 'mainnet';
+  const m = s.match(/^[a-z0-9-]+/);
+  return m ? m[0] : s;
 }
-function netPin(net) {
-  if (typeof net !== 'string') return null;
-  if (/neutral/i.test(net)) return 'NEUTRAL';
-  const m = net.match(/([0-9a-f]{8,})/i);
-  return m ? m[1].toLowerCase() : null;
+function routeKey(r, componentEnv) {
+  const m = String(r.method || 'GET').toUpperCase();
+  const scope = baseEnv(r.env || componentEnv || '');
+  return scope + '|' + m + ' ' + String(r.host || '') + ' ' + normPath(String(r.path || ''));
+}
+function isValidDateTime(s) {
+  if (typeof s !== 'string' || !ISO_DT_RE.test(s)) return false;
+  const t = Date.parse(s);
+  return Number.isFinite(t);
 }
 
-export function checkRegistry(reg) {
+// ---- generic schema walker (subset draft-07) ----
+function schemaTypeMatches(value, t) {
+  if (t === 'string') return typeof value === 'string';
+  if (t === 'integer') return typeof value === 'number' && Number.isInteger(value);
+  if (t === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (t === 'boolean') return typeof value === 'boolean';
+  if (t === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (t === 'array') return Array.isArray(value);
+  if (t === 'null') return value === null;
+  return false;
+}
+function validateBySchema(value, schema, loc, out) {
+  if (!schema || typeof schema !== 'object') return;
+  const types = Array.isArray(schema.type) ? schema.type : (schema.type ? [schema.type] : null);
+  if (types) {
+    const ok = types.some((t) => schemaTypeMatches(value, t));
+    if (!ok) {
+      out.push(`${loc}: expected type ${types.join('|')}, got ${value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value}`);
+      return;
+    }
+  }
+  if (schema.enum && !schema.enum.includes(value)) {
+    out.push(`${loc}: value ${JSON.stringify(value)} not in enum ${schema.enum.join(',')}`);
+    return;
+  }
+  if (typeof value === 'string') {
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      out.push(`${loc}: string shorter than minLength ${schema.minLength}`);
+    }
+    if (schema.pattern) {
+      let re;
+      try { re = new RegExp(schema.pattern); } catch { re = null; }
+      if (re && !re.test(value)) out.push(`${loc}: string ${JSON.stringify(value)} does not match pattern ${schema.pattern}`);
+    }
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    if (Array.isArray(schema.required)) {
+      for (const f of schema.required) {
+        if (!(f in value)) out.push(`${loc}: missing required field ${f}`);
+      }
+    }
+    if (schema.properties && typeof schema.properties === 'object') {
+      for (const [k, sub] of Object.entries(schema.properties)) {
+        if (k in value) validateBySchema(value[k], sub, `${loc}.${k}`, out);
+      }
+    }
+  }
+  if (Array.isArray(value) && schema.items && typeof schema.items === 'object') {
+    for (let i = 0; i < value.length; i++) validateBySchema(value[i], schema.items, `${loc}[${i}]`, out);
+  }
+}
+
+function inferRoot(fromFile) {
+  try {
+    if (fromFile) {
+      // registry file is <root>/config/unified-registry.json
+      const d = path.dirname(path.resolve(fromFile));
+      if (path.basename(d) === 'config') return path.dirname(d);
+      return d;
+    }
+  } catch { /* ignore */ }
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    return path.resolve(here, '..');
+  } catch { return null; }
+}
+function loadJson(p) {
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+function loadAux(baseDir) {
+  const aux = { actionIds: null, navHrefs: null, eIds: null, fIds: null, cIds: null, vIds: null, missing: [] };
+  if (!baseDir) return aux;
+  try { aux.actionIds = new Set(loadJson(path.join(baseDir, 'config', 'action-registry.json')).actions.map((a) => a.actionId)); }
+  catch { aux.missing.push('config/action-registry.json'); }
+  try {
+    const tree = loadJson(path.join(baseDir, 'site', 'tree.json'));
+    const hrefs = new Set();
+    for (const s of (tree.sections || [])) for (const l of (s.links || [])) if (typeof l.href === 'string') hrefs.add(l.href);
+    aux.navHrefs = hrefs;
+  } catch { aux.missing.push('site/tree.json'); }
+  try {
+    const csv = fs.readFileSync(path.join(baseDir, 'docs', 'audit-network', 'evidence', 'EVIDENCE-INDEX.csv'), 'utf8');
+    aux.eIds = new Set(csv.split('\n').slice(1).map((l) => l.split(',')[0].trim()).filter((x) => /^E[0-9]{2}$/.test(x)));
+  } catch { aux.missing.push('docs/audit-network/evidence/EVIDENCE-INDEX.csv'); }
+  try {
+    const csv = fs.readFileSync(path.join(baseDir, 'docs', 'audit-network', 'FACTS.csv'), 'utf8');
+    aux.fIds = new Set(csv.split('\n').slice(1).map((l) => l.split(',')[0].trim()).filter((x) => /^F[0-9]{2}$/.test(x)));
+  } catch { aux.missing.push('docs/audit-network/FACTS.csv'); }
+  try {
+    const md = fs.readFileSync(path.join(baseDir, 'docs', 'audit-network', 'CONTRADICTIONS.md'), 'utf8');
+    aux.cIds = new Set([...md.matchAll(/C[0-9]{2}/g)].map((m) => m[0]));
+  } catch { aux.missing.push('docs/audit-network/CONTRADICTIONS.md'); }
+  try {
+    const md = fs.readFileSync(path.join(baseDir, 'docs', 'audit-network', 'VERIFICATION-PLAN.md'), 'utf8');
+    aux.vIds = new Set([...md.matchAll(/V[0-9]{2}/g)].map((m) => m[0]));
+  } catch { aux.missing.push('docs/audit-network/VERIFICATION-PLAN.md'); }
+  return aux;
+}
+
+export function checkRegistry(reg, opts = {}) {
   const errors = [];
   const warnings = [];
-  if (!reg || typeof reg !== 'object') return { errors: ['registry_not_object'], warnings };
-  const comps = reg.components;
-  if (!Array.isArray(comps)) return { errors: ['components_not_array'], warnings };
-
-  // 1. дубли ID
-  const seen = new Map();
-  for (const c of comps) {
-    if (!c || typeof c.componentId !== 'string') { errors.push('missing componentId'); continue; }
-    if (seen.has(c.componentId)) errors.push(`duplicate componentId: ${c.componentId}`);
-    else seen.set(c.componentId, c);
+  const baseDir = opts.baseDir || inferRoot(opts.registryFile || null);
+  // 0. schema is mandatory contract
+  let schema = opts.schema || null;
+  let schemaFrom = opts.schemaPath || null;
+  if (!schema && baseDir) {
+    const p = path.join(baseDir, 'config', 'registry.schema.json');
+    try { schema = loadJson(p); schemaFrom = p; } catch { /* below */ }
   }
-  const ids = new Set(seen.keys());
+  if (!schema) {
+    try {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      const p = path.resolve(here, '..', 'config', 'registry.schema.json');
+      schema = loadJson(p); schemaFrom = p;
+    } catch { /* below */ }
+  }
+  if (!schema) {
+    errors.push('schema_missing: cannot load config/registry.schema.json — contract unavailable');
+    return { errors, warnings };
+  }
+  if (!reg || typeof reg !== 'object' || Array.isArray(reg)) {
+    errors.push('registry_not_object');
+    return { errors, warnings };
+  }
+  // 0a. apply schema strictly
+  const schemaErrors = [];
+  validateBySchema(reg, schema, 'registry', schemaErrors);
+  for (const e of schemaErrors) errors.push(e);
+  // explicit root field messages for clear regression matching
+  for (const f of ['version', 'updatedAt', 'chain', 'sources', 'statusVocabulary', 'components']) {
+    if (!(f in reg)) errors.push(`registry: missing required field ${f} (schema ${schemaFrom || 'registry.schema.json'})`);
+  }
+  if ('version' in reg && !(typeof reg.version === 'number' && Number.isInteger(reg.version))) {
+    errors.push(`registry.version: expected integer, got ${JSON.stringify(reg.version)}`);
+  }
+  if ('updatedAt' in reg && !isValidDateTime(reg.updatedAt)) {
+    errors.push(`registry.updatedAt: invalid date-time ${JSON.stringify(reg.updatedAt)} (expected YYYY-MM-DDTHH:MM[:SS]Z)`);
+  }
 
+  const comps = reg.components;
+  if (!Array.isArray(comps)) {
+    errors.push('components_not_array');
+    return { errors, warnings };
+  }
+
+  // aux indexes for existence checks
+  const aux = loadAux(baseDir);
+  if (opts.actionIds) aux.actionIds = opts.actionIds;
+  if (opts.navHrefs) aux.navHrefs = opts.navHrefs;
+  if (opts.eIds) aux.eIds = opts.eIds;
+  if (opts.fIds) aux.fIds = opts.fIds;
+  if (opts.cIds) aux.cIds = opts.cIds;
+  if (opts.vIds) aux.vIds = opts.vIds;
+  const auxUnavailable = [];
+  if (!aux.actionIds) auxUnavailable.push('action-registry');
+  if (!aux.navHrefs) auxUnavailable.push('nav-tree');
+  if (!aux.eIds) auxUnavailable.push('E-index');
+
+  // 1. components must be objects (null-safe)
+  const seen = new Map();
+  comps.forEach((c, i) => {
+    const loc = `components[${i}]`;
+    if (!c || typeof c !== 'object' || Array.isArray(c)) {
+      errors.push(`${loc}: must be object, got ${c === null ? 'null' : Array.isArray(c) ? 'array' : typeof c}`);
+      return;
+    }
+    if (typeof c.componentId !== 'string' || !c.componentId) {
+      errors.push(`${loc}: missing componentId (must be non-empty string matching ${COMP_ID_RE})`);
+      return;
+    }
+    if (!COMP_ID_RE.test(c.componentId)) {
+      errors.push(`${loc}.componentId: invalid identifier ${JSON.stringify(c.componentId)} (expected ${COMP_ID_RE})`);
+    }
+    if (seen.has(c.componentId)) errors.push(`duplicate componentId: ${c.componentId} (also at ${seen.get(c.componentId)})`);
+    else seen.set(c.componentId, loc);
+  });
+  const ids = new Set(seen.keys());
+  const byId = new Map();
   for (const c of comps) {
-    if (!c || typeof c.componentId !== 'string') continue;
+    if (c && typeof c === 'object' && !Array.isArray(c) && typeof c.componentId === 'string' && COMP_ID_RE.test(c.componentId)) {
+      if (!byId.has(c.componentId)) byId.set(c.componentId, c);
+    }
+  }
+
+  for (let i = 0; i < comps.length; i++) {
+    const c = comps[i];
+    if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+    if (typeof c.componentId !== 'string' || !c.componentId) continue;
     const id = c.componentId;
-    // 2. обязательные поля (null = честно неизвестное, но поле обязано присутствовать)
+    const loc = `components[${i}](${id})`;
+    // required fields presence (schema already, but explicit for message stability)
     const required = ['purpose', 'env', 'host', 'process', 'sources', 'expectedVersion', 'routes', 'storage', 'dependsOn', 'network', 'expected', 'observed', 'verification', 'checkMethod', 'proofSource'];
     for (const f of required) {
       if (!(f in c)) errors.push(`${id}: missing required field ${f}`);
     }
-    // purpose/env/host/process/checkMethod/proofSource: непустые строки (host может быть 'n/a' для клиентских)
     for (const f of ['purpose', 'env', 'host', 'process', 'checkMethod', 'proofSource']) {
       if (f in c && (typeof c[f] !== 'string' || !c[f].trim())) errors.push(`${id}: field ${f} must be non-empty string`);
     }
     if ('sources' in c && !Array.isArray(c.sources)) errors.push(`${id}: sources must be array`);
+    else if (Array.isArray(c.sources)) {
+      c.sources.forEach((s, k) => { if (typeof s !== 'string' || !s.trim()) errors.push(`${id}.sources[${k}]: must be non-empty string`); });
+    }
     if ('routes' in c && !Array.isArray(c.routes)) errors.push(`${id}: routes must be array`);
     if ('dependsOn' in c && !Array.isArray(c.dependsOn)) errors.push(`${id}: dependsOn must be array`);
-    if ('storage' in c && !(typeof c.storage === 'string' || c.storage === null)) errors.push(`${id}: storage must be string|null`);
+    if ('storage' in c && !(typeof c.storage === 'string' || c.storage === null)) errors.push(`${id}: storage must be string|null, got ${typeof c.storage}`);
     if ('network' in c && !(typeof c.network === 'string' || c.network === null)) errors.push(`${id}: network must be string|null`);
-    if ('expected' in c && (typeof c.expected !== 'object' || c.expected === null)) errors.push(`${id}: expected must be object`);
-    if ('observed' in c && (typeof c.observed !== 'object' || c.observed === null)) errors.push(`${id}: observed must be object`);
+    if ('expected' in c && (typeof c.expected !== 'object' || c.expected === null || Array.isArray(c.expected))) errors.push(`${id}: expected must be object`);
+    if ('observed' in c && (typeof c.observed !== 'object' || c.observed === null || Array.isArray(c.observed))) errors.push(`${id}: observed must be object`);
+    if ('expectedVersion' in c && !(typeof c.expectedVersion === 'string' || c.expectedVersion === null)) {
+      errors.push(`${id}.expectedVersion: expected string|null, got ${Array.isArray(c.expectedVersion) ? 'object(array)' : typeof c.expectedVersion} ${JSON.stringify(c.expectedVersion)}`);
+    }
+    if ('observedVersion' in c && !(typeof c.observedVersion === 'string' || c.observedVersion === null)) {
+      errors.push(`${id}.observedVersion: expected string|null, got ${typeof c.observedVersion}`);
+    }
+    if ('actionIds' in c && c.actionIds !== undefined && c.actionIds !== null) {
+      if (!Array.isArray(c.actionIds)) errors.push(`${id}: actionIds must be array`);
+      else {
+        c.actionIds.forEach((a, k) => {
+          if (typeof a !== 'string' || !a.trim()) { errors.push(`${id}.actionIds[${k}]: must be non-empty string`); return; }
+          if (aux.actionIds) {
+            if (!aux.actionIds.has(a)) errors.push(`${id}.actionIds[${k}]: unknown actionId ${JSON.stringify(a)} not in config/action-registry.json`);
+          } else if (!auxUnavailable.includes('actionIds-checked')) {
+            warnings.push(`${id}: action-registry unavailable, actionIds existence not verified`);
+            auxUnavailable.push('actionIds-checked');
+          }
+        });
+      }
+    }
+    if ('navIds' in c && c.navIds !== undefined && c.navIds !== null) {
+      if (!Array.isArray(c.navIds)) errors.push(`${id}: navIds must be array`);
+      else {
+        c.navIds.forEach((n, k) => {
+          if (typeof n !== 'string' || !n.startsWith('/')) { errors.push(`${id}.navIds[${k}]: must be path starting with /, got ${JSON.stringify(n)}`); return; }
+          if (aux.navHrefs) {
+            if (!aux.navHrefs.has(n)) errors.push(`${id}.navIds[${k}]: unknown navId ${JSON.stringify(n)} not in site/tree.json`);
+          }
+        });
+      }
+    }
 
     // verification
     const v = c.verification;
-    if (v && typeof v === 'object') {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
       if (!ALLOWED_STATUS.has(v.status)) errors.push(`${id}: invalid verification.status ${JSON.stringify(v.status)}`);
       if (!Array.isArray(v.evidence)) errors.push(`${id}: verification.evidence must be array`);
       if (!Array.isArray(v.unknowns)) errors.push(`${id}: verification.unknowns must be array`);
-      if (typeof v.checkedAt !== 'string' || !v.checkedAt) errors.push(`${id}: verification.checkedAt must be non-empty string`);
-      // «подтверждено» без доказательства
+      else {
+        v.unknowns.forEach((u, k) => { if (typeof u !== 'string' || !u.trim()) errors.push(`${id}.verification.unknowns[${k}]: must be non-empty string`); });
+      }
+      if (!isValidDateTime(v.checkedAt)) errors.push(`${id}.verification.checkedAt: invalid date-time ${JSON.stringify(v.checkedAt)} (expected YYYY-MM-DDTHH:MM[:SS]Z)`);
       if (v.status === 'confirmed' && (!Array.isArray(v.evidence) || v.evidence.length === 0)) {
         errors.push(`${id}: status confirmed requires non-empty verification.evidence`);
       }
-      // evidence entries format
       if (Array.isArray(v.evidence)) {
-        for (const e of v.evidence) {
-          if (typeof e !== 'string' || !e.trim()) errors.push(`${id}: empty evidence entry`);
-          else if (!EVIDENCE_RE.test(e)) errors.push(`${id}: unknown evidence reference ${JSON.stringify(e)}`);
+        let hasVerifiable = false;
+        v.evidence.forEach((e, k) => {
+          if (typeof e !== 'string' || !e.trim()) { errors.push(`${id}.verification.evidence[${k}]: empty evidence entry`); return; }
+          if (e.startsWith('external:')) {
+            warnings.push(`${id}: external evidence ${JSON.stringify(e)} not verifiable in package`);
+            return;
+          }
+          const isPath = e.includes('/') || e.includes('\\') || e.startsWith('config') || e.startsWith('site') || e.startsWith('tools') || e.startsWith('test') || e.startsWith('docs') || e.startsWith('sdk') || e.startsWith('mcp') || e.includes('.');
+          if (isPath) {
+            const rel = e.split('#')[0].split('?')[0];
+            if (baseDir) {
+              const full = path.join(baseDir, rel);
+              if (!fs.existsSync(full)) {
+                errors.push(`${id}.verification.evidence[${k}]: unknown evidence file ${JSON.stringify(e)} not found in package (baseDir ${baseDir})`);
+              } else hasVerifiable = true;
+            } else {
+              hasVerifiable = true;
+            }
+            return;
+          }
+          if (!BARE_EVIDENCE_RE.test(e)) {
+            errors.push(`${id}.verification.evidence[${k}]: unknown evidence reference ${JSON.stringify(e)} (expected E##/F##/C##/V##, file path, or external:...)`);
+            return;
+          }
+          const prefix = e[0];
+          const code = e.slice(0, 3);
+          const known = prefix === 'E' ? aux.eIds : prefix === 'F' ? aux.fIds : prefix === 'C' ? aux.cIds : aux.vIds;
+          const auxName = prefix === 'E' ? 'E-index' : prefix === 'F' ? 'FACTS' : prefix === 'C' ? 'CONTRADICTIONS' : 'VERIFICATION-PLAN';
+          if (known) {
+            if (!known.has(code)) errors.push(`${id}.verification.evidence[${k}]: unknown evidence reference ${JSON.stringify(e)} not in ${auxName} (code ${code} absent)`);
+            else hasVerifiable = true;
+          } else {
+            warnings.push(`${id}: index ${auxName} unavailable, evidence ${e} existence not verified`);
+          }
+        });
+        if (v.status === 'confirmed' && !hasVerifiable) {
+          errors.push(`${id}: status confirmed requires at least one verifiable in-package evidence (external-only or missing files insufficient)`);
         }
       }
-      // честно неизвестное: null среди обязательных -> unknowns обязателен и статус не confirmed
-      const hasNull = ['expectedVersion', 'storage', 'network'].some(f => c[f] === null) ||
-        (c.chain && Object.values(c.chain).some(x => x === null));
+      const hasNull = ['expectedVersion', 'storage', 'network'].some((f) => c[f] === null) ||
+        (c.chain && typeof c.chain === 'object' && Object.values(c.chain).some((x) => x === null));
       if (hasNull) {
         if (!Array.isArray(v.unknowns) || v.unknowns.length === 0) errors.push(`${id}: null field requires listed verification.unknowns`);
         if (v.status === 'confirmed') errors.push(`${id}: null field incompatible with status confirmed`);
@@ -91,76 +341,143 @@ export function checkRegistry(reg) {
       errors.push(`${id}: verification must be object`);
     }
 
-    // ноды: доп. поля
+    // chain object: structured pins only, short display values not compared
     if (/^mainnet-node-/.test(id)) {
-      if (!c.chain || typeof c.chain !== 'object') errors.push(`${id}: node requires chain object`);
+      if (!c.chain || typeof c.chain !== 'object' || Array.isArray(c.chain)) errors.push(`${id}: node requires chain object with chainId+genesis`);
       else {
-        for (const f of ['chainId', 'genesis', 'activationParams', 'syncSource']) {
-          if (!(f in c.chain)) errors.push(`${id}: chain missing ${f}`);
+        for (const f of ['chainId', 'genesis']) {
+          if (!(f in c.chain)) errors.push(`${id}: chain missing ${f} (structured pin required, display network insufficient)`);
+        }
+        if ('chainId' in c.chain && (typeof c.chain.chainId !== 'string' || !CHAIN_ID_RE.test(c.chain.chainId))) {
+          errors.push(`${id}.chain.chainId: invalid ${JSON.stringify(c.chain.chainId)} (expected ${CHAIN_ID_RE})`);
+        }
+        if ('genesis' in c.chain && (typeof c.chain.genesis !== 'string' || !GENESIS_RE.test(c.chain.genesis))) {
+          errors.push(`${id}.chain.genesis: invalid pin ${JSON.stringify(c.chain.genesis)} (expected full 64-hex genesis, short display insufficient)`);
+        }
+        for (const f of ['activationParams', 'syncSource']) {
+          if (f in c.chain && typeof c.chain[f] !== 'string') errors.push(`${id}.chain.${f}: must be string`);
+        }
+      }
+    } else if (c.chain !== undefined && c.chain !== null) {
+      if (typeof c.chain !== 'object' || Array.isArray(c.chain)) errors.push(`${id}: chain must be object|null`);
+      else {
+        if ('chainId' in c.chain && (typeof c.chain.chainId !== 'string' || !CHAIN_ID_RE.test(c.chain.chainId))) {
+          errors.push(`${id}.chain.chainId: invalid ${JSON.stringify(c.chain.chainId)}`);
+        }
+        if ('genesis' in c.chain && (typeof c.chain.genesis !== 'string' || !GENESIS_RE.test(c.chain.genesis))) {
+          errors.push(`${id}.chain.genesis: invalid pin ${JSON.stringify(c.chain.genesis)} (expected full 64-hex)`);
         }
       }
     }
+    if ('bridges' in c && c.bridges !== undefined && c.bridges !== null) {
+      if (!Array.isArray(c.bridges)) errors.push(`${id}: bridges must be array`);
+      else {
+        c.bridges.forEach((b, k) => {
+          if (!b || typeof b !== 'object') { errors.push(`${id}.bridges[${k}]: must be object`); return; }
+          if (typeof b.chainId !== 'string' || !CHAIN_ID_RE.test(b.chainId)) errors.push(`${id}.bridges[${k}].chainId: invalid ${JSON.stringify(b.chainId)}`);
+          if (typeof b.genesis !== 'string' || !GENESIS_RE.test(b.genesis)) errors.push(`${id}.bridges[${k}].genesis: invalid pin (expected full 64-hex)`);
+        });
+      }
+    }
 
-    // 3. ссылки на отсутствующие
+    // dependsOn
     if (Array.isArray(c.dependsOn)) {
-      for (const d of c.dependsOn) {
-        if (typeof d !== 'string') { errors.push(`${id}: dependsOn entry must be string`); continue; }
+      c.dependsOn.forEach((d, k) => {
+        if (typeof d !== 'string' || !d) { errors.push(`${id}.dependsOn[${k}]: must be non-empty string`); return; }
         if (!ids.has(d)) errors.push(`${id}: dependsOn missing component ${d}`);
-      }
+      });
     }
 
-    // маршруты: структура + алиасы/вложенность описаны
+    // routes (null-safe)
     if (Array.isArray(c.routes)) {
-      for (const r of c.routes) {
-        if (!r || typeof r.path !== 'string' || !r.path.startsWith('/')) errors.push(`${id}: route path must start with /`);
-        if (!r || typeof r.host !== 'string' || !r.host) errors.push(`${id}: route host required`);
-        if (typeof r.owner !== 'boolean') errors.push(`${id}: route owner must be boolean for ${r && r.path}`);
-        if (typeof r.note !== 'string' || !r.note.trim()) errors.push(`${id}: route ${r && r.path} requires note (purpose/order)`);
-        if (r && r.aliasOf !== undefined && r.aliasOf !== null && typeof r.aliasOf !== 'string') errors.push(`${id}: route aliasOf must be string|null`);
-        if (r && r.aliasOf) {
-          if (!r.note || !/alias/i.test(r.note)) warnings.push(`${id}: alias ${r.path} note should mention alias/order`);
-          if (r.owner !== false) errors.push(`${id}: alias route ${r.path} must have owner:false`);
+      c.routes.forEach((r, k) => {
+        const rloc = `${id}.routes[${k}]`;
+        if (!r || typeof r !== 'object' || Array.isArray(r)) {
+          errors.push(`${rloc}: must be object, got ${r === null ? 'null' : typeof r}`);
+          return;
         }
-      }
+        if (typeof r.path !== 'string' || !r.path.startsWith('/')) errors.push(`${rloc}: route path must start with /, got ${JSON.stringify(r.path)}`);
+        if (typeof r.host !== 'string' || !r.host) errors.push(`${rloc}: route host required`);
+        if (typeof r.owner !== 'boolean') errors.push(`${rloc}: route owner must be boolean for ${JSON.stringify(r.path)}`);
+        if (typeof r.note !== 'string' || !r.note.trim()) errors.push(`${rloc}: route ${JSON.stringify(r.path)} requires note (purpose/order)`);
+        if (r.env !== undefined && r.env !== null && (typeof r.env !== 'string' || !r.env.trim())) errors.push(`${rloc}: route env must be non-empty string`);
+        if (r.aliasOf !== undefined && r.aliasOf !== null && typeof r.aliasOf !== 'string') errors.push(`${rloc}: route aliasOf must be string|null`);
+        if (r.aliasOf) {
+          if (!r.note || !/alias/i.test(r.note)) warnings.push(`${id}: alias ${r.path} note should mention alias/order`);
+          if (r.owner !== false) errors.push(`${rloc}: alias route ${JSON.stringify(r.path)} must have owner:false`);
+        }
+      });
     }
   }
 
-  // 4. конфликт владельцев точного маршрута
+  // 4. route owner conflict WITHIN one environment scope
   const owners = new Map();
   for (const c of comps) {
+    if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
     if (!Array.isArray(c.routes)) continue;
     for (const r of c.routes) {
-      if (!r || r.owner !== true) continue;
-      if (r.aliasOf) continue; // алиасы не конфликтуют (и выше требуем owner:false, сюда не попадёт)
-      const k = routeKey(r);
+      if (!r || typeof r !== 'object' || r.owner !== true) continue;
+      if (r.aliasOf) continue;
+      const k = routeKey(r, c.env);
       if (!owners.has(k)) owners.set(k, []);
       owners.get(k).push(c.componentId);
     }
   }
   for (const [k, list] of owners) {
-    if (list.length > 1) errors.push(`route owner conflict: ${k} claimed by ${list.join(', ')}`);
+    if (list.length > 1) errors.push(`route owner conflict: ${k} claimed by ${list.join(', ')} (same environment scope)`);
   }
 
-  // 5. несовпадение закреплённой сети у связанных
-  const byId = new Map(comps.filter(c => c && typeof c.componentId === 'string').map(c => [c.componentId, c]));
-  for (const c of comps) {
-    if (!c || !Array.isArray(c.dependsOn)) continue;
-    const a = netPin(c.network);
-    if (!a || a === 'NEUTRAL') continue;
-    for (const d of c.dependsOn) {
-      const t = byId.get(d);
-      if (!t) continue;
-      const b = netPin(t.network);
-      if (!b || b === 'NEUTRAL') continue;
-      if (a !== b) errors.push(`${c.componentId}: network pin mismatch with ${d} (${a} vs ${b})`);
+  // 5. structured chain pins: same-chain components must match root pin; unknown != match
+  if (reg.chain && typeof reg.chain === 'object') {
+    const rootId = reg.chain.network;
+    const rootGen = reg.chain.genesis;
+    const rootValid = typeof rootId === 'string' && CHAIN_ID_RE.test(rootId) && typeof rootGen === 'string' && GENESIS_RE.test(rootGen);
+    if (!rootValid) {
+      errors.push('registry.chain: root pin invalid (network must match chainId pattern, genesis full 64-hex)');
+    } else {
+      for (const c of comps) {
+        if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+        if (!c.chain || typeof c.chain !== 'object') continue;
+        if (Array.isArray(c.bridges) && c.bridges.length > 0) continue; // gateways describe sides explicitly
+        const envScope = baseEnv(c.env || '');
+        const isMainScope = envScope === 'mainnet';
+        if (!isMainScope) continue; // testnet/jobtest/offline pilots have own pins
+        const cid = c.chain.chainId;
+        const gen = c.chain.genesis;
+        if (typeof cid !== 'string' || typeof gen !== 'string' || !CHAIN_ID_RE.test(cid) || !GENESIS_RE.test(gen)) {
+          errors.push(`${c.componentId}: unknown chain pin (chainId/genesis invalid) — cannot claim match with root ${rootId}/${String(rootGen).slice(0, 8)}…`);
+          continue;
+        }
+        if (cid !== rootId || gen.toLowerCase() !== String(rootGen).toLowerCase()) {
+          errors.push(`${c.componentId}: chain pin mismatch with root (component ${cid}/${gen.slice(0, 8)}… vs root ${rootId}/${String(rootGen).slice(0, 8)}…)`);
+        }
+      }
+      // pairwise among linked mainnet components with pins
+      for (const c of comps) {
+        if (!c || typeof c !== 'object' || !Array.isArray(c.dependsOn)) continue;
+        if (baseEnv(c.env || '') !== 'mainnet') continue;
+        const a = c.chain;
+        if (!a || typeof a !== 'object' || typeof a.chainId !== 'string' || typeof a.genesis !== 'string') continue;
+        if (!CHAIN_ID_RE.test(a.chainId) || !GENESIS_RE.test(a.genesis)) continue;
+        for (const d of c.dependsOn) {
+          const t = byId.get(d);
+          if (!t || !t.chain || typeof t.chain !== 'object') continue;
+          if (baseEnv(t.env || '') !== 'mainnet') continue;
+          const b = t.chain;
+          if (typeof b.chainId !== 'string' || typeof b.genesis !== 'string') continue;
+          if (!CHAIN_ID_RE.test(b.chainId) || !GENESIS_RE.test(b.genesis)) continue;
+          if (a.chainId !== b.chainId || a.genesis.toLowerCase() !== String(b.genesis).toLowerCase()) {
+            errors.push(`${c.componentId}: chain pin mismatch with ${d} (${a.chainId}/${a.genesis.slice(0, 8)}… vs ${b.chainId}/${String(b.genesis).slice(0, 8)}…)`);
+          }
+        }
+      }
     }
   }
 
   return { errors, warnings };
 }
 
-import { pathToFileURL } from 'node:url';
-const __isMain = (() => { try { return import.meta.url === pathToFileURL(process.argv[1] ?? '').href; } catch { return false; } })();
+const __isMain = (() => { try { return import.meta.url === pathToFileURL(path.resolve(process.argv[1] ?? '')).href; } catch { return false; } })();
 if (__isMain) {
   const file = process.argv[2] || path.join(path.dirname(process.argv[1]), '..', 'config', 'unified-registry.json');
   let reg;
@@ -170,7 +487,11 @@ if (__isMain) {
     console.error('read_error: ' + e.message);
     process.exit(2);
   }
-  const { errors, warnings } = checkRegistry(reg);
+  const baseDir = inferRoot(file);
+  let schema = null;
+  try { schema = loadJson(path.join(baseDir, 'config', 'registry.schema.json')); }
+  catch (e) { console.error('schema_missing: ' + e.message); process.exit(2); }
+  const { errors, warnings } = checkRegistry(reg, { schema, baseDir, registryFile: file, schemaPath: path.join(baseDir, 'config', 'registry.schema.json') });
   for (const w of warnings) console.log('WARN ' + w);
   if (errors.length) {
     for (const e of errors) console.log('ERR ' + e);

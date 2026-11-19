@@ -1,7 +1,7 @@
 # Карта реестра Agentcoin (Этап 1, без изменений production)
 
 ## Где хранится техническое описание
-- Канон: `config/unified-registry.json` (v1, 20 компонентов). Источники переиспользуются, а не копируются:
+- Канон: `config/unified-registry.json` (v2, 20 компонентов). Контракт: `config/registry.schema.json` — единственный источник ограничений; `tools/registry-check.mjs` обязан читать схему и применять её (required/типы/паттерны). Расхождение запрещено. Источники переиспользуются, а не копируются:
   - `config/system-registry.json` — исходные 11 технических компонентов (источник полей purpose/files/routes/process);
   - `config/action-registry.json` — 11 действий (привязка через `actionIds` в компонентах: settle.*/room.*/route.*);
   - `site/tree.json` — каноническое дерево навигации (привязка через `navIds`: href разделов; `/index→308 /`, `/wallet→308 /cabinet`);
@@ -15,7 +15,7 @@
   - `/agent-room`, `/agent-room.json` → `agent-room` (owner:true); `site-static` — backing (owner:false).
   - `/workspace` → `web-next` (owner:true, оболочка E19); `site-static` — backing (owner:false).
   - `/mempool`, `/mine`, `/gov`, `/jobs` → `web-next` (owner:true, оболочки); файлы `site/*.html` — backing (owner:false), порядок static-vs-catch-all честно помечен неизвестным.
-  - `/cabinet`, `/create-wallet`, `/settlement`, `/`, `/operator-cabinet`, `/passport-cabinet` → `site-static` (owner:true).
+  - `/cabinet`, `/create-wallet`, `/`, `/operator-cabinet`, `/passport-cabinet` → `site-static` (owner:true); `/settlement` — живой маршрут static v0.3 (E19, `routes` owner:true), но отсутствует в `site/tree.json`, поэтому в `navIds` честно не заявляется (навигационный пробел, см. unknowns). `settlement-gateway.navIds=[]` по той же причине.
 
 ## Как связаны действия
 - `actionIds` компонента = `actionId` из `config/action-registry.json`. Мутации только подписанные; чтение — без мутаций:
@@ -28,3 +28,11 @@
 - `expected` — роль/расписание/пин по коду и документации; `observed` — živые срезы (E04 09:23Z, E20–E25 09:33Z) или `null/false` с пометкой; `verification{status,evidence,unknowns,checkedAt}` — статус достоверности.
 - `null` — только честное «неизвестно», с обязательным пунктом в `unknowns` и запретом `confirmed` (ловит `tools/registry-check.mjs`).
 - Путь/SHA файла на диске ≠ версия загруженного процесса: `observed.loadedReleaseId=null` + unknowns (F-пункт реестра).
+
+## Строгий контракт (фикс приёмки)
+- Схема применяется: валидатор читает `config/registry.schema.json`; `version` integer, `updatedAt`/`checkedAt` ISO8601 `YYYY-MM-DDTHH:MM[:SS]Z`, `componentId` `^[a-z0-9][a-z0-9-]{1,63}$`, `expectedVersion`/`observedVersion` string|null, `verification.status` enum.
+- Пины цепи — только структурированные `chain.chainId` (`^[A-Z][A-Z0-9_]*$`) + `chain.genesis` (полные 64 hex). Поле `network` — только отображение (короткий пин), в сравнении не участвует. Компоненты mainnet-скоупа с пином обязаны совпадать с корнем; неизвестный пин — отдельная ошибка, не совпадение. Шлюзы между сетями описывают стороны через `bridges[]`.
+- Владельцы маршрутов — в пределах одного окружения: ключ `envScope|METHOD host path`, где `envScope=mainnet` для всех `mainnet*`, остальные — по токену env; `route.env` при наличии переопределяет. Разные изолированные окружения не конфликтуют; два владельца одного публичного prod-маршрута отклоняются.
+- Существование ссылок: `actionIds` сверяются с `config/action-registry.json`; `navIds` — с href из `site/tree.json`; bare `E##/F##/C##/V##` — с `EVIDENCE-INDEX.csv`/`FACTS.csv`/`CONTRADICTIONS.md`/`VERIFICATION-PLAN.md`; пути — с наличием файлов в пакете. Префикса недостаточно. `external:...` — явно внешнее, недоступное для воспроизведения, в `confirmed` только с verifiable-доказательством не засчитывается.
+- node-monitor: `partial` (не `confirmed`). E04 подтверждает только ответ API; корректность рендера и публикация C07 — отдельные unknowns. Файл `test/node-monitor.mjs` приложен как артефакт.
+- miner-stack: активность юнитов (`agentcoin-miner.service active`, E20) отделена от доказанной добычи; параметры активации отделены от depth6/fee0 и PoW-наблюдения shareDiff12/difficulty9.

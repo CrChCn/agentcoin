@@ -1,0 +1,423 @@
+# Единый реестр Agentcoin — отчёт (generated)
+
+- registry: 1, updatedAt=2026-11-19, chain=AGENTCOIN/00026d18…
+- sources: system=config/system-registry.json v1 (11 компонентов-источников, статусы implemented/limited/published) actions=config/action-registry.json (11 действий settle/room/route) tree=site/tree.json (canon / = imperial.html; /wallet -> /cabinet; /index -> /)
+
+## 1. Компоненты (ожидаемое vs наблюдаемое)
+### mainnet-node-1 [partial]
+- назначение: Пишущая нода mainnet: API цепи, упаковка /mine, монитор /network/nodes (данные самой node1 — петля E23)
+- env/host/process: mainnet / SRV-H1 2.31.145.160 (agentcoin.work + node1.agentcoin.work) / systemd agentcoin-node.service (бывш. agt-node): node node.mjs 9335
+- версии: expected=a5bd038(H1: fb81f609/0e286f00; sync отличается) observed=H1 file fb81f609/0e286f00 (E20); процесс как сервис a5bd038-серии
+- expected: {"role":"writer-hub","serves":"agentcoin.work -> 127.0.0.1:9335"}
+- observed: {"chainValid":true,"height":50053,"loadedReleaseId":null,"tip":"005f7bf1 (E24, 09:33Z); внешнее окно: 50043/00480c09 (E04)","uptime":"pid 96843, старт 18.11 23:39Z, user root (E20)","validationMode":"compatibility (E25)"}
+- storage: /opt/agentcoin-node/data (своя chain.json/mempool.json/peers.json; файлы не читались, E21); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: caddy-h1, node-monitor
+- check: GET /info /life /health /blocks /headers (E01/E02/E04/E07/E08) + SSH read-only E20/E21 (systemctl/ss/ps/sha256, без секретов); proof: E01/E02/E04/E05/E06/E07/E08 + E20/E21/E23/E24/E25; audit19 evidence/chain-consistency.txt, source-snapshots/h1, config-redacted/h1.txt; checkedAt=2026-11-19T09:33Z
+- evidence: E01, E02, E04, E05, E20, E23, E24, E25, docs/audit-network/evidence/E01-info.json, config/system-registry.json
+- unknowns: Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса); Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25); Оператор: один владелец по имеющимся сведениям; независимых операторов нет
+- chain: {"activationParams":"depth6/fee0/shareDiff12/difficulty9@50043/compat(E25: strict только на приёме)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с /headers+/blocks + sync по событиям (sync.mjs:191/484); WS-сессий 0 (E05) — inv-gossip молчит, догон таймером"}
+- routes:
+  - GET agentcoin.work/info owner=true — Caddy -> 127.0.0.1:9335; пин chainId+genesis
+  - GET agentcoin.work/life owner=true — alive/fresh/chainValid/validationMode
+  - GET agentcoin.work/health owner=true — ok/service/blocks/tipHash/tipAgeSec
+  - GET agentcoin.work/blocks owner=true — тела блоков (?n=1 / ?from=&limit=); образец E07
+  - GET agentcoin.work/headers owner=true — заголовки (?from=&limit=); генезис-пин E08
+  - POST agentcoin.work/tx owner=true — приём подписанной tx (verifyTransaction до mempool); живьём не вызывался — запрет отправок
+  - GET agentcoin.work/ws/status owner=true — hub.count/roster; wsPeers 0 (E05) — только факт отсутствия WS-сессий
+  - GET agentcoin.work/network/nodes owner=true — монитор TTL10с; записи node2/3 = данные node1 через @peer-прокси (петля E23), синхронность резервов этим не доказывается
+  - GET agentcoin.work/api/v1/network/nodes owner=true — канон API; эквивалент /network/nodes
+  - GET agentcoin.work/peers/meta owner=true — peer-meta: node2 accepted 349 / node3 195, strikes 0 (E06) — HTTP-знание, не транспорт
+  - GET agentcoin.work/api/v1/mempool owner=true — канон ?full=1 (E09); голый /mempool отдаёт оболочка web-next — не использовать для цепи
+  - GET agentcoin.work/api/v1/txproof owner=true — канон с :txid (SDK); голый /txproof/xxx 404
+  - GET agentcoin.work/capabilities owner=true — PUB allowlist (node.mjs:139/514), без админ-токена (E03)
+  - GET agentcoin.work/api/v1/capabilities owner=false aliasOf=/capabilities — alias карты на /capabilities; порядок: прямой путь ноды
+  - GET agentcoin.work/queue/status owner=false — владелец queue-orders-catalog; процесс совмещён в agt-node
+  - GET agentcoin.work/agent-state owner=false — владелец queue-orders-catalog (assignment/очередь)
+  - GET agentcoin.work/site/release owner=true — SiteReleaseManager ноды; release null (E12)
+### mainnet-node-2 [partial]
+- назначение: Резервная читающая нода (тёмная): отдельное хранилище, догоняет главную HTTP-синком
+- env/host/process: mainnet / SRV-H2 91.99.191.236 (node2.agentcoin.work) / systemd agentcoin-node: node node.mjs 9335
+- версии: expected=aed5a948(node)/bed82d3e(core) файлы (E24); sync abbad0f2, ws 6571c2ee везде observed=файлы aed5a948/bed82d3e (E24); загруженный процесс — не установлен отдельно
+- expected: {"role":"reading-mirror-dark"}
+- observed: {"chainLocal":"50052 tip 00127a17 (E24) — на 1 блок ниже H1 на момент среза","loadedReleaseId":null,"uptime":"pid 349882, uptime 17д, user root (E24)","viaMonitor":"responding в E04 — но это данные node1 через петлю (E23), не локальная синхронность"}
+- storage: /opt/agentcoin-node/data на SRV-H2 (своя chain.json 50052; E24); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: caddy-reserve
+- check: GET /ws/status (E14) + прямые /health /info /blocks 403 (E16) + SSH read-only E22/E24 (процессы/chain.json/sha, без секретов); proof: E14/E16 + E22/E23/E24; audit19 source-snapshots/node2, config-redacted/node2.txt, diffs/node-h1-node2-full.diff; checkedAt=2026-11-19T09:33Z
+- evidence: E14, E16, E22, E23, E24, docs/audit-network/evidence/E14-ws-status-node2.json
+- unknowns: Версия загруженного процесса не установлена; Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено); Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)
+- chain: {"activationParams":"файлы node aed5a948/core bed82d3e ≠ H1 (C08) — одинаковость правил НЕ доказана","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с с главной (E24: node2 50052 tip 00127a17 догоняет); WS 0"}
+- routes:
+  - GET node2.agentcoin.work/ws/status owner=true — локальные счётчики; wsPeers 0 (E14)
+  - GET node2.agentcoin.work/health owner=true — извне 403 reserve node: dark (E16); с allowlisted-IP — прокси на node1 (петля E23)
+  - GET node2.agentcoin.work/info owner=true — тёмный извне (403); локально цепь 50052 (E24)
+  - GET node2.agentcoin.work/blocks owner=true — тёмный извне (403); локально догоняет
+### mainnet-node-3 [partial]
+- назначение: Резервная читающая нода (тёмная): отдельное хранилище, на срезе вровень с главной
+- env/host/process: mainnet / SRV-DO 64.225.104.125 (node3.agentcoin.work) / systemd agentcoin-node: node node.mjs 9335
+- версии: expected== node2 файлам (E24); sync/ws совпадают везде observed=файлы = node2 (E24); загруженный процесс — не установлен отдельно
+- expected: {"role":"reading-mirror-dark"}
+- observed: {"chainLocal":"50053 tip 005f7bf1 = tip H1 (E24)","loadedReleaseId":null,"uptime":"pid 125851, uptime 17д, user root (E24)"}
+- storage: своя DATA_DIR на SRV-DO (chain.json 50053; E24); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: caddy-reserve
+- check: GET /ws/status (E15) + прямые 403 (E17) + SSH read-only E22/E24; proof: E15/E17 + E22/E23/E24; audit19 source-snapshots/node3, config-redacted/node3.txt; checkedAt=2026-11-19T09:33Z
+- evidence: E15, E17, E22, E23, E24, docs/audit-network/evidence/E15-ws-status-node3.json
+- unknowns: Версия загруженного процесса не установлена; Одинаковость правил с H1 (C08); Оператор не установлен
+- chain: {"activationParams":"файлы = node2 (aed5a948/bed82d3e) ≠ H1 (C08)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с (E24: node3 50053 tip 005f7bf1 = tip H1 — вровень)"}
+- routes:
+  - GET node3.agentcoin.work/ws/status owner=true — локальные счётчики; wsPeers 0 (E15)
+  - GET node3.agentcoin.work/health owner=true — извне 403 (E17); allowlisted — прокси на node1
+  - GET node3.agentcoin.work/info owner=true — тёмный извне; локально 50053 (E24)
+  - GET node3.agentcoin.work/blocks owner=true — тёмный извне; локально вровень
+### miner-stack [partial]
+- назначение: Майнинг и сторож свежести: solo-блоки в node1, watchdog поднимает тонкий майнер при stale
+- env/host/process: mainnet / SRV-H1 (предположительно; место выполнения живьём не проверено) / auto-miner.mjs [port] [minerAddress] [intervalSec] + miner-client.mjs MINER_URL + tools/miner-watchdog.mjs (процессы живьём не снимались)
+- версии: expected=код 2026-10/11 (auto-miner tick 60с) observed=—
+- expected: {"payout":"coinbase по ротации 7 адресов (память проекта)","schedule":"auto-miner tick 60с + miner-client headers-only + watchdog 60с/stale300 + cron */10 mine-cron.sh + AGTAutoMiner 15мин"}
+- observed: {"chainEffect":"блоки ~30с (E04/E24 дрейф высот); difficultyBits 9 при shareDiff 12 (C05 — шары труднее блока)","launchProven":false,"txs":"образец heartbeat 0.001 + coinbase (E07)"}
+- storage: chain.json (запись блоков) + data/autominer/health-log.csv + data/miner-watchdog.log (содержимое не читалось); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: mainnet-node-1
+- check: код auto-miner.mjs/miner-client.mjs/tools/miner-watchdog.mjs + E02 tipAgeSec/fresh; планировщики cron/AGTAutoMiner — по коду/docs, живьём не опрашивались; proof: E02/E07 + auto-miner.mjs:60s tick + miner-client headers-only + tools/miner-watchdog.mjs; contradiction C05 зафиксирован; checkedAt=2026-11-19T09:24Z
+- evidence: F10, E02, E07, tools/miner-watchdog.mjs
+- unknowns: Факт запуска на проде НЕ проверен (планировщики не опрашивались); Число независимых майнеров не установлено; Журнал выплат пула не проверен (код делит по долям); observedVersion: наблюдаемая версия расписаний не снималась
+- routes:
+  - GET 127.0.0.1:9335/life owner=false — опрос свежести; владелец mainnet-node-1
+  - POST 127.0.0.1:9335/mine owner=false — шаблон/сабмит блока (miner-client headers-only); владелец mainnet-node-1; x-admin-token с петли по коду
+### caddy-h1 [partial]
+- назначение: Вход mainnet: TLS и маршрутизация static/API/шлюз; единая точка отказа внешнего доступа
+- env/host/process: mainnet / SRV-H1 :80/:443 (agentcoin.work, node1.agentcoin.work) / caddy (pid 825 user caddy) + agentcoin.work static root + proxy
+- версии: expected=Caddyfile H1 690 строк (E21); unit caddy active user caddy (E20) observed=—
+- expected: {"role":"TLS termination + static + reverse-proxy /api + /mainnet"}
+- observed: {"defaults":"дефолт agentcoin.work ведёт на node1/127.0.0.1:9335 (память проекта; конфиг не читался)","exposed":"порты 9335/18745 loopback, 80/443 наружу (E20)"}
+- storage: static bundle (/srv/agentcoin-empire/current по памяти; release null E12) + Caddyfile /etc/caddy (690 строк); network: neutral
+- dependsOn: mainnet-node-1, site-static, settlement-gateway
+- check: E19 sweep (коды+CT) + E01/E02/E05 отвечают через Caddy; сам Caddyfile H1 (690 строк, E21) — состав известен, дословное правило не снималось; proof: E01/E02/E05/E11/E19 живьём через Caddy + E20/E21 (unit/порты/upstream-память); checkedAt=2026-11-19T09:33Z
+- evidence: E19, E20, E21, docs/audit-network/ROUTES.csv
+- unknowns: Дословный прод-Caddyfile H1 не снимался (V02); TLS-терминация: конфиг не читался; observedVersion: версия Caddy не снималась
+- routes:
+  - GET agentcoin.work/ owner=false — порядок: static file (imperial канон), иначе proxy; владелец контента site-static
+  - GET agentcoin.work/info owner=false — порядок: proxy -> 127.0.0.1:9335; владелец mainnet-node-1
+  - GET agentcoin.work/mainnet/info owner=false — порядок: proxy -> 127.0.0.1:18745; владелец settlement-gateway
+### caddy-reserve [partial]
+- назначение: Тёмный вход резервов: наружу только /ws/*, операторскому кругу — прокси на node1, остальное 403
+- env/host/process: mainnet / SRV-H2 + SRV-DO :80/:443 / caddy на каждой резервной машине (units active, E24)
+- версии: expected=Caddy-файлы резервов (E22 дословно) observed=—
+- expected: {"peerRule":"@peer remote_ip 127.0.0.1 ::1 2.31.145.160 64.225.104.125 100.64.0.0/10 -> proxy https://node1.agentcoin.work","wsRule":"@ws /ws/* -> 127.0.0.1:9335"}
+- observed: {"darkDefault":"остальное — respond 403 reserve node: dark (E16/E17/E22)","loop":"монитор node1 с allowlisted-IP получает данные node1 (E23)"}
+- storage: Caddyfile резервов (/etc/caddy) + локальные bundle не требуются; network: neutral
+- dependsOn: mainnet-node-2, mainnet-node-3
+- check: дословные Caddy-файлы резервов (E22) + живьём /ws/status 200 vs прямых 403 + петля E23; proof: E14/E15/E16/E17 + E22 дословно + E23/E24; checkedAt=2026-11-19T09:33Z
+- evidence: E16, E17, E22, E23, docs/audit-network/evidence/E22-reserves-caddy-dark.txt
+- unknowns: Кем и когда сделано исключение /ws — не установлено (V02 §2); Оператор резервов не установлен; observedVersion: версии Caddy резервов не снимались
+- routes:
+  - GET node2.agentcoin.work/ws/status owner=false — порядок: @ws -> локальная нода; причина открытости — исключение E22
+  - GET node2.agentcoin.work/health owner=false — порядок: @peer -> node1, иначе 403; владелец контента mainnet-node-2
+  - GET node3.agentcoin.work/ws/status owner=false — то же исключение @ws (E22)
+  - GET node3.agentcoin.work/health owner=false — то же правило @peer/403
+### site-static [partial]
+- назначение: Статика империи: канонические экраны, кабинет/кошелёк, settlement-UI, файлы агент-комнаты
+- env/host/process: mainnet-public / agentcoin.work static (Caddy file_server) / Caddy static + site-release.mjs (откат — предыдущий bundle)
+- версии: expected=site-v3 (release null E12) observed=release null manifestHash null (E12)
+- expected: {"canon":"/ = imperial.html; /index -> 308 /; /wallet -> 308 /cabinet","count":"35 html + ecosphere/* + panel.js"}
+- observed: {"e19":"/ /agent-room /cabinet /settlement 200; /workspace 200 (оболочка); /ecosphere/ 404 (C04); /peers/bootstrap /gateway/list 404","ecosphereGap":"/ecosphere/ и /ecosphere/index.html 404 при implemented в старом реестре — противоречие C04"}
+- storage: static bundle + site/release.json (E12); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: caddy-h1
+- check: E19 sweep + site/tree.json + site-release.mjs/release.json; 200 с чужим экраном = дефект маршрутизации; proof: E19 + site/tree.json + config/system-registry.json#site-static + C04; checkedAt=2026-11-19T09:24Z
+- evidence: E19, F01, C04, site/tree.json, config/system-registry.json
+- unknowns: Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём; C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда
+- routes:
+  - GET agentcoin.work/ owner=true — канон; Next /index -> 308 / (F01)
+  - GET agentcoin.work/create-wallet owner=true — WASM-кошелёк (фрагмент caddy-routes AC-1)
+  - GET agentcoin.work/cabinet owner=true — канон кабинета; /wallet 308 -> /cabinet; блок #nodes3 читает 3 ноды GET-only
+  - GET agentcoin.work/workspace owner=false — файл user-wallet-page.html; порядок static vs Next для этого пути не доказан живьём
+  - GET agentcoin.work/mempool owner=false — оболочка E19; владелец web-next
+  - GET agentcoin.work/mine owner=false — файл mine.html есть; публично отдаёт оболочка web-next — порядок не доказан
+  - GET agentcoin.work/ecosphere owner=false — 404 публично (C04); файлы backing есть — карта/прод расходятся
+  - GET agentcoin.work/settlement owner=true — static v0.3 mainnet.html (settlement-UI)
+  - GET agentcoin.work/agent-room owner=false — backing-файл agent-room.html; владелец agent-room
+  - GET agentcoin.work/agent-room.json owner=false — backing-файл agent-room.json; владелец agent-room
+### web-next [partial]
+- назначение: Next-оболочка: /mine /shield /gov /jobs /mbc20 /docs /agent + прокси /api/v1/*; риск catch-all на API
+- env/host/process: mainnet-public / agentcoin.work (Next catch-all риск) / Next build (откат — предыдущий build)
+- версии: expected=web-unknown (сверить) observed=—
+- expected: {"routes":"/agent /docs /gov /jobs /mbc20 /mine /shield (+/workspace оболочка)"}
+- observed: {"bareApi":"/mempool bare -> HTML (не цепь); /mine GET -> HTML (POST — админ ноды, не тестировался)","orderRisk":"catch-all может отдавать HTML на API — SDK помечает route_not_allowlisted"}
+- storage: Next build bundle; network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: caddy-h1, mainnet-node-1
+- check: E19 (/workspace 200 оболочка; голый /mempool HTML) + web/app/*/page.jsx; POST /mine и /api/v1/tx живьём не тестировались (запрет мутаций); proof: E09/E19 + sdk/js/mainnet-node-api.mjs:9 + web/app/shield/page.jsx; checkedAt=2026-11-19T09:24Z
+- evidence: E09, E19, F14, site/tree.json
+- unknowns: Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан; observedVersion: версия Next-билда не сверена; Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)
+- routes:
+  - GET agentcoin.work/workspace owner=true — оболочка E19; файл site-static — backing (порядок не доказан)
+  - GET agentcoin.work/mempool owner=true — оболочка; голый путь — не цепь (канон /api/v1/mempool у mainnet-node-1)
+  - GET agentcoin.work/mine owner=true — оболочка; POST /mine — админ ноды, не тестировался
+  - GET agentcoin.work/shield owner=true — карточка «Ноды чтение по трём» + Stale; читает /api/v1/network/nodes GET-only 30с
+  - GET agentcoin.work/api/v1/network/nodes owner=false — прокси к ноде; владелец mainnet-node-1
+  - GET agentcoin.work/gov owner=true — оболочки; порядок static vs catch-all не доказан
+  - GET agentcoin.work/jobs owner=true — оболочки; порядок не доказан
+### agent-room [partial]
+- назначение: Публичный вход для ИИ-агентов: 7 разделов, browser+JSON, только существующие API
+- env/host/process: mainnet-public / agentcoin.work static (same-origin live API) / static-site + browser inline module (мутации только при window.__roomNet.ok)
+- версии: expected=room v1 / api 0.3 / protocol 0.3.0 observed=static (site-release.mjs)
+- expected: {"api":"0.3","protocol":"0.3.0","room":"v1"}
+- observed: {"secondQueue":"второй очереди/рынка нет — только существующие API","sections":"7 разделов + первая инструкция без JS"}
+- storage: static bundle; network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: site-static, queue-orders-catalog, settlement-gateway
+- check: без JS: разделы 1-7 читаются; JSON валиден; API из реестра существуют; /agent-room 200 text/html (E19); proof: E19 + site/agent-room.html + site/agent-room.json + config/action-registry.json; checkedAt=2026-11-19T09:24Z
+- evidence: E19, F14, site/tree.json, config/action-registry.json
+- unknowns: Живая сверка всех room-действий с прод-API после C07 — по слову владельца
+- routes:
+  - GET agentcoin.work/agent-room owner=true — канон комнаты (backing site-static)
+  - GET agentcoin.work/agent-room.json owner=true — машиночитаемая комната; сверка с HTML
+### settlement-gateway [partial]
+- назначение: Платёжный сервис: серверные обязательства и приём подписанных расчётов (журнал не откатывать)
+- env/host/process: mainnet / SRV-H1 127.0.0.1:18745 -> Caddy /mainnet/* / agt-settlement.service: scripts/ecosphere-settlement-gateway.mjs (ручной деплой только по слову владельца)
+- версии: expected=0.2 observed=agt-settlement user, unit agt-settlement.service (E20 — юнит виден, файлы не читались)
+- expected: {"policy":"settlement-policy.json (владелец)","role":"шлюз /mainnet/*: obligations/submit только подписанной tx + подпись settle-approve, журнал с lock, paused, rate-limit"}
+- observed: {"info":"/mainnet/info 200 chainId+genesis+infoBlocks (E11)","untested":"preview/obligations/submit/settlements — код + тесты, живьём не вызывались"}
+- storage: .settlement-gateway/mainnet-settlements.json + settlement-policy.json (не читались — секреты/политика вне прохода); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: mainnet-node-1
+- check: GET /version + GET /mainnet/info 200 (E11); остальные /mainnet/* живьём не тестировались (мутации/деньги запрещены); proof: E11 + sdk/js/mainnet-server.mjs + sdk/js/mainnet-settlement.mjs + test/mainnet-settlement.mjs (память); checkedAt=2026-11-19T09:24Z
+- evidence: E11, F11, config/action-registry.json
+- unknowns: Юнит-файл и журнал живьём не снимались; Все POST /mainnet/* живьём не тестировались (запрет мутаций); Содержимое policy/journal не читалось (вне прохода)
+- routes:
+  - GET agentcoin.work/mainnet/info owner=true — 200 E11; чтения цепи из ноды
+  - POST agentcoin.work/mainnet/preview owner=true — серверный preview без секретов; живьём не вызывался
+  - POST agentcoin.work/mainnet/submit owner=true — только подписанная tx + settle-approve; second_payment_refused на новую подпись
+  - POST agentcoin.work/mainnet/obligations owner=true — obligations под lock; живьём не вызывался
+  - GET agentcoin.work/mainnet/settlements owner=true — статус settlement по журналу; живьём не вызывался
+### queue-orders-catalog [partial]
+- назначение: Очередь/заказы/каталог/события: серверное состояние (НЕ блокчейн-подтверждение)
+- env/host/process: staging-only (прод-очереди требуют аудита подписей каждого маршрута) / внутри agt-node DATA_DIR (прод) + stand-server (стенд) / agt-node embedded + stand-server.mjs (staging); прод-статус limited
+- версии: expected=signed-only (legacy 410) observed=queue.mjs AgentQueue (cap 5000, onDuty 25)
+- expected: {"rules":"FIFO/ротация, head-only claim, signed-only, legacy 410, idempotencyKey"}
+- observed: {"live":"E10 waiting 5 onDuty 5 (прикладное состояние, не цепь)","sameProcess":"несколько функций очереди живут внутри процесса ноды — не отдельный сервис"}
+- storage: локальный JSON store стенда; прод — серверное состояние (файлы не читались); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: mainnet-node-1
+- check: E10 waiting 5 + legacy POST /queue/join -> 410 (код) + sconfirm/tick правила (код); прод-файлы очереди не читались; proof: E10 + queue.mjs + queue-auth.mjs + sdk/js/stand-server.mjs; checkedAt=2026-11-19T09:24Z
+- evidence: E10, F11, config/action-registry.json
+- unknowns: Прод-файлы очереди/журналы не читались; Открытие прод-очередей — только после аудита каждого маршрута (limited)
+- routes:
+  - GET agentcoin.work/queue/status owner=true — прикладное состояние; транспорт — нода (процесс совмещён)
+  - GET agentcoin.work/agent-state owner=true — assignment/очередь; чужой адрес прав не даёт
+  - POST agentcoin.work/orders/create owner=true — идемпотентно по idempotencyKey; BODY_MISMATCH при смене тела
+  - GET agentcoin.work/catalog/offers owner=true — поиск офферов
+  - GET agentcoin.work/events owner=true — события с курсором
+### node-monitor [confirmed]
+- назначение: Мониторинг 3 нод: чтение /network/nodes GET-only, stale-флаги; без админ-API
+- env/host/process: shared / n/a (library + browser hooks) / browser/Next hooks (cabinet #nodes3 30с, shield useApi 30с) + node lib
+- версии: expected=node-monitor 49 строк (TTL10с, probe 2.5с, cap 16) observed=код 2026-10-20 (TTL 10с)
+- expected: {"rule":"только операторские цели; посетитель URL не задаёт; TTL 10с; stale tipAgeSec>300/unreachable/invalid/lower"}
+- observed: {"loopEffect":"записи node2/3 = данные node1 (E23) — монитор доказывает жив Caddy резервов + жив node1, не синхронность резервов","tests":"4/4 pass (память прохода)"}
+- storage: monitor-targets.json (имена захардкожены; E21); network: neutral
+- dependsOn: mainnet-node-1
+- check: код node-monitor.mjs (49 строк) + test/node-monitor.mjs 4/4 + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07; proof: E04/E06/E23 + node-monitor.mjs + site/cabinet.html + web/app/shield/page.jsx; checkedAt=2026-11-19T09:24Z
+- evidence: E04, F06, F14, test/node-monitor.mjs
+- unknowns: Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)
+- routes:
+  - GET agentcoin.work/network/nodes owner=false — опрос целей t.url + /health (2.5с, TTL10с); владелец mainnet-node-1
+### env-mainnet [partial]
+- назначение: Среда mainnet: каноническая цепь и её параметры изоляции
+- env/host/process: mainnet / n/a (среда: SRV-H1 + SRV-H2 + SRV-DO) / три процесса mainnet-node-{1,2,3} + Caddy + miner-stack + settlement-gateway
+- версии: expected=пин E01/E08 observed=факт E04/E24
+- expected: {"isolation":"network/genesis-чеки отбрасывают чужие пиры/блоки","params":"chainId AGENTCOIN, genesis 00026d18…b9188e4e, confirmDepth 6, fee 0"}
+- observed: {"height":"50043 tip 00480c09 (E04 09:23Z); H1 50053/node3 50053/node2 50052 (E24 09:33Z)","ports":"9335 (рядом testnet 19335/19443, job-test 19336/19444 — по памяти, живьём не опрашивались)"}
+- storage: три отдельных DATA_DIR (E24); network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: —
+- check: пин chainId+genesis (E01/E08) + высоты/tip (E04/E07/E24) + глубина 6 единиц (код/доки); proof: E01/E04/E07/E08/E24 + chain-consistency (audit19 evidence); checkedAt=2026-11-19T09:33Z
+- evidence: E01, E04, E08, E24, docs/audit-network/NODES.csv
+- unknowns: Накопленная chainWork числом не снята; Локальные политики резервов не наблюдаемы
+### env-testnet [unknown]
+- назначение: Изолированная тестовая сеть AGT (не mainnet)
+- env/host/process: testnet / n/a (изолированный локальный запуск) / node tools/testnet.mjs [порт] [--reset] (spawn node.mjs с env)
+- версии: expected=код R-03 (порт по умолчанию 19933) observed=—
+- expected: {"isolation":"свой networkId -> свой genesisHash; main-пиры отфильтровываются"}
+- observed: {"liveProven":false}
+- storage: testnet/data + testnet/bootstrap.json (локально); network: AGT_TESTNET/00022668
+- dependsOn: —
+- check: код tools/testnet.mjs (AGT_CHAIN_ID=AGT_TESTNET, свой DATA_DIR/порты/bootstrap); живьём не запускался и не опрашивался; proof: tools/testnet.mjs (код) — прод-доступ не использовался; checkedAt=2026-11-19T00:00Z
+- evidence: tools/testnet.mjs
+- unknowns: Живьём не запускалась и не опрашивалась в этом проходе; Генезис testnet числом не сверялся; observedVersion: наблюдаемая версия не снималась
+### env-jobtest [unknown]
+- назначение: Среда отработки заданий (изоляция от mainnet)
+- env/host/process: job-test / n/a / не обследовался (вне mainnet-карты)
+- версии: expected=пин по памяти проекта observed=—
+- expected: {"isolation":"отдельные DATA_DIR/порты/генезис-пин 0001b918… (память проекта)"}
+- observed: {"liveProven":false}
+- storage: —; network: AGT_JOBTEST/0001b918
+- dependsOn: —
+- check: код/память проекта (порты 19336/19444); живьём не опрашивались, вне скоупа mainnet-карты; proof: docs/audit-network/SERVICES.csv (row testnet/job-test) — без прод-опроса; checkedAt=2026-11-19T00:00Z
+- evidence: docs/audit-network/SERVICES.csv
+- unknowns: DATA_DIR/порты/генезис живьём не проверены; storage: неизвестно (честно); observedVersion: не снималась
+### env-staging [unknown]
+- назначение: Стендовая среда действий/рынка до аудита подписей
+- env/host/process: staging / ноутбук 127.0.0.1:18743 + staging-стенды / stand-server / staging (sdk/js/stand-server.mjs)
+- версии: expected=staging-only observed=—
+- expected: {"content":"stand-server signed-only (legacy 410), тестовые книги отдельно env/prod-каталогами"}
+- observed: {"rule":"127.0.0.1:18743 — локальный стенд, не опубликован"}
+- storage: локальный JSON store стенда; network: AGENTCOIN/00026d18b9188e4e
+- dependsOn: —
+- check: реестр + стенд-порты (127.0.0.1:18743 — стенд, не прод); прод-опросы стенда не проводились; proof: config/system-registry.json + config/action-registry.json (без прод-доступа); checkedAt=2026-11-19T00:00Z
+- evidence: config/system-registry.json, config/action-registry.json
+- unknowns: Прод-границы стенда vs mainnet — только по реестру; observedVersion: не снималась
+### sdk-js [partial]
+- назначение: Клиентская библиотека чтения/проверки/подтверждений (подпись только у владельца)
+- env/host/process: shared / n/a (client library browser+node) / library (local import, без npm-публикации)
+- версии: expected=0.2/0.1.0/0.3 observed=файлы 2026-10/11 (без прод-версии)
+- expected: {"modules":"mainnet-node-api 0.2 + money 0.1.0 + agentcoin-sdk 0.3 + browser-core 0.1.0"}
+- observed: {"compat":"netEvidence, submitSignedTx (проверка до сети), checkConfirmation (пруф+тело+глубина 6)"}
+- storage: n/a (stateless); network: neutral
+- dependsOn: mainnet-node-1
+- check: node --check + unit money (знаки/round-trip) + test/mainnet-node-api.mjs (память); не-JSON -> fail-closed; proof: sdk/js/mainnet-node-api.mjs + sdk/js/money.mjs + config/action-registry.json; checkedAt=2026-11-19T09:24Z
+- evidence: F09, F13, sdk/js/agentcoin-sdk.mjs
+- unknowns: Версия в прод-бандле не сверена (pin файла)
+- routes:
+  - POST agentcoin.work/tx owner=false — вызов через submitSignedTx; владелец mainnet-node-1
+  - GET agentcoin.work/api/v1/txproof owner=false — вызов через checkConfirmation; владелец mainnet-node-1
+### cli [partial]
+- назначение: CLI-клиент: те же операции, что SDK/MCP, без своих состояний
+- env/host/process: shared / n/a (client) / node sdk/js/agentcoin-cli.mjs <команда>
+- версии: expected=0.3.0 observed=файл 2026-11-19
+- expected: {"semantics":"одна семантика с SDK/MCP; stdout ровно один JSON, диагностика stderr"}
+- observed: {"mutatingSet":"queue/order/monitor/settlement команды через SDK (код)"}
+- storage: n/a (+ --wallet файл у пользователя, не читался); network: neutral
+- dependsOn: sdk-js
+- check: --help + коды выхода (ok:false -> exit 1, args -> exit 2); секреты только из --wallet-файла; proof: sdk/js/agentcoin-cli.mjs (шапка v0.3, zero-deps); checkedAt=2026-11-19T00:00Z
+- evidence: sdk/js/agentcoin-cli.mjs
+- unknowns: Живой прогон CLI против прод — не выполнялся (запрет мутаций)
+- routes:
+  - POST agentcoin.work/tx owner=false — вызов через CLI settlement/order команды; владелец mainnet-node-1/settlement-gateway по команде
+### mcp [partial]
+- назначение: MCP-клиент для агентов: тот же набор операций SDK через stdio
+- env/host/process: shared / n/a (client stdio) / node mcp/agentcoin-mcp.mjs (stdout только протокол)
+- версии: expected=0.2 observed=файл 2026-11-19
+- expected: {"tools":"status/my_task/payments/events/offers_search — read-only; queue/order/monitor — destructive"}
+- observed: {"defaultNode":"AGENTCOIN_NODE по умолчанию 127.0.0.1:9333 (env) — стенд, не прод"}
+- storage: n/a; network: neutral
+- dependsOn: sdk-js
+- check: шапка v0.2 (stdio, zero-deps); мутирующие помечены destructive; живьём не вызывался; proof: mcp/agentcoin-mcp.mjs (шапка); checkedAt=2026-11-19T00:00Z
+- evidence: mcp/agentcoin-mcp.mjs
+- unknowns: Живой вызов MCP против прод — не выполнялся
+- routes:
+  - GET agentcoin.work/queue/status owner=false — вызов status/my_task; владелец mainnet-node-1/queue
+### api-gateway-pilot [unknown]
+- назначение: Офлайн-пилот ядра (НЕ прод-сервис): зафиксирован, чтобы не путать с прод-шлюзом
+- env/host/process: offline-pilot / n/a (offline) / class ApiGatewayPilot (no listener)
+- версии: expected=pilot v1 observed=—
+- expected: {"scope":"пилот ядра без сети; журнал v1 + lock; лимиты MAX_PRICE_UNITS"}
+- observed: {"prodUse":false}
+- storage: файловый журнал пилота (lock 0600); network: —
+- dependsOn: —
+- check: код api-gateway.mjs (offline pilot, no HTTP listener); вне прод-карты mainnet; proof: api-gateway.mjs (шапка offline) + docs/audit-network/SERVICES.csv (вне карты); checkedAt=2026-11-19T00:00Z
+- evidence: docs/audit-network/SERVICES.csv
+- unknowns: В прод-карту не входит; детали вне скоупа; network: неприменимо (честно); observedVersion: не снималась
+
+## 2. Дерево зависимостей
+- mainnet-node-1 -> caddy-h1, node-monitor
+- mainnet-node-2 -> caddy-reserve
+- mainnet-node-3 -> caddy-reserve
+- miner-stack -> mainnet-node-1
+- caddy-h1 -> mainnet-node-1, site-static, settlement-gateway
+- caddy-reserve -> mainnet-node-2, mainnet-node-3
+- site-static -> caddy-h1
+- web-next -> caddy-h1, mainnet-node-1
+- agent-room -> site-static, queue-orders-catalog, settlement-gateway
+- settlement-gateway -> mainnet-node-1
+- queue-orders-catalog -> mainnet-node-1
+- node-monitor -> mainnet-node-1
+- env-mainnet -> (none)
+- env-testnet -> (none)
+- env-jobtest -> (none)
+- env-staging -> (none)
+- sdk-js -> mainnet-node-1
+- cli -> sdk-js
+- mcp -> sdk-js
+- api-gateway-pilot -> (none)
+
+## 3. Владельцы маршрутов (только owner:true)
+- GET agentcoin.work/ — site-static
+- GET agentcoin.work/agent-room — agent-room
+- GET agentcoin.work/agent-room.json — agent-room
+- GET agentcoin.work/agent-state — queue-orders-catalog
+- GET agentcoin.work/api/v1/mempool — mainnet-node-1
+- GET agentcoin.work/api/v1/network/nodes — mainnet-node-1
+- GET agentcoin.work/api/v1/txproof — mainnet-node-1
+- GET agentcoin.work/blocks — mainnet-node-1
+- GET agentcoin.work/cabinet — site-static
+- GET agentcoin.work/capabilities — mainnet-node-1
+- GET agentcoin.work/catalog/offers — queue-orders-catalog
+- GET agentcoin.work/create-wallet — site-static
+- GET agentcoin.work/events — queue-orders-catalog
+- GET agentcoin.work/gov — web-next
+- GET agentcoin.work/headers — mainnet-node-1
+- GET agentcoin.work/health — mainnet-node-1
+- GET agentcoin.work/info — mainnet-node-1
+- GET agentcoin.work/jobs — web-next
+- GET agentcoin.work/life — mainnet-node-1
+- GET agentcoin.work/mainnet/info — settlement-gateway
+- GET agentcoin.work/mainnet/settlements — settlement-gateway
+- GET agentcoin.work/mempool — web-next
+- GET agentcoin.work/mine — web-next
+- GET agentcoin.work/network/nodes — mainnet-node-1
+- GET agentcoin.work/peers/meta — mainnet-node-1
+- GET agentcoin.work/queue/status — queue-orders-catalog
+- GET agentcoin.work/settlement — site-static
+- GET agentcoin.work/shield — web-next
+- GET agentcoin.work/site/release — mainnet-node-1
+- GET agentcoin.work/workspace — web-next
+- GET agentcoin.work/ws/status — mainnet-node-1
+- GET node2.agentcoin.work/blocks — mainnet-node-2
+- GET node2.agentcoin.work/health — mainnet-node-2
+- GET node2.agentcoin.work/info — mainnet-node-2
+- GET node2.agentcoin.work/ws/status — mainnet-node-2
+- GET node3.agentcoin.work/blocks — mainnet-node-3
+- GET node3.agentcoin.work/health — mainnet-node-3
+- GET node3.agentcoin.work/info — mainnet-node-3
+- GET node3.agentcoin.work/ws/status — mainnet-node-3
+- POST agentcoin.work/mainnet/obligations — settlement-gateway
+- POST agentcoin.work/mainnet/preview — settlement-gateway
+- POST agentcoin.work/mainnet/submit — settlement-gateway
+- POST agentcoin.work/orders/create — queue-orders-catalog
+- POST agentcoin.work/tx — mainnet-node-1
+
+## 4. Противоречия / частичное / неизвестное
+- mainnet-node-1 [partial]: Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса); Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25); Оператор: один владелец по имеющимся сведениям; независимых операторов нет
+- mainnet-node-2 [partial]: Версия загруженного процесса не установлена; Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено); Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)
+- mainnet-node-3 [partial]: Версия загруженного процесса не установлена; Одинаковость правил с H1 (C08); Оператор не установлен
+- miner-stack [partial]: Факт запуска на проде НЕ проверен (планировщики не опрашивались); Число независимых майнеров не установлено; Журнал выплат пула не проверен (код делит по долям); observedVersion: наблюдаемая версия расписаний не снималась
+- caddy-h1 [partial]: Дословный прод-Caddyfile H1 не снимался (V02); TLS-терминация: конфиг не читался; observedVersion: версия Caddy не снималась
+- caddy-reserve [partial]: Кем и когда сделано исключение /ws — не установлено (V02 §2); Оператор резервов не установлен; observedVersion: версии Caddy резервов не снимались
+- site-static [partial]: Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём; C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда
+- web-next [partial]: Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан; observedVersion: версия Next-билда не сверена; Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)
+- agent-room [partial]: Живая сверка всех room-действий с прод-API после C07 — по слову владельца
+- settlement-gateway [partial]: Юнит-файл и журнал живьём не снимались; Все POST /mainnet/* живьём не тестировались (запрет мутаций); Содержимое policy/journal не читалось (вне прохода)
+- queue-orders-catalog [partial]: Прод-файлы очереди/журналы не читались; Открытие прод-очередей — только после аудита каждого маршрута (limited)
+- env-mainnet [partial]: Накопленная chainWork числом не снята; Локальные политики резервов не наблюдаемы
+- env-testnet [unknown]: Живьём не запускалась и не опрашивалась в этом проходе; Генезис testnet числом не сверялся; observedVersion: наблюдаемая версия не снималась
+- env-jobtest [unknown]: DATA_DIR/порты/генезис живьём не проверены; storage: неизвестно (честно); observedVersion: не снималась
+- env-staging [unknown]: Прод-границы стенда vs mainnet — только по реестру; observedVersion: не снималась
+- sdk-js [partial]: Версия в прод-бандле не сверена (pin файла)
+- cli [partial]: Живой прогон CLI против прод — не выполнялся (запрет мутаций)
+- mcp [partial]: Живой вызов MCP против прод — не выполнялся
+- api-gateway-pilot [unknown]: В прод-карту не входит; детали вне скоупа; network: неприменимо (честно); observedVersion: не снималась
+
+## 5. Недостающие доказательства
+- mainnet-node-1: Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса); Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25); Оператор: один владелец по имеющимся сведениям; независимых операторов нет (evidence: E01, E02, E04, E05, E20, E23, E24, E25, docs/audit-network/evidence/E01-info.json, config/system-registry.json)
+- mainnet-node-2: Версия загруженного процесса не установлена; Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено); Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям) (evidence: E14, E16, E22, E23, E24, docs/audit-network/evidence/E14-ws-status-node2.json)
+- mainnet-node-3: Версия загруженного процесса не установлена; Одинаковость правил с H1 (C08); Оператор не установлен (evidence: E15, E17, E22, E23, E24, docs/audit-network/evidence/E15-ws-status-node3.json)
+- miner-stack: Факт запуска на проде НЕ проверен (планировщики не опрашивались); Число независимых майнеров не установлено; Журнал выплат пула не проверен (код делит по долям); observedVersion: наблюдаемая версия расписаний не снималась (evidence: F10, E02, E07, tools/miner-watchdog.mjs)
+- caddy-h1: Дословный прод-Caddyfile H1 не снимался (V02); TLS-терминация: конфиг не читался; observedVersion: версия Caddy не снималась (evidence: E19, E20, E21, docs/audit-network/ROUTES.csv)
+- caddy-reserve: Кем и когда сделано исключение /ws — не установлено (V02 §2); Оператор резервов не установлен; observedVersion: версии Caddy резервов не снимались (evidence: E16, E17, E22, E23, docs/audit-network/evidence/E22-reserves-caddy-dark.txt)
+- site-static: Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём; C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда (evidence: E19, F01, C04, site/tree.json, config/system-registry.json)
+- web-next: Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан; observedVersion: версия Next-билда не сверена; Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07) (evidence: E09, E19, F14, site/tree.json)
+- agent-room: Живая сверка всех room-действий с прод-API после C07 — по слову владельца (evidence: E19, F14, site/tree.json, config/action-registry.json)
+- settlement-gateway: Юнит-файл и журнал живьём не снимались; Все POST /mainnet/* живьём не тестировались (запрет мутаций); Содержимое policy/journal не читалось (вне прохода) (evidence: E11, F11, config/action-registry.json)
+- queue-orders-catalog: Прод-файлы очереди/журналы не читались; Открытие прод-очередей — только после аудита каждого маршрута (limited) (evidence: E10, F11, config/action-registry.json)
+- node-monitor: Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07) (evidence: E04, F06, F14, test/node-monitor.mjs)
+- env-mainnet: Накопленная chainWork числом не снята; Локальные политики резервов не наблюдаемы (evidence: E01, E04, E08, E24, docs/audit-network/NODES.csv)
+- env-testnet: Живьём не запускалась и не опрашивалась в этом проходе; Генезис testnet числом не сверялся; observedVersion: наблюдаемая версия не снималась (evidence: tools/testnet.mjs)
+- env-jobtest: DATA_DIR/порты/генезис живьём не проверены; storage: неизвестно (честно); observedVersion: не снималась (evidence: docs/audit-network/SERVICES.csv)
+- env-staging: Прод-границы стенда vs mainnet — только по реестру; observedVersion: не снималась (evidence: config/system-registry.json, config/action-registry.json)
+- sdk-js: Версия в прод-бандле не сверена (pin файла) (evidence: F09, F13, sdk/js/agentcoin-sdk.mjs)
+- cli: Живой прогон CLI против прод — не выполнялся (запрет мутаций) (evidence: sdk/js/agentcoin-cli.mjs)
+- mcp: Живой вызов MCP против прод — не выполнялся (evidence: mcp/agentcoin-mcp.mjs)
+- api-gateway-pilot: В прод-карту не входит; детали вне скоупа; network: неприменимо (честно); observedVersion: не снималась (evidence: docs/audit-network/SERVICES.csv)

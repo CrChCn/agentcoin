@@ -65,6 +65,7 @@
         "type": "object",
         "required": [
           "componentId",
+          "kind",
           "purpose",
           "env",
           "host",
@@ -85,6 +86,24 @@
           "componentId": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "blockchain-node",
+              "miner",
+              "proxy",
+              "static-site",
+              "app",
+              "gateway",
+              "queue",
+              "monitor",
+              "env",
+              "sdk",
+              "cli",
+              "mcp",
+              "pilot"
+            ]
           },
           "purpose": {
             "type": "string",
@@ -219,6 +238,65 @@
               "checkedAt": {
                 "type": "string",
                 "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z$"
+              }
+            }
+          },
+          "observe": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ssh": {
+                "type": "object",
+                "required": [
+                  "host"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "user": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "port": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "localBase": {
+                "type": "string",
+                "minLength": 1
+              },
+              "localEndpoints": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "units": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "listenPorts": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "publicBase": {
+                "type": "string",
+                "minLength": 1
               }
             }
           },

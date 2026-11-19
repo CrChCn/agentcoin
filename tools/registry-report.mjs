@@ -23,6 +23,7 @@ for (const c of reg.components) {
   L.push(`- expected: ${JSON.stringify(c.expected)}`);
   L.push(`- observed: ${JSON.stringify(c.observed)}`);
   L.push(`- storage: ${c.storage ?? '—'}; network: ${c.network ?? '—'}`);
+  if (c.observe) L.push(`- observe: ${JSON.stringify(c.observe)}`);
   L.push(`- dependsOn: ${(c.dependsOn || []).join(', ') || '—'}`);
   L.push(`- check: ${c.checkMethod}; proof: ${c.proofSource}; checkedAt=${v.checkedAt}`);
   L.push(`- evidence: ${(v.evidence || []).join(', ') || '—'}`);

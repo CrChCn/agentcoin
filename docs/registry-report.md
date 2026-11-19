@@ -1,6 +1,6 @@
 # Единый реестр Agentcoin — отчёт (generated)
 
-- registry: 2, updatedAt=2026-11-19T18:00Z, chain=AGENTCOIN/00026d18…
+- registry: 2, updatedAt=2026-11-19T22:00Z, chain=AGENTCOIN/00026d18…
 - sources: system=config/system-registry.json v1 (11 компонентов-источников, статусы implemented/limited/published) actions=config/action-registry.json (11 действий settle/room/route) tree=site/tree.json (canon / = imperial.html; /wallet -> /cabinet; /index -> /)
 
 ## 1. Компоненты (ожидаемое vs наблюдаемое)
@@ -11,8 +11,9 @@
 - expected: {"role":"writer-hub","serves":"agentcoin.work -> 127.0.0.1:9335"}
 - observed: {"chainValid":true,"height":50053,"loadedReleaseId":null,"tip":"005f7bf1 (E24, 09:33Z); внешнее окно: 50043/00480c09 (E04)","uptime":"pid 96843, старт 18.11 23:39Z, user root (E20)","validationMode":"compatibility (E25)"}
 - storage: /opt/agentcoin-node/data (своя chain.json/mempool.json/peers.json; файлы не читались, E21); network: AGENTCOIN/00026d18b9188e4e
+- observe: {"ssh":{"host":"2.31.145.160","user":"root","port":22},"localBase":"http://127.0.0.1:9335","localEndpoints":["/info","/health","/life","/ws/status","/capabilities","/network/nodes"],"units":["agentcoin-node.service"],"files":["/opt/agentcoin-node/src/node.mjs","/opt/agentcoin-node/src/core.mjs","/opt/agentcoin-node/src/sync.mjs","/opt/agentcoin-node/src/ws.mjs"],"listenPorts":[9335,80,443],"publicBase":"https://agentcoin.work"}
 - dependsOn: caddy-h1, node-monitor
-- check: GET /info /life /health /blocks /headers (E01/E02/E04/E07/E08) + SSH read-only E20/E21 (systemctl/ss/ps/sha256, без секретов); proof: E01/E02/E04/E05/E06/E07/E08 + E20/E21/E23/E24/E25; audit19 evidence/chain-consistency.txt, source-snapshots/h1, config-redacted/h1.txt; checkedAt=2026-11-19T18:00Z
+- check: GET /info /life /health /blocks /headers (E01/E02/E04/E07/E08) + SSH read-only E20/E21 (systemctl/ss/ps/sha256, без секретов); proof: E01/E02/E04/E05/E06/E07/E08 + E20/E21/E23/E24/E25; audit19 evidence/chain-consistency.txt, source-snapshots/h1, config-redacted/h1.txt; checkedAt=2026-11-19T22:00Z
 - evidence: E01, E02, E04, E05, E20, E23, E24, E25, docs/audit-network/evidence/E01-info.json, config/system-registry.json
 - unknowns: Версия загруженного процесса не установлена (путь/SHA файла ≠ доказанная версия процесса); Полный набор строгих правил на всех высотах (compatibility покрывает связность+PoW, E25); Оператор: один владелец по имеющимся сведениям; независимых операторов нет; Параметры активации консенсусных правил (высоты включения) неизвестны и отделены от depth6/fee0 и PoW-наблюдения
 - chain: {"activationParams":"chain: depth6/fee0 (канон F02/корень); PoW-наблюдение: difficultyBits 9 при shareDiff 12 на ~50043 (E01/F10) — не параметры активации; activation heights/versions: неизвестны (см. unknowns); validation: compatibility strict-только-на-приёме (E25)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с /headers+/blocks + sync по событиям (sync.mjs:191/484); WS-сессий 0 (E05) — inv-gossip молчит, догон таймером"}
@@ -41,8 +42,9 @@
 - expected: {"role":"reading-mirror-dark"}
 - observed: {"chainLocal":"50052 tip 00127a17 (E24) — на 1 блок ниже H1 на момент среза","loadedReleaseId":null,"uptime":"pid 349882, uptime 17д, user root (E24)","viaMonitor":"responding в E04 — но это данные node1 через петлю (E23), не локальная синхронность"}
 - storage: /opt/agentcoin-node/data на SRV-H2 (своя chain.json 50052; E24); network: AGENTCOIN/00026d18b9188e4e
+- observe: {"ssh":{"host":"91.99.191.236","user":"root","port":22},"localBase":"http://127.0.0.1:9335","localEndpoints":["/info","/health","/ws/status"],"units":["agentcoin-node.service"],"files":["/opt/agentcoin-node/src/node.mjs","/opt/agentcoin-node/src/core.mjs","/opt/agentcoin-node/src/sync.mjs","/opt/agentcoin-node/src/ws.mjs"],"listenPorts":[9335,80,443],"publicBase":"https://node2.agentcoin.work"}
 - dependsOn: caddy-reserve
-- check: GET /ws/status (E14) + прямые /health /info /blocks 403 (E16) + SSH read-only E22/E24 (процессы/chain.json/sha, без секретов); proof: E14/E16 + E22/E23/E24; audit19 source-snapshots/node2, config-redacted/node2.txt, diffs/node-h1-node2-full.diff; checkedAt=2026-11-19T18:00Z
+- check: GET /ws/status (E14) + прямые /health /info /blocks 403 (E16) + SSH read-only E22/E24 (процессы/chain.json/sha, без секретов); proof: E14/E16 + E22/E23/E24; audit19 source-snapshots/node2, config-redacted/node2.txt, diffs/node-h1-node2-full.diff; checkedAt=2026-11-19T22:00Z
 - evidence: E14, E16, E22, E23, E24, docs/audit-network/evidence/E14-ws-status-node2.json
 - unknowns: Версия загруженного процесса не установлена; Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено); Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)
 - chain: {"activationParams":"файлы node aed5a948/core bed82d3e ≠ H1 (C08) — одинаковость правил НЕ доказана","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с с главной (E24: node2 50052 tip 00127a17 догоняет); WS 0"}
@@ -58,8 +60,9 @@
 - expected: {"role":"reading-mirror-dark"}
 - observed: {"chainLocal":"50053 tip 005f7bf1 = tip H1 (E24)","loadedReleaseId":null,"uptime":"pid 125851, uptime 17д, user root (E24)"}
 - storage: своя DATA_DIR на SRV-DO (chain.json 50053; E24); network: AGENTCOIN/00026d18b9188e4e
+- observe: {"ssh":{"host":"64.225.104.125","user":"root","port":22},"localBase":"http://127.0.0.1:9335","localEndpoints":["/info","/health","/ws/status"],"units":["agentcoin-node.service"],"files":["/opt/agentcoin-node/src/node.mjs","/opt/agentcoin-node/src/core.mjs","/opt/agentcoin-node/src/sync.mjs","/opt/agentcoin-node/src/ws.mjs"],"listenPorts":[9335,80,443],"publicBase":"https://node3.agentcoin.work"}
 - dependsOn: caddy-reserve
-- check: GET /ws/status (E15) + прямые 403 (E17) + SSH read-only E22/E24; proof: E15/E17 + E22/E23/E24; audit19 source-snapshots/node3, config-redacted/node3.txt; checkedAt=2026-11-19T18:00Z
+- check: GET /ws/status (E15) + прямые 403 (E17) + SSH read-only E22/E24; proof: E15/E17 + E22/E23/E24; audit19 source-snapshots/node3, config-redacted/node3.txt; checkedAt=2026-11-19T22:00Z
 - evidence: E15, E17, E22, E23, E24, docs/audit-network/evidence/E15-ws-status-node3.json
 - unknowns: Версия загруженного процесса не установлена; Одинаковость правил с H1 (C08); Оператор не установлен
 - chain: {"activationParams":"файлы = node2 (aed5a948/bed82d3e) ≠ H1 (C08)","chainId":"AGENTCOIN","genesis":"00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e","syncSource":"HTTP syncAll 90с (E24: node3 50053 tip 005f7bf1 = tip H1 — вровень)"}
@@ -76,7 +79,7 @@
 - observed: {"units":"agentcoin-miner.service active, agentcoin-heartbeat.timer active (E20) — активность юнитов наблюдалась","chainEffect":"блоки ~30с (E04/E24 дрейф высот); difficultyBits 9 при shareDiff 12 (E01/F10) — наблюдение PoW на срезе, не параметры активации","txs":"образец heartbeat 0.001 + coinbase (E07)","launchProven":false}
 - storage: chain.json (запись блоков) + data/autominer/health-log.csv + data/miner-watchdog.log (содержимое не читалось); network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: mainnet-node-1
-- check: код auto-miner.mjs/miner-client.mjs/tools/miner-watchdog.mjs + E02 tipAgeSec/fresh; планировщики cron/AGTAutoMiner — по коду/docs, живьём не опрашивались; proof: E02/E07 + auto-miner.mjs:60s tick + miner-client headers-only + tools/miner-watchdog.mjs; contradiction C05 зафиксирован; checkedAt=2026-11-19T18:00Z
+- check: код auto-miner.mjs/miner-client.mjs/tools/miner-watchdog.mjs + E02 tipAgeSec/fresh; планировщики cron/AGTAutoMiner — по коду/docs, живьём не опрашивались; proof: E02/E07 + auto-miner.mjs:60s tick + miner-client headers-only + tools/miner-watchdog.mjs; contradiction C05 зафиксирован; checkedAt=2026-11-19T22:00Z
 - evidence: F10, E02, E07, tools/miner-watchdog.mjs
 - unknowns: Успешная добыча именно процессом agentcoin-miner.service не доказана (активность юнита ≠ доказанная добыча); Число независимых майнеров неизвестно; Журнал выплат пула не проверен (код делит по долям); Параметры активации консенсусных правил (высоты/версии включения) неизвестны и отделены от depth6/fee0 и от PoW-наблюдения shareDiff12/difficulty9; observedVersion: наблюдаемая версия расписаний не снималась
 - routes:
@@ -90,7 +93,7 @@
 - observed: {"defaults":"дефолт agentcoin.work ведёт на node1/127.0.0.1:9335 (память проекта; конфиг не читался)","exposed":"порты 9335/18745 loopback, 80/443 наружу (E20)"}
 - storage: static bundle (/srv/agentcoin-empire/current по памяти; release null E12) + Caddyfile /etc/caddy (690 строк); network: neutral
 - dependsOn: mainnet-node-1, site-static, settlement-gateway
-- check: E19 sweep (коды+CT) + E01/E02/E05 отвечают через Caddy; сам Caddyfile H1 (690 строк, E21) — состав известен, дословное правило не снималось; proof: E01/E02/E05/E11/E19 живьём через Caddy + E20/E21 (unit/порты/upstream-память); checkedAt=2026-11-19T09:33Z
+- check: E19 sweep (коды+CT) + E01/E02/E05 отвечают через Caddy; сам Caddyfile H1 (690 строк, E21) — состав известен, дословное правило не снималось; proof: E01/E02/E05/E11/E19 живьём через Caddy + E20/E21 (unit/порты/upstream-память); checkedAt=2026-11-19T22:00Z
 - evidence: E19, E20, E21, docs/audit-network/ROUTES.csv
 - unknowns: Дословный прод-Caddyfile H1 не снимался (V02); TLS-терминация: конфиг не читался; observedVersion: версия Caddy не снималась
 - routes:
@@ -105,7 +108,7 @@
 - observed: {"darkDefault":"остальное — respond 403 reserve node: dark (E16/E17/E22)","loop":"монитор node1 с allowlisted-IP получает данные node1 (E23)"}
 - storage: Caddyfile резервов (/etc/caddy) + локальные bundle не требуются; network: neutral
 - dependsOn: mainnet-node-2, mainnet-node-3
-- check: дословные Caddy-файлы резервов (E22) + живьём /ws/status 200 vs прямых 403 + петля E23; proof: E14/E15/E16/E17 + E22 дословно + E23/E24; checkedAt=2026-11-19T09:33Z
+- check: дословные Caddy-файлы резервов (E22) + живьём /ws/status 200 vs прямых 403 + петля E23; proof: E14/E15/E16/E17 + E22 дословно + E23/E24; checkedAt=2026-11-19T22:00Z
 - evidence: E16, E17, E22, E23, docs/audit-network/evidence/E22-reserves-caddy-dark.txt
 - unknowns: Кем и когда сделано исключение /ws — не установлено (V02 §2); Оператор резервов не установлен; observedVersion: версии Caddy резервов не снимались
 - routes:
@@ -121,7 +124,7 @@
 - observed: {"e19":"/ /agent-room /cabinet /settlement 200; /workspace 200 (оболочка); /ecosphere/ 404 (C04); /peers/bootstrap /gateway/list 404","ecosphereGap":"/ecosphere/ и /ecosphere/index.html 404 при implemented в старом реестре — противоречие C04"}
 - storage: static bundle + site/release.json (E12); network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: caddy-h1
-- check: E19 sweep + site/tree.json + site-release.mjs/release.json; 200 с чужим экраном = дефект маршрутизации; proof: E19 + site/tree.json + config/system-registry.json#site-static + C04; checkedAt=2026-11-19T18:00Z
+- check: E19 sweep + site/tree.json + site-release.mjs/release.json; 200 с чужим экраном = дефект маршрутизации; proof: E19 + site/tree.json + config/system-registry.json#site-static + C04; checkedAt=2026-11-19T22:00Z
 - evidence: E19, F01, C04, site/tree.json, config/system-registry.json
 - unknowns: Порядок Caddy static vs Next catch-all для /mine /gov /jobs /mbc20 /docs /shield — не доказан живьём; C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда; /settlement: живой маршрут static v0.3 (E19) отсутствует в site/tree.json — навигационный пробел, navIds честно не заявляет
 - routes:
@@ -143,7 +146,7 @@
 - observed: {"bareApi":"/mempool bare -> HTML (не цепь); /mine GET -> HTML (POST — админ ноды, не тестировался)","orderRisk":"catch-all может отдавать HTML на API — SDK помечает route_not_allowlisted"}
 - storage: Next build bundle; network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: caddy-h1, mainnet-node-1
-- check: E19 (/workspace 200 оболочка; голый /mempool HTML) + web/app/*/page.jsx; POST /mine и /api/v1/tx живьём не тестировались (запрет мутаций); proof: E09/E19 + sdk/js/mainnet-node-api.mjs:9 + web/app/shield/page.jsx; checkedAt=2026-11-19T09:24Z
+- check: E19 (/workspace 200 оболочка; голый /mempool HTML) + web/app/*/page.jsx; POST /mine и /api/v1/tx живьём не тестировались (запрет мутаций); proof: E09/E19 + sdk/js/mainnet-node-api.mjs:9 + web/app/shield/page.jsx; checkedAt=2026-11-19T22:00Z
 - evidence: E09, E19, F14, site/tree.json
 - unknowns: Порядок static vs catch-all для /gov /jobs /mine /docs /shield — не доказан; observedVersion: версия Next-билда не сверена; Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)
 - routes:
@@ -162,7 +165,7 @@
 - observed: {"secondQueue":"второй очереди/рынка нет — только существующие API","sections":"7 разделов + первая инструкция без JS"}
 - storage: static bundle; network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: site-static, queue-orders-catalog, settlement-gateway
-- check: без JS: разделы 1-7 читаются; JSON валиден; API из реестра существуют; /agent-room 200 text/html (E19); proof: E19 + site/agent-room.html + site/agent-room.json + config/action-registry.json; checkedAt=2026-11-19T09:24Z
+- check: без JS: разделы 1-7 читаются; JSON валиден; API из реестра существуют; /agent-room 200 text/html (E19); proof: E19 + site/agent-room.html + site/agent-room.json + config/action-registry.json; checkedAt=2026-11-19T22:00Z
 - evidence: E19, F14, site/tree.json, config/action-registry.json
 - unknowns: Живая сверка всех room-действий с прод-API после C07 — по слову владельца
 - routes:
@@ -176,7 +179,7 @@
 - observed: {"info":"/mainnet/info 200 chainId+genesis+infoBlocks (E11)","untested":"preview/obligations/submit/settlements — код + тесты, живьём не вызывались"}
 - storage: .settlement-gateway/mainnet-settlements.json + settlement-policy.json (не читались — секреты/политика вне прохода); network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: mainnet-node-1
-- check: GET /version + GET /mainnet/info 200 (E11); остальные /mainnet/* живьём не тестировались (мутации/деньги запрещены); proof: E11 + sdk/js/mainnet-server.mjs + sdk/js/mainnet-settlement.mjs + test/mainnet-settlement.mjs (память); checkedAt=2026-11-19T18:00Z
+- check: GET /version + GET /mainnet/info 200 (E11); остальные /mainnet/* живьём не тестировались (мутации/деньги запрещены); proof: E11 + sdk/js/mainnet-server.mjs + sdk/js/mainnet-settlement.mjs + test/mainnet-settlement.mjs (память); checkedAt=2026-11-19T22:00Z
 - evidence: E11, F11, config/action-registry.json
 - unknowns: Юнит-файл и журнал живьём не снимались; Все POST /mainnet/* живьём не тестировались (запрет мутаций); Содержимое policy/journal не читалось (вне прохода); /settlement: путь живьём (E19) отсутствует в site/tree.json — navIds оставлен пустым, связь только через routes
 - routes:
@@ -193,7 +196,7 @@
 - observed: {"live":"E10 waiting 5 onDuty 5 (прикладное состояние, не цепь)","sameProcess":"несколько функций очереди живут внутри процесса ноды — не отдельный сервис"}
 - storage: локальный JSON store стенда; прод — серверное состояние (файлы не читались); network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: mainnet-node-1
-- check: E10 waiting 5 + legacy POST /queue/join -> 410 (код) + sconfirm/tick правила (код); прод-файлы очереди не читались; proof: E10 + queue.mjs + queue-auth.mjs + sdk/js/stand-server.mjs; checkedAt=2026-11-19T09:24Z
+- check: E10 waiting 5 + legacy POST /queue/join -> 410 (код) + sconfirm/tick правила (код); прод-файлы очереди не читались; proof: E10 + queue.mjs + queue-auth.mjs + sdk/js/stand-server.mjs; checkedAt=2026-11-19T22:00Z
 - evidence: E10, F11, config/action-registry.json
 - unknowns: Прод-файлы очереди/журналы не читались; Открытие прод-очередей — только после аудита каждого маршрута (limited)
 - routes:
@@ -209,8 +212,9 @@
 - expected: {"rule":"только операторские цели; посетитель URL не задаёт; TTL 10с; stale tipAgeSec>300/unreachable/invalid/lower"}
 - observed: {"apiResponse":"E04 /network/nodes 3/3 responding наблюдался (E04) — подтверждено этим evidence","loopEffect":"записи node2/3 = данные node1 (E23) — монитор доказывает жив Caddy резервов + жив node1, не синхронность резервов","tests":"test/node-monitor.mjs 4/4 pass — результат интерпретирован по памяти прохода, сам файл приложен но живой прогон в пакете не воспроизведён"}
 - storage: monitor-targets.json (имена захардкожены; E21); network: neutral
+- observe: {"publicBase":"https://agentcoin.work"}
 - dependsOn: mainnet-node-1
-- check: код node-monitor.mjs (49 строк) + файл test/node-monitor.mjs (приложен, живой прогон не воспроизводился) + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07; proof: E04/E06/E23 + node-monitor.mjs + site/cabinet.html + web/app/shield/page.jsx; checkedAt=2026-11-19T18:00Z
+- check: код node-monitor.mjs (49 строк) + файл test/node-monitor.mjs (приложен, живой прогон не воспроизводился) + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07; proof: E04/E06/E23 + node-monitor.mjs + site/cabinet.html + web/app/shield/page.jsx; checkedAt=2026-11-19T22:00Z
 - evidence: E04, F06, F14, test/node-monitor.mjs
 - unknowns: Корректность реализации всех отображений (cabinet #nodes3, shield) — не доказана: E04 подтверждает только ответ API, не код рендера; Живой прогон test/node-monitor.mjs в этом пакете не выполнялся (файл приложен как артефакт, не как воспроизведённый прогон); Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)
 - routes:
@@ -223,7 +227,7 @@
 - observed: {"height":"50043 tip 00480c09 (E04 09:23Z); H1 50053/node3 50053/node2 50052 (E24 09:33Z)","ports":"9335 (рядом testnet 19335/19443, job-test 19336/19444 — по памяти, живьём не опрашивались)"}
 - storage: три отдельных DATA_DIR (E24); network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: —
-- check: пин chainId+genesis (E01/E08) + высоты/tip (E04/E07/E24) + глубина 6 единиц (код/доки); proof: E01/E04/E07/E08/E24 + chain-consistency (audit19 evidence); checkedAt=2026-11-19T09:33Z
+- check: пин chainId+genesis (E01/E08) + высоты/tip (E04/E07/E24) + глубина 6 единиц (код/доки); proof: E01/E04/E07/E08/E24 + chain-consistency (audit19 evidence); checkedAt=2026-11-19T22:00Z
 - evidence: E01, E04, E08, E24, docs/audit-network/NODES.csv
 - unknowns: Накопленная chainWork числом не снята; Локальные политики резервов не наблюдаемы
 ### env-testnet [unknown]
@@ -234,7 +238,7 @@
 - observed: {"liveProven":false}
 - storage: testnet/data + testnet/bootstrap.json (локально); network: AGT_TESTNET/00022668
 - dependsOn: —
-- check: код tools/testnet.mjs (AGT_CHAIN_ID=AGT_TESTNET, свой DATA_DIR/порты/bootstrap); живьём не запускался и не опрашивался; proof: tools/testnet.mjs (код) — прод-доступ не использовался; checkedAt=2026-11-19T00:00Z
+- check: код tools/testnet.mjs (AGT_CHAIN_ID=AGT_TESTNET, свой DATA_DIR/порты/bootstrap); живьём не запускался и не опрашивался; proof: tools/testnet.mjs (код) — прод-доступ не использовался; checkedAt=2026-11-19T22:00Z
 - evidence: tools/testnet.mjs
 - unknowns: Живьём не запускалась и не опрашивалась в этом проходе; Генезис testnet числом не сверялся; observedVersion: наблюдаемая версия не снималась
 ### env-jobtest [unknown]
@@ -245,7 +249,7 @@
 - observed: {"liveProven":false}
 - storage: —; network: AGT_JOBTEST/0001b918
 - dependsOn: —
-- check: код/память проекта (порты 19336/19444); живьём не опрашивались, вне скоупа mainnet-карты; proof: docs/audit-network/SERVICES.csv (row testnet/job-test) — без прод-опроса; checkedAt=2026-11-19T00:00Z
+- check: код/память проекта (порты 19336/19444); живьём не опрашивались, вне скоупа mainnet-карты; proof: docs/audit-network/SERVICES.csv (row testnet/job-test) — без прод-опроса; checkedAt=2026-11-19T22:00Z
 - evidence: docs/audit-network/SERVICES.csv
 - unknowns: DATA_DIR/порты/генезис живьём не проверены; storage: неизвестно (честно); observedVersion: не снималась
 ### env-staging [unknown]
@@ -256,7 +260,7 @@
 - observed: {"rule":"127.0.0.1:18743 — локальный стенд, не опубликован"}
 - storage: локальный JSON store стенда; network: AGENTCOIN/00026d18b9188e4e
 - dependsOn: —
-- check: реестр + стенд-порты (127.0.0.1:18743 — стенд, не прод); прод-опросы стенда не проводились; proof: config/system-registry.json + config/action-registry.json (без прод-доступа); checkedAt=2026-11-19T00:00Z
+- check: реестр + стенд-порты (127.0.0.1:18743 — стенд, не прод); прод-опросы стенда не проводились; proof: config/system-registry.json + config/action-registry.json (без прод-доступа); checkedAt=2026-11-19T22:00Z
 - evidence: config/system-registry.json, config/action-registry.json
 - unknowns: Прод-границы стенда vs mainnet — только по реестру; observedVersion: не снималась
 ### sdk-js [partial]
@@ -267,7 +271,7 @@
 - observed: {"compat":"netEvidence, submitSignedTx (проверка до сети), checkConfirmation (пруф+тело+глубина 6)"}
 - storage: n/a (stateless); network: neutral
 - dependsOn: mainnet-node-1
-- check: node --check + unit money (знаки/round-trip) + test/mainnet-node-api.mjs (память); не-JSON -> fail-closed; proof: sdk/js/mainnet-node-api.mjs + sdk/js/money.mjs + config/action-registry.json; checkedAt=2026-11-19T09:24Z
+- check: node --check + unit money (знаки/round-trip) + test/mainnet-node-api.mjs (память); не-JSON -> fail-closed; proof: sdk/js/mainnet-node-api.mjs + sdk/js/money.mjs + config/action-registry.json; checkedAt=2026-11-19T22:00Z
 - evidence: F09, F13, sdk/js/agentcoin-sdk.mjs
 - unknowns: Версия в прод-бандле не сверена (pin файла)
 - routes:
@@ -281,7 +285,7 @@
 - observed: {"mutatingSet":"queue/order/monitor/settlement команды через SDK (код)"}
 - storage: n/a (+ --wallet файл у пользователя, не читался); network: neutral
 - dependsOn: sdk-js
-- check: --help + коды выхода (ok:false -> exit 1, args -> exit 2); секреты только из --wallet-файла; proof: sdk/js/agentcoin-cli.mjs (шапка v0.3, zero-deps); checkedAt=2026-11-19T00:00Z
+- check: --help + коды выхода (ok:false -> exit 1, args -> exit 2); секреты только из --wallet-файла; proof: sdk/js/agentcoin-cli.mjs (шапка v0.3, zero-deps); checkedAt=2026-11-19T22:00Z
 - evidence: sdk/js/agentcoin-cli.mjs
 - unknowns: Живой прогон CLI против прод — не выполнялся (запрет мутаций)
 - routes:
@@ -294,7 +298,7 @@
 - observed: {"defaultNode":"AGENTCOIN_NODE по умолчанию 127.0.0.1:9333 (env) — стенд, не прод"}
 - storage: n/a; network: neutral
 - dependsOn: sdk-js
-- check: шапка v0.2 (stdio, zero-deps); мутирующие помечены destructive; живьём не вызывался; proof: mcp/agentcoin-mcp.mjs (шапка); checkedAt=2026-11-19T00:00Z
+- check: шапка v0.2 (stdio, zero-deps); мутирующие помечены destructive; живьём не вызывался; proof: mcp/agentcoin-mcp.mjs (шапка); checkedAt=2026-11-19T22:00Z
 - evidence: mcp/agentcoin-mcp.mjs
 - unknowns: Живой вызов MCP против прод — не выполнялся
 - routes:
@@ -307,7 +311,7 @@
 - observed: {"prodUse":false}
 - storage: файловый журнал пилота (lock 0600); network: —
 - dependsOn: —
-- check: код api-gateway.mjs (offline pilot, no HTTP listener); вне прод-карты mainnet; proof: api-gateway.mjs (шапка offline) + docs/audit-network/SERVICES.csv (вне карты); checkedAt=2026-11-19T00:00Z
+- check: код api-gateway.mjs (offline pilot, no HTTP listener); вне прод-карты mainnet; proof: api-gateway.mjs (шапка offline) + docs/audit-network/SERVICES.csv (вне карты); checkedAt=2026-11-19T22:00Z
 - evidence: docs/audit-network/SERVICES.csv
 - unknowns: В прод-карту не входит; детали вне скоупа; network: неприменимо (честно); observedVersion: не снималась
 

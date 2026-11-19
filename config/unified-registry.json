@@ -27,6 +27,15 @@
       },
       "expectedVersion": "a5bd038(H1: fb81f609/0e286f00; sync отличается)",
       "host": "SRV-H1 2.31.145.160 (agentcoin.work + node1.agentcoin.work)",
+      "observe": {
+        "ssh": { "host": "2.31.145.160", "user": "root", "port": 22 },
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": ["/info", "/health", "/life", "/ws/status", "/capabilities", "/network/nodes"],
+        "units": ["agentcoin-node.service"],
+        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
+        "listenPorts": [9335, 80, 443],
+        "publicBase": "https://agentcoin.work"
+      },
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
       "observed": {
@@ -174,7 +183,7 @@
       ],
       "storage": "/opt/agentcoin-node/data (своя chain.json/mempool.json/peers.json; файлы не читались, E21)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E01",
           "E02",
@@ -194,7 +203,8 @@
           "Оператор: один владелец по имеющимся сведениям; независимых операторов нет",
           "Параметры активации консенсусных правил (высоты включения) неизвестны и отделены от depth6/fee0 и PoW-наблюдения"
         ]
-      }
+      },
+      "kind": "blockchain-node"
     },
     {
       "actionIds": [],
@@ -215,6 +225,15 @@
       },
       "expectedVersion": "aed5a948(node)/bed82d3e(core) файлы (E24); sync abbad0f2, ws 6571c2ee везде",
       "host": "SRV-H2 91.99.191.236 (node2.agentcoin.work)",
+      "observe": {
+        "ssh": { "host": "91.99.191.236", "user": "root", "port": 22 },
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": ["/info", "/health", "/ws/status"],
+        "units": ["agentcoin-node.service"],
+        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
+        "listenPorts": [9335, 80, 443],
+        "publicBase": "https://node2.agentcoin.work"
+      },
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
       "observed": {
@@ -266,7 +285,7 @@
       ],
       "storage": "/opt/agentcoin-node/data на SRV-H2 (своя chain.json 50052; E24)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E14",
           "E16",
@@ -281,7 +300,8 @@
           "Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено)",
           "Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)"
         ]
-      }
+      },
+      "kind": "blockchain-node"
     },
     {
       "actionIds": [],
@@ -302,6 +322,15 @@
       },
       "expectedVersion": "= node2 файлам (E24); sync/ws совпадают везде",
       "host": "SRV-DO 64.225.104.125 (node3.agentcoin.work)",
+      "observe": {
+        "ssh": { "host": "64.225.104.125", "user": "root", "port": 22 },
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": ["/info", "/health", "/ws/status"],
+        "units": ["agentcoin-node.service"],
+        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
+        "listenPorts": [9335, 80, 443],
+        "publicBase": "https://node3.agentcoin.work"
+      },
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
       "observed": {
@@ -351,7 +380,7 @@
       ],
       "storage": "своя DATA_DIR на SRV-DO (chain.json 50053; E24)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E15",
           "E17",
@@ -366,7 +395,8 @@
           "Одинаковость правил с H1 (C08)",
           "Оператор не установлен"
         ]
-      }
+      },
+      "kind": "blockchain-node"
     },
     {
       "actionIds": [],
@@ -419,7 +449,7 @@
       ],
       "storage": "chain.json (запись блоков) + data/autominer/health-log.csv + data/miner-watchdog.log (содержимое не читалось)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "F10",
           "E02",
@@ -434,7 +464,8 @@
           "Параметры активации консенсусных правил (высоты/версии включения) неизвестны и отделены от depth6/fee0 и от PoW-наблюдения shareDiff12/difficulty9",
           "observedVersion: наблюдаемая версия расписаний не снималась"
         ]
-      }
+      },
+      "kind": "miner"
     },
     {
       "actionIds": [
@@ -493,7 +524,7 @@
       ],
       "storage": "static bundle (/srv/agentcoin-empire/current по памяти; release null E12) + Caddyfile /etc/caddy (690 строк)",
       "verification": {
-        "checkedAt": "2026-11-19T09:33Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E19",
           "E20",
@@ -506,7 +537,8 @@
           "TLS-терминация: конфиг не читался",
           "observedVersion: версия Caddy не снималась"
         ]
-      }
+      },
+      "kind": "proxy"
     },
     {
       "actionIds": [],
@@ -569,7 +601,7 @@
       ],
       "storage": "Caddyfile резервов (/etc/caddy) + локальные bundle не требуются",
       "verification": {
-        "checkedAt": "2026-11-19T09:33Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E16",
           "E17",
@@ -583,7 +615,8 @@
           "Оператор резервов не установлен",
           "observedVersion: версии Caddy резервов не снимались"
         ]
-      }
+      },
+      "kind": "proxy"
     },
     {
       "actionIds": [
@@ -712,7 +745,7 @@
       ],
       "storage": "static bundle + site/release.json (E12)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E19",
           "F01",
@@ -726,7 +759,8 @@
           "C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда",
           "/settlement: живой маршрут static v0.3 (E19) отсутствует в site/tree.json — навигационный пробел, navIds честно не заявляет"
         ]
-      }
+      },
+      "kind": "static-site"
     },
     {
       "actionIds": [],
@@ -812,7 +846,7 @@
       ],
       "storage": "Next build bundle",
       "verification": {
-        "checkedAt": "2026-11-19T09:24Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E09",
           "E19",
@@ -825,7 +859,8 @@
           "observedVersion: версия Next-билда не сверена",
           "Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)"
         ]
-      }
+      },
+      "kind": "app"
     },
     {
       "actionIds": [
@@ -887,7 +922,7 @@
       ],
       "storage": "static bundle",
       "verification": {
-        "checkedAt": "2026-11-19T09:24Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E19",
           "F14",
@@ -898,7 +933,8 @@
         "unknowns": [
           "Живая сверка всех room-действий с прод-API после C07 — по слову владельца"
         ]
-      }
+      },
+      "kind": "app"
     },
     {
       "actionIds": [
@@ -974,7 +1010,7 @@
       ],
       "storage": ".settlement-gateway/mainnet-settlements.json + settlement-policy.json (не читались — секреты/политика вне прохода)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E11",
           "F11",
@@ -987,7 +1023,8 @@
           "Содержимое policy/journal не читалось (вне прохода)",
           "/settlement: путь живьём (E19) отсутствует в site/tree.json — navIds оставлен пустым, связь только через routes"
         ]
-      }
+      },
+      "kind": "gateway"
     },
     {
       "actionIds": [
@@ -1062,7 +1099,7 @@
       ],
       "storage": "локальный JSON store стенда; прод — серверное состояние (файлы не читались)",
       "verification": {
-        "checkedAt": "2026-11-19T09:24Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E10",
           "F11",
@@ -1073,12 +1110,16 @@
           "Прод-файлы очереди/журналы не читались",
           "Открытие прод-очередей — только после аудита каждого маршрута (limited)"
         ]
-      }
+      },
+      "kind": "queue"
     },
     {
       "actionIds": [],
       "checkMethod": "код node-monitor.mjs (49 строк) + файл test/node-monitor.mjs (приложен, живой прогон не воспроизводился) + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07",
       "componentId": "node-monitor",
+      "observe": {
+        "publicBase": "https://agentcoin.work"
+      },
       "dependsOn": [
         "mainnet-node-1"
       ],
@@ -1116,7 +1157,7 @@
       ],
       "storage": "monitor-targets.json (имена захардкожены; E21)",
       "verification": {
-        "checkedAt": "2026-11-19T18:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E04",
           "F06",
@@ -1129,7 +1170,8 @@
           "Живой прогон test/node-monitor.mjs в этом пакете не выполнялся (файл приложен как артефакт, не как воспроизведённый прогон)",
           "Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)"
         ]
-      }
+      },
+      "kind": "monitor"
     },
     {
       "actionIds": [],
@@ -1161,7 +1203,7 @@
       ],
       "storage": "три отдельных DATA_DIR (E24)",
       "verification": {
-        "checkedAt": "2026-11-19T09:33Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "E01",
           "E04",
@@ -1174,7 +1216,8 @@
           "Накопленная chainWork числом не снята",
           "Локальные политики резервов не наблюдаемы"
         ]
-      }
+      },
+      "kind": "env"
     },
     {
       "actionIds": [],
@@ -1202,7 +1245,7 @@
       ],
       "storage": "testnet/data + testnet/bootstrap.json (локально)",
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "tools/testnet.mjs"
         ],
@@ -1212,7 +1255,8 @@
           "Генезис testnet числом не сверялся",
           "observedVersion: наблюдаемая версия не снималась"
         ]
-      }
+      },
+      "kind": "env"
     },
     {
       "actionIds": [],
@@ -1240,7 +1284,7 @@
       ],
       "storage": null,
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "docs/audit-network/SERVICES.csv"
         ],
@@ -1250,7 +1294,8 @@
           "storage: неизвестно (честно)",
           "observedVersion: не снималась"
         ]
-      }
+      },
+      "kind": "env"
     },
     {
       "actionIds": [],
@@ -1279,7 +1324,7 @@
       ],
       "storage": "локальный JSON store стенда",
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "config/system-registry.json",
           "config/action-registry.json"
@@ -1289,7 +1334,8 @@
           "Прод-границы стенда vs mainnet — только по реестру",
           "observedVersion: не снималась"
         ]
-      }
+      },
+      "kind": "env"
     },
     {
       "actionIds": [
@@ -1341,7 +1387,7 @@
       ],
       "storage": "n/a (stateless)",
       "verification": {
-        "checkedAt": "2026-11-19T09:24Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "F09",
           "F13",
@@ -1351,7 +1397,8 @@
         "unknowns": [
           "Версия в прод-бандле не сверена (pin файла)"
         ]
-      }
+      },
+      "kind": "sdk"
     },
     {
       "actionIds": [],
@@ -1389,7 +1436,7 @@
       ],
       "storage": "n/a (+ --wallet файл у пользователя, не читался)",
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "sdk/js/agentcoin-cli.mjs"
         ],
@@ -1397,7 +1444,8 @@
         "unknowns": [
           "Живой прогон CLI против прод — не выполнялся (запрет мутаций)"
         ]
-      }
+      },
+      "kind": "cli"
     },
     {
       "actionIds": [],
@@ -1435,7 +1483,7 @@
       ],
       "storage": "n/a",
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "mcp/agentcoin-mcp.mjs"
         ],
@@ -1443,7 +1491,8 @@
         "unknowns": [
           "Живой вызов MCP против прод — не выполнялся"
         ]
-      }
+      },
+      "kind": "mcp"
     },
     {
       "actionIds": [],
@@ -1471,7 +1520,7 @@
       ],
       "storage": "файловый журнал пилота (lock 0600)",
       "verification": {
-        "checkedAt": "2026-11-19T00:00Z",
+        "checkedAt": "2026-11-19T22:00Z",
         "evidence": [
           "docs/audit-network/SERVICES.csv"
         ],
@@ -1481,7 +1530,8 @@
           "network: неприменимо (честно)",
           "observedVersion: не снималась"
         ]
-      }
+      },
+      "kind": "pilot"
     }
   ],
   "sources": {
@@ -1496,6 +1546,6 @@
     "unknown",
     "contradiction"
   ],
-  "updatedAt": "2026-11-19T18:00Z",
+  "updatedAt": "2026-11-19T22:00Z",
   "version": 2
 }

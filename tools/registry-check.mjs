@@ -14,6 +14,8 @@ const COMP_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const CHAIN_ID_RE = /^[A-Z][A-Z0-9_]*$/;
 const GENESIS_RE = /^[0-9a-f]{64}$/;
 const BARE_EVIDENCE_RE = /^[EFVC][0-9]{2}(-[A-Z0-9-]+)?$/;
+const BLOCKCHAIN_KIND = 'blockchain-node';
+const KNOWN_KINDS = new Set(['blockchain-node', 'miner', 'proxy', 'static-site', 'app', 'gateway', 'queue', 'monitor', 'env', 'sdk', 'cli', 'mcp', 'pilot']);
 
 function normPath(p) {
   if (typeof p !== 'string') return p;
@@ -31,8 +33,18 @@ function routeKey(r, componentEnv) {
   const scope = baseEnv(r.env || componentEnv || '');
   return scope + '|' + m + ' ' + String(r.host || '') + ' ' + normPath(String(r.path || ''));
 }
+function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0); }
 function isValidDateTime(s) {
   if (typeof s !== 'string' || !ISO_DT_RE.test(s)) return false;
+  const m = s.match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?Z$/);
+  if (!m) return false;
+  const Y = Number(m[1]); const Mo = Number(m[2]); const D = Number(m[3]);
+  const H = Number(m[4]); const Mi = Number(m[5]); const Se = m[6] !== undefined ? Number(m[6]) : 0;
+  if (Mo < 1 || Mo > 12) return false;
+  if (H > 23 || Mi > 59 || Se > 59) return false;
+  const dim = [31, (isLeapYear(Y) ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][Mo - 1];
+  if (D < 1 || D > dim) return false;
+  // Date.parse normalizes 2026-02-30 -> 2026-03-02, so calendar check above is authoritative.
   const t = Date.parse(s);
   return Number.isFinite(t);
 }
@@ -183,14 +195,20 @@ export function checkRegistry(reg, opts = {}) {
     return { errors, warnings };
   }
 
-  // aux indexes for existence checks
+  // aux indexes for existence checks (explicit null in opts simulates missing source for regression tests)
   const aux = loadAux(baseDir);
-  if (opts.actionIds) aux.actionIds = opts.actionIds;
-  if (opts.navHrefs) aux.navHrefs = opts.navHrefs;
-  if (opts.eIds) aux.eIds = opts.eIds;
-  if (opts.fIds) aux.fIds = opts.fIds;
-  if (opts.cIds) aux.cIds = opts.cIds;
-  if (opts.vIds) aux.vIds = opts.vIds;
+  for (const k of ['actionIds', 'navHrefs', 'eIds', 'fIds', 'cIds', 'vIds']) {
+    if (k in opts) aux[k] = opts[k];
+  }
+  // backing files for bare E## ids: E-index row alone is NOT enough, concrete file required.
+  let evidenceFiles = null;
+  if ('evidenceFiles' in opts && opts.evidenceFiles) {
+    evidenceFiles = new Set([...opts.evidenceFiles].map((s) => String(s)));
+  } else if (baseDir) {
+    try {
+      evidenceFiles = new Set(fs.readdirSync(path.join(baseDir, 'docs', 'audit-network', 'evidence')));
+    } catch { evidenceFiles = null; }
+  }
   const auxUnavailable = [];
   if (!aux.actionIds) auxUnavailable.push('action-registry');
   if (!aux.navHrefs) auxUnavailable.push('nav-tree');
@@ -229,7 +247,10 @@ export function checkRegistry(reg, opts = {}) {
     const id = c.componentId;
     const loc = `components[${i}](${id})`;
     // required fields presence (schema already, but explicit for message stability)
-    const required = ['purpose', 'env', 'host', 'process', 'sources', 'expectedVersion', 'routes', 'storage', 'dependsOn', 'network', 'expected', 'observed', 'verification', 'checkMethod', 'proofSource'];
+    const required = ['kind', 'purpose', 'env', 'host', 'process', 'sources', 'expectedVersion', 'routes', 'storage', 'dependsOn', 'network', 'expected', 'observed', 'verification', 'checkMethod', 'proofSource'];
+    if (!('kind' in c)) errors.push(`${id}: missing required field kind (explicit role required — rename must not disable chain pin)`);
+    else if (typeof c.kind !== 'string' || !c.kind.trim()) errors.push(`${id}: field kind must be non-empty string (explicit role, e.g. blockchain-node)`);
+    else if (!KNOWN_KINDS.has(c.kind)) errors.push(`${id}: unknown kind ${JSON.stringify(c.kind)} (expected one of ${[...KNOWN_KINDS].join(',')})`);
     for (const f of required) {
       if (!(f in c)) errors.push(`${id}: missing required field ${f}`);
     }
@@ -259,9 +280,8 @@ export function checkRegistry(reg, opts = {}) {
           if (typeof a !== 'string' || !a.trim()) { errors.push(`${id}.actionIds[${k}]: must be non-empty string`); return; }
           if (aux.actionIds) {
             if (!aux.actionIds.has(a)) errors.push(`${id}.actionIds[${k}]: unknown actionId ${JSON.stringify(a)} not in config/action-registry.json`);
-          } else if (!auxUnavailable.includes('actionIds-checked')) {
-            warnings.push(`${id}: action-registry unavailable, actionIds existence not verified`);
-            auxUnavailable.push('actionIds-checked');
+          } else {
+            errors.push(`${id}.actionIds[${k}]: action-registry unavailable (site/tree.json or config/action-registry.json missing/unreadable) — cannot verify link ${JSON.stringify(a)}`);
           }
         });
       }
@@ -273,6 +293,8 @@ export function checkRegistry(reg, opts = {}) {
           if (typeof n !== 'string' || !n.startsWith('/')) { errors.push(`${id}.navIds[${k}]: must be path starting with /, got ${JSON.stringify(n)}`); return; }
           if (aux.navHrefs) {
             if (!aux.navHrefs.has(n)) errors.push(`${id}.navIds[${k}]: unknown navId ${JSON.stringify(n)} not in site/tree.json`);
+          } else {
+            errors.push(`${id}.navIds[${k}]: nav-tree unavailable (site/tree.json missing/unreadable) — cannot verify link ${JSON.stringify(n)}`);
           }
         });
       }
@@ -320,11 +342,21 @@ export function checkRegistry(reg, opts = {}) {
           const code = e.slice(0, 3);
           const known = prefix === 'E' ? aux.eIds : prefix === 'F' ? aux.fIds : prefix === 'C' ? aux.cIds : aux.vIds;
           const auxName = prefix === 'E' ? 'E-index' : prefix === 'F' ? 'FACTS' : prefix === 'C' ? 'CONTRADICTIONS' : 'VERIFICATION-PLAN';
-          if (known) {
-            if (!known.has(code)) errors.push(`${id}.verification.evidence[${k}]: unknown evidence reference ${JSON.stringify(e)} not in ${auxName} (code ${code} absent)`);
-            else hasVerifiable = true;
+          if (!known) {
+            errors.push(`${id}.verification.evidence[${k}]: index ${auxName} unavailable — cannot verify link ${JSON.stringify(e)} (missing index is not a pass)`);
+          } else if (!known.has(code)) {
+            errors.push(`${id}.verification.evidence[${k}]: unknown evidence reference ${JSON.stringify(e)} not in ${auxName} (code ${code} absent)`);
+          } else if (prefix === 'E') {
+            // bare E## must be backed by a concrete file; index row alone is insufficient.
+            if (!evidenceFiles) {
+              errors.push(`${id}.verification.evidence[${k}]: evidence file for ${code} unavailable (docs/audit-network/evidence unreadable) — cannot verify link ${JSON.stringify(e)}`);
+            } else {
+              const hasFile = [...evidenceFiles].some((f) => f === code || f.startsWith(code + '-') || f.startsWith(code + '.') || f.startsWith(code + '_'));
+              if (!hasFile) errors.push(`${id}.verification.evidence[${k}]: evidence file for ${code} missing in docs/audit-network/evidence/ (index alone insufficient) — link ${JSON.stringify(e)} unverifiable`);
+              else hasVerifiable = true;
+            }
           } else {
-            warnings.push(`${id}: index ${auxName} unavailable, evidence ${e} existence not verified`);
+            hasVerifiable = true;
           }
         });
         if (v.status === 'confirmed' && !hasVerifiable) {
@@ -341,9 +373,10 @@ export function checkRegistry(reg, opts = {}) {
       errors.push(`${id}: verification must be object`);
     }
 
-    // chain object: structured pins only, short display values not compared
-    if (/^mainnet-node-/.test(id)) {
-      if (!c.chain || typeof c.chain !== 'object' || Array.isArray(c.chain)) errors.push(`${id}: node requires chain object with chainId+genesis`);
+    // chain object: pin requirement follows explicit kind, never the componentId prefix.
+    // Renaming a node must not disable its network pin.
+    if (c.kind === BLOCKCHAIN_KIND) {
+      if (!c.chain || typeof c.chain !== 'object' || Array.isArray(c.chain)) errors.push(`${id}: node requires chain object with chainId+genesis (kind=blockchain-node, id prefix ignored)`);
       else {
         for (const f of ['chainId', 'genesis']) {
           if (!(f in c.chain)) errors.push(`${id}: chain missing ${f} (structured pin required, display network insufficient)`);
@@ -377,6 +410,53 @@ export function checkRegistry(reg, opts = {}) {
           if (typeof b.chainId !== 'string' || !CHAIN_ID_RE.test(b.chainId)) errors.push(`${id}.bridges[${k}].chainId: invalid ${JSON.stringify(b.chainId)}`);
           if (typeof b.genesis !== 'string' || !GENESIS_RE.test(b.genesis)) errors.push(`${id}.bridges[${k}].genesis: invalid pin (expected full 64-hex)`);
         });
+      }
+    }
+
+    // observe: machine-readable collection targets (Stage 2). Optional, but if present must be strict.
+    // No second server list: collector reads ONLY these targets. Secrets must never appear here.
+    if ('observe' in c && c.observe !== undefined && c.observe !== null) {
+      const o = c.observe;
+      if (typeof o !== 'object' || Array.isArray(o)) errors.push(`${id}: observe must be object|null`);
+      else {
+        if ('ssh' in o && o.ssh !== undefined && o.ssh !== null) {
+          const s = o.ssh;
+          if (typeof s !== 'object' || Array.isArray(s)) errors.push(`${id}.observe.ssh: must be object`);
+          else {
+            if (typeof s.host !== 'string' || !s.host.trim()) errors.push(`${id}.observe.ssh.host: required non-empty string (IP or hostname from registry host)`);
+            if ('user' in s && (typeof s.user !== 'string' || !s.user.trim())) errors.push(`${id}.observe.ssh.user: must be non-empty string`);
+            if ('port' in s && !(Number.isInteger(s.port) && s.port >= 1 && s.port <= 65535)) errors.push(`${id}.observe.ssh.port: must be integer 1-65535, got ${JSON.stringify(s.port)}`);
+          }
+        }
+        if ('localBase' in o && o.localBase !== undefined && o.localBase !== null) {
+          if (typeof o.localBase !== 'string' || !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o.localBase)) {
+            errors.push(`${id}.observe.localBase: must be loopback http(s) base (http://127.0.0.1:PORT), got ${JSON.stringify(o.localBase)} — remote bases forbidden`);
+          }
+        }
+        for (const f of ['localEndpoints', 'units', 'files']) {
+          if (f in o && o[f] !== undefined && o[f] !== null) {
+            if (!Array.isArray(o[f])) errors.push(`${id}.observe.${f}: must be array`);
+            else o[f].forEach((v, k) => {
+              if (typeof v !== 'string' || !v.trim()) { errors.push(`${id}.observe.${f}[${k}]: must be non-empty string`); return; }
+              if (f === 'localEndpoints' && !v.startsWith('/')) errors.push(`${id}.observe.${f}[${k}]: must start with /, got ${JSON.stringify(v)}`);
+              if (f === 'files' && !v.startsWith('/')) errors.push(`${id}.observe.${f}[${k}]: must be absolute path, got ${JSON.stringify(v)}`);
+              if (f === 'files' && /(\.env$|\.env\.|settlement-policy|mainnet-settlements|id_rsa|id_ed25519|secret|passwd|shadow)/i.test(v)) {
+                errors.push(`${id}.observe.${f}[${k}]: must not reference secrets/policy/journal/keys (${JSON.stringify(v)}) — read-only collection never reads secrets`);
+              }
+            });
+          }
+        }
+        if ('listenPorts' in o && o.listenPorts !== undefined && o.listenPorts !== null) {
+          if (!Array.isArray(o.listenPorts)) errors.push(`${id}.observe.listenPorts: must be array`);
+          else o.listenPorts.forEach((p, k) => {
+            if (!(Number.isInteger(p) && p >= 1 && p <= 65535)) errors.push(`${id}.observe.listenPorts[${k}]: must be integer 1-65535, got ${JSON.stringify(p)}`);
+          });
+        }
+        if ('publicBase' in o && o.publicBase !== undefined && o.publicBase !== null) {
+          if (typeof o.publicBase !== 'string' || !/^https?:\/\/[^\s/]+$/.test(o.publicBase)) {
+            errors.push(`${id}.observe.publicBase: must be http(s) origin without path, got ${JSON.stringify(o.publicBase)}`);
+          }
+        }
       }
     }
 

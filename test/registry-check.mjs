@@ -83,6 +83,42 @@ run('evidence missing file rejected', () => { const r=clone(); const c=r.compone
 run('confirmed external-only rejected', () => { const r=clone(); const c=r.components.find(c=>c.componentId==='cli'); c.verification.status='confirmed'; c.verification.evidence=['external:interview']; return checkRegistry(r); }, false, ['external-only']);
 // 24 short genesis rejected (display insufficient)
 run('short genesis rejected', () => { const r=clone(); const c=r.components.find(c=>c.componentId==='mainnet-node-1'); c.chain.genesis='abcd'; return checkRegistry(r); }, false, ['genesis']);
+// 26 E-index row without backing file must fail (E04 deleted, index kept)
+run('E04 file missing rejected (index alone insufficient)', () => {
+  const r = clone();
+  const evDir = new URL('../docs/audit-network/evidence', import.meta.url);
+  let files = [];
+  try { files = fs.readdirSync(evDir); } catch { return { errors: ['evidence dir unreadable in test setup'] }; }
+  const filtered = files.filter((f) => !f.startsWith('E04'));
+  if (files.length === filtered.length) return { errors: ['test setup: E04 file not found to filter'] };
+  return checkRegistry(r, { evidenceFiles: filtered });
+}, false, ['evidence file for E04 missing']);
+// 27 nav-tree unavailable with navIds used must fail (not silent pass)
+run('nav-tree unavailable rejected', () => {
+  const r = clone();
+  const c = r.components.find((x) => x.componentId === 'site-static');
+  c.navIds = ['/DOES-NOT-EXIST'];
+  return checkRegistry(r, { navHrefs: null });
+}, false, ['nav-tree unavailable']);
+// 28 rename must not disable chain pin (kind=blockchain-node, not id prefix)
+run('rename must not disable chain pin', () => {
+  const r = clone();
+  const c = r.components.find((x) => x.componentId === 'mainnet-node-2');
+  c.componentId = 'reserve-node-2';
+  for (const x of r.components) if (Array.isArray(x.dependsOn)) x.dependsOn = x.dependsOn.map((d) => d === 'mainnet-node-2' ? 'reserve-node-2' : d);
+  delete c.chain;
+  return checkRegistry(r);
+}, false, ['kind=blockchain-node']);
+// 29 non-existent calendar date rejected (Date.parse normalizes 02-30)
+run('invalid calendar date rejected (2026-02-30)', () => { const r = clone(); r.updatedAt = '2026-02-30T18:00Z'; return checkRegistry(r); }, false, ['invalid date-time']);
+// 30 observe: valid targets pass (stage 2 reads only these)
+run('observe valid passes', () => checkRegistry(clone()), true);
+// 31 observe: non-loopback localBase rejected (remote bases forbidden)
+run('observe remote base rejected', () => { const r = clone(); const c = r.components.find((x) => x.componentId === 'mainnet-node-1'); c.observe.localBase = 'http://evil.example:9335'; return checkRegistry(r); }, false, ['localBase']);
+// 32 observe: secret/policy file rejected (read-only never reads secrets)
+run('observe secret file rejected', () => { const r = clone(); const c = r.components.find((x) => x.componentId === 'mainnet-node-1'); c.observe.files = [...c.observe.files, '/opt/agentcoin-node/.env']; return checkRegistry(r); }, false, ['must not reference secrets']);
+// 33 observe: bad ssh port rejected
+run('observe bad ssh port rejected', () => { const r = clone(); const c = r.components.find((x) => x.componentId === 'mainnet-node-2'); c.observe.ssh.port = 99999; return checkRegistry(r); }, false, ['ssh.port']);
 
 let fail=0;
 for(const r of results){ console.log(`${r.ok?'PASS':'FAIL'} ${r.name} (expect ${r.shouldPass?'pass':'fail'}, errors=${r.errors})${r.ok?'':' :: '+r.sample}`); if(!r.ok) fail++; }

@@ -158,7 +158,57 @@ let root, child1, child2;
     `state=${p.assignment.state} committed=${p.assignment.delegation?.committedAtomic}`);
 }
 
-// 8. состояние переживает рестарт стенда
+// 8. закрытие подзаказа возвращает родителю резерв ровно на его бюджет
+{
+  const nA = makeClient({ node: stand.url, address: A.addr, walletFile: A.w, journalFile: J('r-a') });
+  const nB = makeClient({ node: stand.url, address: B.addr, walletFile: B.w, journalFile: J('r-b') });
+  const nC = makeClient({ node: stand.url, address: C.addr, walletFile: C.w, journalFile: J('r-c') });
+  const nD = makeClient({ node: stand.url, address: D.addr, walletFile: D.w, journalFile: J('r-d') });
+  const nE = makeClient({ node: stand.url, address: E.addr, walletFile: E.w, journalFile: J('r-e') });
+  const nF = makeClient({ node: stand.url, address: F.addr, walletFile: F.w, journalFile: J('r-f') });
+  const committed = async (id) => (await nA.getOrder(id, A.addr)).assignment.delegation.committedAtomic;
+
+  const root2 = (await nA.createOrder(A.addr, 'off-b', { url: 'https://y' }, 'root-2')).result.assignment;
+  const chA = (await nB.delegateOrder(B.addr, root2.assignmentId, { offerId: 'off-c', budgetAtomic: 250, idempotencyKey: 'r1' })).result.assignment;
+  const chB = (await nB.delegateOrder(B.addr, root2.assignmentId, { offerId: 'off-d', budgetAtomic: 300, idempotencyKey: 'r2' })).result.assignment;
+  ok(await committed(root2.assignmentId) === 550, 'два подзаказа заняли 550 из 1000', `committed=${await committed(root2.assignmentId)}`);
+
+  // отклонение ревьюером — закрытый подзаказ, резерв возвращается
+  const content2 = Buffer.from(JSON.stringify({ url: 'https://y', status: 200 })).toString('base64');
+  const bytes2 = Buffer.from(content2, 'base64');
+  const art2 = { artifactId: 'a2', attemptId: 't2', contentHash: crypto.createHash('sha256').update(bytes2).digest('hex'), mediaType: 'application/json', sizeBytes: bytes2.length, location: 'inline', accessPolicy: 'parties', createdAt: Date.now(), producerSignature: 'sig' };
+  await nC.submitArtifact(C.addr, chA.assignmentId, art2, content2);
+  const rej = await nE.reviewOrder(E.addr, chA.assignmentId, { verdict: 'rejected', rationale: 'ответ неполный' });
+  const afterRej = await committed(root2.assignmentId);
+  const chAnow = (await nA.getOrder(chA.assignmentId, A.addr)).assignment;
+  ok(rej.ok === true && afterRej === 300 && chAnow.delegation.reservation === 'released',
+    'отклонение освободило ровно бюджет подзаказа (550 → 300)',
+    `committed=${afterRej} reservation=${chAnow.delegation.reservation}`);
+
+  // отмена решением арбитра — тоже закрытие
+  const dspB = await nB.disputeOrder(B.addr, chB.assignmentId, { reason: 'подрядчик не отвечает' });
+  const resB = await nF.resolveDispute(F.addr, dspB.result.dispute.disputeId, { verdict: 'customer', rationale: 'работы нет' });
+  const afterCancel = await committed(root2.assignmentId);
+  ok(resB.ok === true && resB.result.assignment.state === 'canceled' && afterCancel === 0,
+    'отмена освободила ровно бюджет подзаказа (300 → 0)', `committed=${afterCancel}`);
+
+  // освобождённое место действительно доступно, но не сверх бюджета
+  const chC = await nB.delegateOrder(B.addr, root2.assignmentId, { offerId: 'off-d', budgetAtomic: 900, idempotencyKey: 'r3' });
+  ok(chC.ok === true && await committed(root2.assignmentId) === 900, 'освобождённый резерв можно занять снова');
+
+  const dspA = await nB.disputeOrder(B.addr, chA.assignmentId, { reason: 'пересмотр отклонения' });
+  const back = await nF.resolveDispute(F.addr, dspA.result.dispute.disputeId, { verdict: 'provider' });
+  const afterBack = await committed(root2.assignmentId);
+  ok(back.ok === false && back.error === 'parent_budget_exhausted' && afterBack === 900,
+    'возврат отклонённого подзаказа не превышает бюджет родителя (остаётся 900)', `${back.error} committed=${afterBack}`);
+
+  // но отменить его арбитр всё ещё может: отказ касается только повторного удержания
+  const cancelIt = await nF.resolveDispute(F.addr, dspA.result.dispute.disputeId, { verdict: 'customer' });
+  ok(cancelIt.ok === true && cancelIt.result.assignment.state === 'canceled' && await committed(root2.assignmentId) === 900,
+    'спор не блокируется навсегда: отмена проходит без изменения резерва', cancelIt.error || '');
+}
+
+// 9. состояние переживает рестарт стенда
 {
   stand.close();
   stand = await createStand(tmp);

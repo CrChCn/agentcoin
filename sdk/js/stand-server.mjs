@@ -29,6 +29,31 @@ export async function createStand(tmp) {
   // ---- Этап D: делегирование (бюджет/глубина), независимый reviewer, спор ----
   const disputes = Object.assign({}, loadJson('disputes.json', {})); // disputeId -> {assignmentId, by, state,...}
   const MAX_DELEGATION_DEPTH = 3; // жёсткий предел вложенности найма на стенде
+  /* Резерв бюджета живёт ровно столько, сколько подзаказ обязателен.
+     held — бюджет родителя занят; released — подзаказ закрыт, резерв возвращён.
+     Возврат идемпотентен: повторный релиз не уменьшает счётчик дважды. */
+  const releaseReservation = (o, why) => {
+    const dg = o?.assignment?.delegation;
+    if (!dg || !dg.parentId || dg.reservation !== 'held') return false;
+    const parent = orders[dg.parentId];
+    if (parent?.assignment?.delegation) {
+      parent.assignment.delegation.committedAtomic = Math.max(0, Number(parent.assignment.delegation.committedAtomic || 0) - Number(dg.budgetAtomic || 0));
+    }
+    dg.reservation = 'released'; dg.releasedAt = Date.now(); dg.releaseReason = String(why || '');
+    return true;
+  };
+  const holdReservation = (o, why) => {
+    const dg = o?.assignment?.delegation;
+    if (!dg || !dg.parentId) return true;
+    if (dg.reservation === 'held') return true;
+    const pd = orders[dg.parentId]?.assignment?.delegation;
+    if (!pd) return false;
+    const total = Number(pd.budgetAtomic || 0), committed = Number(pd.committedAtomic || 0);
+    if (committed + Number(dg.budgetAtomic || 0) > total) return false;
+    pd.committedAtomic = committed + Number(dg.budgetAtomic || 0);
+    dg.reservation = 'held'; dg.reheldAt = Date.now(); dg.releaseReason = null;
+    return true;
+  };
   // ---- Проход 4: модерация (отдельный операторский контур, не меняет подписи/артефакты/расчёты) ----
   const OPERATOR = process.env.STAND_OPERATOR || loadJson('operator.json', { address: '' }).address || '';
   // Проход 1 (ТЗ п.1): приватное чтение только с доказательством владения адресом.
@@ -247,7 +272,7 @@ export async function createStand(tmp) {
           customer: b.address, provider: snap.provider, input: input || {}, acceptanceMethod: snap.acceptance.method,
           state: 'open', createdAt: Date.now(), parentId: null,
           // Корень цепочки найма: бюджет — цена заказа, глубина 0.
-          delegation: { parentId: null, rootId: assignmentId, depth: 0, budgetAtomic: Number(snap.priceAtomic || 0), committedAtomic: 0, maxDepth: MAX_DELEGATION_DEPTH, ancestry: [b.address] },
+          delegation: { parentId: null, rootId: assignmentId, depth: 0, budgetAtomic: Number(snap.priceAtomic || 0), committedAtomic: 0, maxDepth: MAX_DELEGATION_DEPTH, ancestry: [b.address], reservation: 'root' },
         };
         const verr = validateAssignment(assignment);
         if (verr) return send(400, { error: verr });
@@ -312,7 +337,7 @@ export async function createStand(tmp) {
           assignmentId, offerId, offerVersion: psnap.version, offerSnapshotHash: hashOf(psnap), priceAtomic: budget,
           customer: b.address, provider: childProvider, input: input || {}, acceptanceMethod: psnap.acceptance.method,
           state: 'open', createdAt: Date.now(), parentId,
-          delegation: { parentId, rootId: pd.rootId, depth, budgetAtomic: budget, committedAtomic: 0, maxDepth: limit, ancestry },
+          delegation: { parentId, rootId: pd.rootId, depth, budgetAtomic: budget, committedAtomic: 0, maxDepth: limit, ancestry, reservation: 'held' },
         };
         const verr = validateAssignment(assignment);
         if (verr) return send(400, { error: verr });
@@ -348,6 +373,8 @@ export async function createStand(tmp) {
         if (o.assignment.state === 'accepted' || o.assignment.state === 'rejected') return send(409, { error: 'bad_state', state: o.assignment.state });
         o.assignment.state = verdict === 'accepted' ? 'accepted' : 'rejected';
         o.acceptance = { verdict, at: Date.now(), method: 'reviewer', reviewedBy: b.address, rationale: String(rationale || '').slice(0, 500), evidenceHash: evidenceHash ? String(evidenceHash).slice(0, 80) : null };
+        // Отклонение закрывает подзаказ: бюджет возвращается родителю.
+        if (verdict === 'rejected') releaseReservation(o, 'rejected');
         persistMarket();
         emit('order.reviewed', assignmentId, '1', 'parties', { verdict, reviewedBy: b.address }, [o.assignment.customer, o.assignment.provider, b.address]);
         const res = { ok: true, assignment: o.assignment, acceptance: o.acceptance };
@@ -397,12 +424,19 @@ export async function createStand(tmp) {
           return send(403, { error: 'arbiter_not_independent', hint: 'арбитр не может быть стороной или ревьюером этого заказа' });
         }
         const st = settlements[d.assignmentId];
+        // Возврат отклонённого подзаказа в работу снова занимает бюджет родителя.
+        // Если место уже занято другим подзаказом — отказ, а не молчаливое переполнение.
+        if (!(st && st.state === 'confirmed') && verdict === 'provider' && !holdReservation(o, 'dispute_provider')) {
+          return send(409, { error: 'parent_budget_exhausted', hint: 'резерв бюджета родителя уже занят другим подзаказом: сначала закройте его или решите спор в пользу заказчика' });
+        }
         d.resolved = true; d.state = 'resolved'; d.verdict = verdict; d.arbiter = b.address; d.rationale = String(rationale || '').slice(0, 500); d.resolvedAt = Date.now();
         if (st && st.state === 'confirmed') {
           d.note = 'выплата уже подтверждена — решение фиксируется, но перевод не отменяется';
           d.effect = 'recorded_only';
         } else {
           o.assignment.state = verdict === 'provider' ? 'accepted' : 'canceled';
+          // Отмена закрывает подзаказ: бюджет возвращается родителю.
+          if (verdict === 'customer') releaseReservation(o, 'dispute_customer');
           d.effect = verdict === 'provider' ? 'payment_allowed' : 'no_payment';
         }
         persistMarket();

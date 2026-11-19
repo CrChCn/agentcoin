@@ -22,15 +22,30 @@ const DARK_MARKER_RE = /reserve node:\s*dark/i;
 
 // Строго определённые read-only операции. Составные shell-конструкции запрещены:
 // ';', '|', '&' вне одинарных кавычек curl, backtick, $(), переводы строк, редиректы.
+// fix4: глобальный `ps -eo pid,user,args` и сырой `ss -ltnp` удалены — секреты
+// чужих процессов не читаются и не сохраняются. Только точечный `ps -p <PID>`
+// по числовому PID из systemctl show и `ss -ltn` без -p с фильтрацией.
 const SSH_PATTERNS = [
   // curl к loopback, URL в одинарных кавычках, внутри только безопасные символы.
   /^curl -sS -m 8 -i 'http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9\/._?=&%-]*'$/,
   /^systemctl is-active [A-Za-z0-9_.@:-]+$/,
-  /^systemctl show [A-Za-z0-9_.@:-]+ --property=[A-Za-z,]+$/,
-  /^ps -eo pid,user,args$/,
+  /^systemctl show [A-Za-z0-9_.@:-]+ --property=(ActiveState|MainPID|User|ExecStart|ExecMainStartTimestamp)(,(ActiveState|MainPID|User|ExecStart|ExecMainStartTimestamp))*$/,
+  /^ps -p \d+ -o pid=,user=,lstart=$/,
   /^sha256sum (\/opt\/[A-Za-z0-9_.\/-]+)( \/opt\/[A-Za-z0-9_.\/-]+)*$/,
-  /^ss -ltnp$/,
+  /^ss -ltn$/,
 ];
+
+// fix4: маскирование секретов перед сохранением evidence. 64-hex хэши цепи
+// (tipHash/genesis/sha256sum) НЕ трогаем — маскируем только значения с
+// ключевыми словами token/password/secret/api-key/bearer и PEM-ключи.
+export function scrubSecrets(text) {
+  let s = String(text || '');
+  s = s.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[REDACTED-PRIVATE-KEY]');
+  s = s.replace(/(--(?:token|password|passwd|secret|api[-_]?key)\s+)\S+/gi, '$1[REDACTED]');
+  s = s.replace(/((?:password|passwd|pwd|secret|api[_-]?key|token)\s*[:=]\s*['"]?)[^'"\s;,]+/gi, '$1[REDACTED]');
+  s = s.replace(/(Bearer\s+)[A-Za-z0-9\-._~+/=]{8,}/g, '$1[REDACTED]');
+  return s;
+}
 
 export function isReadOnlySshCommand(cmd) {
   if (typeof cmd !== 'string') return false;
@@ -95,7 +110,7 @@ export function buildPlan(reg) {
         checks.push({
           componentId: id, checkId: `${id}:proc-unit-show`,
           via: 'ssh', ssh: ob.ssh,
-          command: `systemctl show ${unit} --property=ActiveState,MainPID,ExecStart`,
+          command: `systemctl show ${unit} --property=ActiveState,MainPID,User,ExecStart,ExecMainStartTimestamp`,
           sourceEndpoint: `systemctl show ${unit} via ssh`, expectJson: false, kind: 'unit-show',
           expectedUnit: unit,
         });
@@ -107,12 +122,8 @@ export function buildPlan(reg) {
           expectedUnit: unit,
         });
       }
-      checks.push({
-        componentId: id, checkId: `${id}:proc-ps`,
-        via: 'ssh', ssh: ob.ssh,
-        command: 'ps -eo pid,user,args',
-        sourceEndpoint: 'ps via ssh', expectJson: false, kind: 'ps',
-      });
+      // fix4: глобального ps нет. Точечная проверка PID добавляется динамически
+      // в collect() после unit-show (только числовой MainPID, без args чужих процессов).
       const files = Array.isArray(ob.files) ? ob.files.filter((f) => typeof f === 'string' && f.startsWith('/')) : [];
       if (files.length) {
         checks.push({
@@ -127,8 +138,8 @@ export function buildPlan(reg) {
       checks.push({
         componentId: id, checkId: `${id}:listen`,
         via: 'ssh', ssh: ob.ssh,
-        command: 'ss -ltnp',
-        sourceEndpoint: 'ss -ltnp via ssh', expectJson: false, kind: 'ss',
+        command: 'ss -ltn',
+        sourceEndpoint: 'ss -ltn via ssh (filtered to expected ports)', expectJson: false, kind: 'ss',
         expectedPorts: ports.slice(),
       });
     }
@@ -551,20 +562,18 @@ function parseSystemctlShow(out) {
   return res;
 }
 
-function parsePs(out) {
-  const lines = String(out || '').split('\n').slice(1).filter((l) => l.trim());
-  const found = [];
-  for (const line of lines) {
-    const m = line.trim().match(/^(\d+)\s+(\S+)\s+(.*)$/);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    const user = m[2];
-    const args = m[3];
-    if (/node(\.mjs|\s|$)/.test(args) && /(node\.mjs|agentcoin|agt-node)/.test(args)) {
-      found.push({ pid, user, args: args.slice(0, 300) });
-    }
+// fix4: точечная проверка одного PID (без args чужих процессов).
+// Команда: ps -p <PID> -o pid=,user=,lstart=  (без заголовка, одна строка).
+export function parsePidCheck(out, wantPid) {
+  const line = String(out || '').split('\n').map((l) => l.trim()).find((l) => l);
+  if (!line) return { ok: false, error: 'empty_ps_output' };
+  const m = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+  if (!m) return { ok: false, error: 'ps_parse_failed' };
+  const pid = Number(m[1]);
+  if (!Number.isSafeInteger(pid) || pid !== Number(wantPid)) {
+    return { ok: false, error: `pid_mismatch: got ${m[1]} want ${wantPid}` };
   }
-  return { count: lines.length, matched: found.slice(0, 8) };
+  return { ok: true, pid, user: m[2], lstart: m[3].slice(0, 120) };
 }
 
 function parseSs(out) {
@@ -574,6 +583,18 @@ function parseSs(out) {
     if (Number.isInteger(p) && p > 0 && p < 65536) ports.add(p);
   }
   return [...ports].sort((a, b) => a - b);
+}
+
+// fix4: только строки ожидаемых портов, без сырого полного вывода.
+export function filterSsLines(out, expectedPorts) {
+  const lines = String(out || '').split('\n');
+  const want = new Set((expectedPorts || []).map(Number));
+  const kept = [];
+  for (const line of lines) {
+    const m = line.match(/:(\d+)\b/);
+    if (m && want.has(Number(m[1]))) kept.push(scrubSecrets(line.trim()).slice(0, 300));
+  }
+  return kept.slice(0, 32);
 }
 
 async function runOne(check, ctx) {
@@ -590,7 +611,7 @@ async function runOne(check, ctx) {
       fs.mkdirSync(ctx.evidenceDir, { recursive: true });
       // Портативные имена: ':' в checkId на Windows уходит в NTFS ADS и теряется в архивах.
       const safe = `${check.checkId}.${ext}`.replace(/[^a-zA-Z0-9._-]+/g, '-');
-      fs.writeFileSync(path.join(ctx.evidenceDir, safe), data);
+      fs.writeFileSync(path.join(ctx.evidenceDir, safe), scrubSecrets(String(data ?? '')));
       return `evidence/${safe}`;
     } catch { return null; }
   };
@@ -608,9 +629,10 @@ async function runOne(check, ctx) {
           throw { done: true };
         }
         const out = String(raw.stdout || '');
-        const stderrHead = String(raw.stderr || '').slice(0, 300);
+        const stderrHead = scrubSecrets(String(raw.stderr || '')).slice(0, 300);
         const exitCode = raw.exitCode;
-        rec.evidenceFile = saveEvidence('txt', out.slice(0, MAX_BODY_BYTES));
+        // fix4: для ss сырой вывод не сохраняем (см. ветку ss ниже); остальное — со scrub.
+        if (check.kind !== 'ss') rec.evidenceFile = saveEvidence('txt', scrubSecrets(out).slice(0, MAX_BODY_BYTES));
         if (check.kind === 'loopback-http' || check.command.startsWith('curl ')) {
           if (exitCode !== 0 && exitCode !== null && exitCode !== undefined) {
             rec.status = 'unavailable';
@@ -665,6 +687,8 @@ async function runOne(check, ctx) {
           }
         } else if (check.kind === 'unit-show') {
           const parsed = parseSystemctlShow(out);
+          // fix4: ExecStart может содержать секреты в аргументах — маскируем перед сохранением.
+          for (const k of Object.keys(parsed)) parsed[k] = scrubSecrets(parsed[k]).slice(0, 500);
           rec.observedValue = { ...parsed, exitCode, stderr: stderrHead };
           if (exitCode !== 0 && !out.trim()) {
             rec.status = 'unavailable';
@@ -693,20 +717,30 @@ async function runOne(check, ctx) {
             rec.status = 'mismatch';
             rec.error = `unit_not_active: ${state}`;
           }
-        } else if (check.kind === 'ps') {
-          if (exitCode !== 0 && !out.trim()) {
+        } else if (check.kind === 'pid-check') {
+          // fix4: только предварительно проверенный числовой PID, без args посторонних.
+          const want = Number(check.expectedPid);
+          if (!Number.isSafeInteger(want) || want <= 0) {
+            rec.status = 'unknown';
+            rec.error = 'pid_check_no_valid_pid';
+            rec.observedValue = { exitCode, stderr: stderrHead };
+          } else if (exitCode !== 0 && !out.trim()) {
             rec.status = 'unavailable';
             rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
-            rec.observedValue = { exitCode, stderr: stderrHead };
+            rec.observedValue = { expectedPid: want, exitCode, stderr: stderrHead };
           } else {
-            const parsed = parsePs(out);
-            rec.observedValue = { ...parsed, exitCode, stderr: stderrHead };
-            if (parsed.matched.length) {
+            const parsed = parsePidCheck(out, want);
+            if (parsed.ok) {
               rec.status = 'ok';
               rec.error = null;
+              // В evidence — только подтверждение целевого PID, без чужих строк.
+              rec.observedValue = { pid: parsed.pid, user: parsed.user, lstart: parsed.lstart, exitCode, stderr: stderrHead };
+              rec.evidenceFile = saveEvidence('json', JSON.stringify({ pid: parsed.pid, user: parsed.user, lstart: parsed.lstart }, null, 1));
             } else {
               rec.status = 'mismatch';
-              rec.error = 'process_not_found: no node.mjs/agentcoin process in ps';
+              rec.error = `process_not_confirmed: ${parsed.error}`;
+              rec.observedValue = { expectedPid: want, exitCode, stderr: stderrHead };
+              rec.evidenceFile = saveEvidence('json', JSON.stringify({ expectedPid: want, error: parsed.error }, null, 1));
             }
           }
         } else if (check.kind === 'ss') {
@@ -718,7 +752,10 @@ async function runOne(check, ctx) {
             const observedPorts = parseSs(out);
             const expected = Array.isArray(check.expectedPorts) ? check.expectedPorts : [];
             const missing = expected.filter((p) => !observedPorts.includes(p));
+            const matchedLines = filterSsLines(out, expected);
             rec.observedValue = { observedPorts, expectedPorts: expected, exitCode, stderr: stderrHead };
+            // fix4: сырой полный ss не храним — только структурированный отфильтрованный результат.
+            rec.evidenceFile = saveEvidence('json', JSON.stringify({ expectedPorts: expected, observedPorts, matchedLines }, null, 1));
             if (missing.length) {
               rec.status = 'mismatch';
               rec.error = `missing_ports: ${missing.join(',')}`;
@@ -827,6 +864,44 @@ export async function collect(reg, opts = {}) {
     }
   });
   await Promise.all(workers);
+
+  // Фаза 1c (fix4): точечная проверка PID из unit-show — без глобального ps.
+  // Только числовой MainPID из успешного unit-show; без args чужих процессов.
+  try {
+    if (!ctx.publicOnly) {
+      const pidExtra = [];
+      const sshByComp = new Map();
+      for (const c of (reg.components || [])) {
+        if (c && c.observe && c.observe.ssh) sshByComp.set(c.componentId, c.observe.ssh);
+      }
+      for (const o of observations) {
+        if (!o || !/:proc-unit-show$/.test(o.checkId || '') || o.status !== 'ok') continue;
+        const pid = Number(o.observedValue && o.observedValue.MainPID);
+        if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+        const ssh = sshByComp.get(o.componentId);
+        if (!ssh) continue;
+        const cmd = `ps -p ${pid} -o pid=,user=,lstart=`;
+        if (!isReadOnlySshCommand(cmd)) continue;
+        if (observations.some((x) => x && x.checkId === `${o.componentId}:proc-pid-${pid}`)) continue;
+        pidExtra.push({
+          componentId: o.componentId, checkId: `${o.componentId}:proc-pid-${pid}`,
+          via: 'ssh', ssh, command: cmd,
+          sourceEndpoint: `ps -p ${pid} via ssh (target PID only)`,
+          expectJson: false, kind: 'pid-check', expectedPid: pid,
+        });
+      }
+      let cur = 0;
+      const runPid = async () => {
+        while (cur < pidExtra.length) {
+          const i = cur++;
+          observations.push(await runOne(pidExtra[i], ctx));
+        }
+      };
+      if (pidExtra.length) {
+        await Promise.all(Array.from({ length: Math.min(ctx.concurrency, pidExtra.length) }, runPid));
+      }
+    }
+  } catch { /* необязательно: частичный сбой не уничтожает фазу 1 */ }
 
   // Фаза 1b: capabilities рекламирует — проверяем доступность рекламируемого (только GET, только чтение).
   // Без молчаливого среза: каждому объявленному маршруту — проба либо явный пропуск.

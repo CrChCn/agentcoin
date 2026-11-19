@@ -18,6 +18,12 @@
   (`~/.ssh/agentcoin-deploy`, `BatchMode=yes`). Секреты и полные переменные
   окружения не читаются: `observe.files` с секретами/политикой/журналом
   отклоняется валидатором.
+- fix4: глобального `ps -eo pid,user,args` нет; `ss -ltnp` нет. Только
+  `systemctl show <unit> --property=ActiveState,MainPID,User,ExecStart,ExecMainStartTimestamp`,
+  `systemctl is-active`, точечный `ps -p <PID> -o pid=,user=,lstart=` по
+  числовому MainPID из show, `ss -ltn` с сохранением только строк ожидаемых
+  портов. Перед сохранением evidence значения с токенами/паролями/ключами
+  маскируются (`[REDACTED]`); 64-hex хэши не трогаем.
 - Никакой веб-панели и постоянно работающего сервиса.
 - Тайм-ауты конечны (HTTP 8 с, SSH 15 с), параллелизм строго ≤ 4,
   повторов нет. Частичный сбой не уничтожает остальные наблюдения.
@@ -30,7 +36,7 @@
 
 ```
 node test/registry-check.mjs   # 33/33 (25 этапа 1 сохранены + observe-кейсы)
-node test/net-collect.mjs      # 20/20, изолированно (fetch/ssh — моки)
+node test/net-collect.mjs      # 25/25, изолированно (fetch/ssh — моки)
 ```
 
 Обязательные сценарии покрыты: исправный ответ; тайм-аут; 403/404/500;
@@ -42,8 +48,9 @@ HTML вместо JSON; структуры `/info` (`{}`/`null`/`[]`/text/plain 
 mismatch для реестровых маршрутов, ok-redirect для caps-проб `/index → /`;
 прокси node1 в ответе резерва; отсутствие SSH; частичный сбой;
 параллелизм строго 4; лимит тела потоком; план только из реестра;
-строгая allowlist read-only команд (без `;`, `||`, `|`, переводов строк);
-разбор unit/ps/sha/ss с exitCode; общий блок только по валидному хэшу
+строгая allowlist read-only команд (без `;`, `||`, `|`, переводов строк;
+fix4: `ps -eo`, `ss -ltnp` отклоняются);
+разбор unit/pid-check/sha/ss с exitCode + scrub секретов; общий блок только по валидному хэшу
 (без хэша — unknown, без вывода о совпадении; совпадение истории не
 доказывает отсутствие расхождения выше); монитор nodeCompare с
 INSUFFICIENT; цепочка raw→collect→diff.

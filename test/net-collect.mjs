@@ -3,7 +3,8 @@
 // Покрывают 8 дефектов приёмки: ложный match, формат capabilities get,
 // общий блок без хэша, SSH allowlist, структуры ответов, монитор,
 // параллелизм 4, лимит тела потоком. Плюс цепочка raw→collect→diff.
-import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES } from '../tools/net-collect.mjs';
+// fix4: безопасный SSH (без глобального ps, без сырого ss, со scrub секретов).
+import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES, scrubSecrets, parsePidCheck, filterSsLines } from '../tools/net-collect.mjs';
 import { diff } from '../tools/net-diff.mjs';
 
 const PIN = { network: 'AGENTCOIN', genesis: '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e' };
@@ -51,10 +52,14 @@ function mockSshOk(cmdVariant) {
       const files = cmd.replace(/^sha256sum\s+/, '').split(/\s+/);
       return { stdout: files.map((f) => `${'c'.repeat(64)}  ${f}`).join('\n') + '\n', stderr: '', exitCode: 0 };
     }
-    if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=active\nMainPID=1234\nExecStart=/usr/bin/node /opt/agentcoin-node/src/node.mjs 9335\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=active\nMainPID=1234\nUser=root\nExecStart=/usr/bin/node /opt/agentcoin-node/src/node.mjs 9335\nExecMainStartTimestamp=Thu 2026-11-19 10:00:00 UTC\n', stderr: '', exitCode: 0 };
     if (cmd.startsWith('systemctl is-active')) return { stdout: 'active\n', stderr: '', exitCode: 0 };
-    if (cmd.startsWith('ps ')) return { stdout: 'PID USER ARGS\n1234 root node /opt/agentcoin-node/src/node.mjs 9335\n1 root init\n', stderr: '', exitCode: 0 };
-    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 511 127.0.0.1:9335 *:* users:(("node",pid=1234,fd=1))\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ps -p ')) {
+      const m = cmd.match(/ps -p (\d+)/);
+      const pid = m ? m[1] : '1234';
+      return { stdout: `${pid} root Thu Nov 19 10:00:00 2026\n`, stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 511 127.0.0.1:9335 *:*\nLISTEN 0 511 0.0.0.0:80 *:*\n', stderr: '', exitCode: 0 };
     return { stdout: 'x\n', stderr: '', exitCode: 0 };
   };
 }
@@ -242,38 +247,46 @@ await run('common block hash extraction', async () => {
 });
 
 // 9. SSH allowlist: составные команды запрещены, перевод строки запрещён
+// fix4: глобальный ps и сырой ss -ltnp запрещены; только точечный ps -p и ss -ltn.
 await run('ssh allowlist strict', async () => {
   const plan = buildPlan(testReg());
   for (const p of plan.filter((x) => x.via === 'ssh')) {
     assert(isReadOnlySshCommand(p.command), 'plan cmd must be allowlisted: ' + p.command);
   }
   assert(!isReadOnlySshCommand('systemctl show agentcoin-node.service --property=ActiveState,ExecStart,MainPID,MemoryCurrent --value; systemctl is-active agentcoin-node.service'), 'semicolon rejected');
-  assert(!isReadOnlySshCommand('ss -ltnp | grep -E \':(9335) \' || ss -ltnp | head -n 20'), 'pipe rejected');
+  assert(!isReadOnlySshCommand('ss -ltn | grep -E \':(9335) \''), 'pipe rejected');
+  assert(!isReadOnlySshCommand('ps -eo pid,user,args'), 'global ps rejected (fix4)');
   assert(!isReadOnlySshCommand('ps -eo pid,lstart,user,args | head -n 30'), 'pipe ps rejected');
+  assert(!isReadOnlySshCommand('ss -ltnp'), 'raw ss -ltnp rejected (fix4)');
   assert(!isReadOnlySshCommand('ss -ltnp\nprintf audit_probe'), 'newline rejected');
   assert(!isReadOnlySshCommand('env'), 'env rejected');
-  assert(isReadOnlySshCommand('ss -ltnp'), 'ss exact ok');
+  assert(isReadOnlySshCommand('ss -ltn'), 'ss filtered ok');
+  assert(isReadOnlySshCommand('ps -p 1234 -o pid=,user=,lstart='), 'targeted ps ok');
+  assert(!isReadOnlySshCommand('ps -p 1234 -o pid=,user=,lstart=; id'), 'ps semicolon rejected');
   assert(isReadOnlySshCommand(`curl -sS -m 8 -i 'http://127.0.0.1:9335/blocks?from=10&limit=1'`), 'quoted curl with & ok');
-  assert(isReadOnlySshCommand('systemctl show agentcoin-node.service --property=ActiveState,MainPID,ExecStart'), 'show ok');
+  assert(isReadOnlySshCommand('systemctl show agentcoin-node.service --property=ActiveState,MainPID,User,ExecStart,ExecMainStartTimestamp'), 'show fix4 ok');
 });
 
-// 9b. unit/ps/sha/ss разбираются, exitCode сохраняется
+// 9b. unit/pid/sha/ss разбираются, exitCode сохраняется
 await run('ssh semantics parsed', async () => {
   const sshFn = async (ssh, cmd) => {
     if (cmd.startsWith('curl ')) return { stdout: curlI(200, 'application/json', INFO_OK), stderr: '', exitCode: 0 };
     if (cmd.startsWith('sha256sum')) return { stdout: `${'d'.repeat(64)}  /opt/agentcoin-node/src/node.mjs\n`, stderr: '', exitCode: 0 };
-    if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=active\nMainPID=777\nExecStart=/usr/bin/node x\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=active\nMainPID=777\nUser=root\nExecStart=/usr/bin/node x\nExecMainStartTimestamp=Thu 2026-11-19 10:00:00 UTC\n', stderr: '', exitCode: 0 };
     if (cmd.startsWith('systemctl is-active')) return { stdout: 'active\n', stderr: '', exitCode: 0 };
-    if (cmd.startsWith('ps ')) return { stdout: 'PID USER ARGS\n777 root node /opt/agentcoin-node/src/node.mjs 9335\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ps -p 777')) return { stdout: '777 root Thu Nov 19 10:00:00 2026\n', stderr: '', exitCode: 0 };
     if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
     throw new Error('unexpected ' + cmd);
   };
   const fetchFn = async () => ({ httpStatus: 200, contentType: 'application/json', body: INFO_OK });
   const { observations } = await collect(testReg(), { fetchFn, sshFn });
-  for (const id of ['proc-unit-show', 'proc-unit-active', 'proc-ps', 'listen', 'files-sha']) {
+  for (const id of ['proc-unit-show', 'proc-unit-active', 'listen', 'files-sha']) {
     const o = observations.find((x) => x.checkId === `mainnet-node-1:${id}`);
     assert(o && o.status === 'ok' && o.observedValue.exitCode === 0, `${id} ok + exitCode: ${JSON.stringify(o)}`);
   }
+  const pidObs = observations.find((x) => x.checkId === 'mainnet-node-1:proc-pid-777');
+  assert(pidObs && pidObs.status === 'ok' && pidObs.observedValue.pid === 777, 'proc-pid ok: ' + JSON.stringify(pidObs));
+  assert(!observations.some((x) => x.checkId.includes('proc-ps')), 'no global proc-ps (fix4)');
   // inactive unit → mismatch, а не ok
   const sshInactive = async (ssh, cmd) => {
     if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=inactive\nMainPID=0\nExecStart=\n', stderr: '', exitCode: 0 };
@@ -380,6 +393,79 @@ await run('plan from registry only', async () => {
   assert(plan.length > 0, 'non-empty plan');
   const sshTargets = new Set(plan.filter((p) => p.via === 'ssh').map((p) => p.ssh.host));
   assert(sshTargets.size === 1 && sshTargets.has('10.0.0.1'), 'hosts from registry, got ' + [...sshTargets]);
+});
+
+// fix4-1. чужой процесс с --token SECRET не попадает в evidence
+await run('fix4 foreign token scrubbed', async () => {
+  const secret = 'SECRET-ABC-123';
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.startsWith('curl ')) return { stdout: curlI(200, 'application/json', INFO_OK), stderr: '', exitCode: 0 };
+    if (cmd.startsWith('sha256sum')) return { stdout: `${'d'.repeat(64)}  /opt/agentcoin-node/src/node.mjs\n`, stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl show')) return { stdout: `ActiveState=active\nMainPID=777\nUser=root\nExecStart=/usr/bin/node app --token ${secret}\nExecMainStartTimestamp=Thu 2026-11-19 10:00:00 UTC\n`, stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl is-active')) return { stdout: 'active\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ps -p 777')) return { stdout: '777 root Thu Nov 19 10:00:00 2026\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
+    throw new Error('unexpected ' + cmd);
+  };
+  const fetchFn = async () => ({ httpStatus: 200, contentType: 'application/json', body: INFO_OK });
+  const { observations } = await collect(testReg(), { fetchFn, sshFn, evidenceDir: null });
+  const show = observations.find((x) => x.checkId === 'mainnet-node-1:proc-unit-show');
+  assert(show && show.status === 'ok', 'unit-show ok: ' + JSON.stringify(show));
+  assert(!JSON.stringify(show.observedValue).includes(secret), 'secret masked in observedValue');
+  assert(scrubSecrets(`cmd --token ${secret} x`).includes('[REDACTED]') && !scrubSecrets(`cmd --token ${secret}`).includes(secret), 'scrub masks token');
+  // TIP (64-hex) маскироваться не должен
+  assert(scrubSecrets(TIP_A).includes(TIP_A.slice(0, 8)), 'tip hash preserved');
+});
+
+// fix4-2. целевой PID найден
+await run('fix4 target pid found', async () => {
+  const p = parsePidCheck('777 root Thu Nov 19 10:00:00 2026\n', 777);
+  assert(p.ok && p.pid === 777 && p.user === 'root', 'pid parsed: ' + JSON.stringify(p));
+});
+
+// fix4-3. неправильный PID не подтверждает процесс
+await run('fix4 wrong pid rejected', async () => {
+  const p = parsePidCheck('999 other Thu Nov 19 10:00:00 2026\n', 777);
+  assert(!p.ok && /pid_mismatch/.test(p.error), 'wrong pid: ' + JSON.stringify(p));
+  const e = parsePidCheck('\n', 777);
+  assert(!e.ok, 'empty ps rejected');
+});
+
+// fix4-4. в evidence нет строк посторонних процессов; ss только ожидаемые порты
+await run('fix4 no foreign lines in evidence', async () => {
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.startsWith('curl ')) return { stdout: curlI(200, 'application/json', INFO_OK), stderr: '', exitCode: 0 };
+    if (cmd.startsWith('sha256sum')) return { stdout: `${'d'.repeat(64)}  /opt/agentcoin-node/src/node.mjs\n`, stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl show')) return { stdout: 'ActiveState=active\nMainPID=555\nUser=root\nExecStart=/usr/bin/node x\nExecMainStartTimestamp=t\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('systemctl is-active')) return { stdout: 'active\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ps -p 555')) return { stdout: '555 root Thu Nov 19 10:00:00 2026\n', stderr: '', exitCode: 0 };
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\nLISTEN 0 1 127.0.0.1:9999 foreign\n', stderr: '', exitCode: 0 };
+    throw new Error('unexpected ' + cmd);
+  };
+  const fetchFn = async () => ({ httpStatus: 200, contentType: 'application/json', body: INFO_OK });
+  const { observations } = await collect(testReg(), { fetchFn, sshFn, evidenceDir: null });
+  const pidObs = observations.find((x) => x.checkId === 'mainnet-node-1:proc-pid-555');
+  assert(pidObs && pidObs.status === 'ok', 'pid ok: ' + JSON.stringify(pidObs));
+  assert(!JSON.stringify(pidObs.observedValue).includes('foreign') && !JSON.stringify(pidObs.observedValue).includes('9999'), 'no foreign in pid observedValue');
+  const ssObs = observations.find((x) => x.checkId === 'mainnet-node-1:listen');
+  assert(ssObs && !JSON.stringify(ssObs.observedValue).includes('9999') === false || ssObs.observedValue.observedPorts.includes(9999), 'observedPorts may list all, but evidence filtered');
+  const kept = filterSsLines('LISTEN 0 1 127.0.0.1:9335 x\nLISTEN 0 1 127.0.0.1:9999 foreign --token SECRET-XYZ\n', [9335]);
+  assert(kept.length === 1 && kept[0].includes('9335') && !kept.join(' ').includes('9999') && !kept.join(' ').includes('SECRET-XYZ'), 'ss filtered + scrubbed: ' + JSON.stringify(kept));
+});
+
+// fix4-5. пакет содержит зависимости этапа 1 (чистая распаковка проходит registry-check)
+await run('fix4 package deps present', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(here, '..');
+  for (const f of ['docs/audit-network/NODES.csv', 'sdk/js/agentcoin-sdk.mjs', 'sdk/js/agentcoin-cli.mjs', 'mcp/agentcoin-mcp.mjs', 'tools/miner-watchdog.mjs', 'tools/testnet.mjs', 'test/node-monitor.mjs']) {
+    assert(fs.existsSync(path.join(root, f)), 'missing package dep: ' + f);
+  }
+  const plan = buildPlan(testReg());
+  assert(!plan.some((p) => p.command === 'ps -eo pid,user,args'), 'no global ps in plan');
+  assert(!plan.some((p) => p.command === 'ss -ltnp'), 'no raw ss in plan');
 });
 
 let fail = 0;

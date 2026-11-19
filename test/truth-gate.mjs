@@ -3,6 +3,7 @@
 // Каждый кейс мутирует фикстуру и проверяет конкретный код/вердикт, а не «любой провал».
 import fs from 'node:fs';
 import { evaluateGate, renderMarkdown } from '../tools/truth-gate.mjs';
+import { parseCaddyfile, scanMutationGuards, summarizeAdaptedJson } from '../tools/gate-collect.mjs';
 
 const policy = JSON.parse(fs.readFileSync(new URL('../config/truth-gate-policy.json', import.meta.url), 'utf8'));
 const GENESIS = '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e';
@@ -50,17 +51,23 @@ function makeObservations(blocks = 1000) {
     O('miner-stack', 'miner-stack:miner-unit', { unit: 'agentcoin-miner.service', activeState: 'active', mainPid: 10, intervalSec: 60, addresses: ['AGT' + '1'.repeat(40)] }),
     O('miner-stack', 'miner-stack:watchdog-unit', { unit: 'agentcoin-watchdog.service', activeState: 'active', mainPid: 11, watchTarget: '/opt/agentcoin-sups/watchdog-svc.mjs' }),
     O('miner-stack', 'miner-stack:recent-blocks', { from: blocks - 3, to: blocks - 1, count: 3, uniqueCount: 2, uniqueProducers: ['AGT' + '1'.repeat(40), 'AGT' + '2'.repeat(40)], producers: [] }),
-    O('miner-stack', 'miner-stack:schedule', { expected: 'cron */10 + unit 60s', observed: { cronMine: true, minerUnitActive: true }, missing: [] }),
+    O('miner-stack', 'miner-stack:schedule', { expected: 'cron */10 + unit 60s', observed: { cronMine: true, minerUnitActive: true }, missing: [], operatorsIndependent: 'UNKNOWN: one miner service with N rotation addresses counts as one operator' }),
+    O('miner-stack', 'miner-stack:operators', { minerServices: ['agentcoin-miner.service'], serviceCount: 1, uniqueAddresses: ['AGT' + '1'.repeat(40), 'AGT' + '2'.repeat(40)], addressCount: 2, singleService: true, operatorsIndependent: 'UNKNOWN: one miner service with N rotation addresses counts as one operator' }),
     O('caddy-h1', 'caddy-h1:config-node1', { host: '2.31.145.160', sha256: H(1), sites: [] }),
-    O('caddy-h1', 'caddy-h1:map', { host: '2.31.145.160', configSha: H(1), routeCount: 3, conflicts: [], routes: [] }),
+    O('caddy-h1', 'caddy-h1:map', { host: '2.31.145.160', configSha: H(1), routeCount: 3, overlapGroups: [], ambiguousCount: 0, routes: [] }),
     O('caddy-h1', 'caddy-h1:guard-scan', { findings: [], blockerCount: 0, warnCount: 0 }),
     O('caddy-h1', 'caddy-h1:order', { catchAllShadows: [] }),
+    O('caddy-h1', 'caddy-h1:adapted', { sha256: H(9), servers: ['srv0'], routeCount: 0, overlapOrder: [], redactedKeys: 0 }),
     O('caddy-reserve', 'caddy-reserve:config-node2', { host: '91.99.191.236', sha256: H(2), sites: [] }),
     O('caddy-reserve', 'caddy-reserve:config-node3', { host: '64.225.104.125', sha256: H(3), sites: [] }),
-    O('site-static', 'site-static:page-root', { path: '/', module: 'imperial-home', httpStatus: 200, finalUrl: 'https://agentcoin.work/', contentType: 'text/html', sha256: H(0xaa), bytes: 100, title: 'AGENTCOIN', h1: 'Империя', navHash: 'aaa', releaseMarker: 'site-v3', html: true, h1s: ['Империя'] }),
-    O('site-static', 'site-static:page-imperial', { path: '/imperial', module: 'imperial-home', httpStatus: 200, finalUrl: 'https://agentcoin.work/imperial', contentType: 'text/html', sha256: H(0xaa), bytes: 100, title: 'AGENTCOIN', h1: 'Империя', navHash: 'aaa', releaseMarker: 'site-v3', html: true, h1s: ['Империя'] }),
-    O('site-static', 'site-static:pages-summary', { pageCount: 2, duplicates: [{ sha256: H(0xaa), paths: ['/', '/imperial'], rootDuplicated: true, sameTitle: true, sameH1: true }], shell: {}, rootDuplicate: { sha256: H(0xaa), paths: ['/', '/imperial'] } }),
-    O('agent-room', 'agent-room:page-agent-room', { path: '/agent-room', httpStatus: 200, sha256: H(0xbb), html: true, title: 'Agent Room' }),
+    O('site-static', 'site-static:page-root', { path: '/', module: 'imperial-home', httpStatus: 200, finalUrl: 'https://agentcoin.work/', contentType: 'text/html', sha256: H(0xaa), bytes: 100, title: 'AGENTCOIN', h1: 'Империя', navHash: 'aaa', releaseMarker: 'site-v3', html: true, h1s: ['Империя'], shellScript: ['/panel.js'], stylesheet: [], canonical: null, networkIdentityRefs: 7, agentRoomEntry: false, apiErrorDisplay: true, languageSwitch: true }),
+    O('site-static', 'site-static:page-imperial', { path: '/imperial', module: 'imperial-home', httpStatus: 200, finalUrl: 'https://agentcoin.work/imperial', contentType: 'text/html', sha256: H(0xaa), bytes: 100, title: 'AGENTCOIN', h1: 'Империя', navHash: 'aaa', releaseMarker: 'site-v3', html: true, h1s: ['Империя'], shellScript: ['/panel.js'], stylesheet: [], canonical: null, networkIdentityRefs: 7, agentRoomEntry: false, apiErrorDisplay: true, languageSwitch: true }),
+    O('site-static', 'site-static:pages-summary', { pageCount: 3, duplicates: [{ sha256: H(0xaa), paths: ['/', '/imperial'], rootDuplicated: true, sameTitle: true, sameH1: true }], shell: {}, rootDuplicate: { sha256: H(0xaa), paths: ['/', '/imperial'] }, shellConsistent: true, releaseMarkerAbsent: [], shellProfiles: [
+      { path: '/', shellScript: ['/panel.js'], stylesheet: [], navHash: 'aaa', releaseMarker: 'site-v3', networkIdentityRefs: 7, agentRoomEntry: false, apiErrorDisplay: true, languageSwitch: true, title: 'AGENTCOIN', h1: 'Империя' },
+      { path: '/imperial', shellScript: ['/panel.js'], stylesheet: [], navHash: 'aaa', releaseMarker: 'site-v3', networkIdentityRefs: 7, agentRoomEntry: false, apiErrorDisplay: true, languageSwitch: true, title: 'AGENTCOIN', h1: 'Империя' },
+      { path: '/agent-room', shellScript: ['/panel.js'], stylesheet: [], navHash: 'aaa', releaseMarker: 'site-v3', networkIdentityRefs: 1, agentRoomEntry: true, apiErrorDisplay: false, languageSwitch: false, title: 'Agent Room', h1: 'Agent Room' },
+    ] }),
+    O('agent-room', 'agent-room:page-agent-room', { path: '/agent-room', httpStatus: 200, sha256: H(0xbb), html: true, title: 'Agent Room', shellScript: ['/panel.js'], stylesheet: [], releaseMarker: 'site-v3' }),
     O('web-next', 'web-next:pub-jobs', { httpStatus: 200 }),
     O('queue-orders-catalog', 'queue-orders-catalog:pub-queue-status', { httpStatus: 200 }),
     O('settlement-gateway', 'settlement-gateway:route-bare', { path: '/mainnet/settlements', httpStatus: 404, errorCode: 'not_found', classification: 'PARAM_REQUIRED' }),
@@ -186,16 +193,27 @@ check('shared writable DATA_DIR → BLOCKED', () => {
   return run(i);
 }, (r) => r.verdict === 'BLOCKED' && codes(r).includes('SHARED_WRITABLE_DATA_DIR'));
 
-// 7. Конфликт владельцев маршрута → BLOCKED
-check('duplicate route owner → BLOCKED', () => {
+// 7. Детерминированное пересечение деклараций → WARN ROUTE_PATTERN_OVERLAP, не BLOCKED.
+// Порядок Caddy однозначен (строка 35 раньше 44): исполняется mainnet-node-1,
+// env-staging — тень. Блокер ROUTE_OWNER_CONFLICT — только при неоднозначности.
+check('deterministic route overlap → WARN, not BLOCKED', () => {
   const i = base();
   byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
   byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
   byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
   byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
-  byId(i.observations, 'caddy-h1:map').observedValue.conflicts = [{ host: 'agentcoin.work', path: '/', methods: ['GET'], first: { owner: 'site-static', target: '/srv/x' }, second: { owner: 'web-next', target: '127.0.0.1:3000' } }];
+  byId(i.observations, 'caddy-h1:map').observedValue.overlapGroups = [{
+    host: 'api-staging.agentcoin.work', publicPath: '/working/txproof/*', internalPath: '/txproof/*', methods: ['GET'],
+    matchingHandlers: [
+      { owner: 'mainnet-node-1', target: 'http://127.0.0.1:9335', line: 35, matcher: '@owner_session_read', kind: 'handle', inRoute: false },
+      { owner: 'env-staging', target: '127.0.0.1:29335', line: 44, matcher: '@public_reads', kind: 'handle', inRoute: false },
+    ],
+    handlerOrder: [35, 44], effectiveOwner: 'mainnet-node-1', effectiveTarget: 'http://127.0.0.1:9335',
+    fallbackOwner: 'env-staging', fallbackTarget: '127.0.0.1:29335', ambiguous: false,
+    reason: 'Caddy executes most specific first, ties by file order: line 35 wins',
+  }];
   return run(i);
-}, (r) => r.verdict === 'BLOCKED' && codes(r).includes('ROUTE_OWNER_CONFLICT'));
+}, (r) => r.verdict === 'WARN' && r.warnings.some((w) => w.code === 'ROUTE_PATTERN_OVERLAP') && !codes(r).includes('ROUTE_OWNER_CONFLICT'));
 
 // 8. Двойная главная → BLOCKED
 check('duplicate root product → BLOCKED', () => run(base()),
@@ -429,6 +447,187 @@ check('unknown is visible, not hidden', () => {
   const r = run(i);
   return { ...r, __status: r.coverage.components.mcp.status, __unknown: r.unknowns.some((u) => u.componentId === 'mcp') };
 }, (r) => r.__status === 'UNKNOWN' && r.__unknown);
+
+// 29. operatorsIndependent=UNKNOWN присутствует в unknowns со своим кодом
+check('operatorsIndependent=UNKNOWN is visible in unknowns', () => run(base()),
+  (r) => r.unknowns.some((u) => u.code === 'MINER_OPERATOR_INDEPENDENCE_UNKNOWN' && u.componentId === 'miner-stack'));
+
+// 30. Семь адресов одного miner service не становятся независимыми операторами
+check('seven addresses of one miner service prove no independence', () => {
+  const i = base();
+  const ops = byId(i.observations, 'miner-stack:operators');
+  ops.observedValue.uniqueAddresses = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7'];
+  ops.observedValue.addressCount = 7;
+  ops.observedValue.singleService = true;
+  const r = run(i);
+  return { ...r, __single: ops.observedValue.singleService };
+}, (r) => r.unknowns.some((u) => u.code === 'MINER_OPERATOR_INDEPENDENCE_UNKNOWN') && r.__single === true);
+
+// 31. Разные shell-маркеры страниц → SITE_SHELL_INCONSISTENT (BLOCKED)
+check('different shell markers → SITE_SHELL_INCONSISTENT', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  const sum = byId(i.observations, 'site-static:pages-summary');
+  sum.observedValue.shellProfiles = [
+    { path: '/', shellScript: ['/panel.js'], stylesheet: [], releaseMarker: 'site-v3' },
+    { path: '/agent-room', shellScript: ['/agent-room.js'], stylesheet: ['/ecosphere/styles.css'], releaseMarker: 'site-v3' },
+  ];
+  return run(i);
+}, (r) => r.verdict === 'BLOCKED' && codes(r).includes('SITE_SHELL_INCONSISTENT'));
+
+// 32. Одинаковый shell на всех страницах → PASS (без shell-блокера)
+check('same shell everywhere → PASS', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  return run(i);
+}, (r) => r.verdict === 'PASS' && !codes(r).includes('SITE_SHELL_INCONSISTENT'));
+
+// 33. Отсутствующий release-маркер → WARN, не BLOCKED
+check('missing release marker → WARN', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  const sum = byId(i.observations, 'site-static:pages-summary');
+  sum.observedValue.shellProfiles = [
+    { path: '/', shellScript: ['/panel.js'], stylesheet: [], releaseMarker: 'site-v3' },
+    { path: '/agent-room', shellScript: ['/panel.js'], stylesheet: [], releaseMarker: null },
+  ];
+  return run(i);
+}, (r) => r.verdict === 'WARN' && r.warnings.some((w) => w.code === 'SITE_RELEASE_MARKER_ABSENT') && !codes(r).includes('SITE_SHELL_INCONSISTENT'));
+
+// 34. Реальная неоднозначность порядка (route-блок + handle) → BLOCKED ROUTE_OWNER_CONFLICT
+check('ambiguous route order → BLOCKED ROUTE_OWNER_CONFLICT', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  byId(i.observations, 'caddy-h1:map').observedValue.overlapGroups = [{
+    host: 'agentcoin.work', publicPath: '/x/*', internalPath: '/x/*', methods: ['GET'],
+    matchingHandlers: [
+      { owner: 'site-static', target: '/srv/x', line: 10, matcher: '@a', kind: 'handle', inRoute: true },
+      { owner: 'web-next', target: '127.0.0.1:3000', line: 20, matcher: '@b', kind: 'handle', inRoute: false },
+    ],
+    handlerOrder: [10, 20], effectiveOwner: 'site-static', effectiveTarget: '/srv/x',
+    fallbackOwner: 'web-next', fallbackTarget: '127.0.0.1:3000', ambiguous: true,
+    reason: 'mixed route-block and sorted handle: execution order not provable from file order',
+  }];
+  return run(i);
+}, (r) => r.verdict === 'BLOCKED' && codes(r).includes('ROUTE_OWNER_CONFLICT'));
+
+// 35. Префикс /working сохраняется в публичном отчёте (unit: парсер + guard-scan)
+check('working prefix preserved in public report', () => {
+  const caddyfile = 'api-staging.agentcoin.work {\n\t@working_namespace path /working /working/*\n\thandle @working_namespace {\n\t\turi strip_prefix /working\n\t\t@owner_session_write {\n\t\t\tmethod POST\n\t\t\tpath /cabinet/login\n\t\t}\n\t\thandle @owner_session_write {\n\t\t\treverse_proxy http://127.0.0.1:9335\n\t\t}\n\t}\n}\n';
+  const map = parseCaddyfile(caddyfile);
+  const findings = scanMutationGuards(map, policy, []).filter((f) => f.code === 'TEST_MUTATION_TO_MAINNET');
+  const verdict = findings.length ? 'BLOCKED' : 'PASS';
+  return { verdict, blockers: [], warnings: [], unknowns: [], findings };
+}, (r) => r.findings.length === 1 && r.findings[0].publicPath === '/working/cabinet/login' && r.findings[0].internalPath === '/cabinet/login');
+
+// 36. staging→mainnet mutation → BLOCKED с внешним и внутренним путём
+check('staging to mainnet mutation → BLOCKED with both paths', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  byId(i.observations, 'caddy-h1:guard-scan').observedValue.findings = [{
+    host: ['api-staging.agentcoin.work'], publicHost: 'api-staging.agentcoin.work', methods: ['POST'],
+    paths: ['/cabinet/login'], publicPaths: ['/working/cabinet/login'],
+    internalPath: '/cabinet/login', publicPath: '/working/cabinet/login',
+    upstream: 'http://127.0.0.1:9335', line: 13, guard: [], severity: 'BLOCKED', code: 'TEST_MUTATION_TO_MAINNET',
+    testHost: true, toMainnet: true, effectiveOwner: 'mainnet-node-1',
+    environmentFrom: 'staging', environmentTo: 'mainnet', applicationAuth: 'UNKNOWN', policyVerdict: 'BLOCKED',
+  }];
+  return run(i);
+}, (r) => r.verdict === 'BLOCKED' && codes(r).includes('TEST_MUTATION_TO_MAINNET')
+  && r.blockers.some((b) => b.code === 'TEST_MUTATION_TO_MAINNET' && /\/working\/cabinet\/login/.test(b.message) && /internal \/cabinet\/login/.test(b.message)));
+
+// 37. Auth прикладного уровня не проверена чтением → applicationAuth UNKNOWN (unit)
+check('backend auth not probed → applicationAuth UNKNOWN', () => {
+  const caddyfile = 'api-staging.agentcoin.work {\n\t@working_namespace path /working /working/*\n\thandle @working_namespace {\n\t\turi strip_prefix /working\n\t\t@owner_session_write {\n\t\t\tmethod POST\n\t\t\tpath /cabinet/login\n\t\t}\n\t\thandle @owner_session_write {\n\t\t\treverse_proxy http://127.0.0.1:9335\n\t\t}\n\t}\n}\n';
+  const map = parseCaddyfile(caddyfile);
+  const findings = scanMutationGuards(map, policy, []);
+  const verdict = findings.length ? 'BLOCKED' : 'PASS';
+  return { verdict, blockers: [], warnings: [], unknowns: [], findings };
+}, (r) => r.findings.length === 1 && r.findings[0].applicationAuth === 'UNKNOWN');
+
+// 38. Блокер без evidence → сам гейт становится CORRUPT_OUTPUT
+check('blocker without evidence → CORRUPT_OUTPUT', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  const m = byId(i.observations, 'caddy-h1:map');
+  m.evidenceFile = null;
+  m.observedValue.overlapGroups = [{
+    host: 'agentcoin.work', publicPath: '/x/*', internalPath: '/x/*', methods: ['GET'],
+    matchingHandlers: [
+      { owner: 'site-static', target: '/srv/x', line: 10, matcher: '@a', kind: 'handle', inRoute: true },
+      { owner: 'web-next', target: '127.0.0.1:3000', line: 20, matcher: '@b', kind: 'handle', inRoute: false },
+    ],
+    handlerOrder: [10, 20], effectiveOwner: 'site-static', effectiveTarget: '/srv/x',
+    fallbackOwner: 'web-next', fallbackTarget: '127.0.0.1:3000', ambiguous: true,
+    reason: 'mixed route-block and sorted handle',
+  }];
+  return run(i);
+}, (r) => r.verdict === 'BLOCKED' && codes(r).includes('CORRUPT_OUTPUT'));
+
+// 39. Повторяющиеся undocumented-маршруты дедуплицируются с handlerLines
+check('repeated undocumented routes deduplicated', () => {
+  const i = base();
+  byId(i.observations, 'site-static:pages-summary').observedValue.rootDuplicate = null;
+  byId(i.observations, 'site-static:pages-summary').observedValue.duplicates = [];
+  byId(i.observations, 'site-static:page-imperial').observedValue.sha256 = H(0xab);
+  byId(i.observations, 'site-static:page-imperial').observedValue.title = 'Imperial — модуль';
+  const mk = (line, matcher) => ({ hosts: ['agentcoin.work'], line, matcher, methods: ['GET'], paths: ['/balance'], publicPaths: ['/balance'], kind: 'handle', upstream: 'https://node1.agentcoin.work', owner: 'mainnet-node-1' });
+  byId(i.observations, 'caddy-h1:map').observedValue.routes = [mk(35, '@a'), mk(44, '@b')];
+  const r = run(i);
+  const u = r.warnings.filter((w) => w.code === 'UNDOCUMENTED_ROUTE');
+  return { ...r, __u: u };
+}, (r) => r.__u.length === 1 && /35/.test(r.__u[0].message) && /44/.test(r.__u[0].message));
+
+// 40. Путь evidence отсутствует в пакете → BLOCKED CORRUPT_OUTPUT
+check('evidence path missing from package → BLOCKED', () => {
+  const i = base();
+  const missing = byId(i.observations, 'site-static:pages-summary').evidenceFile;
+  const manifest = i.observations.map((o) => o.evidenceFile).filter(Boolean).filter((p) => p !== missing);
+  const r = evaluateGate({ registry: i.registry, observations: i.observations, diff: i.diff, policy: i.policy, evidenceFiles: manifest });
+  return r;
+}, (r) => r.verdict === 'BLOCKED' && r.blockers.some((b) => b.code === 'CORRUPT_OUTPUT'));
+
+// 41. Детерминизм гейта и Markdown с манифестом пакета
+check('deterministic gate with manifest', () => {
+  const i = base();
+  const manifest = i.observations.map((o) => o.evidenceFile).filter(Boolean);
+  const a = evaluateGate({ registry: i.registry, observations: i.observations, diff: i.diff, policy: i.policy, evidenceFiles: manifest });
+  const b = evaluateGate({ registry: clone(i).registry, observations: clone(i).observations, diff: clone(i).diff, policy: clone(i).policy, evidenceFiles: manifest.slice() });
+  const eq = JSON.stringify(a) === JSON.stringify(b);
+  const mdEq = renderMarkdown(a, { policyVersion: 'x' }) === renderMarkdown(b, { policyVersion: 'x' });
+  return { verdict: a.verdict, blockers: a.blockers, warnings: a.warnings, unknowns: a.unknowns, __eq: eq && mdEq };
+}, (r) => r.__eq === true);
+
+// 42. summarizeAdaptedJson находит вложенные маршруты в порядке исполнения
+check('adapted summary finds nested routes in execution order', () => {
+  const adapted = { apps: { http: { servers: { srv0: { routes: [
+    { match: [{ method: ['GET'], path: ['/working', '/working/*'] }], handle: [{ handler: 'subroute', routes: [
+      { match: [{ method: ['GET'], path: ['/txproof/*', '/mempool'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:9335' }] }] },
+      { match: [{ method: ['GET'], path: ['/txproof/*'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:29335' }] }] },
+    ] }] },
+  ] } } } } };
+  const s = summarizeAdaptedJson(adapted);
+  const tx = s.orderedRoutes.filter((r) => r.match.some((m) => m.includes('txproof')));
+  return { verdict: 'PASS', blockers: [], warnings: [], unknowns: [], __tx: tx.map((r) => r.dials[0]) };
+}, (r) => r.__tx.length === 2 && r.__tx[0] === '127.0.0.1:9335' && r.__tx[1] === '127.0.0.1:29335');
 
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name} — ${r.sample}`);
 const failed = results.filter((r) => !r.ok);

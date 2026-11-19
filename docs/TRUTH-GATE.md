@@ -17,8 +17,8 @@
 | `tools/gate-collect.mjs` | read-only сбор этапа 3 (изоляция сред, майнинг, Caddy, C07, settlement, capabilities, sdk/cli/mcp/pilot) |
 | `tools/net-collect.mjs` | базовый read-only сбор этапа 2 (ноды, маршруты, монитор) |
 | `tools/net-diff.mjs` | сравнение ожидаемого с наблюдаемым, `nodeCompare` на одной высоте |
-| `tools/truth-gate.mjs` | чистый evaluator + CLI: `truth-gate.json` и `TRUTH-GATE.md` |
-| `test/truth-gate.mjs` | 28 сценариев без сети и production |
+| `tools/truth-gate.mjs` | чистый evaluator + CLI (`--packlist` для инварианта evidence): `truth-gate.json` и `TRUTH-GATE.md` |
+| `test/truth-gate.mjs` | 42 сценария без сети и production |
 
 ## Входы и выход
 
@@ -49,7 +49,7 @@
 | --- | --- |
 | `CHAIN_PIN_MISMATCH` | chainId/genesis не совпал с пином реестра |
 | `SAME_HEIGHT_FORK` | разные хэши одного блока на одной высоте (не разные высоты) |
-| `ROUTE_OWNER_CONFLICT` | один публичный URL имеет двух владельцев/upstream |
+| `ROUTE_OWNER_CONFLICT` | порядок исполнения маршрута неоднозначен (смесь route-блоков и сортируемых handle); детерминированное пересечение — это `ROUTE_PATTERN_OVERLAP` (WARN), а не конфликт |
 | `SHARED_WRITABLE_DATA_DIR` | общий writable DATA_DIR (или cwd) у разных сетей |
 | `SECRET_IN_EVIDENCE` | сканер нашёл приватный ключ/токен/присвоенный секрет |
 | `DUPLICATE_ROOT_PRODUCT` | два публичных URL отдают побайтово один product (двойник главной) |
@@ -63,7 +63,11 @@
 | `CATCH_ALL_SHADOWS_MODULE` | более одного catch-all на уровне или catch-all-proxy |
 | `MISSING_EVIDENCE` | `ok` без evidence или evidence вне каталога `evidence/` |
 | `CORRUPT_INPUT` | входной JSON не читается/неполон |
+| `SITE_SHELL_INCONSISTENT` | страницы единого сайта используют разный script/stylesheet-набор |
 | `MUTATION_ROUTE_CALLED` | в наблюдениях есть вызов mutation-route |
+| `CORRUPT_OUTPUT` | гейт выдал блокер без ссылки на доказательство из пакета (мета-сигнал о повреждении выхода) |
+
+Предупреждения fix1: `ROUTE_PATTERN_OVERLAP` (несколько деклараций одного публичного пути при однозначном порядке Caddy — исполняется первый handler, остальные тень; в сообщении `handlerOrder`, `effectiveOwner`, `fallbackOwner`), `SITE_RELEASE_MARKER_ABSENT` (на странице нет release-маркера единого сайта).
 
 Тайм-аут сам по себе — `WARN`/`UNKNOWN`, не доказательство падения. `LAGGING` и
 `STALE` — предупреждения, не форк. Отсутствие проверки никогда не выдаётся за
@@ -86,17 +90,33 @@
    `CHAIN_ID`, `NETWORK`, `NETWORK_ID`, `NODE_ENV`).
 3. **Майнинг.** Активные units/timers/cron, процесс-кандидат, источник coinbase,
    производители последних 20 блоков, дубли майнеров, соответствие расписанию
-   реестра, объект наблюдения watchdog. Совпадение адресов не объявляется
-   независимостью операторов — это `UNKNOWN`.
-4. **Caddy.** Редактированная карта host → matcher → handler → upstream → owner;
-   порядок static/Next/proxy, `/`, `/imperial`, `/agent-room`, `/settlement`,
-   `/mainnet/*`, `/api/v1/*`, `/ecosphere/*`, reserve-маршруты, `/ws/*`. Один
-   публичный URL — один владелец. Caddy сортирует `handle` по специфичности
-   path-матчера, поэтому «catch-all ниже модуля» само по себе не перекрытие;
-   блокер — конкурирующие catch-all одного уровня и catch-all-proxy.
+   реестра, объект наблюдения watchdog. Отдельная проверка `operators`:
+   количество адресов доказательством независимости не является — один
+   наблюдаемый miner service с N адресами ротации считается одним оператором,
+   поэтому независимость всегда `UNKNOWN` с кодом
+   `MINER_OPERATOR_INDEPENDENCE_UNKNOWN` (виден в `unknowns`, а не скрыт).
+   Пока ответ UNKNOWN, компонент не может быть PASS (минимум WARN).
+4. **Caddy.** Карта host → matcher → handler → upstream → owner с внешними
+   публичными путями (`uri strip_prefix` учитывается: снаружи
+   `/working/cabinet/login`, внутри `/cabinet/login`); порядок static/Next/proxy.
+   Пересечения деклараций различаются: `ROUTE_PATTERN_OVERLAP` (порядок
+   однозначен — более специфичный path, при равной специфичности меньшая
+   строка; исполняется первый) и `ROUTE_OWNER_CONFLICT` (порядок
+   неоднозначен — смесь route-блоков и сортируемых handle). Дополнительно
+   снимается `caddy adapt` (только чтение, значения чувствительных ключей
+   редактируются): порядок исполнения по мнению самого Caddy фиксируется в
+   `overlapOrder` (`orderedDials`). Для каждой mutation-находки хранятся
+   `publicPath`/`internalPath`, `environmentFrom`/`environmentTo` и честное
+   `applicationAuth: 'UNKNOWN'` (backend не читается); блокировка
+   staging→mainnet идёт по факту связи сред.
 5. **C07 — единый сайт.** Для страниц: HTTP status, final URL, Content-Type,
-   SHA тела, title/H1, nav/release-маркер, источник маршрута, владелец. Два URL с
-   одинаковым телом и одним title/H1 — `DUPLICATE_ROOT_PRODUCT`.
+   SHA тела, title/H1, nav/release-маркер, источник маршрута, владелец — плюс
+   shell-профиль: `shellScript`, `stylesheet`, `canonical`,
+   `networkIdentityRefs`, `agentRoomEntry`, `apiErrorDisplay`,
+   `languageSwitch`. Два URL с одинаковым телом и одним title/H1 —
+   `DUPLICATE_ROOT_PRODUCT`. Расхождение script/stylesheet-наборов страниц —
+   `SITE_SHELL_INCONSISTENT` (блокер); отсутствие release-маркера —
+   `SITE_RELEASE_MARKER_ABSENT` (предупреждение).
 6. **Settlement.** Голый `/mainnet/settlements` — не контракт (`PARAM_REQUIRED`);
    реальный контракт — `/mainnet/settlements/:orderId/status`. Без реального
    orderId маршрут не называется mismatch; проверяется корректный отказ
@@ -179,7 +199,7 @@ node tools/truth-gate.mjs --registry config/unified-registry.json \
 ```bash
 node test/registry-check.mjs   # 33/33 — схема/валидатор реестра
 node test/net-collect.mjs      # 43/43 — этап 2 + fix6, изолированно (моки)
-node test/truth-gate.mjs       # 28/28 — гейт, изолированно (фикстуры)
+node test/truth-gate.mjs       # 42/42 — гейт, изолированно (фикстуры + unit-тесты парсера Caddy)
 ```
 
 Сценарии гейта покрывают: здоровую систему, одинаковую историю трёх нод,
@@ -190,7 +210,43 @@ DATA_DIR, конфликт владельцев, двойную главную, 
 запись теста в mainnet, секрет в evidence, детерминизм, подмену монитора,
 критический компонент без наблюдения, сломанный settlement, вызов
 mutation-route, `NOT_APPLICABLE`, одинаковую высоту/хэш, лаг при разных
-вершинах и видимость `UNKNOWN`.
+вершинах и видимость `UNKNOWN` — плюс 14 сценариев fix1: честный UNKNOWN
+операторов (включая 7 адресов одного сервиса), `SITE_SHELL_INCONSISTENT` и
+одинаковый shell → `PASS`, отсутствие release-маркера → `WARN`, overlap →
+`WARN` без конфликта, реальная неоднозначность → `BLOCKED`, префикс
+`/working` в отчёте, staging→mainnet с обоими путями, `applicationAuth
+UNKNOWN`, блокер без evidence → `CORRUPT_OUTPUT`, дедупликация undocumented,
+evidence вне пакета → `BLOCKED`, детерминизм с манифестом, порядок вложенных
+маршрутов в adapted-сводке.
+
+## Результат среза fix1 (2026-11-19)
+
+Полный read-only срез: 191 наблюдение (`ok=180`, `mismatch=5`,
+`not_checked=2`, `unavailable=3`, `unknown=1`), 20 компонентов: `PASS=13`,
+`FAIL=3`, `WARN=3`, `UNKNOWN=1`. Вердикт — **BLOCKED**: 3 блокера, 16
+предупреждений, 2 unknowns. Детали — в
+`reports/stage3-fix1-2026-11-19/{truth-gate.json,TRUTH-GATE.md,observations.json,evidence/}`.
+
+Блокеры fix1:
+
+- `DUPLICATE_ROOT_PRODUCT`: `/` == `/imperial` (то же тело, title/H1).
+- `SITE_SHELL_INCONSISTENT`: `/`+`/imperial` (6 скриптов с `/panel.js`, без
+  css) против `/agent-room` (`/agent-room.js`, css) против `/settlement`
+  (`/ecosphere/mainnet.js`, css).
+- `TEST_MUTATION_TO_MAINNET`: `api-staging.agentcoin.work` проксирует `POST`
+  public `/working/cabinet/*` (internal `/cabinet/*`) в `127.0.0.1:9335`:
+  env `staging→mainnet`, `applicationAuth=UNKNOWN`.
+
+Пересечение `/working/txproof/*` — больше не конфликт, а `ROUTE_PATTERN_OVERLAP`
+(WARN): декларации `mainnet-node-1@L35` и `env-staging@L44` при однозначном
+порядке (строка 35 раньше 44); `evidence/caddy-h1-adapted.json` подтверждает
+порядок исполнения: `orderedDials [9335, 29335, node1:443]`.
+
+Unknowns (оба видны): `MINER_OPERATOR_INDEPENDENCE_UNKNOWN` и
+`COVERAGE_UNKNOWN` по `miner-stack`. Предупреждения дедуплицированы по
+`code|host|method|publicPath|effectiveOwner` со списком `handlerLines`.
+Каждый блокер ссылается на доказательство из пакета (инвариант: иначе
+`CORRUPT_OUTPUT`).
 
 ## Границы
 

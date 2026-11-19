@@ -54,7 +54,7 @@ function hasRequired(list, pattern) {
   });
 }
 
-export function evaluateGate({ registry, observations, diff, policy }) {
+export function evaluateGate({ registry, observations, diff, policy, evidenceFiles = null }) {
   const blockers = [];
   const warnings = [];
   const unknowns = [];
@@ -84,7 +84,27 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   const allowed = ALLOWED_NOT_CHECKED(policy);
   const addBlocker = (code, componentId, checkId, message, evidence = []) => blockers.push({ code, componentId, checkId, message, evidence });
   const addWarning = (code, componentId, checkId, message, evidence = []) => warnings.push({ code, componentId, checkId, message, evidence });
-  const addUnknown = (componentId, checkId, message, evidence = []) => unknowns.push({ code: 'UNKNOWN', componentId, checkId, message, evidence });
+  const addUnknown = (code, componentId, checkId, message, evidence = []) => unknowns.push({ code, componentId, checkId, message, evidence });
+  // Итоговый инвариант: блокер без доказательства недопустим (кроме мета-кодов
+  // про сам вход/выход). Проверяется один раз в конце — без рекурсии.
+  const META_CODES = new Set(['CORRUPT_INPUT', 'CORRUPT_OUTPUT']);
+  const manifest = evidenceFiles ? new Set(evidenceFiles) : null;
+  const enforceEvidenceInvariant = () => {
+    for (const b of blockers) {
+      if (META_CODES.has(b.code)) continue;
+      const ev = Array.isArray(b.evidence) ? b.evidence : [];
+      if (!ev.length) {
+        blockers.push({ code: 'CORRUPT_OUTPUT', componentId: b.componentId, checkId: b.checkId, message: `гейт выдал ${b.code} без ссылки на доказательство: выход признан повреждённым`, evidence: [] });
+        continue;
+      }
+      if (manifest) {
+        const missing = ev.filter((p) => typeof p !== 'string' || !manifest.has(p));
+        if (missing.length) {
+          blockers.push({ code: 'CORRUPT_OUTPUT', componentId: b.componentId, checkId: b.checkId, message: `доказательство ${b.code} отсутствует в пакете: ${missing.join(', ')}`, evidence: [] });
+        }
+      }
+    }
+  };
 
   // ---------- 1. Покрытие компонентов ----------
   const coverageComponents = {};
@@ -114,7 +134,7 @@ export function evaluateGate({ registry, observations, diff, policy }) {
       status, role: c.env, critical: critical.has(id), required, missingRequired, ...counts,
       evidence: uniqSorted(list.map((o) => o.evidenceFile).filter(Boolean)),
     };
-    if (status === 'UNKNOWN') addUnknown(id, null, `покрытие: ${reason}`);
+    if (status === 'UNKNOWN') addUnknown('COVERAGE_UNKNOWN', id, null, `покрытие: ${reason}`);
     // «Без наблюдения» — это ноль успешных проверок, а не любой FAIL одного чека:
     // mismatch при наличии ok — содержательная находка, а не отсутствие наблюдения.
     if (critical.has(id) && counts.ok === 0) {
@@ -163,12 +183,29 @@ export function evaluateGate({ registry, observations, diff, policy }) {
     addBlocker('MONITOR_IMPERSONATION', 'node-monitor', 'proxySuspect', diff.monitor.proxyNote || 'монитор выдаёт данные другой ноды за локальные', []);
   }
 
-  // ---------- 4. Конфликты владельцев маршрутов + catch-all ----------
+  // ---------- 4. Пересечения деклараций маршрутов + catch-all ----------
+  // ROUTE_PATTERN_OVERLAP: несколько деклараций одного публичного пути при
+  // однозначном порядке Caddy (исполняется первый handler, остальные — тень).
+  // ROUTE_OWNER_CONFLICT: только если эффективный владелец неоднозначен
+  // (смесь route-блоков и сортируемых handle) — тогда это блокер.
   const mapObs = byId.get('caddy-h1:map');
   if (mapObs && mapObs.observedValue) {
-    for (const c of (mapObs.observedValue.conflicts || [])) {
+    const groups = Array.isArray(mapObs.observedValue.overlapGroups) ? mapObs.observedValue.overlapGroups : [];
+    const legacy = Array.isArray(mapObs.observedValue.conflicts) ? mapObs.observedValue.conflicts : [];
+    const mapEv = [mapObs.evidenceFile].filter(Boolean);
+    for (const c of legacy) {
       addBlocker('ROUTE_OWNER_CONFLICT', 'caddy-h1', 'caddy-h1:map',
-        `${c.host}${c.path}: ${c.first.owner} (${c.first.target}) vs ${c.second.owner} (${c.second.target})`);
+        `${c.host}${c.path}: ${c.first.owner} (${c.first.target}) vs ${c.second.owner} (${c.second.target}) — legacy-форма без доказательства порядка`, mapEv);
+    }
+    for (const g of groups) {
+      const decls = (g.matchingHandlers || []).map((h) => `${h.owner}@L${h.line}`).join(', ');
+      const msg = `${g.host}${g.publicPath} (${(g.methods || []).join('/') || 'any'}): декларации ${decls}; ${g.reason}; эффективный ${g.effectiveOwner} (${g.effectiveTarget})`;
+      if (g.ambiguous) {
+        addBlocker('ROUTE_OWNER_CONFLICT', 'caddy-h1', 'caddy-h1:map', msg, mapEv);
+      } else {
+        addWarning('ROUTE_PATTERN_OVERLAP', 'caddy-h1', 'caddy-h1:map',
+          `${msg}; тень: ${g.fallbackOwner} (${g.fallbackTarget})`, mapEv);
+      }
     }
   }
   const orderObs = byId.get('caddy-h1:order');
@@ -223,7 +260,7 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   }
   const mainnetData = envData.get('env-mainnet');
   if (mainnetData && !mainnetData.dataDir) {
-    addUnknown('env-mainnet', 'env-mainnet:env-data', 'DATA_DIR mainnet не установлен (значение разрешённого параметра не найдено); cwd/права сняты, общий каталог не доказан');
+    addUnknown('ENV_DATA_DIR_UNKNOWN', 'env-mainnet', 'env-mainnet:env-data', 'DATA_DIR mainnet не установлен (значение разрешённого параметра не найдено); cwd/права сняты, общий каталог не доказан');
   }
 
   // ---------- 6. Секреты и mutation-дисциплина ----------
@@ -239,28 +276,52 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   if (guard && guard.observedValue && Array.isArray(guard.observedValue.findings)) {
     for (const f of guard.observedValue.findings) {
       if (f.severity !== 'BLOCKED') continue;
+      const pub = (f.publicPaths && f.publicPaths.length ? f.publicPaths : (f.paths || [])).join(' ');
+      const inner = (f.paths || []).join(' ');
+      const auth = f.applicationAuth || 'UNKNOWN';
+      const envs = (f.environmentFrom || f.environmentTo) ? `; env ${f.environmentFrom || '?'}→${f.environmentTo || '?'}` : '';
       if (f.code === 'TEST_MUTATION_TO_MAINNET') {
         addBlocker('TEST_MUTATION_TO_MAINNET', 'caddy-h1', 'caddy-h1:guard-scan',
-          `тестовый хост ${f.host.join(',')} проксирует ${f.methods.join('/')} ${(f.paths || []).join(' ')} в mainnet (${f.upstream})`, [guard.evidenceFile].filter(Boolean));
+          `тестовый хост ${(f.host || []).join(',')} проксирует ${(f.methods || []).join('/')} public ${pub} (internal ${inner}) в mainnet (${f.upstream})${envs}; applicationAuth=${auth}`, [guard.evidenceFile].filter(Boolean));
       } else {
         addBlocker('UNPROVEN_MUTATION_ROUTE', 'caddy-h1', 'caddy-h1:guard-scan',
-          `публичная mutation-route ${f.host.join(',')}${(f.paths || []).join('|')} без наблюдаемой защиты`, [guard.evidenceFile].filter(Boolean));
+          `публичная mutation-route ${(f.host || []).join(',')}${pub} (internal ${inner}) без наблюдаемой защиты; applicationAuth=${auth}`, [guard.evidenceFile].filter(Boolean));
       }
     }
     for (const f of guard.observedValue.findings) {
       if (f.severity === 'WARN') {
+        const pub = (f.publicPaths && f.publicPaths.length ? f.publicPaths : (f.paths || [])).join('|');
         addWarning('UNPROVEN_MUTATION_ROUTE', 'caddy-h1', 'caddy-h1:guard-scan',
-          `${f.host.join(',')}${(f.paths || []).join('|')}: защита не наблюдается в конфиге (upstream ${f.upstream || '-'}); mutation не вызывалась`);
+          `${(f.host || []).join(',')}${pub}: защита не наблюдается в конфиге (upstream ${f.upstream || '-'}); mutation не вызывалась; applicationAuth=${f.applicationAuth || 'UNKNOWN'}`);
       }
     }
   }
 
-  // ---------- 7. Двойная главная ----------
+  // ---------- 7. Двойная главная + единство shell ----------
   const site = byId.get('site-static:pages-summary');
   if (site && site.observedValue && site.observedValue.rootDuplicate) {
     const d = site.observedValue.rootDuplicate;
     addBlocker('DUPLICATE_ROOT_PRODUCT', 'site-static', site.checkId,
       `двойник главной: ${d.paths.join(' == ')} — одинаковое тело sha ${String(d.sha256).slice(0, 12)}…, title/H1 совпадают`, [site.evidenceFile].filter(Boolean));
+  }
+  // Общий shell: все HTML-страницы единого сайта обязаны делить один
+  // script/stylesheet-набор. Расхождение — SITE_SHELL_INCONSISTENT (блокер).
+  // Отсутствие release-маркера — предупреждение (не блокер).
+  if (site && site.observedValue && Array.isArray(site.observedValue.shellProfiles)) {
+    const profiles = site.observedValue.shellProfiles;
+    const siteEv = [site.evidenceFile].filter(Boolean);
+    if (profiles.length > 1) {
+      const keys = new Set(profiles.map((p) => JSON.stringify([(p.shellScript || []).slice().sort(), (p.stylesheet || []).slice().sort()])));
+      if (keys.size > 1) {
+        addBlocker('SITE_SHELL_INCONSISTENT', 'site-static', site.checkId,
+          `страницы используют разный shell: ${profiles.map((p) => `${p.path}=[scripts:${(p.shellScript || []).join(',') || '-'}|css:${(p.stylesheet || []).join(',') || '-'}]`).join('; ')}`, siteEv);
+      }
+      const absent = profiles.filter((p) => !p.releaseMarker).map((p) => p.path);
+      if (absent.length) {
+        addWarning('SITE_RELEASE_MARKER_ABSENT', 'site-static', site.checkId,
+          `на страницах нет release-маркера единого сайта: ${absent.join(', ')}`, siteEv);
+      }
+    }
   }
 
   // Документированное отсутствие модуля: 404 зафиксирован, но модуль не опубликован.
@@ -319,7 +380,11 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   if (mapObs && mapObs.observedValue && Array.isArray(mapObs.observedValue.routes)) {
     // UNDOCUMENTED_ROUTE относится к машинным/API-маршрутам, а не к страницам:
     // страницы проверяются отдельно (C07 page identity / DUPLICATE_ROOT_PRODUCT).
-    const machinePathRe = /^\/(api|mainnet|network|queue|ws|identity|cabinet|node|health|info|life|blocks|headers|capabilities|site|peers|gateway|tx|balance)(\/|$)/;
+    // Дедупликация: один и тот же публичный путь, заявленный несколькими
+    // handler (разные строки/вложенность карты), — одно предупреждение со
+    // списком handlerLines, а не N дублей.
+    const machinePathRe = /^\/(api|mainnet|network|queue|ws|identity|cabinet|node|health|info|life|blocks|headers|capabilities|site|peers|gateway|tx|balance|working)(\/|$)/;
+    const undoc = new Map();
     for (const r of mapObs.observedValue.routes) {
       const proxied = r.kind === 'site-proxy' || r.kind === 'handle_path' || !!r.upstream;
       if (!proxied) continue;
@@ -327,13 +392,29 @@ export function evaluateGate({ registry, observations, diff, policy }) {
       // включая mutation, — такие маршруты оценивает guard-scan, а не этот список.
       if (!Array.isArray(r.methods) || !r.methods.length) continue;
       if (!r.methods.every((m) => m === 'GET')) continue;
-      for (const p of (r.paths || [])) {
-        if (!p || p.includes('*') || p.startsWith('@')) continue;
-        if (!machinePathRe.test(p)) continue;
-        if (registryPaths.has(p) || advertised.has(p)) continue;
-        if ((policy.caddy?.allowedDualPaths || []).includes(p)) continue;
-        addWarning('UNDOCUMENTED_ROUTE', 'caddy-h1', 'caddy-h1:map', `публичный маршрут ${(r.hosts || []).join('|')} → ${p} не рекламирован и не в реестре (${r.kind})`);
+      const pubs = Array.isArray(r.publicPaths) && r.publicPaths.length ? r.publicPaths : (r.paths || []);
+      for (let i = 0; i < (r.paths || []).length; i++) {
+        const p = (r.paths || [])[i];
+        const pub = pubs[i] || p;
+        if (!p || !pub || pub.includes('*') || pub.startsWith('@')) continue;
+        if (!machinePathRe.test(pub)) continue;
+        if (registryPaths.has(p) || registryPaths.has(pub) || advertised.has(p) || advertised.has(pub)) continue;
+        if ((policy.caddy?.allowedDualPaths || []).includes(p) || (policy.caddy?.allowedDualPaths || []).includes(pub)) continue;
+        const owner = r.owner || 'unknown';
+        const key = `UNDOCUMENTED_ROUTE|${(r.hosts || []).join('|')}|GET|${pub}|${owner}`;
+        if (!undoc.has(key)) {
+          undoc.set(key, {
+            hosts: (r.hosts || []).join('|'), publicPath: pub, owner, kind: r.kind,
+            lines: [], evidence: [mapObs.evidenceFile].filter(Boolean),
+          });
+        }
+        if (Number.isSafeInteger(r.line)) undoc.get(key).lines.push(r.line);
       }
+    }
+    for (const u of undoc.values()) {
+      u.lines = [...new Set(u.lines)].sort((a, b) => a - b);
+      addWarning('UNDOCUMENTED_ROUTE', 'caddy-h1', 'caddy-h1:map',
+        `публичный маршрут ${u.hosts} → ${u.publicPath} не рекламирован и не в реестре (${u.kind}); владелец ${u.owner}; handlerLines [${u.lines.join(', ')}]`, u.evidence);
     }
   }
 
@@ -363,8 +444,25 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   if (recent && recent.observedValue && recent.observedValue.uniqueCount === 1) {
     addWarning('OWNER_UNKNOWN', 'miner-stack', 'miner-stack:recent-blocks', 'все последние блоки — один адрес; независимость операторов не доказана');
   }
+  // Независимость операторов майнинга — всегда UNKNOWN, пока не доказана иначе.
+  // Количество адресов доказательством не является: один наблюдаемый miner
+  // service с N адресами ротации считается одним оператором. UNKNOWN виден
+  // в unknowns со своим кодом, а не скрыт за нулём.
+  if (registry.components.some((c) => c.componentId === 'miner-stack')) {
+    const ops = byId.get('miner-stack:operators');
+    const sched = byId.get('miner-stack:schedule');
+    const text = (ops && ops.observedValue && ops.observedValue.operatorsIndependent)
+      || (sched && sched.observedValue && sched.observedValue.operatorsIndependent)
+      || null;
+    if (typeof text === 'string' && /UNKNOWN/i.test(text)) {
+      addUnknown('MINER_OPERATOR_INDEPENDENCE_UNKNOWN', 'miner-stack',
+        ops ? ops.checkId : (sched ? sched.checkId : null), String(text),
+        [(ops && ops.evidenceFile) || (sched && sched.evidenceFile)].filter(Boolean));
+    }
+  }
 
   // ---------- Сводка ----------
+  enforceEvidenceInvariant();
   const order = (a, b) => (a.code + String(a.componentId) + String(a.checkId)) < (b.code + String(b.componentId) + String(b.checkId)) ? -1 : 1;
   blockers.sort(order);
   warnings.sort(order);
@@ -376,7 +474,11 @@ export function evaluateGate({ registry, observations, diff, policy }) {
   const actionByCode = {
     CHAIN_PIN_MISMATCH: 'Остановить доверие к цепи: сверить chainId/genesis на всех нодах и в реестре; не деплоить.',
     SAME_HEIGHT_FORK: 'Зафиксировать высоту и оба хэша; расследовать форк до любых операций с деньгами.',
-    ROUTE_OWNER_CONFLICT: 'Свести один публичный URL к одному владельцу; убрать второй handler.',
+    ROUTE_OWNER_CONFLICT: 'Устранить неоднозначность порядка: один публичный URL — один эффективный владелец.',
+    ROUTE_PATTERN_OVERLAP: 'Убрать теневую декларацию: оставить один handler на публичный путь.',
+    SITE_SHELL_INCONSISTENT: 'Унифицировать shell единого сайта: один script/stylesheet-набор на всех страницах.',
+    SITE_RELEASE_MARKER_ABSENT: 'Проставить release-маркер единого сайта на всех страницах.',
+    CORRUPT_OUTPUT: 'Исправить гейт: каждый блокер обязан ссылаться на доказательство из пакета.',
     SHARED_WRITABLE_DATA_DIR: 'Развести DATA_DIR сред; проверить права и смонтированные каталоги.',
     SECRET_IN_EVIDENCE: 'Удалить секрет из evidence, пересобрать пакет, ротировать засвеченный ключ.',
     DUPLICATE_ROOT_PRODUCT: 'Оставить одну главную; двойник — 308 на канон или отдельный модуль с своим URL.',
@@ -439,7 +541,7 @@ export function renderMarkdown(result, meta = {}) {
   L.push('');
   L.push('## Unknowns');
   if (!result.unknowns.length) L.push('нет');
-  for (const u of result.unknowns) L.push(`- [${u.componentId}${u.checkId ? ` / ${u.checkId}` : ''}] — ${u.message}`);
+  for (const u of result.unknowns) L.push(`- **${u.code || 'UNKNOWN'}** [${u.componentId}${u.checkId ? ` / ${u.checkId}` : ''}] — ${u.message}`);
   L.push('');
   L.push('## Покрытие компонентов');
   L.push('');
@@ -457,7 +559,7 @@ export function renderMarkdown(result, meta = {}) {
 }
 
 function parseArgs(argv) {
-  const a = { registry: null, observations: null, diff: null, policy: null, out: null, md: null };
+  const a = { registry: null, observations: null, diff: null, policy: null, out: null, md: null, packlist: null };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--registry') a.registry = argv[++i];
@@ -466,6 +568,7 @@ function parseArgs(argv) {
     else if (k === '--policy') a.policy = argv[++i];
     else if (k === '--out') a.out = argv[++i];
     else if (k === '--md') a.md = argv[++i];
+    else if (k === '--packlist') a.packlist = argv[++i];
   }
   return a;
 }
@@ -483,8 +586,17 @@ if (isMain) {
     const policy = readJson(args.policy || path.join(root, 'config', 'truth-gate-policy.json'));
     const obsDoc = readJson(args.observations || path.join(root, 'reports', 'observations.json'));
     const diff = args.diff ? readJson(args.diff) : null;
-    meta = { policyVersion: policy.version };
-    result = evaluateGate({ registry: reg, observations: obsDoc.observations, diff, policy });
+    let evidenceFiles = null;
+    if (args.packlist) {
+      // Нормализация к виду evidence/...: в PACK-FILES пути лежат как
+      // reports/<срез>/evidence/..., а наблюдения ссылаются как evidence/....
+      evidenceFiles = fs.readFileSync(args.packlist, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean)
+        .map((p) => { const i = p.indexOf('evidence/'); return i >= 0 ? p.slice(i) : p; });
+      meta = { policyVersion: policy.version };
+    } else {
+      meta = { policyVersion: policy.version };
+    }
+    result = evaluateGate({ registry: reg, observations: obsDoc.observations, diff, policy, evidenceFiles });
   } catch (e) {
     result = {
       verdict: 'BLOCKED',

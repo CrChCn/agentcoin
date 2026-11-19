@@ -33,6 +33,7 @@ const SSH_PATTERNS = [
   /^grep -E '(?:\^[A-Z_]+=\|?)+' \/etc\/[A-Za-z0-9_.-]+\.env$/,
   /^curl -sS -m 8 -i 'http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9\/._?=&%-]*'$/,
   /^sha256sum (?:\/(?:opt|srv)\/[A-Za-z0-9_.\/-]+)(?: \/(?:opt|srv)\/[A-Za-z0-9_.\/-]+)*$/,
+  /^caddy adapt --config \/etc\/caddy\/Caddyfile --adapter caddyfile --pretty$/,
 ];
 
 export function isGateSshCommand(cmd) {
@@ -257,6 +258,7 @@ export function parseCaddyfile(text) {
     if (d === 'reverse_proxy') handler.upstream = words.slice(1).find((w) => !/^\{/.test(w)) || null;
     else if (d === 'root') handler.root = words[2] || null;
     else if (d === 'rewrite') handler.rewrite = words[2] || null;
+    else if (d === 'uri' && words[1] === 'strip_prefix') handler.stripPrefix = words[2] || null;
     else if (d === 'respond') {
       handler.kind = handler.kind === 'handle' ? 'respond' : handler.kind;
       handler.code = words.find((w) => /^\d{3}$/.test(w)) || null;
@@ -299,45 +301,100 @@ export function routeOwner(entry, policy) {
   return null;
 }
 
-// Конфликты владельцев: один host+path с разными владельцами/upstream.
-export function findOwnerConflicts(map, policy) {
+// Карта strip-префиксов сайта: matcher -> prefix (uri strip_prefix /working).
+// Нужна, чтобы отличать внешний публичный путь от внутреннего после strip.
+export function namespaceStripMap(site) {
+  const m = new Map();
+  for (const e of site.entries) {
+    if (!e.stripPrefix) continue;
+    const name = String(e.matcher || '');
+    if (name.startsWith('@') && !m.has(name)) m.set(name, e.stripPrefix);
+  }
+  return m;
+}
+
+// Внешние публичные пути записи: namespace-префикс + внутренний путь.
+export function publicPathsFor(entry, stripMap) {
+  const paths = entry.paths || [];
+  const holder = String(entry.nestedIn || '');
+  const prefix = holder && stripMap && stripMap.get(holder);
+  if (!prefix) return paths.slice();
+  const clean = String(prefix).replace(/\/$/, '');
+  return paths.map((p) => (p === '/' ? clean || '/' : clean + p));
+}
+
+// Пересечения деклараций: один host+path(+methods) заявлен несколькими handler.
+// Различаем ROUTE_PATTERN_OVERLAP (порядок Caddy однозначен: сначала более
+// специфичный path, при равной специфичности — меньшая строка конфига) и
+// ROUTE_OWNER_CONFLICT (порядок неоднозначен: смесь handle внутри route-блоков
+// и обычных сортированных handle). Одинаковый owner+target — не находка.
+export function buildOverlapGroups(map, policy) {
   const seen = new Map();
-  const conflicts = [];
+  const groups = [];
   const dual = new Set((policy.caddy && policy.caddy.allowedDualPaths) || []);
+  const spec = (p) => String(p || '').length;
   for (const s of map.sites) {
+    const stripMap = namespaceStripMap(s);
     for (const e of s.entries) {
       // Без явного path-matcher сравнение невозможно: это не маршрут, а контейнер.
       if (!e.paths.length) continue;
       // Пара «ограниченный по remote_ip вариант + deny-fallback» — одна защита, не конфликт.
       if ((e.remoteIps || []).length) continue;
       if (e.kind === 'respond' && /40[13]/.test(String(e.code || ''))) continue;
-      const paths = e.paths.filter((p) => p && !dual.has(p));
-      for (const p of paths) {
+      const publicPaths = publicPathsFor(e, stripMap);
+      for (let pi = 0; pi < e.paths.length; pi++) {
+        const p = e.paths[pi];
+        if (!p || dual.has(p)) continue;
+        const publicPath = publicPaths[pi] || p;
         for (const h of e.host) {
-          const key = `${h}|${p}|${(e.methods || []).slice().sort().join(',')}`;
+          const key = `${h}|${publicPath}|${(e.methods || []).slice().sort().join(',')}`;
           const owner = routeOwner(e, policy) || 'unknown';
           const target = e.upstream || e.root || e.redirectTo || e.kind;
+          const decl = {
+            owner, target, line: e.line, matcher: e.matcher, kind: e.kind,
+            inRoute: !!e.inRoute, internalPath: p, specificity: spec(publicPath),
+          };
           const prev = seen.get(key);
-          if (!prev) { seen.set(key, { owner, target, line: e.line, host: h, path: p, methods: e.methods }); continue; }
-          if (prev.owner !== owner || prev.target !== target) {
-            conflicts.push({ host: h, path: p, methods: e.methods || [], first: prev, second: { owner, target, line: e.line } });
-          }
+          if (!prev) { seen.set(key, { host: h, publicPath, internalPath: p, methods: e.methods || [], decls: [decl] }); continue; }
+          prev.decls.push(decl);
         }
       }
     }
   }
-  return conflicts;
+  for (const g of seen.values()) {
+    if (g.decls.length < 2) continue;
+    const pairs = new Set(g.decls.map((d) => `${d.owner}|${d.target}`));
+    if (pairs.size < 2) continue;
+    const ordered = g.decls.slice().sort((a, b) => (b.specificity - a.specificity) || (a.line - b.line));
+    const mixedRoute = g.decls.some((d) => d.inRoute) && g.decls.some((d) => !d.inRoute);
+    groups.push({
+      host: g.host, publicPath: g.publicPath, internalPath: g.internalPath, methods: g.methods,
+      matchingHandlers: ordered.map((d) => ({
+        owner: d.owner, target: d.target, line: d.line, matcher: d.matcher, kind: d.kind, inRoute: d.inRoute,
+      })),
+      handlerOrder: ordered.map((d) => d.line),
+      effectiveOwner: ordered[0].owner, effectiveTarget: ordered[0].target,
+      fallbackOwner: ordered[1] ? ordered[1].owner : null, fallbackTarget: ordered[1] ? ordered[1].target : null,
+      ambiguous: mixedRoute,
+      reason: mixedRoute ? 'mixed route-block and sorted handle: execution order not provable from file order'
+        : `Caddy executes most specific first, ties by file order: line ${ordered[0].line} wins`,
+    });
+  }
+  groups.sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : a.publicPath < b.publicPath ? -1 : 1));
+  return groups;
 }
 
 // Сканирование mutation-маршрутов: защита наблюдаема или нет.
-export function scanMutationGuards(map, policy) {
+// registryRoutes — [{componentId, routes:[{host,path,note}]}] из реестра;
+// по умолчанию берётся policy.__registryComponents (ставит collectStage3).
+export function scanMutationGuards(map, policy, registryRoutes = null) {
   const mutRe = new RegExp((policy.caddy && policy.caddy.sensitiveMutationPattern) || '(cabinet|wallet|admin|tx|submit|send)', 'i');
   const testHostRe = new RegExp((policy.caddy && policy.caddy.testHostPattern) || '(^|\\.)(staging|test)\\.', 'i');
   const mainnetRe = new RegExp((policy.caddy && policy.caddy.mainnetUpstreamPattern) || '9335');
   const findings = [];
   const documented = (hosts, paths) => {
     const notes = [];
-    for (const c of (policy.__registryComponents || [])) {
+    for (const c of (registryRoutes || policy.__registryComponents || [])) {
       for (const rt of (c.routes || [])) {
         if (!hosts.includes(String(rt.host || ''))) continue;
         if (!paths.includes(String(rt.path || ''))) continue;
@@ -347,6 +404,7 @@ export function scanMutationGuards(map, policy) {
     return notes.some((n) => /подпис|sign|token|auth|admin|pow|закрыт|protected|approve/i.test(n));
   };
   for (const s of map.sites) {
+    const stripMap = namespaceStripMap(s);
     for (const e of s.entries) {
       const mutating = (e.methods || []).some((m) => /^(POST|PUT|PATCH|DELETE)$/.test(m));
       const sensitive = mutRe.test((e.paths || []).join(' ')) || mutRe.test(e.matcher || '');
@@ -370,9 +428,23 @@ export function scanMutationGuards(map, policy) {
         severity = blocking ? 'BLOCKED' : 'WARN';
         code = 'UNPROVEN_MUTATION_ROUTE';
       }
+      const publicPaths = publicPathsFor(e, stripMap);
+      const owner = routeOwner(e, policy) || 'unknown';
+      const hostEnv = (policy.caddy && policy.caddy.publicHostEnvironment) || {};
+      const ownerEnv = (policy.caddy && policy.caddy.ownerEnvironment) || {};
+      // Честное заявление про auth: обработчики backend не читаются (значения
+      // env/журналов запрещены), поэтому auth прикладного уровня всегда UNKNOWN.
+      // Блокировка staging→mainnet идёт по факту связи сред, а не по отсутствию auth.
       findings.push({
-        host: e.host, matcher: e.matcher, methods: e.methods || [], paths: e.paths || [],
+        host: e.host, publicHost: e.host[0] || null, matcher: e.matcher, methods: e.methods || [],
+        paths: e.paths || [], publicPaths,
+        internalPath: (e.paths || [])[0] || null, publicPath: publicPaths[0] || null,
         upstream: e.upstream || null, line: e.line, guard, severity, code, testHost, toMainnet,
+        effectiveOwner: owner,
+        environmentFrom: testHost ? 'staging' : (hostEnv[e.host[0]] || null),
+        environmentTo: ownerEnv[owner] || null,
+        applicationAuth: 'UNKNOWN',
+        policyVerdict: severity === 'BLOCKED' ? 'BLOCKED' : (severity === 'WARN' ? 'WARN' : null),
       });
     }
   }
@@ -388,11 +460,21 @@ function extractHtmlFacts(body) {
   const navLinks = navMatch ? (navMatch[0].match(/href=/g) || []).length : 0;
   const release = (t.match(/site-v[0-9a-z.-]{4,}/i) || t.match(/release["'\s:=]+([0-9a-z._-]{4,})/i) || [])[0] || null;
   const h1s = [...t.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) => clean(m[1])).filter(Boolean);
+  const scripts = [...new Set([...t.matchAll(/<script[^>]*src=["']([^"']+)["']/gi)].map((m) => String(m[1]).split('?')[0]).filter(Boolean))].sort();
+  const stylesheets = [...new Set([...t.matchAll(/<link[^>]*href=["']([^"']+\.css[^"']*)["']/gi)].map((m) => String(m[1]).split('?')[0]).filter(Boolean))].sort();
+  const canonical = (t.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i) || t.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']canonical["']/i) || [])[1] || null;
   return {
     title: clean(title), h1: clean(h1raw), h1s: h1s.slice(0, 5),
     navHash: navMatch ? sha256(navMatch[0]).slice(0, 16) : null, navLinks,
     releaseMarker: release ? String(release).slice(0, 80) : null,
     htmlLang: (t.match(/<html[^>]*lang=["']([^"']+)["']/i) || [])[1] || null,
+    shellScript: scripts,
+    stylesheet: stylesheets,
+    canonical,
+    networkIdentityRefs: (t.match(/node1\.agentcoin\.work|chain-status|tipHash|tip-hash|blockHeight|block-height/gi) || []).length,
+    agentRoomEntry: /href=["'][^"']*agent-room/i.test(t),
+    apiErrorDisplay: /api-error|error-display|data-error/i.test(t),
+    languageSwitch: /\?lang=|data-lang|empire-i18n/i.test(t),
   };
 }
 
@@ -421,6 +503,64 @@ function defaultSshFn(ssh, command) {
   const r = spawnSync('ssh', args, { encoding: 'utf8', timeout: SSH_TIMEOUT_MS });
   if (r.error) throw r.error;
   return { stdout: r.stdout || '', stderr: r.stderr || '', exitCode: r.status };
+}
+
+// Рекурсивная редакция значений чувствительных ключей в adapted JSON.
+// Имена заголовков (например, X-Admin-Token в delete-списках match/header)
+// не трогаем: секрет — значение ключа password/secret/token, а не имя поля
+// в списке удаляемых заголовков или статическом теле 404-ответа.
+// Сводка adapted-конфига: плоский порядок (match, dial) по всем уровням
+// вложенности — пересекающиеся маршруты лежат во вложенных subroute.
+export function summarizeAdaptedJson(adapted) {
+  const servers = (adapted && adapted.apps && adapted.apps.http && adapted.apps.http.servers) || {};
+  const orderedRoutes = [];
+  const dialsOf = (handles) => {
+    const out = [];
+    const walk = (hs) => {
+      for (const h of (hs || [])) {
+        if (!h || typeof h !== 'object') continue;
+        if (h.handler === 'reverse_proxy' && Array.isArray(h.upstreams)) {
+          for (const u of h.upstreams) if (u && u.dial) out.push(String(u.dial));
+        }
+        if (Array.isArray(h.routes)) for (const r of h.routes) walk(r.handle);
+      }
+    };
+    walk(handles);
+    return out;
+  };
+  const walkRoutes = (routes, srvName) => {
+    for (const r of (routes || [])) {
+      const matches = [];
+      for (const m of (r.match || [])) {
+        if (m.method) matches.push(`method=${m.method.join(',')}`);
+        if (m.path) for (const p of m.path) matches.push(p);
+      }
+      orderedRoutes.push({ server: srvName, match: matches, dials: dialsOf(r.handle) });
+      for (const h of (r.handle || [])) {
+        if (h && typeof h === 'object' && Array.isArray(h.routes)) walkRoutes(h.routes, srvName);
+      }
+    }
+  };
+  for (const [srvName, srv] of Object.entries(servers)) walkRoutes(srv.routes, srvName);
+  return { servers: Object.keys(servers), routeCount: orderedRoutes.length, orderedRoutes };
+}
+
+const SENSITIVE_KEY_RE = /^(password|passwd|pwd|secret|api[_-]?key|token)$/i;
+export function redactSensitiveJson(value) {
+  let redactedKeys = 0;
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      const out = {};
+      for (const [k, val] of Object.entries(v)) {
+        if (SENSITIVE_KEY_RE.test(k) && typeof val === 'string') { redactedKeys++; out[k] = '[REDACTED]'; }
+        else out[k] = walk(val);
+      }
+      return out;
+    }
+    return v;
+  };
+  return { redacted: walk(value), redactedKeys };
 }
 
 // ---------- Сбор ----------
@@ -523,28 +663,34 @@ export async function collectStage3(reg, policy, opts = {}) {
   const primary = maps.find((m) => m.label === 'node1') || maps[0] || null;
   if (primary) {
     const mapCheckId = 'caddy-h1:map';
-    const routes = primary.map.sites.flatMap((s) => s.entries.map((e) => ({
-      hosts: e.host, site: s.seq, line: e.line, matcher: e.matcher, methods: e.methods, paths: e.paths,
-      remoteIps: e.remoteIps, kind: e.kind, upstream: e.upstream, root: e.root, rewrite: e.rewrite,
-      code: e.code, owner: routeOwner(e, policy), nestedIn: e.nestedIn,
-    })));
-    const conflicts = findOwnerConflicts(primary.map, policy);
+    const routes = primary.map.sites.flatMap((s) => {
+      const stripMap = namespaceStripMap(s);
+      return s.entries.map((e) => ({
+        hosts: e.host, site: s.seq, line: e.line, matcher: e.matcher, methods: e.methods, paths: e.paths,
+        publicPaths: publicPathsFor(e, stripMap), stripPrefix: e.stripPrefix || null, inRoute: !!e.inRoute,
+        remoteIps: e.remoteIps, kind: e.kind, upstream: e.upstream, root: e.root, rewrite: e.rewrite,
+        code: e.code, owner: routeOwner(e, policy), nestedIn: e.nestedIn,
+      }));
+    });
+    const overlapGroups = buildOverlapGroups(primary.map, policy);
+    const ambiguous = overlapGroups.filter((g) => g.ambiguous);
     await add('caddy-h1', mapCheckId, String(primary.host), 'derived from Caddyfile (no writes)', async () => {
-      const ev = saveEvidence(mapCheckId, 'json', JSON.stringify({ host: primary.host, sha256: primary.configSha, routes }, null, 1));
+      const ev = saveEvidence(mapCheckId, 'json', JSON.stringify({ host: primary.host, sha256: primary.configSha, routes, overlapGroups }, null, 1));
       return {
-        status: conflicts.length ? 'mismatch' : 'ok',
+        status: ambiguous.length ? 'mismatch' : 'ok',
         observedValue: {
           host: primary.host, configSha: primary.configSha, routeCount: routes.length,
-          routes, conflicts,
+          routes, overlapGroups, ambiguousCount: ambiguous.length,
           catchAll: primary.map.sites.map((s) => ({ hosts: s.hosts, catchAllLine: s.catchAllLine, entries: s.entries.length })),
         },
-        error: conflicts.length ? `route_owner_conflict: ${conflicts.length}` : null,
+        error: ambiguous.length ? `route_owner_conflict: ${ambiguous.length}` : null,
         evidenceFile: ev,
       };
     });
 
     const allFindings = [];
-    for (const m of maps) for (const f of scanMutationGuards(m.map, policy)) allFindings.push({ host: m.host, ...f });
+    const registryRoutes = (reg.components || []).map((c) => ({ componentId: c.componentId, routes: c.routes || [] }));
+    for (const m of maps) for (const f of scanMutationGuards(m.map, policy, registryRoutes)) allFindings.push({ host: m.host, ...f });
     await add('caddy-h1', 'caddy-h1:guard-scan', String(primary.host), 'derived: mutation guard scan (no mutation called)', async () => {
       const blockers = allFindings.filter((f) => f.severity === 'BLOCKED');
       const warns = allFindings.filter((f) => f.severity === 'WARN');
@@ -552,7 +698,7 @@ export async function collectStage3(reg, policy, opts = {}) {
       return {
         status: blockers.length ? 'mismatch' : 'ok',
         observedValue: { findings: allFindings, blockerCount: blockers.length, warnCount: warns.length },
-        error: blockers.length ? blockers.map((b) => `${b.code}: ${b.host.join(',')}${(b.paths || []).join('|')} -> ${b.upstream}`).join('; ').slice(0, 400) : null,
+        error: blockers.length ? blockers.map((b) => `${b.code}: ${b.host.join(',')}${((b.publicPaths && b.publicPaths.length ? b.publicPaths : b.paths) || []).join('|')} -> ${b.upstream}`).join('; ').slice(0, 400) : null,
         evidenceFile: ev,
       };
     });
@@ -586,6 +732,43 @@ export async function collectStage3(reg, policy, opts = {}) {
       };
     });
 
+    // Адаптированная конфигурация Caddy: порядок исполнения handler как его
+    // видит сам Caddy. Только чтение (caddy adapt ничего не меняет).
+    const node1Target = caddyTargets.find((t) => t.label === 'node1') || caddyTargets[0] || null;
+    await add('caddy-h1', 'caddy-h1:adapted', String(primary.host), 'caddy adapt --config (read-only, redacted)', async () => {
+      if (ctx.publicOnly) return { status: 'not_checked', error: 'public_only_ssh_skipped' };
+      if (!node1Target) return { status: 'unavailable', error: 'no_ssh_target' };
+      let raw;
+      try { raw = await ssh(node1Target.ssh, `caddy adapt --config ${caddyConf.configPath} --adapter caddyfile --pretty`); }
+      catch (e) {
+        const msg = String((e && e.message) || e);
+        return { status: 'unavailable', error: /timeout/i.test(msg) ? 'ssh_timeout' : `adapt_unavailable: ${msg.slice(0, 160)}` };
+      }
+      const text = String(raw.stdout || '');
+      if (raw.exitCode !== 0 || !text.trim()) return { status: 'unavailable', error: `adapt_exit_${raw.exitCode}` };
+      const parsed = tryJson(text);
+      if (!parsed.ok) return { status: 'mismatch', error: 'adapt_json_invalid' };
+      const { redacted, redactedKeys } = redactSensitiveJson(parsed.value);
+      const { servers, routeCount, orderedRoutes } = summarizeAdaptedJson(redacted);
+      // Порядок исполнения для пересекающихся путей: какие dial идут первыми.
+      const norm = (p) => String(p || '').replace(/\*+$/, '').replace(/\/$/, '') || '/';
+      const overlapOrder = overlapGroups.map((g) => {
+        const want = norm(g.internalPath);
+        const hits = orderedRoutes.filter((r) => r.match.some((m) => norm(m) === want || norm(m).endsWith(want)));
+        return { publicPath: g.publicPath, internalPath: g.internalPath, orderedDials: hits.flatMap((h) => h.dials) };
+      });
+      const observedValue = {
+        sha256: sha256(text), bytes: text.length,
+        servers: Object.keys(servers), routeCount: orderedRoutes.length,
+        overlapOrder, redactedKeys,
+      };
+      return {
+        status: 'ok',
+        observedValue,
+        evidenceFile: saveEvidence('caddy-h1-adapted', 'json', JSON.stringify({ sha256: observedValue.sha256, servers: observedValue.servers, routeCount: orderedRoutes.length, overlapOrder, redacted: redactedKeys, config: redacted }, null, 1)),
+      };
+    });
+
     // Публичные маршруты окружений из карты (route → env component).
     for (const envId of Object.keys(policy.environments || {})) {
       const envComp = policy.environments[envId];
@@ -594,10 +777,11 @@ export async function collectStage3(reg, policy, opts = {}) {
         const hits = [];
         for (const m of maps) {
           for (const s of m.map.sites) {
+            const stripMap = namespaceStripMap(s);
             for (const e of s.entries) {
               const owner = routeOwner(e, policy);
               if (owner !== envId) continue;
-              hits.push({ host: e.host, paths: e.paths, methods: e.methods, matcher: e.matcher, upstream: e.upstream, line: e.line, mapHost: m.host });
+              hits.push({ host: e.host, paths: e.paths, publicPaths: publicPathsFor(e, stripMap), methods: e.methods, matcher: e.matcher, upstream: e.upstream, line: e.line, mapHost: m.host });
             }
           }
         }
@@ -744,6 +928,31 @@ export async function collectStage3(reg, policy, opts = {}) {
         status: missing.length ? 'mismatch' : 'ok',
         observedValue: { expected, observed, missing, operatorsIndependent: 'UNKNOWN: адреса/операторы не доказывают независимость' },
         error: missing.length ? `schedule_gap: ${missing.join('; ')}` : null,
+        evidenceFile: ev,
+      };
+    });
+    // Независимость операторов: количество адресов НЕ является доказательством.
+    // Один наблюдаемый miner service с N адресами ротации — это один оператор,
+    // пока независимость не доказана иначе. Поэтому статус всегда unknown.
+    await add('miner-stack', 'miner-stack:operators', host, 'derived: units + recent-blocks producers (no identity read)', async () => {
+      const units = ctx.observations.find((o) => o.checkId === 'miner-stack:units');
+      const recent = ctx.observations.find((o) => o.checkId === 'miner-stack:recent-blocks');
+      const minerUnit = ctx.observations.find((o) => o.checkId === 'miner-stack:miner-unit');
+      const minerServices = minerUnit && minerUnit.status === 'ok' && minerUnit.observedValue.activeState === 'active'
+        ? [minerUnit.observedValue.unit] : [];
+      const uniq = recent && recent.observedValue && Array.isArray(recent.observedValue.uniqueProducers)
+        ? recent.observedValue.uniqueProducers : [];
+      const observedValue = {
+        minerServices, serviceCount: minerServices.length,
+        uniqueAddresses: uniq, addressCount: uniq.length,
+        singleService: minerServices.length <= 1,
+        operatorsIndependent: 'UNKNOWN: адреса/операторы не доказывают независимость; один miner service с N адресами ротации считается одним оператором',
+      };
+      const ev = saveEvidence('miner-stack-operators', 'json', JSON.stringify(observedValue, null, 1));
+      return {
+        status: 'unknown',
+        observedValue,
+        error: 'operators_not_proven_independent',
         evidenceFile: ev,
       };
     });
@@ -940,6 +1149,11 @@ export async function collectStage3(reg, policy, opts = {}) {
           title: facts.title || null, h1: facts.h1 || null, h1s: facts.h1s || [],
           navHash: facts.navHash || null, navLinks: facts.navLinks || 0,
           releaseMarker: facts.releaseMarker || null, lang: facts.htmlLang || null,
+          shellScript: facts.shellScript || [], stylesheet: facts.stylesheet || [],
+          canonical: facts.canonical || null,
+          networkIdentityRefs: facts.networkIdentityRefs || 0,
+          agentRoomEntry: !!facts.agentRoomEntry, apiErrorDisplay: !!facts.apiErrorDisplay,
+          languageSwitch: !!facts.languageSwitch,
           html: isHtml, documentedMissing: expectStatus !== 200 && matched,
           note: p.note || null,
         },
@@ -969,11 +1183,28 @@ export async function collectStage3(reg, policy, opts = {}) {
       titles: html.map((o) => ({ path: o.observedValue.path, title: o.observedValue.title })),
       agentRoomEntry: html.filter((o) => /agent-room|агент/i.test(String(o.observedValue.title || '') + String((o.observedValue.h1s || []).join(' ')))).map((o) => o.observedValue.path),
     };
+    // Честный профиль общего shell: script/stylesheet-набор + маркеры на страницу.
+    const shellProfiles = html.map((o) => {
+      const v = o.observedValue;
+      return {
+        path: v.path, canonical: v.canonical || null, httpStatus: v.httpStatus || null,
+        shellScript: v.shellScript || [], stylesheet: v.stylesheet || [],
+        navHash: v.navHash || null,
+        releaseMarker: v.releaseMarker || null,
+        networkIdentityRefs: v.networkIdentityRefs || 0,
+        agentRoomEntry: !!v.agentRoomEntry, apiErrorDisplay: !!v.apiErrorDisplay,
+        languageSwitch: !!v.languageSwitch,
+        title: v.title || null, h1: v.h1 || null,
+      };
+    });
+    const shellKeys = new Set(shellProfiles.map((p) => JSON.stringify([p.shellScript, p.stylesheet])));
+    const shellConsistent = shellProfiles.length > 1 && shellKeys.size === 1;
+    const releaseMarkerAbsent = shellProfiles.filter((p) => !p.releaseMarker).map((p) => p.path);
     const rootDup = duplicates.find((d) => d.rootDuplicated);
-    const ev = saveEvidence('site-static-pages-summary', 'json', JSON.stringify({ duplicates, shell, pages: html.map((o) => o.observedValue) }, null, 1));
+    const ev = saveEvidence('site-static-pages-summary', 'json', JSON.stringify({ duplicates, shell, shellProfiles, shellConsistent, releaseMarkerAbsent, pages: html.map((o) => o.observedValue) }, null, 1));
     return {
       status: rootDup ? 'mismatch' : 'ok',
-      observedValue: { pageCount: html.length, duplicates, shell, rootDuplicate: rootDup || null },
+      observedValue: { pageCount: html.length, duplicates, shell, shellProfiles, shellConsistent, releaseMarkerAbsent, rootDuplicate: rootDup || null },
       error: rootDup ? `duplicate_root_product: ${rootDup.paths.join(' == ')} (sha ${rootDup.sha256.slice(0, 12)}…)` : null,
       evidenceFile: ev,
     };

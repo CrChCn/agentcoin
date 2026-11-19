@@ -137,17 +137,34 @@ let leaseId;
 
 // 5. оплата только за измеренное, а не за квоту
 {
-  const accept = await cC.acceptOrder(C.addr, leaseId, 'accepted: ресурс использован');
-  ok(accept.ok === true && accept.result.assignment.state === 'accepted', 'заказчик принял результат');
+  // Дыра: принять квоту до закрытия, потом дописать потребление — счёт вырастет после accept.
+  const earlyAccept = await cC.acceptOrder(C.addr, leaseId, 'accepted: ресурс использован');
+  ok(earlyAccept.ok === false && earlyAccept.error === 'lease_open',
+    'приёмка при открытой аренде запрещена', earlyAccept.error || '');
 
   const early = await cC.createSettlement(C.addr, leaseId);
-  ok(early.ok === false && early.error === 'lease_open', 'до закрытия аренды расчёт не создаётся', early.error || '');
+  ok(early.ok === false && early.error === 'no_obligation', 'без приёмки расчёт не создаётся', early.error || '');
 
   const close = await altP.closeLease(leaseId);
   ok(close.status === 200 && close.data?.amountAtomic === 1750,
     'закрытие аренды: к оплате 250×7=1750, остаток квоты не оплачивается', String(close.data?.amountAtomic));
 
+  const accept = await cC.acceptOrder(C.addr, leaseId, 'accepted: ресурс использован');
+  ok(accept.ok === true && accept.result.assignment.state === 'accepted', 'после закрытия приёмка проходит');
+
+  // И после приёмки сумму уже не изменить.
+  const late = await altP.consume(leaseId, 10, 'u-late');
+  const frozen = await cC.getOrder(leaseId, C.addr);
+  ok(late.status === 409 && late.data?.error === 'lease_closed',
+    'потребление после закрытия/приёмки запрещено', late.data?.error || '');
+  ok(frozen.assignment.billing.usedUnits === 250 && frozen.assignment.billing.usedAtomic === 1750,
+    'сумма после приёмки не выросла: 250 единиц / 1750',
+    `${frozen.assignment.billing.usedUnits} ед. / ${frozen.assignment.billing.usedAtomic}`);
+
   await cC.faucet(C.addr, 5000);
+  const lateSettle = await altP.consume(leaseId, 5, 'u-late-2');
+  ok(lateSettle.status === 409, 'повторная попытка дописать после accept тоже отвергнута');
+
   const st = await cC.createSettlement(C.addr, leaseId);
   ok(st.ok === true && st.result.settlement.amountAtomic === 1750,
     'расчёт выставлен по измеренному потреблению, а не по потолку 4200', String(st.result?.settlement?.amountAtomic));

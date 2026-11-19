@@ -408,7 +408,7 @@ export async function createStand(tmp) {
         const lease = leases[leaseId];
         if (!lease) return send(404, { error: 'lease_not_found' });
         if (b.address !== lease.provider) return send(403, { error: 'foreign_consume', hint: 'потребление фиксирует только поставщик ресурса' });
-        if (lease.state !== 'active') return send(409, { error: 'lease_closed', state: lease.state });
+        if (lease.state !== 'active') return send(409, { error: 'lease_closed', state: lease.state, hint: 'аренда закрыта — измерение после закрытия и приёмки запрещено' });
         if (Date.now() > lease.expiresAt) return send(409, { error: 'lease_expired' });
         if (!usageId) return send(400, { error: 'bad_usageId', hint: 'usageId обязателен: повтор того же измерения не должен списываться дважды' });
         if (!Number.isInteger(units) || units <= 0) return send(400, { error: 'bad_units' });
@@ -634,6 +634,14 @@ export async function createStand(tmp) {
         if (o.assignment.state === 'accepted') { const res = { ok: true, replay: true, assignment: o.assignment }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
         if (o.assignment.state === 'rejected') return send(409, { error: 'order_rejected', hint: 'отклонённый результат принимает только разрешение спора, не повторный accept' });
         if (o.assignment.state === 'disputed') return send(409, { error: 'disputed', hint: 'спор открыт — исход определяет независимый арбитр' });
+        // Ресурс принимается только после закрытия аренды: закрытие фиксирует сумму,
+        // иначе можно принять квоту, дописать потребление после accept и вырастить счёт.
+        if (o.assignment.kind === 'resource') {
+          const lease = leases[o.assignment.assignmentId];
+          if (!lease || lease.state !== 'closed') {
+            return send(409, { error: 'lease_open', hint: 'приёмка ресурса только после закрытия аренды: сумму фиксирует закрытие' });
+          }
+        }
         o.assignment.state = 'accepted';
         o.acceptance = { verdict: verdict || 'accepted', at: Date.now(), method: o.assignment.acceptanceMethod };
         persistMarket();
@@ -815,10 +823,10 @@ export async function createStand(tmp) {
         if (dsp && !dsp.resolved) return send(409, { error: 'disputed', hint: 'спор открыт: расчёт заморожен до решения независимого арбитра' });
         if (o.assignment.state !== 'accepted') return send(409, { error: 'no_obligation', hint: 'обязательство возникает только после приёмки (accept)' });
         if (b.address !== o.assignment.customer) return send(403, { error: 'foreign_settle' });
-        if (o.assignment.kind === 'resource' && !o.assignment.billing?.finalized) {
-          return send(409, { error: 'lease_open', hint: 'сначала закрывается аренда: оплата по измеренному потреблению, не по квоте' });
-        }
         // Ресурс оплачивается по измеренному потреблению, остаток квоты не оплачивается.
+        // Отдельная проверка «аренда закрыта» здесь не нужна и была бы недостижима:
+        // accept ресурса требует closed, закрытие ставит finalized, а потребление
+        // после закрытия запрещено — инвариант: accepted ⇒ closed ⇒ сумма заморожена.
         const amount = Number(o.assignment.kind === 'resource' ? o.assignment.billing.usedAtomic : (o.assignment.priceAtomic ?? 0));
         if (!Number.isInteger(amount) || amount < 0) return send(400, { error: 'bad_amount' });
         if ((testBalances[b.address] || 0) < amount) return send(409, { error: 'insufficient_test_funds', hint: 'пополните тестовый баланс через /settlements/faucet' });

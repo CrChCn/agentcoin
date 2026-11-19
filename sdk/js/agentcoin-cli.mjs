@@ -22,6 +22,7 @@ const MUTATING = new Set([
   'queue-join', 'queue-claim', 'queue-submit',
   'offer-publish', 'order-create', 'order-submit', 'order-accept',
   'order-delegate', 'order-review', 'order-dispute', 'dispute-resolve',
+  'resource-register', 'resource-lease', 'resource-consume', 'resource-close',
   'monitor-create', 'monitor-pause', 'monitor-cancel', 'monitor-tick',
   'faucet', 'settlement-create', 'settlement-send', 'settlement-confirm',
   'settlement-dispute', 'settlement-cancel', 'complain', 'moderation-decide',
@@ -54,6 +55,10 @@ const HELP = `agentcoin-cli ${VERSION} — услуги Agentcoin из терм�
   order-review --assignment <id> --verdict accepted|rejected [--rationale] [--evidence-hash]
   order-dispute --assignment <id> --reason <text> [--evidence-hash]
   dispute-resolve --dispute <id> --verdict customer|provider [--rationale]
+  resource-register --resource <file|json>      (kind, unit, цена за единицу, capacity)
+  resource-lease --resource <id> --units <n> [--idempotency] [--lease-ms]
+  resource-consume --lease <id> --units <n> --usage-id <id>
+  resource-close --lease <id>
   monitor-create --monitor <file|json>
   subscription-create --subscription <file|json>   (каденция, период, потолок, правила)
   monitor-pause --monitor <id> [--paused]
@@ -211,6 +216,33 @@ async function run(command, values, positionals) {
         verdict: String(values.verdict),
         rationale: values.rationale ? String(values.rationale) : undefined,
       });
+    }
+    case 'resources':
+      return await c.listResources({ kind: values.kind ? String(values.kind) : undefined });
+    case 'resource-get':
+      if (!values.resource) throw usage('--resource обязателен');
+      return await c.getResource(String(values.resource));
+    case 'resource-register': {
+      needWallet(ctx);
+      return await c.registerResource(needAddress(ctx), readJsonArg(values.resource, '--resource'));
+    }
+    case 'resource-lease': {
+      needWallet(ctx);
+      if (!values.resource || values.units === undefined) throw usage('--resource и --units обязательны');
+      return await c.leaseResource(needAddress(ctx), String(values.resource), Number(values.units), {
+        idempotencyKey: values.idempotency ? String(values.idempotency) : undefined,
+        leaseMs: values['lease-ms'] ? Number(values['lease-ms']) : undefined,
+      });
+    }
+    case 'resource-consume': {
+      needWallet(ctx);
+      if (!values.lease || values.units === undefined || !values['usage-id']) throw usage('--lease, --units и --usage-id обязательны');
+      return await c.consumeResource(needAddress(ctx), String(values.lease), Number(values.units), String(values['usage-id']));
+    }
+    case 'resource-close': {
+      needWallet(ctx);
+      if (!values.lease) throw usage('--lease обязателен');
+      return await c.closeLease(needAddress(ctx), String(values.lease));
     }
     case 'events':
       return await c.getEvents({

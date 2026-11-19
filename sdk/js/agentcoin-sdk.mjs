@@ -378,6 +378,29 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     endpoint: '/orders/disputes/resolve',
     operationId: `dresolve:${disputeId}:${addr}:${opts.verdict || ''}`,
   });
+  // ---- Этап E: независимый поставщик ресурса (квота + измеренное потребление) ----
+  const registerResource = (addr, resource) => signedMarket({
+    addr, action: 'rregister', body: { resource }, endpoint: '/resources/register',
+    operationId: `rregister:${addr}:${resource?.resourceId}:${bodyDigest(resource || {})}`,
+  });
+  const listResources = async (filter = {}) => {
+    const q = new URLSearchParams();
+    if (filter.kind) q.set('kind', String(filter.kind));
+    return (await get('/resources' + (q.toString() ? '?' + q.toString() : ''))).data;
+  };
+  const getResource = async (resourceId) => (await get(`/resources/${encodeURIComponent(resourceId)}`)).data;
+  const leaseResource = (addr, resourceId, units, opts = {}) => signedMarket({
+    addr, action: 'rlease',
+    body: { resourceId, units, idempotencyKey: opts.idempotencyKey, leaseMs: opts.leaseMs },
+    endpoint: '/resources/lease',
+    operationId: `rlease:${addr}:${resourceId}:${opts.idempotencyKey || bodyDigest({ resourceId, units })}`,
+  });
+  const consumeResource = (addr, leaseId, units, usageId) => signedMarket({
+    addr, action: 'rconsume', body: { leaseId, units, usageId },
+    endpoint: '/resources/consume',
+    operationId: `rconsume:${leaseId}:${String(usageId || bodyDigest({ units }))}`,
+  });
+  const closeLease = (addr, leaseId) => signedMarket({ addr, action: 'rclose', body: { leaseId }, endpoint: '/resources/close', operationId: `rclose:${leaseId}:${addr}` });
   async function readProof(requester, resource, id) {
     if (!requester || !walletFile) return '';
     try {
@@ -481,7 +504,7 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return (await get(`/moderation/history${suffix}`)).data;
   };
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, delegateOrder, reviewOrder, disputeOrder, resolveDispute, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, delegateOrder, reviewOrder, disputeOrder, resolveDispute, registerResource, listResources, getResource, leaseResource, consumeResource, closeLease, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

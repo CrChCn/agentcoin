@@ -29,6 +29,22 @@ export async function createStand(tmp) {
   // ---- Этап D: делегирование (бюджет/глубина), независимый reviewer, спор ----
   const disputes = Object.assign({}, loadJson('disputes.json', {})); // disputeId -> {assignmentId, by, state,...}
   const MAX_DELEGATION_DEPTH = 3; // жёсткий предел вложенности найма на стенде
+  // ---- Этап E: независимый поставщик ресурса ----
+  // Ресурс — измеримая квота (секунды/байты/запросы), а не готовый результат.
+  // Поставщик — любой агент со своим endpoint: платформа его НЕ вызывает и НЕ проверяет
+  // (verified=false); потребление фиксирует сам поставщик, оплата — по измеренному.
+  const resources = Object.assign({}, loadJson('resources.json', {}));
+  const leases = Object.assign({}, loadJson('leases.json', {}));
+  const usageSeen = Object.assign({}, loadJson('usage-seen.json', {}));
+  const RESOURCE_KINDS = ['compute', 'storage', 'bandwidth', 'api-quota'];
+  // SSRF-политика для ресурса: локальный endpoint разрешён только явным стендовым флагом,
+  // и только здесь — у мониторов и остального она остаётся строгой.
+  const resourceEndpointDeny = (raw) => {
+    const d = isPrivateTarget(raw);
+    if (!d) return null;
+    if (d === 'ssrf_denied' && process.env.STAND_ALLOW_LOCAL_RESOURCE_ENDPOINT === '1') return null;
+    return d;
+  };
   /* Резерв бюджета живёт ровно столько, сколько подзаказ обязателен.
      held — бюджет родителя занят; released — подзаказ закрыт, резерв возвращён.
      Возврат идемпотентен: повторный релиз не уменьшает счётчик дважды. */
@@ -107,6 +123,7 @@ export async function createStand(tmp) {
     saveJson('orders.json', orders); saveJson('idem.json', Object.fromEntries(idemOrder));
     saveJson('settlements.json', settlements); saveJson('test-balances.json', testBalances);
     saveJson('disputes.json', disputes);
+    saveJson('resources.json', resources); saveJson('leases.json', leases); saveJson('usage-seen.json', usageSeen);
   };
   const emit = (eventType, entityId, entityVersion, visibility, payload, parties) => {
     const seq = events.length;
@@ -164,7 +181,7 @@ export async function createStand(tmp) {
       if (bodyTooLarge) return send(413, { error: 'body_too_large', hint: 'лимит тела 256KB' });
       let b = {}; try { b = body ? JSON.parse(body) : {}; } catch { return send(400, { error: 'bad_json' }); }
       if (u.pathname === '/info') return send(200, { chain: 'AGENTCOIN-stand', blocks: 1, genesisHash: GENESIS });
-      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, auth: 'read-proof-required', actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide', 'delegate', 'review', 'dispute', 'dresolve', 'read'] });
+      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, auth: 'read-proof-required', actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide', 'delegate', 'review', 'dispute', 'dresolve', 'rregister', 'rlease', 'rconsume', 'rclose', 'read'] });
       if (u.pathname === '/queue/status') return send(200, queue.status());
       if (u.pathname === '/queue/assignments') return send(200, { onDuty: queue.state.onDuty }); // стенд-only: prod этого не отдаёт, там — ownership_unknown без журнала/истории
       if (u.pathname === '/queue/history') return send(200, { history: queue.state.history || [] });
@@ -292,6 +309,142 @@ export async function createStand(tmp) {
         const isParty = auth && (auth === o.assignment.customer || auth === o.assignment.provider);
         const pub = o.artifacts.map(a => ({ ...a.meta, content: a.meta.accessPolicy === 'public' || isParty ? a.content : undefined }));
         return send(200, { assignment: o.assignment, artifacts: pub, dispute: o.assignment.disputeId ? (disputes[o.assignment.disputeId] || null) : null, acceptance: isParty || o.acceptance?.verdict === undefined ? o.acceptance : (o.acceptance ? { verdict: o.acceptance.verdict, at: o.acceptance.at, method: o.acceptance.method } : null), auth: auth ? 'owner' : 'public' });
+      }
+      // ---- Этап E: ресурс как услуга (квота, измерение, оплата по факту) ----
+      if (u.pathname === '/resources' && req.method === 'GET') {
+        const kind = u.searchParams.get('kind') || '';
+        const out = Object.values(resources).filter((r) => !kind || r.kind === kind)
+          .map((r) => ({ ...r, leaseable: Number(r.expiresAt) > Date.now() && !r.suspended }));
+        return send(200, { resources: out, note: 'verified=false: платформа не проверяет ресурс и не обращается к endpoint' });
+      }
+      const mres = u.pathname.match(/^\/resources\/([A-Za-z0-9_-]+)$/);
+      if (mres && req.method === 'GET') {
+        const r = resources[mres[1]];
+        if (!r) return send(404, { error: 'resource_not_found' });
+        return send(200, { resource: r });
+      }
+      if (u.pathname === '/resources/register' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'rregister', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prevN = usedNonce.get(key);
+        if (prevN) { if (prevN.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prevN.result, replay: true }); }
+        const rr = b.body?.resource || {};
+        const rid = String(rr.resourceId || '');
+        if (!/^[A-Za-z0-9_-]{3,40}$/.test(rid)) return send(400, { error: 'bad_resourceId', hint: '3–40 символов: буквы, цифры, _ и -' });
+        if (!RESOURCE_KINDS.includes(String(rr.kind))) return send(400, { error: 'bad_kind', hint: RESOURCE_KINDS.join('|') });
+        if (!rr.unit || String(rr.unit).length > 24) return send(400, { error: 'bad_unit', hint: 'unit: second|byte|request|gb-hour' });
+        if (!Number.isInteger(rr.priceAtomicPerUnit) || rr.priceAtomicPerUnit <= 0) return send(400, { error: 'bad_price', hint: 'priceAtomicPerUnit — целые атомарные единицы > 0' });
+        if (!Number.isInteger(rr.capacity) || rr.capacity <= 0) return send(400, { error: 'bad_capacity' });
+        if (!Number.isFinite(Number(rr.expiresAt)) || Number(rr.expiresAt) <= Date.now()) return send(400, { error: 'resource_expired' });
+        const deny = rr.endpoint ? resourceEndpointDeny(String(rr.endpoint)) : null;
+        if (deny) return send(400, { error: deny, hint: 'endpoint ресурса должен быть публичным; стенд его не вызывает' });
+        const prevRes = resources[rid];
+        if (prevRes && prevRes.provider !== b.address) return send(409, { error: 'resource_exists', hint: 'resourceId занят другим поставщиком' });
+        resources[rid] = {
+          resourceId: rid, provider: b.address, kind: String(rr.kind), unit: String(rr.unit),
+          priceAtomicPerUnit: rr.priceAtomicPerUnit, capacity: rr.capacity,
+          endpoint: rr.endpoint ? String(rr.endpoint) : null, terms: rr.terms ? String(rr.terms).slice(0, 500) : null,
+          expiresAt: Number(rr.expiresAt), version: prevRes ? Number(prevRes.version || 1) + 1 : 1,
+          createdAt: prevRes ? prevRes.createdAt : Date.now(), updatedAt: Date.now(), suspended: false, verified: false,
+        };
+        persistMarket();
+        emit('resource.registered', rid, String(resources[rid].version), 'public', { kind: resources[rid].kind, unit: resources[rid].unit, priceAtomicPerUnit: resources[rid].priceAtomicPerUnit }, [b.address]);
+        const res = { ok: true, resource: resources[rid], note: 'регистрация не подтверждает наличие ресурса: проверка — на стороне заказчика' };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
+      }
+      if (u.pathname === '/resources/lease' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'rlease', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prevN = usedNonce.get(key);
+        if (prevN) { if (prevN.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prevN.result, replay: true }); }
+        const { resourceId, units, idempotencyKey, leaseMs } = b.body || {};
+        const res = resources[resourceId];
+        if (!res) return send(404, { error: 'resource_not_found' });
+        if (res.provider === b.address) return send(409, { error: 'self_lease', hint: 'нельзя арендовать свой же ресурс' });
+        if (Number(res.expiresAt) <= Date.now() || res.suspended) return send(409, { error: 'resource_unavailable' });
+        if (!Number.isInteger(units) || units <= 0) return send(400, { error: 'bad_units', hint: 'units — целые > 0' });
+        if (units > res.capacity) return send(400, { error: 'capacity_exceeded', capacity: res.capacity });
+        const idem = String(idempotencyKey || '');
+        const idemKey = 'lease|' + String(b.address).toLowerCase() + '|' + resourceId + '|' + (idem || String(b.nonce));
+        const doneId = idemOrder.get(idemKey);
+        if (doneId && leases[doneId]) { const out = { ok: true, lease: leases[doneId], assignment: orders[doneId]?.assignment || null, replay: true }; usedNonce.set(key, { digest: v.digest, result: out }); return send(200, out); }
+        const leaseId = crypto.createHash('sha256').update(['lease', b.address, resourceId, idem || String(b.nonce)].join('|')).digest('hex').slice(0, 16);
+        const capAtomic = units * res.priceAtomicPerUnit;
+        const lease = {
+          leaseId, resourceId, provider: res.provider, customer: b.address, units, usedUnits: 0,
+          unitPriceAtomic: res.priceAtomicPerUnit, capAtomic, usedAtomic: 0, state: 'active',
+          createdAt: Date.now(), expiresAt: Math.min(Number(res.expiresAt), Date.now() + (Number.isInteger(leaseMs) && leaseMs > 0 ? leaseMs : 3_600_000)),
+          closedAt: null, endpoint: res.endpoint, verified: false,
+        };
+        leases[leaseId] = lease;
+        const assignment = {
+          assignmentId: leaseId, offerId: resourceId, offerVersion: String(res.version), offerSnapshotHash: hashOf(res),
+          priceAtomic: capAtomic, customer: b.address, provider: res.provider, input: { units },
+          acceptanceMethod: 'human', state: 'open', createdAt: Date.now(), kind: 'resource',
+          billing: { unitPriceAtomic: res.priceAtomicPerUnit, units, usedUnits: 0, usedAtomic: 0, capAtomic, finalized: false },
+          parentId: null,
+          delegation: { parentId: null, rootId: leaseId, depth: 0, budgetAtomic: capAtomic, committedAtomic: 0, maxDepth: MAX_DELEGATION_DEPTH, ancestry: [b.address], reservation: 'root' },
+        };
+        const verr = validateAssignment(assignment);
+        if (verr) return send(400, { error: verr });
+        orders[leaseId] = { assignment, artifacts: [], acceptance: null };
+        idemOrder.set(idemKey, leaseId);
+        persistMarket();
+        emit('resource.leased', leaseId, '1', 'parties', { resourceId, units, capAtomic }, [b.address, res.provider]);
+        const out = { ok: true, lease, assignment, note: 'capAtomic — потолок; оплата только за измеренное потребление' };
+        usedNonce.set(key, { digest: v.digest, result: out });
+        return send(200, out);
+      }
+      if (u.pathname === '/resources/consume' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'rconsume', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prevN = usedNonce.get(key);
+        if (prevN) { if (prevN.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prevN.result, replay: true }); }
+        const { leaseId, units, usageId } = b.body || {};
+        const lease = leases[leaseId];
+        if (!lease) return send(404, { error: 'lease_not_found' });
+        if (b.address !== lease.provider) return send(403, { error: 'foreign_consume', hint: 'потребление фиксирует только поставщик ресурса' });
+        if (lease.state !== 'active') return send(409, { error: 'lease_closed', state: lease.state });
+        if (Date.now() > lease.expiresAt) return send(409, { error: 'lease_expired' });
+        if (!usageId) return send(400, { error: 'bad_usageId', hint: 'usageId обязателен: повтор того же измерения не должен списываться дважды' });
+        if (!Number.isInteger(units) || units <= 0) return send(400, { error: 'bad_units' });
+        const uKey = leaseId + '|' + String(usageId);
+        if (usageSeen[uKey]) { const out = { ok: true, lease, usage: usageSeen[uKey], replay: true }; usedNonce.set(key, { digest: v.digest, result: out }); return send(200, out); }
+        if (lease.usedUnits + units > lease.units) return send(409, { error: 'quota_exceeded', usedUnits: lease.usedUnits, units: lease.units, hint: 'потребление не может превысить арендованную квоту' });
+        lease.usedUnits += units;
+        lease.usedAtomic = lease.usedUnits * lease.unitPriceAtomic;
+        const ord = orders[leaseId];
+        if (ord) { ord.assignment.billing.usedUnits = lease.usedUnits; ord.assignment.billing.usedAtomic = lease.usedAtomic; }
+        usageSeen[uKey] = { units, usedUnits: lease.usedUnits, remainingUnits: lease.units - lease.usedUnits, usedAtomic: lease.usedAtomic, at: Date.now() };
+        persistMarket();
+        emit('resource.consumed', leaseId, String(lease.usedUnits), 'parties', { units, usedUnits: lease.usedUnits, usedAtomic: lease.usedAtomic }, [lease.customer, lease.provider]);
+        const out = { ok: true, lease, usage: usageSeen[uKey] };
+        usedNonce.set(key, { digest: v.digest, result: out });
+        return send(200, out);
+      }
+      if (u.pathname === '/resources/close' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'rclose', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prevN = usedNonce.get(key);
+        if (prevN) { if (prevN.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prevN.result, replay: true }); }
+        const { leaseId } = b.body || {};
+        const lease = leases[leaseId];
+        if (!lease) return send(404, { error: 'lease_not_found' });
+        if (b.address !== lease.customer && b.address !== lease.provider) return send(403, { error: 'foreign_lease', hint: 'аренду закрывает заказчик или поставщик' });
+        if (lease.state === 'closed') { const out = { ok: true, lease, amountAtomic: lease.usedAtomic, replay: true }; usedNonce.set(key, { digest: v.digest, result: out }); return send(200, out); }
+        lease.state = 'closed'; lease.closedAt = Date.now();
+        const ord = orders[leaseId];
+        if (ord) { ord.assignment.billing.finalized = true; ord.assignment.billing.usedUnits = lease.usedUnits; ord.assignment.billing.usedAtomic = lease.usedAtomic; }
+        persistMarket();
+        emit('resource.closed', leaseId, '1', 'parties', { usedUnits: lease.usedUnits, amountAtomic: lease.usedAtomic }, [lease.customer, lease.provider]);
+        const out = { ok: true, lease, amountAtomic: lease.usedAtomic, note: 'оплата — по измеренному потреблению, остаток квоты не оплачивается' };
+        usedNonce.set(key, { digest: v.digest, result: out });
+        return send(200, out);
       }
       // ---- Этап D: делегирование с бюджетом и глубиной ----
       if (u.pathname === '/orders/delegate' && req.method === 'POST') {
@@ -662,7 +815,11 @@ export async function createStand(tmp) {
         if (dsp && !dsp.resolved) return send(409, { error: 'disputed', hint: 'спор открыт: расчёт заморожен до решения независимого арбитра' });
         if (o.assignment.state !== 'accepted') return send(409, { error: 'no_obligation', hint: 'обязательство возникает только после приёмки (accept)' });
         if (b.address !== o.assignment.customer) return send(403, { error: 'foreign_settle' });
-        const amount = Number(o.assignment.priceAtomic ?? 0);
+        if (o.assignment.kind === 'resource' && !o.assignment.billing?.finalized) {
+          return send(409, { error: 'lease_open', hint: 'сначала закрывается аренда: оплата по измеренному потреблению, не по квоте' });
+        }
+        // Ресурс оплачивается по измеренному потреблению, остаток квоты не оплачивается.
+        const amount = Number(o.assignment.kind === 'resource' ? o.assignment.billing.usedAtomic : (o.assignment.priceAtomic ?? 0));
         if (!Number.isInteger(amount) || amount < 0) return send(400, { error: 'bad_amount' });
         if ((testBalances[b.address] || 0) < amount) return send(409, { error: 'insufficient_test_funds', hint: 'пополните тестовый баланс через /settlements/faucet' });
         const s = { paymentId: 'pay-' + assignmentId, assignmentId, amountAtomic: amount, payer: o.assignment.customer, recipient: o.assignment.provider, network: 'AGENTCOIN-stand', genesis: GENESIS, purpose: assignmentId, state: 'obligation', txid: null, dispute: null, test: true, createdAt: Date.now() };
@@ -721,7 +878,7 @@ export async function createStand(tmp) {
         const orderStates = {}, settleStates = {};
         for (const o of Object.values(orders)) orderStates[o.assignment.state] = (orderStates[o.assignment.state] || 0) + 1;
         for (const s of Object.values(settlements)) settleStates[s.state] = (settleStates[s.state] || 0) + 1;
-        return send(200, { offers: Object.keys(offers).length, hidden: Object.keys(moderation.hidden).length, suspended: Object.keys(moderation.suspended).length, disputes: Object.keys(disputes).length, disputesOpen: Object.values(disputes).filter((d) => !d.resolved).length, orders: orderStates, settlements: settleStates, events: events.length, monitors: Object.keys(monitors).length, runs: runs.length, complaintsOpen: moderation.complaints.filter((c) => c.status === 'open').length, decisions: moderation.decisions.length, genesis: GENESIS, test: true });
+        return send(200, { offers: Object.keys(offers).length, hidden: Object.keys(moderation.hidden).length, suspended: Object.keys(moderation.suspended).length, disputes: Object.keys(disputes).length, disputesOpen: Object.values(disputes).filter((d) => !d.resolved).length, resources: Object.keys(resources).length, leases: Object.keys(leases).length, orders: orderStates, settlements: settleStates, events: events.length, monitors: Object.keys(monitors).length, runs: runs.length, complaintsOpen: moderation.complaints.filter((c) => c.status === 'open').length, decisions: moderation.decisions.length, genesis: GENESIS, test: true });
       }
       if (u.pathname === '/moderation/complaint' && req.method === 'POST') {
         const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'complain', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });

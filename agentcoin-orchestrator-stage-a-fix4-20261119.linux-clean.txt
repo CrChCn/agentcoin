@@ -1,0 +1,26 @@
+Agentcoin orchestrator — Stage A fix4, Linux (WSL2, native bwrap) clean-room
+archive: agentcoin-orchestrator-stage-a-fix4-20261119.zip
+sha256:  299dffd07804b4f64772b4c13588a894f4a68318af68384cd296ae6d7ec1c453
+extractor: python3 -m zipfile -e (exec bits are NOT restored by this extractor — on purpose)
+
+1) node --test tests/*.test.mjs
+   exit 1, tests 63, pass 62, fail 1, skipped 0
+   failing: tests/termination.test.mjs "a process that ignores SIGTERM still ends the run"
+   rerun in isolation 3/3 pass (and 3/3 in the working tree): timing flake under full-suite
+   load, not a fix4 regression.
+
+2) sha256sum -c SHA256SUMS        -> exit 0, 78 x "OK"
+3) node tools/hostile-check.mjs   -> exit 0, phase 1 15/15 denied, phase 2 14/14 as expected
+                                    tool proxy journal: 10 calls, 1 denied, verdict PASS
+   (hostile-check does not rewrite evidence unless --write-evidence is passed, so the
+    checksums stay valid)
+4) sha256sum -c SHA256SUMS (after hostile-check) -> exit 0
+5) node orchestrator.mjs preflight
+   exit 3, status BLOCKED, isolation.smokeTested=true, adapterEndToEnd=false,
+   blockers: agent_isolation_unproven (+ agent_unavailable for a missing codex binary)
+
+6) broken-backend simulation (bwrap in PATH that exits 1, like
+   "bwrap: setting up uid map: Read-only file system"):
+   detectSandbox -> available=false, code ISOLATED_RUNNER_UNAVAILABLE,
+                    levels {installed:true, smokeTested:false}
+   preflight     -> exit 3, BLOCKED, blocker isolated_runner_unavailable

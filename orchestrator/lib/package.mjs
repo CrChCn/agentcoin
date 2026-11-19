@@ -21,9 +21,16 @@ const CONTAINER_DIRS = new Set(['state', 'logs', 'artifacts']);
 const SKIP_NAMES = new Set(['node_modules', '.git', 'runs', 'workspaces', 'dist']);
 
 const DATA_PREFIXES = ['contracts/', 'fixtures/', 'evidence/'];
+/* Доказательство уровня 3 привязано к машине и конкретному потоку Codex.
+   В архив оно не попадает: иначе распакованный архив открыл бы автономный
+   запуск на другой машине без собственной hostile-проверки. */
+const MACHINE_EVIDENCE = new Set(['evidence/agent-isolation.json', 'evidence/agent-isolation.txt']);
 /* Файлы, которые не связаны импортом, но нужны в архиве: hostile-атакующий
    скрипт копируется в стенд по пути, а не импортируется. */
-const REQUIRED_DATA = ['README.md', '.gitignore', 'state/.gitkeep', 'logs/.gitkeep', 'artifacts/.gitkeep', 'tests/hostile/attacks.mjs'];
+const REQUIRED_DATA = [
+  'README.md', '.gitignore', 'state/.gitkeep', 'logs/.gitkeep', 'artifacts/.gitkeep',
+  'tests/hostile/attacks.mjs', 'tests/hostile/agent-standin.mjs',
+];
 
 export function walkTree(root = ORCH_ROOT) {
   const files = [];
@@ -174,6 +181,7 @@ export function buildShipList({ root = ORCH_ROOT, include = [] } = {}) {
   const files = new Set(graph.files);
 
   for (const rel of walkTree(root)) {
+    if (MACHINE_EVIDENCE.has(rel)) continue;
     if (DATA_PREFIXES.some((prefix) => rel.startsWith(prefix))) files.add(rel);
   }
   for (const rel of REQUIRED_DATA) {

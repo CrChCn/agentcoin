@@ -7,6 +7,8 @@ import * as codex from './codex-cli.mjs';
 export const id = 'codex-implementer';
 export const roles = ['implementer'];
 export const simulated = false;
+export const requiresSandbox = codex.requiresSandbox;
+export const usesRunCommand = codex.usesRunCommand;
 
 export const probe = () => ({ ...codex.probe(), adapter: id, provider: 'codex' });
 

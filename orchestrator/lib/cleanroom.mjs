@@ -100,7 +100,7 @@ export function runCleanRoom(zipBytes, {
   codexBin = null,
   env = {},
   requirePreflightBlocker = true,
-  allowedBlockers = ['agent_unauthenticated'],
+  allowedBlockers = ['agent_unauthenticated', 'agent_isolation_unproven', 'isolated_runner_unavailable'],
   keep = false,
   label = null,
 } = {}) {
@@ -196,7 +196,12 @@ export function runCleanRoom(zipBytes, {
   const capabilitiesOk = capabilities.exitCode === 0
     && capabilityList.some((a) => a.id === 'codex-implementer')
     && capabilityList.some((a) => a.id === 'codex-reviewer');
-  const preflightOk = preflight.exitCode === 3 && blockerCodes.length === 1 && allowedBlockers.includes(blockerCodes[0]);
+  /* Каждый блокер обязан быть объяснён средой (нет входа, нет smoke-tested
+     backend'а, нет end-to-end доказательства уровня 3). Неожиданный код —
+     провал: список разрешённых не маскирует новые причины. */
+  const preflightOk = preflight.exitCode === 3
+    && blockerCodes.length >= 1
+    && blockerCodes.every((code) => allowedBlockers.includes(code));
   const shaOk = sums.exitCode === 0;
   const ok = testsOk && capabilitiesOk && shaOk && (requirePreflightBlocker ? preflightOk : true);
 

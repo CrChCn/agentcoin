@@ -1,9 +1,9 @@
 Agentcoin orchestrator — clean-room verification
-archive: agentcoin-orchestrator-stage-a-fix3-20261119.zip
-files in archive: 73
+archive: agentcoin-orchestrator-stage-a-fix4-20261119.zip
+files in archive: 79
 extractor: unzip
 workspace root: <CLEANROOM>
-$ unzip -q agentcoin-orchestrator-stage-a-fix3-20261119.zip -d unpacked
+$ unzip -q agentcoin-orchestrator-stage-a-fix4-20261119.zip -d unpacked
 exit 0
 --- stdout ---
 
@@ -15,7 +15,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:6752) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:7756) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -38,7 +38,7 @@ exit 0
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:2272) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:7276) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -49,7 +49,11 @@ exit 0
 ✔ reviewer ACCEPTED with a failing executed check is downgraded, not accepted (<ms>)
 ✔ adapter failures are BLOCKED, never a successful result (<ms>)
 ✔ restart: journal wins over a stale snapshot and the loop continues in a new process (<ms>)
-✔ no isolation backend blocks a real agent before anything runs (<ms>)
+✔ a broken backend is rejected even though bwrap is installed (<ms>)
+✔ no smoke-tested backend blocks a real agent before anything runs (<ms>)
+✔ a smoke-tested backend without end-to-end evidence still blocks real agents (<ms>)
+✔ level-3 evidence must come from the real adapter thread (<ms>)
+✔ the agent plan refuses to build without a smoke-tested backend (<ms>)
 ✔ the real command runner executes an allowed command inside the sandbox (<ms>)
 ✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
 ✔ an artifact that would carry a secret is refused instead of packaged (<ms>)
@@ -71,14 +75,19 @@ exit 0
 ✔ an installed and authorised Codex is still refused in a test process (<ms>)
 ✔ the declared test double runs only with an explicit opt-in (<ms>)
 ✔ ORCH_TEST_MODE alone is enough to disable real agents (<ms>)
-ℹ tests 54
+✔ task commands and read-only utilities are allowed (<ms>)
+✔ the tool channel cannot reach the network or the host (<ms>)
+✔ command substitution, pipes into denied programs and redirection are denied (<ms>)
+✔ an empty or audit-only policy never silently allows a denied program (<ms>)
+✔ a task command cannot smuggle a second command (<ms>)
+ℹ tests 63
 ℹ suites 0
-ℹ pass 45
+ℹ pass 54
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 9
 ℹ todo 0
-ℹ duration_ms 114264.322
+ℹ duration_ms 178683.422
 --- stderr ---
 
 
@@ -202,7 +211,7 @@ exit 0
   ]
 }
 --- stderr ---
-(node:11564) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:9188) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 
 $ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
@@ -212,11 +221,19 @@ exit 3
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-ma5D6I\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-b0y7PZ\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
-    "detail": "bubblewrap inside WSL2"
+    "installedBackend": "wsl-bwrap",
+    "detail": "wsl-bwrap passed the isolation smoke test",
+    "levels": {
+      "installed": true,
+      "smokeTested": true,
+      "adapterEndToEnd": false
+    },
+    "evidence": null,
+    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run"
   },
   "budgets": {
     "maxIterations": 3,
@@ -282,9 +299,13 @@ exit 3
       "role": "reviewer",
       "code": "agent_unauthenticated",
       "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    },
+    {
+      "code": "agent_isolation_unproven",
+      "detail": "no end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
     }
   ],
-  "nextCommand": "codex login"
+  "nextCommand": "agent_unauthenticated"
 }
 --- stderr ---
 
@@ -322,6 +343,7 @@ fixtures/task-src/src/pricing.mjs: OK
 fixtures/task-src/tests/acceptance.test.mjs: OK
 fixtures/tasks/lesson-01-escalation.json: OK
 fixtures/tasks/lesson-01.json: OK
+lib/agentsandbox.mjs: OK
 lib/cleanroom.mjs: OK
 lib/engine.mjs: OK
 lib/envpolicy.mjs: OK
@@ -334,6 +356,7 @@ lib/safefs.mjs: OK
 lib/sandbox.mjs: OK
 lib/schema.mjs: OK
 lib/secrets.mjs: OK
+lib/toolpolicy.mjs: OK
 lib/zip.mjs: OK
 logs/.gitkeep: OK
 orchestrator.mjs: OK
@@ -348,6 +371,7 @@ tests/contracts.test.mjs: OK
 tests/e2e.test.mjs: OK
 tests/env-policy.test.mjs: OK
 tests/helpers.mjs: OK
+tests/hostile/agent-standin.mjs: OK
 tests/hostile/attacks.mjs: OK
 tests/lock-holder.mjs: OK
 tests/lock.test.mjs: OK
@@ -359,16 +383,19 @@ tests/secrets.test.mjs: OK
 tests/symlink.test.mjs: OK
 tests/termination.test.mjs: OK
 tests/test-isolation.test.mjs: OK
+tests/tool-policy.test.mjs: OK
+tools/agent-hostile-check.mjs: OK
 tools/clean-check.mjs: OK
 tools/environment-matrix.mjs: OK
 tools/hostile-check.mjs: OK
 tools/pack.mjs: OK
+tools/tool-proxy.mjs: OK
 FILELIST.txt: OK
 --- stderr ---
 
 summary:
-  tests: exit 0, pass 45, fail 0
+  tests: exit 0, pass 54, fail 0
   capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
-  preflight: exit 3, blockers agent_unauthenticated
+  preflight: exit 3, blockers agent_isolation_unproven,agent_unauthenticated
   sha256sum: exit 0
   verdict: PASS

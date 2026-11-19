@@ -17,6 +17,7 @@ import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } f
 import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
 import { acquireLock } from './lock.mjs';
 import { detectSandbox, sandboxRun } from './sandbox.mjs';
+import { buildAgentPlan, isolationEvidence, prepareCodexHome, readToolJournal } from './agentsandbox.mjs';
 import { isDeclaredDouble } from '../adapters/codex-cli.mjs';
 import { runnerEnv } from './envpolicy.mjs';
 import { redactText, secretPairs } from './secrets.mjs';
@@ -221,18 +222,46 @@ export function commandRunner(workspace, task, { sandboxRequired = false } = {})
   };
 }
 
-/* Отсутствие backend'а — это блокировка реального цикла, а не предупреждение. */
-export function isolationGate(adapter, sandbox = detectSandbox()) {
+/* Fail-closed в трёх уровнях:
+   1. backend установлен; 2. backend реально прошёл smoke-run; 3. для этого
+   адаптера есть end-to-end доказательство изоляции реального потока.
+   Проверка наличия бинарника больше ничего не открывает. */
+export function isolationGate(adapter, sandbox = detectSandbox(), evidence = null) {
   /* Объявленный тестовый двойник — наш собственный код; sandbox нужен
      реальному агенту, а не стенду. */
   if (!adapter || adapter.simulated || isDeclaredDouble()) return null;
-  if (sandbox.available) return null;
-  return {
-    action: 'isolation_check',
-    actor: 'orchestrator',
-    code: 'isolated_runner_unavailable',
-    detail: `real agents require an OS-level isolation backend (bubblewrap/WSL2): ${sandbox.detail || 'none found'}`,
-  };
+  const smokeTested = Boolean(sandbox && sandbox.available && sandbox.levels && sandbox.levels.smokeTested === true);
+  if (!smokeTested) {
+    return {
+      action: 'isolation_check',
+      actor: 'orchestrator',
+      code: 'isolated_runner_unavailable',
+      detail: `real agents require a smoke-tested OS isolation backend (bubblewrap/WSL2): ${(sandbox && sandbox.detail) || 'none found'}`,
+    };
+  }
+  if (adapter.requiresSandbox === false) return null;
+  const proof = evidence || isolationEvidence();
+  if (!proof.ok) {
+    return {
+      action: 'isolation_check',
+      actor: 'orchestrator',
+      code: 'agent_isolation_unproven',
+      detail: proof.detail,
+    };
+  }
+  return null;
+}
+
+/* План изоляции для реального Codex-worker'а: sandbox + tool proxy +
+   одноразовый CODEX_HOME. Без плана адаптер не запускает ни одного процесса. */
+export function codexPlanFor(adapter, { sandbox, workspace, logDir, task }) {
+  if (!adapter || adapter.requiresSandbox !== true) return { ok: true, plan: null };
+  if (isDeclaredDouble()) return { ok: true, plan: null };
+  const home = prepareCodexHome();
+  if (!home.ok) return { ok: false, blocked: home };
+  const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir });
+  if (!plan.ok) return { ok: false, blocked: plan };
+  return { ok: true, plan };
 }
 
 function appendLog(file, entry) {
@@ -389,8 +418,17 @@ async function runImplementer({ store, root, state }) {
     task, iteration, baseCommit: state.baseCommit, findings: state.findings || [],
     workspace: implementerDir, resume: Boolean(resumeId),
   });
-  const isolation = isolationGate(adapter);
+  const sandbox = detectSandbox();
+  const isolation = isolationGate(adapter, sandbox);
   if (isolation) return store.markBlocked(task.taskId, isolation);
+  const prepared = codexPlanFor(adapter, {
+    sandbox, workspace: implementerDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `implementer-${iteration}`), task,
+  });
+  if (!prepared.ok) {
+    return store.markBlocked(task.taskId, {
+      action: 'isolation_check', actor: 'orchestrator', code: prepared.blocked.code, detail: prepared.blocked.detail,
+    });
+  }
   const runCommand = commandRunner(implementerDir, task, { sandboxRequired: !adapter.simulated && !isDeclaredDouble() });
   const started = Date.now();
 
@@ -398,7 +436,7 @@ async function runImplementer({ store, root, state }) {
   try {
     outcome = await adapter.run({
       task, iteration, workspace: implementerDir, baseCommit: state.baseCommit,
-      findings: state.findings || [], runCommand, logFile,
+      findings: state.findings || [], runCommand, logFile, launch: prepared.plan,
       prompt, schemaPath: IMPLEMENTER_SCHEMA, outputPath, promptPath, transcriptPath, metaPath,
       resumeId, timeoutMs: budgetMs, sandbox: 'workspace-write',
     });
@@ -422,7 +460,17 @@ async function runImplementer({ store, root, state }) {
     threadId: evidence.lastSession.threadId, resume: resumeId || null,
     usage: evidence.lastSession.usage,
     resultCommit: outcome.result ? outcome.result.resultCommit : null,
+    isolation: prepared.plan ? { backend: prepared.plan.backend, journal: prepared.plan.journalPath } : null,
   });
+  if (prepared.plan) {
+    const toolCalls = outcome.toolCalls || readToolJournal(prepared.plan.journalPath);
+    appendLog(logFile, {
+      phase: 'tool_calls',
+      count: toolCalls.length,
+      denied: toolCalls.filter((call) => call.allow === false),
+      calls: toolCalls.slice(-50),
+    });
+  }
 
   if (outcome.blocked) {
     return store.markBlocked(task.taskId, {
@@ -640,8 +688,17 @@ async function runReviewer({ store, root, state }) {
     artifactPath: archivePath, artifactSha256: meta.sha256, artifactBytes: bytes.length,
     appliedDir, baseDir,
   });
-  const isolation = isolationGate(adapter);
+  const sandbox = detectSandbox();
+  const isolation = isolationGate(adapter, sandbox);
   if (isolation) return store.markBlocked(task.taskId, isolation);
+  const prepared = codexPlanFor(adapter, {
+    sandbox, workspace: appliedDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `reviewer-${state.iteration}`), task,
+  });
+  if (!prepared.ok) {
+    return store.markBlocked(task.taskId, {
+      action: 'isolation_check', actor: 'orchestrator', code: prepared.blocked.code, detail: prepared.blocked.detail,
+    });
+  }
   const runCommand = commandRunner(appliedDir, task, { sandboxRequired: !adapter.simulated && !isDeclaredDouble() });
   const budgetMs = remainingBudgetMs(state, task, 'reviewer');
   const started = Date.now();
@@ -651,7 +708,7 @@ async function runReviewer({ store, root, state }) {
     outcome = await adapter.run({
       task, workspace: appliedDir, archive: bytes, meta, result: state.result,
       findings: state.findings || [], baseCommit: state.baseCommit, resultCommit: state.result.resultCommit,
-      implementerDir, reviewerChecksDir: REVIEWER_CHECKS_DIR, runCommand, logFile,
+      implementerDir, reviewerChecksDir: REVIEWER_CHECKS_DIR, runCommand, logFile, launch: prepared.plan,
       prompt, schemaPath: REVIEW_SCHEMA, outputPath, promptPath, transcriptPath, metaPath,
       timeoutMs: budgetMs, sandbox: 'workspace-write',
     });
@@ -667,7 +724,17 @@ async function runReviewer({ store, root, state }) {
     phase: 'reviewer', adapter: state.reviewer, durationMs: elapsedMs,
     verdict: outcome.review ? outcome.review.verdict : null,
     threadId: evidence.lastSession.threadId, usage: evidence.lastSession.usage,
+    isolation: prepared.plan ? { backend: prepared.plan.backend, journal: prepared.plan.journalPath } : null,
   });
+  if (prepared.plan) {
+    const toolCalls = outcome.toolCalls || readToolJournal(prepared.plan.journalPath);
+    appendLog(logFile, {
+      phase: 'tool_calls',
+      count: toolCalls.length,
+      denied: toolCalls.filter((call) => call.allow === false),
+      calls: toolCalls.slice(-50),
+    });
+  }
 
   if (outcome.blocked) {
     return store.markBlocked(task.taskId, {

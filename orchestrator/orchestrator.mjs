@@ -16,6 +16,7 @@ import { getAdapter, listAdapters } from './adapters/resolver.mjs';
 import { readJson } from './lib/fsx.mjs';
 import { reconcileLock, lockStatus } from './lib/lock.mjs';
 import { detectSandbox } from './lib/sandbox.mjs';
+import { isolationEvidence } from './lib/agentsandbox.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const DEFAULT_ROOT = ORCH_ROOT;
@@ -72,12 +73,21 @@ function preflight({ root, taskFile }) {
     if (!schema.present) blockers.push({ code: 'SCHEMA_MISSING', detail: schema.file });
   }
   if (adapters[0].id === adapters[1].id) blockers.push({ code: 'SELF_REVIEW', detail: 'implementer and reviewer must be different adapters' });
-  /* Реальный контур без OS-isolation не начинается. */
-  if (!sandbox.available) {
+  /* Три уровня, и только третий открывает автономный запуск:
+     1) backend installed; 2) backend smoke-tested; 3) real adapter end-to-end. */
+  const evidence = isolationEvidence();
+  const levels = {
+    installed: sandbox.levels ? sandbox.levels.installed === true : false,
+    smokeTested: sandbox.levels ? sandbox.levels.smokeTested === true : false,
+    adapterEndToEnd: evidence.ok === true,
+  };
+  if (!levels.smokeTested) {
     blockers.push({
       code: 'isolated_runner_unavailable',
-      detail: `real agents require an OS-level isolation backend (bubblewrap on Linux, WSL2 on Windows): ${sandbox.detail || 'none found'}`,
+      detail: `real agents require a smoke-tested OS isolation backend (bubblewrap on Linux, WSL2 on Windows): ${sandbox.detail || 'none found'}`,
     });
+  } else if (!levels.adapterEndToEnd) {
+    blockers.push({ code: 'agent_isolation_unproven', detail: evidence.detail });
   }
 
   const store = new Store(root, { readOnly: true });
@@ -96,7 +106,15 @@ function preflight({ root, taskFile }) {
     ready: blockers.length === 0,
     taskId: task.taskId,
     root: path.resolve(root),
-    isolation: { available: sandbox.available, backend: sandbox.backend, detail: sandbox.detail },
+    isolation: {
+      available: sandbox.available && levels.smokeTested,
+      backend: sandbox.backend,
+      installedBackend: sandbox.installedBackend || null,
+      detail: sandbox.detail,
+      levels,
+      evidence: evidence.ok ? { file: evidence.file, threadId: evidence.threadId, at: evidence.at, attacks: evidence.attacks } : null,
+      note: 'only levels.adapterEndToEnd=true permits an autonomous agent run',
+    },
     budgets: {
       maxIterations: task.maxIterations,
       maxRuntimePerAgentMinutes: task.maxRuntimePerAgentMinutes,

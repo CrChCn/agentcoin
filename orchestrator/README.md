@@ -4,7 +4,7 @@
 исправление → приёмка, с hash-журналом, восстановлением после остановки и
 типизированными действиями.
 
-> **Статус: Stage A fix2 — изоляция тестов, symlink-защита и межпроцессный lock.**
+> **Статус: Stage A fix4 — smoke-tested backend и Codex внутри sandbox.**
 > Настоящий агент не запускается ни одним unit-тестом: в тестовом процессе
 > адаптер возвращает `REAL_AGENT_DISABLED_IN_TEST` даже при установленном,
 > авторизованном Codex и ключе в окружении. Реальный двухагентный цикл ещё не
@@ -145,6 +145,59 @@ DATABASE_URL, CONNECTION_STRING, AWS_/AZURE_/GCP_/GOOGLE_/SSH_/GITHUB_/GITLAB_/N
 `SESSION_COOKIE`, `OPENAI_API_KEY`, 127.0.0.1, публичный IP,
 curl/PowerShell/shell, docker.sock, SSH-агент, symlink наружу, запись рядом с
 workspace. Отчёт: `evidence/hostile-check.txt`.
+
+## 0.6 Изоляция реального контура (fix4)
+
+fix3 построил песочницу для тестового runner'а, но настоящий Codex шёл мимо
+неё: `detectSandbox()` проверял только наличие `bwrap`, `isolationGate()`
+смотрел на флаг, а адаптер вызывал `spawn()` на хосте. Переданный
+`runCommand` не использовался вовсе. fix4 закрывает эти три дефекта.
+
+**1. Backend проверяется запуском, а не наличием.** `detectSandbox()` делает
+smoke-run с теми же параметрами, что и боевой runner (`--unshare-all`,
+workspace rw, ro-root, tmpfs `/home`, `--clearenv`, Node permission model) и
+проверяет 14 фактов: чтение/запись внутри workspace работают; чтение/запись
+вне его, spawn дочернего процесса, сеть, docker.sock, SSH-агент и
+унаследованное окружение — запрещены. Любой провал (например `bwrap: setting
+up uid map: Read-only file system`) даёт `ISOLATED_RUNNER_UNAVAILABLE`,
+`preflight` — `BLOCKED` и код выхода `3`. Наличие бинарника ничего не
+открывает.
+
+**2. Codex запускается внутри sandbox.** `lib/agentsandbox.mjs` строит план:
+bwrap → `codex exec` → `/orch/bin/bash` = tool proxy. У Codex есть только
+workspace rw, read-only системные каталоги, пустой `HOME` и одноразовый
+`CODEX_HOME` в `/run/credentials` (копия `auth.json`/`config.toml`). Прямой
+`spawn` Codex на хосте удалён: без плана адаптер возвращает `BLOCKED`, а не
+запускает модель.
+
+**3. Два разных канала.** Канал к провайдеру: bwrap с `--share-net`, только
+у самого Codex. Канал инструментов модели: каждая shell-команда идёт через
+`tools/tool-proxy.mjs` (смонтирован как `bash`/`sh`), который применяет
+allowlist (`lib/toolpolicy.mjs`: команды задачи, read-only утилиты, git;
+curl/wget/ssh/docker/npm/apt/подстановки запрещены), пишет журнал в
+`logs/<task>/tools/tool-calls.jsonl` и запускает команду в дополнительных
+mount+network namespace: сеть пуста (включая loopback), `/run/credentials` и
+`/home` замаскированы tmpfs. Нет `unshare`/capability → команда не
+выполняется (`ISOLATED_TOOL_NET_UNAVAILABLE`).
+
+**4. Hostile-проверка проверяет тот же контур.** `node tools/hostile-check.mjs`
+теперь две фазы: тестовый runner (15 атак) и цепочка агента в том же плане,
+что и настоящий Codex, с подставным worker'ом (14 атак по обоим каналам,
+включая `cat /run/credentials/codex/auth.json` и сеть из инструмента).
+`verdict: PASS` возможен только при smoke-tested backend.
+
+**5. Три уровня вместо одного флага.** `preflight.isolation.levels`:
+`installed` → `smokeTested` → `adapterEndToEnd`. Только третий разрешает
+автономный запуск: его пишет `node tools/agent-hostile-check.mjs --real`
+(реальный поток Codex, `evidence/agent-isolation.json`). Без него preflight
+отдаёт `agent_isolation_unproven`. Стенд с подставным worker'ом уровень 3 не
+открывает и честно сообщает об этом.
+
+Ограничения, которые не спрятаны: настоящий прогон уровня 3 на этой машине
+не выполнялся (нет входа Codex, `codex login` не запускался), а на Windows
+реальный Codex должен быть установлен **внутри WSL** — путь вида
+`C:\...\codex.js` в sandbox не существует, и такой запуск отклоняется
+(`AGENT_BINARY_NOT_IN_SANDBOX`).
 
 ---
 

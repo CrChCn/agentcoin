@@ -13,10 +13,16 @@ import path from 'node:path';
 import { redactText, redactValue, secretPairs } from '../lib/secrets.mjs';
 import { apiKeyMode, codexEnv } from '../lib/envpolicy.mjs';
 import { ORCH_ROOT } from '../lib/package.mjs';
+import { readToolJournal } from '../lib/agentsandbox.mjs';
 
 export const id = 'codex-cli';
 export const roles = ['implementer', 'reviewer'];
 export const simulated = false;
+/* Codex-worker запускается только внутри smoke-tested OS-sandbox: адаптер не
+   исполняет код модели на хосте ни при каких условиях. `runCommand` для него
+   не используется — команды модели идут через tool proxy внутри sandbox. */
+export const requiresSandbox = true;
+export const usesRunCommand = false;
 
 export const EVIDENCE = {
   nonInteractive: 'https://developers.openai.com/codex/noninteractive',
@@ -295,7 +301,7 @@ export function createTermination({
    thread_id, usage и путь к сырому JSONL для доказательств. */
 export function execWithEvents({
   prompt, workspace, schemaPath, outputPath, resumeId, sandbox = 'workspace-write',
-  timeoutMs = 600000, signal, transcriptPath, promptPath, metaPath,
+  timeoutMs = 600000, signal, transcriptPath, promptPath, metaPath, launch = null,
   graceMs = graceMsFromEnv(), reapMs = reapMsFromEnv(),
 }) {
   const guard = testGuard();
@@ -333,15 +339,50 @@ export function execWithEvents({
 
   const bin = resolveBin();
   const startedAt = new Date().toISOString();
+  const argv = [...bin.prefix, ...args];
+
+  /* Единственные допустимые ветки: объявленный тестовый двойник (наш код)
+     или план изоляции, построенный lib/agentsandbox.mjs. Прямой spawn Codex
+     на хосте убран совсем — именно он был дефектом fix3. */
+  let spawnPlan;
+  if (isDeclaredDouble()) {
+    spawnPlan = { ok: true, cmd: bin.cmd, args: argv, env: agentEnv(), backend: 'test-double' };
+  } else if (launch && launch.ok) {
+    spawnPlan = launch.wrap(argv);
+  } else {
+    spawnPlan = {
+      ok: false,
+      code: 'ISOLATED_RUNNER_UNAVAILABLE',
+      detail: 'codex worker has no isolation plan; refusing to spawn the agent on the host',
+    };
+  }
+  if (!spawnPlan.ok) {
+    return Promise.resolve({
+      ok: false,
+      blocked: { code: spawnPlan.code, detail: spawnPlan.detail },
+      events: [],
+      exitCode: null,
+      timedOut: false,
+      cancelled: false,
+      sessionId: null,
+      usage: null,
+      rawUsage: null,
+      lastMessage: null,
+      stderr: '',
+      transcriptPath: transcriptPath || null,
+      argv: [],
+      toolCalls: [],
+    });
+  }
 
   return new Promise((resolve) => {
-    const child = spawn(bin.cmd, [...bin.prefix, ...args], {
+    const child = spawn(spawnPlan.cmd, spawnPlan.args, {
       cwd: workspace,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,
       detached: process.platform !== 'win32',
-      env: agentEnv(),
+      env: spawnPlan.env,
     });
     const events = [];
     let buffer = '';
@@ -392,11 +433,13 @@ export function execWithEvents({
         if (safe !== raw) fs.writeFileSync(outputPath, safe);
         lastMessage = safe;
       }
+      const toolCalls = launch && launch.journalPath ? readToolJournal(launch.journalPath) : [];
       if (metaPath) {
         fs.mkdirSync(path.dirname(metaPath), { recursive: true });
         const payload = redactValue({
           adapter: id,
           argv: args,
+          isolation: { backend: spawnPlan.backend || null, sandboxed: !isDeclaredDouble() },
           binary: bin.source,
           cwd: workspace,
           startedAt,
@@ -426,6 +469,7 @@ export function execWithEvents({
         stderr: redactText(stderr.trim(), pairs),
         transcriptPath: transcriptPath || null,
         argv: args.map((arg) => redactText(arg, pairs)),
+        toolCalls,
       });
     };
 
@@ -476,7 +520,7 @@ export function execWithEvents({
 }
 
 export async function run(ctx) {
-  const { role, prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, graceMs, reapMs } = ctx;
+  const { role, prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, launch = null, graceMs, reapMs } = ctx;
   const pairs = secretPairs();
   const guard = testGuard();
   if (guard) return { blocked: guard };
@@ -487,7 +531,7 @@ export async function run(ctx) {
   if (!capability.authenticated) return { blocked: { code: 'agent_unauthenticated', detail: capability.requiresHuman || capability.reason } };
 
   const result = await execWithEvents({
-    prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, graceMs, reapMs,
+    prompt, workspace, schemaPath, outputPath, resumeId, timeoutMs, signal, transcriptPath, promptPath, metaPath, launch, graceMs, reapMs,
   });
   if (result.blocked) return { blocked: result.blocked };
   if (result.timedOut) {
@@ -523,6 +567,7 @@ export async function run(ctx) {
     result: role === 'implementer' ? redactValue(parsed, pairs) : undefined,
     review: role === 'reviewer' ? redactValue(parsed, pairs) : undefined,
     commandsRun,
+    toolCalls: result.toolCalls || [],
     session: {
       id: result.sessionId,
       usage: result.usage,

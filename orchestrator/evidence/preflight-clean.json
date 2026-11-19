@@ -2,11 +2,19 @@
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-ma5D6I\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-b0y7PZ\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
-    "detail": "bubblewrap inside WSL2"
+    "installedBackend": "wsl-bwrap",
+    "detail": "wsl-bwrap passed the isolation smoke test",
+    "levels": {
+      "installed": true,
+      "smokeTested": true,
+      "adapterEndToEnd": false
+    },
+    "evidence": null,
+    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run"
   },
   "budgets": {
     "maxIterations": 3,
@@ -72,7 +80,11 @@
       "role": "reviewer",
       "code": "agent_unauthenticated",
       "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+    },
+    {
+      "code": "agent_isolation_unproven",
+      "detail": "no end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
     }
   ],
-  "nextCommand": "codex login"
+  "nextCommand": "agent_unauthenticated"
 }

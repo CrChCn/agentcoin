@@ -7,3 +7,8 @@ artifacts/*/
 workspaces/
 runs/
 dist/
+
+# Уровень 3 привязан к конкретной машине и потоку Codex: доказательство нельзя
+# переносить в архив, иначе оно откроет автономный запуск на другой машине.
+evidence/agent-isolation.json
+evidence/agent-isolation.txt

@@ -1,6 +1,4 @@
-backend: wsl-bwrap (bubblewrap inside WSL2)
-workspace: C:\Users\Mark\AppData\Local\Temp\orch-hostile-lPNpkp\workspace
-attack results (15/15):
+phase 1 — test runner (sandboxRun, 12 attacks):
   DENIED  read-outside-workspace   ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
   DENIED  read-ssh-key             ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
   DENIED  read-codex-auth          ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
@@ -16,5 +14,37 @@ attack results (15/15):
   DENIED  open-ssh-agent           ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
   DENIED  symlink-escape           ERR_ACCESS_DENIED: fs.symlink API requires full fs.read and fs.write permissions.
   DENIED  write-sibling            ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-write to manage permissions.
+  exitCode: 0
+phase 2 — agent chain (bwrap → worker → tool proxy, 14 attacks):
+  DENIED  worker-read-outside      ENOENT: ENOENT: no such file or directory, open <fixture>/outside/canary.txt'
+  DENIED  worker-read-ssh-key      ENOENT: ENOENT: no such file or directory, open <fixture>/home/.ssh/id_rsa'
+  DENIED  worker-env-secret        ENOENT: not set
+  DENIED  worker-write-sibling     ENOENT: ENOENT: no such file or directory, open <fixture>/outside/pwn.txt'
+  DENIED  tool-read-outside        exit=1 cat: <fixture>/outside/canary.txt: No such file or directory
+  DENIED  tool-read-ssh-key        exit=1 cat: <fixture>/home/.ssh/id_rsa: No such file or directory
+  DENIED  tool-read-codex-auth     exit=1 cat: /run/credentials/codex/auth.json: No such file or directory
+  DENIED  tool-env-secret          exit=3 
+  DENIED  tool-curl                exit=126 policy: TOOL_COMMAND_DENIED: curl is denied by policy
+  DENIED  tool-write-sibling       exit=1 node:fs:2482
+    return binding.writeFileUtf8(
+                   ^
+
+Error: ENOENT: no such file or directory, open <fixture>/outside/pwn.txt'
+  
+  DENIED  tool-net-public          exit=4 BLOCKED:ENETUNREACH
+  DENIED  tool-net-localhost       exit=4 BLOCKED:ENETUNREACH
+  ALLOWED tool-read-workspace      exit=0 ALLOWED-WORKSPACE-VALUE
+  ALLOWED tool-ls                  exit=0 agent-config.json
+agent-standin.mjs
+allowed.txt
+offender.mjs
+probe-env.mjs
+probe-net.mjs
+probe-write.mjs
+tests
+  tool proxy journal: 10 calls, 1 denied
+  exitCode: 0
+backend: wsl-bwrap (wsl-bwrap passed the isolation smoke test)
+levels: installed=true smokeTested=true adapterEndToEnd=false
 verdict: PASS
-exitCode: 0
+note: level 3 (real Codex thread) is proved only by tools/agent-hostile-check.mjs --real

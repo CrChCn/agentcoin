@@ -89,7 +89,7 @@ async function main() {
        оба варианта означают: модули и адаптеры дошли до проверки входа.
        Строгий критерий (только agent_unauthenticated) проверяет clean-check. */
     const clean = runCleanRoom(built.zip, {
-      archiveName: name, codexBin, allowedBlockers: ['agent_unauthenticated', 'agent_unavailable'],
+      archiveName: name, codexBin, allowedBlockers: ['agent_unauthenticated', 'agent_unavailable', 'agent_isolation_unproven', 'isolated_runner_unavailable'],
     });
     const signature = JSON.stringify(clean.signature);
     if (previousSignature && signature === previousSignature && clean.ok) {

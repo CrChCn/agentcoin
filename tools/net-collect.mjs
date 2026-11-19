@@ -3,7 +3,7 @@
 // Цели — ТОЛЬКО из config/unified-registry.json (поля routes + observe).
 // Никакого второго списка серверов: хосты берутся из observe.ssh / observe.publicBase / routes.
 // Только GET и read-only команды. POST /tx /mine /mainnet/* (кроме GET /mainnet/info) не опрашиваются.
-// Тайм-ауты конечны, параллелизм ограничен, повторов нет.
+// Тайм-ауты конечны, параллелизм ограничен 4, повторов нет.
 // Статусы: ok | mismatch | unavailable | unknown | not_checked.
 // Тайм-аут = unavailable (не «остановлена»). HTTP 200 с не-JSON = mismatch. Прокси ≠ локальное состояние.
 import fs from 'node:fs';
@@ -17,24 +17,37 @@ export const MAX_CONCURRENCY = 4;
 export const MAX_BODY_BYTES = 65536;
 // Блоки растут ~30с: допуск дрейфа высот при последовательном опросе.
 export const BLOCK_INTERVAL_SEC = 30;
+export const HEX64_RE = /^[0-9a-f]{64}$/i;
+const DARK_MARKER_RE = /reserve node:\s*dark/i;
 
-const READ_ONLY_SSH_PREFIXES = [
-  'curl -sS -m 8 -i http://127.0.0.1:',
-  'curl -sS -m 8 -i http://localhost:',
-  'systemctl is-active ',
-  'systemctl show ',
-  'ps -eo ',
-  'sha256sum /opt/',
-  'ss -ltnp',
+// Строго определённые read-only операции. Составные shell-конструкции запрещены:
+// ';', '|', '&' вне одинарных кавычек curl, backtick, $(), переводы строк, редиректы.
+const SSH_PATTERNS = [
+  // curl к loopback, URL в одинарных кавычках, внутри только безопасные символы.
+  /^curl -sS -m 8 -i 'http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9\/._?=&%-]*'$/,
+  /^systemctl is-active [A-Za-z0-9_.@:-]+$/,
+  /^systemctl show [A-Za-z0-9_.@:-]+ --property=[A-Za-z,]+$/,
+  /^ps -eo pid,user,args$/,
+  /^sha256sum (\/opt\/[A-Za-z0-9_.\/-]+)( \/opt\/[A-Za-z0-9_.\/-]+)*$/,
+  /^ss -ltnp$/,
 ];
 
 export function isReadOnlySshCommand(cmd) {
   if (typeof cmd !== 'string') return false;
+  if (/[\n\r`$()]/.test(cmd)) return false;
   const c = cmd.trim();
-  if (!READ_ONLY_SSH_PREFIXES.some((p) => c.startsWith(p))) return false;
-  // Запрет секретов и мутаций даже внутри разрешённых префиксов.
-  if (/(\.env|settlement-policy|mainnet-settlements|id_rsa|id_ed25519|\benv\b|\bexport\b|sha256sum\s+\/etc\/|\/root\/\.ssh\/|;|\|\||&&|`|\$\()/.test(c)) return false;
-  return true;
+  // Грубые составные операторы вне кавычек curl запрещены.
+  // Для curl разрешён & только внутри одинарных кавычек (query ?from=&limit=).
+  let stripped = c;
+  if (stripped.startsWith('curl ')) {
+    const m = stripped.match(/'(http:\/\/127\.0\.0\.1:\d+\/[^']*)'$/);
+    if (!m) return false;
+    stripped = stripped.slice(0, stripped.indexOf("'")) + 'URL';
+  }
+  if (/[;|&<>]/.test(stripped)) return false;
+  if (/(^|\s)(env|export|cat|less|more|head|tail|grep|awk|sed|xargs|tee|sudo|su|chmod|chown|rm|mv|cp|dd|sh|bash)(\s|$)/.test(stripped)) return false;
+  if (/\.env|settlement-policy|mainnet-settlements|id_rsa|id_ed25519|\/root\/\.ssh\/|sha256sum\s+\/etc\//.test(c)) return false;
+  return SSH_PATTERNS.some((re) => re.test(c));
 }
 
 function slug(s) {
@@ -47,6 +60,10 @@ function queryFix(p) {
   return p;
 }
 
+function sshCurl(loop, p) {
+  return `curl -sS -m 8 -i '${loop}${queryFix(p)}'`;
+}
+
 // План строится ТОЛЬКО из реестра. Пустой план при отсутствии observe/routes — честный, не ошибка.
 export function buildPlan(reg) {
   const checks = [];
@@ -56,7 +73,7 @@ export function buildPlan(reg) {
     const id = c.componentId;
     const ob = c.observe && typeof c.observe === 'object' ? c.observe : null;
 
-    // --- локальные проверки ноды через SSH (read-only) ---
+    // --- локальные проверки ноды через SSH (read-only, строго по одной операции) ---
     if (ob && ob.ssh && typeof ob.ssh.host === 'string' && ob.ssh.host) {
       const base = typeof ob.localBase === 'string' && ob.localBase ? ob.localBase : 'http://127.0.0.1:9335';
       const m = base.match(/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/);
@@ -67,25 +84,34 @@ export function buildPlan(reg) {
         checks.push({
           componentId: id, checkId: `${id}:local-${slug(ep)}`,
           via: 'ssh', ssh: ob.ssh,
-          command: `curl -sS -m 8 -i ${loop}${queryFix(ep)}`,
+          command: sshCurl(loop, ep),
           sourceEndpoint: `loopback ${loop}${queryFix(ep)} via ssh`,
-          expectJson: true,
+          expectJson: true, endpoint: ep, kind: 'loopback-http',
         });
       }
       const units = Array.isArray(ob.units) ? ob.units.filter((u) => typeof u === 'string' && u) : [];
       if (units.length) {
+        const unit = units[0];
         checks.push({
-          componentId: id, checkId: `${id}:proc-unit`,
+          componentId: id, checkId: `${id}:proc-unit-show`,
           via: 'ssh', ssh: ob.ssh,
-          command: `systemctl show ${units[0]} --property=ActiveState,ExecStart,MainPID,MemoryCurrent --value; systemctl is-active ${units[0]}`,
-          sourceEndpoint: `systemctl ${units[0]} via ssh`, expectJson: false,
+          command: `systemctl show ${unit} --property=ActiveState,MainPID,ExecStart`,
+          sourceEndpoint: `systemctl show ${unit} via ssh`, expectJson: false, kind: 'unit-show',
+          expectedUnit: unit,
+        });
+        checks.push({
+          componentId: id, checkId: `${id}:proc-unit-active`,
+          via: 'ssh', ssh: ob.ssh,
+          command: `systemctl is-active ${unit}`,
+          sourceEndpoint: `systemctl is-active ${unit} via ssh`, expectJson: false, kind: 'unit-active',
+          expectedUnit: unit,
         });
       }
       checks.push({
         componentId: id, checkId: `${id}:proc-ps`,
         via: 'ssh', ssh: ob.ssh,
-        command: 'ps -eo pid,lstart,user,args | head -n 30',
-        sourceEndpoint: 'ps via ssh', expectJson: false,
+        command: 'ps -eo pid,user,args',
+        sourceEndpoint: 'ps via ssh', expectJson: false, kind: 'ps',
       });
       const files = Array.isArray(ob.files) ? ob.files.filter((f) => typeof f === 'string' && f.startsWith('/')) : [];
       if (files.length) {
@@ -93,17 +119,17 @@ export function buildPlan(reg) {
           componentId: id, checkId: `${id}:files-sha`,
           via: 'ssh', ssh: ob.ssh,
           command: `sha256sum ${files.join(' ')}`,
-          sourceEndpoint: `sha256sum ${files.length} file(s) via ssh`, expectJson: false,
+          sourceEndpoint: `sha256sum ${files.length} file(s) via ssh`, expectJson: false, kind: 'sha',
+          expectedFiles: files.slice(),
         });
       }
       const ports = Array.isArray(ob.listenPorts) ? ob.listenPorts.filter(Number.isInteger) : [];
       checks.push({
         componentId: id, checkId: `${id}:listen`,
         via: 'ssh', ssh: ob.ssh,
-        command: ports.length
-          ? `ss -ltnp | grep -E ':(${ports.join('|')}) ' || ss -ltnp | head -n 20`
-          : 'ss -ltnp | head -n 20',
-        sourceEndpoint: 'ss -ltnp via ssh', expectJson: false,
+        command: 'ss -ltnp',
+        sourceEndpoint: 'ss -ltnp via ssh', expectJson: false, kind: 'ss',
+        expectedPorts: ports.slice(),
       });
     }
 
@@ -131,7 +157,7 @@ export function buildPlan(reg) {
         via: 'https', url: `${base}${queryFix(r.path)}`,
         sourceEndpoint: `${base}${queryFix(r.path)}`,
         expectJson, expectDark, bareParam,
-        envScope: c.env,
+        envScope: c.env, endpoint: r.path, kind: 'public',
       });
     }
 
@@ -142,6 +168,7 @@ export function buildPlan(reg) {
         componentId: id, checkId: `${id}:caps`,
         via: 'https', url: `${base}/capabilities`,
         sourceEndpoint: `${base}/capabilities`, expectJson: true, isCaps: true,
+        endpoint: '/capabilities', kind: 'caps',
       });
     }
     // --- публичный монитор (для сравнения с локальными) ---
@@ -151,6 +178,7 @@ export function buildPlan(reg) {
         componentId: id, checkId: 'node-monitor:pub-nodes',
         via: 'https', url: `${base}/network/nodes`,
         sourceEndpoint: `${base}/network/nodes`, expectJson: true, isMonitor: true,
+        endpoint: '/network/nodes', kind: 'monitor',
       });
     }
   }
@@ -184,24 +212,98 @@ function tryJson(body) {
   }
 }
 
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+export function getAdvertisedLists(v) {
+  if (!isPlainObject(v)) return [];
+  const out = [];
+  for (const k of ['get', 'availableReads', 'reads']) {
+    if (Array.isArray(v[k])) {
+      for (const p of v[k]) if (typeof p === 'string') out.push(p);
+    }
+  }
+  return [...new Set(out)];
+}
+
+export function isParamPath(p) {
+  return /:[a-zA-Z_]|[{}\[\]*<>]/.test(String(p || ''));
+}
+
+export function extractCommonBlock(body, wantHeight) {
+  const j = tryJson(body);
+  if (!j.ok || !isPlainObject(j.value)) return { ok: false, error: 'no_valid_hash' };
+  const v = j.value;
+  let cand = null;
+  if (Array.isArray(v.blocks) && v.blocks.length) cand = v.blocks[0];
+  else if (Array.isArray(v.headers) && v.headers.length) cand = v.headers[0];
+  else if (isPlainObject(v.block)) cand = v.block;
+  if (!isPlainObject(cand)) return { ok: false, error: 'no_valid_hash' };
+  const h = Number(cand.height);
+  const hash = cand.hash || cand.tipHash;
+  if (!Number.isSafeInteger(h) || typeof hash !== 'string' || !HEX64_RE.test(hash.trim())) {
+    return { ok: false, error: 'no_valid_hash' };
+  }
+  if (Number.isSafeInteger(wantHeight) && h !== wantHeight) {
+    return { ok: false, error: `height_mismatch: got ${h} want ${wantHeight}`, height: h, hash: hash.trim() };
+  }
+  return { ok: true, height: h, hash: hash.trim() };
+}
+
 function withTimeout(promise, ms, label) {
   let t;
   const gate = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(label || 'timeout')), ms); });
   return Promise.race([promise, gate]).finally(() => clearTimeout(t));
 }
 
+// Чтение тела с ограничением потока: прекращаем при превышении лимита, фиксируем усечение.
+export async function readLimitedBody(response, limit = MAX_BODY_BYTES) {
+  const body = response.body;
+  if (!body || typeof body.getReader !== 'function') {
+    const buf = Buffer.from(await response.arrayBuffer());
+    return { text: buf.slice(0, limit).toString('utf8'), truncated: buf.length > limit, size: buf.length };
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let size = 0;
+  let truncated = false;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      const chunk = Buffer.from(part.value);
+      size += chunk.length;
+      if (size > limit) {
+        truncated = true;
+        const over = size - limit;
+        if (over < chunk.length) chunks.push(chunk.slice(0, chunk.length - over));
+        size = limit;
+        try { await reader.cancel(); } catch { /* ignore */ }
+        // Дочитывать остаток нельзя: фиксируем усечение и выходим.
+        // Пытаемся слить то, что уже прочитали.
+        // Оставшийся размер неизвестен — помечаем truncated.
+        // Для точного size продолжаем считать невозможным без полного чтения.
+        break;
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+  return { text: Buffer.concat(chunks).toString('utf8'), truncated, size: truncated ? limit + 1 : size };
+}
+
 async function defaultFetchFn(url) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(new Error('http_timeout')), HTTP_TIMEOUT_MS);
   try {
-    const r = await fetch(url, { signal: ctrl.signal, redirect: 'error' });
-    const buf = Buffer.from(await r.arrayBuffer());
-    return {
-      httpStatus: r.status,
-      contentType: r.headers.get('content-type'),
-      body: buf.slice(0, MAX_BODY_BYTES).toString('utf8'),
-      truncated: buf.length > MAX_BODY_BYTES,
-    };
+    // redirect manual: 3xx фиксируем как mismatch с location, а не unavailable.
+    const r = await fetch(url, { signal: ctrl.signal, redirect: 'manual' });
+    const ct = r.headers.get('content-type');
+    const loc = r.headers.get('location');
+    const { text, truncated } = await readLimitedBody(r, MAX_BODY_BYTES);
+    return { httpStatus: r.status, contentType: ct, body: text, truncated, location: loc };
   } finally {
     clearTimeout(t);
   }
@@ -221,13 +323,41 @@ async function defaultSshFn({ host, user, port }, command) {
   return { stdout: r.stdout || '', stderr: r.stderr || '', exitCode: r.status };
 }
 
-function classifyHttp({ httpStatus, contentType, body, expectJson, expectDark, chainPin }) {
+function isJsonContentType(ct) {
+  return /application\/json/i.test(String(ct || '')) || /\+json/i.test(String(ct || ''));
+}
+
+function classifyHttp({ httpStatus, contentType, body, expectJson, expectDark, chainPin, endpoint }) {
   const observedValue = { httpStatus, contentType, size: String(body || '').length };
-  // Тёмный резерв: 403 с маркером — ожидаемо, это ok данного маршрута.
-  if (expectDark && (httpStatus === 403 || httpStatus === 404)) {
-    observedValue.dark = true;
-    if (/reserve node: dark/i.test(String(body || ''))) observedValue.darkMarker = true;
-    return { status: 'ok', observedValue, error: null };
+  // Тёмный резерв: требуется документированный статус 403 И маркер ответа.
+  if (expectDark) {
+    if (httpStatus === 403 && DARK_MARKER_RE.test(String(body || ''))) {
+      observedValue.dark = true;
+      observedValue.darkMarker = true;
+      return { status: 'ok', observedValue, error: null };
+    }
+    if (httpStatus === 403) {
+      observedValue.dark = true;
+      observedValue.darkMarker = false;
+      return { status: 'mismatch', observedValue, error: 'dark_marker_missing: 403 without reserve marker' };
+    }
+    if (httpStatus === 404) {
+      return { status: 'mismatch', observedValue, error: 'http_404_not_dark: unknown 404, expected dark 403 with marker' };
+    }
+    if (httpStatus === null || httpStatus === undefined) {
+      return { status: 'unavailable', observedValue, error: 'no_http_status' };
+    }
+    if (httpStatus >= 500) {
+      return { status: 'unavailable', observedValue, error: `http_${httpStatus}` };
+    }
+    if (httpStatus === 200) {
+      // Неожиданный 200 на тёмном маршруте (возможен прокси) — проверяем как обычный JSON,
+      // но требуем явной пометки; без неё это находка, а не ok.
+      // Падаем ниже в обычную валидацию с флагом darkUnexpected.
+      observedValue.darkUnexpected200 = true;
+    } else if (httpStatus !== 200) {
+      return { status: 'mismatch', observedValue, error: `http_${httpStatus}_on_dark_route` };
+    }
   }
   if (httpStatus === null || httpStatus === undefined) {
     return { status: 'unavailable', observedValue, error: 'no_http_status' };
@@ -235,8 +365,12 @@ function classifyHttp({ httpStatus, contentType, body, expectJson, expectDark, c
   if (httpStatus >= 500) {
     return { status: 'unavailable', observedValue, error: `http_${httpStatus}` };
   }
-  if (httpStatus === 403 || httpStatus === 404) {
+  if (!expectDark && (httpStatus === 403 || httpStatus === 404)) {
     return { status: 'mismatch', observedValue, error: `http_${httpStatus}_on_advertised_route` };
+  }
+  if (httpStatus >= 300 && httpStatus < 400) {
+    observedValue.location = null;
+    return { status: 'mismatch', observedValue, error: `http_${httpStatus}_redirect` };
   }
   if (httpStatus !== 200) {
     return { status: 'mismatch', observedValue, error: `http_${httpStatus}` };
@@ -244,43 +378,202 @@ function classifyHttp({ httpStatus, contentType, body, expectJson, expectDark, c
   // 200: проверяем структуру, а не только код.
   const looksHtml = /^\s*</.test(String(body || '')) || String(contentType || '').includes('text/html');
   if (expectJson) {
+    if (!isJsonContentType(contentType)) {
+      observedValue.bodyHead = String(body || '').slice(0, 200);
+      return { status: 'mismatch', observedValue, error: `content_type_mismatch: ${String(contentType || 'none').slice(0, 80)}` };
+    }
     const j = tryJson(body);
     if (!j.ok) {
       observedValue.bodyHead = String(body || '').slice(0, 200);
       return { status: 'mismatch', observedValue, error: `json_invalid: ${j.error}` };
     }
     const v = j.value;
-    if (v && typeof v === 'object') {
+    if (!isPlainObject(v)) {
+      observedValue.bodyHead = String(body || '').slice(0, 200);
+      return { status: 'mismatch', observedValue, error: 'json_shape_invalid: expected object' };
+    }
+    const need = (cond, err) => { if (!cond) return err; return null; };
+    const ep = String(endpoint || '');
+    const fail = (err) => ({ status: 'mismatch', observedValue, error: err });
+    // По-эндпоинтная структура.
+    if (ep === '/info') {
+      const gotId = v.chainId || v.network;
+      const gotGen = v.genesisHash || v.genesis;
+      const blocks = v.blocks ?? v.height;
+      let e = need(typeof gotId === 'string' && gotId, 'structure_missing: chainId');
+      if (e) return fail(e);
+      e = need(typeof gotGen === 'string' && HEX64_RE.test(String(gotGen)), 'structure_missing: genesisHash');
+      if (e) return fail(e);
+      e = need(Number.isSafeInteger(blocks) && blocks >= 0, 'structure_missing: blocks');
+      if (e) return fail(e);
+      observedValue.chainId = gotId;
+      observedValue.genesisHash = gotGen;
+      observedValue.blocks = blocks;
+      if (chainPin) {
+        if (gotId !== chainPin.chainId) return fail(`chain_pin_mismatch: chainId ${gotId} != ${chainPin.chainId}`);
+        if (String(gotGen).toLowerCase() !== String(chainPin.genesis).toLowerCase()) return fail('chain_pin_mismatch: genesis != registry pin');
+      }
+      for (const k of ['tipHash', 'tipAgeSec', 'mempool']) if (v[k] !== undefined) observedValue[k] = v[k];
+    } else if (ep === '/health') {
+      let e = need(v.ok === true, 'structure_missing: ok:true');
+      if (e) return fail(e);
+      e = need(v.service === 'agt-node', 'structure_missing: service');
+      if (e) return fail(e);
+      e = need(Number.isSafeInteger(v.blocks), 'structure_missing: blocks');
+      if (e) return fail(e);
+      e = need(typeof v.tipHash === 'string' && HEX64_RE.test(v.tipHash), 'structure_missing: tipHash');
+      if (e) return fail(e);
+      observedValue.blocks = v.blocks;
+      observedValue.tipHash = v.tipHash;
+      observedValue.chainId = v.chainId || undefined;
+      for (const k of ['tipAgeSec', 'chainValid', 'overloaded']) if (v[k] !== undefined) observedValue[k] = v[k];
+      if (chainPin && v.chainId && v.chainId !== chainPin.chainId) return fail(`chain_pin_mismatch: chainId ${v.chainId} != ${chainPin.chainId}`);
+    } else if (ep === '/life') {
+      let e = need(typeof v.alive === 'boolean', 'structure_missing: alive');
+      if (e) return fail(e);
+      e = need(Number.isSafeInteger(v.blocks), 'structure_missing: blocks');
+      if (e) return fail(e);
+      e = need(typeof v.tipHash === 'string' && HEX64_RE.test(v.tipHash), 'structure_missing: tipHash');
+      if (e) return fail(e);
+      observedValue.blocks = v.blocks;
+      observedValue.tipHash = v.tipHash;
+      for (const k of ['tipAgeSec', 'fresh', 'chainValid', 'chainIssue']) if (v[k] !== undefined) observedValue[k] = v[k];
+    } else if (ep === '/blocks' || ep.startsWith('/blocks')) {
+      let e = need(Array.isArray(v.blocks) && v.blocks.length > 0, 'structure_missing: blocks[]');
+      if (e) return fail(e);
+      const b0 = v.blocks[0];
+      e = need(isPlainObject(b0) && Number.isSafeInteger(b0.height) && typeof b0.hash === 'string' && HEX64_RE.test(b0.hash), 'structure_missing: blocks[0].height/hash');
+      if (e) return fail(e);
+      observedValue.blocks = v.blocks.map((b) => ({ height: b.height, hash: b.hash })).slice(0, 4);
+      if (typeof v.height === 'number') observedValue.height = v.height;
+    } else if (ep === '/headers' || ep.startsWith('/headers')) {
+      let e = need(Array.isArray(v.headers) && v.headers.length > 0, 'structure_missing: headers[]');
+      if (e) return fail(e);
+      const h0 = v.headers[0];
+      e = need(isPlainObject(h0) && Number.isSafeInteger(h0.height) && typeof h0.hash === 'string' && HEX64_RE.test(h0.hash), 'structure_missing: headers[0].height/hash');
+      if (e) return fail(e);
+      observedValue.headers = v.headers.map((h) => ({ height: h.height, hash: h.hash })).slice(0, 4);
+      if (typeof v.height === 'number') observedValue.height = v.height;
+    } else if (ep === '/capabilities') {
+      const adv = getAdvertisedLists(v);
+      let e = need(v.ok === true, 'structure_missing: ok:true');
+      if (e) return fail(e);
+      e = need(adv.length > 0 && adv.every((p) => p.startsWith('/')), 'structure_missing: get[]');
+      if (e) return fail(e);
+      observedValue.advertisedReads = adv.slice();
+      observedValue.advertisedCount = adv.length;
+    } else if (ep === '/network/nodes') {
+      let e = need(v.ok === true && Array.isArray(v.nodes) && v.nodes.length > 0, 'structure_missing: nodes[]');
+      if (e) return fail(e);
+      observedValue.nodes = v.nodes.map((n) => ({
+        name: n.name, reachable: n.reachable, blocks: n.blocks, tipHash: n.tipHash, status: n.status,
+      })).slice(0, 8);
+      observedValue.maxObservedBlocks = v.maxObservedBlocks ?? null;
+    } else if (ep === '/ws/status') {
+      let e = need(Number.isSafeInteger(v.blocks), 'structure_missing: blocks');
+      if (e) return fail(e);
+      e = need(typeof v.tipHash === 'string' && v.tipHash, 'structure_missing: tipHash');
+      if (e) return fail(e);
+      observedValue.blocks = v.blocks;
+      observedValue.tipHash = v.tipHash;
+      for (const k of ['chainId', 'genesisHash', 'genesis', 'tipAgeSec', 'chainValid']) if (v[k] !== undefined) observedValue[k] = v[k];
+      if (chainPin) {
+        const gotId = v.chainId;
+        const gotGen = v.genesisHash || v.genesis;
+        if (gotId && gotId !== chainPin.chainId) return fail(`chain_pin_mismatch: chainId ${gotId} != ${chainPin.chainId}`);
+        if (gotGen && String(gotGen).toLowerCase() !== String(chainPin.genesis).toLowerCase()) return fail('chain_pin_mismatch: genesis != registry pin');
+      }
+    } else {
+      // Прочие JSON-эндпоинты: требуем объект; копируем известные поля; пин проверяем только при наличии.
       for (const k of ['chainId', 'genesisHash', 'genesis', 'blocks', 'tipHash', 'height', 'tipAgeSec']) {
         if (v[k] !== undefined) observedValue[k] = v[k];
       }
       if (chainPin) {
         const gotId = v.chainId || v.network;
         const gotGen = v.genesisHash || v.genesis;
-        if (gotId && gotId !== chainPin.chainId) {
-          return { status: 'mismatch', observedValue, error: `chain_pin_mismatch: chainId ${gotId} != ${chainPin.chainId}` };
+        // Отсутствующий пин на цепных путях — mismatch, а не совпадение.
+        if ((ep === '/info' || ep === '/health' || ep === '/life') && (!gotId || !gotGen)) {
+          return fail('chain_pin_missing: expected chain identifiers absent');
         }
-        if (gotGen && String(gotGen).toLowerCase() !== String(chainPin.genesis).toLowerCase()) {
-          return { status: 'mismatch', observedValue, error: 'chain_pin_mismatch: genesis != registry pin' };
-        }
+        if (gotId && gotId !== chainPin.chainId) return fail(`chain_pin_mismatch: chainId ${gotId} != ${chainPin.chainId}`);
+        if (gotGen && String(gotGen).toLowerCase() !== String(chainPin.genesis).toLowerCase()) return fail('chain_pin_mismatch: genesis != registry pin');
       }
-      // capabilities: фиксируем рекламируемый набор, сами пробы — отдельными наблюдениями.
-      if (Array.isArray(v.availableReads)) observedValue.advertisedReads = v.availableReads.slice(0, 40);
-      if (Array.isArray(v.reads)) observedValue.advertisedReads = v.reads.slice(0, 40);
+      const adv = getAdvertisedLists(v);
+      if (adv.length) { observedValue.advertisedReads = adv.slice(); observedValue.advertisedCount = adv.length; }
+      if (Array.isArray(v.nodes)) observedValue.nodes = v.nodes.slice(0, 8);
+    }
+    if (observedValue.darkUnexpected200) {
+      return { status: 'mismatch', observedValue, error: 'dark_expected_403_got_200' };
     }
     return { status: 'ok', observedValue, error: null };
   }
-  // HTML-страницы (статика): 200 + тело — достаточно для доступности; структура — в net-diff по маркерам.
-  if (looksHtml) observedValue.html = true;
-  else {
+  // HTML-страницы (статика) и lenient caps-пробы: 200 + непустое тело — доступность.
+  // Если content-type заявляет JSON, требуем валидный JSON даже в lenient-режиме.
+  if (looksHtml) {
+    if (!String(body || '').trim()) return { status: 'mismatch', observedValue, error: 'empty_body' };
+    observedValue.html = true;
+    return { status: 'ok', observedValue, error: null };
+  }
+  const bodyTrim = String(body || '').trim();
+  if (!bodyTrim) return { status: 'mismatch', observedValue, error: 'empty_body' };
+  if (isJsonContentType(contentType)) {
     const j = tryJson(body);
-    if (j.ok && j.value && typeof j.value === 'object') {
+    if (!j.ok) {
+      observedValue.bodyHead = String(body || '').slice(0, 200);
+      return { status: 'mismatch', observedValue, error: `json_invalid: ${j.error}` };
+    }
+    if (!isPlainObject(j.value) && !Array.isArray(j.value)) {
+      return { status: 'mismatch', observedValue, error: 'json_shape_invalid: expected object' };
+    }
+    if (isPlainObject(j.value)) {
       for (const k of ['chainId', 'genesisHash', 'blocks', 'tipHash']) {
         if (j.value[k] !== undefined) observedValue[k] = j.value[k];
       }
     }
+    return { status: 'ok', observedValue, error: null };
+  }
+  const j = tryJson(body);
+  if (j.ok && isPlainObject(j.value)) {
+    for (const k of ['chainId', 'genesisHash', 'blocks', 'tipHash']) {
+      if (j.value[k] !== undefined) observedValue[k] = j.value[k];
+    }
   }
   return { status: 'ok', observedValue, error: null };
+}
+
+function parseSystemctlShow(out) {
+  const res = {};
+  for (const line of String(out || '').split('\n')) {
+    const m = line.match(/^\s*([A-Za-z]+)\s*=\s*(.*)\s*$/);
+    if (m) res[m[1]] = m[2];
+  }
+  // Форма --value (три строки без ключей) — не принимаем как доказанную: требуем ключи.
+  return res;
+}
+
+function parsePs(out) {
+  const lines = String(out || '').split('\n').slice(1).filter((l) => l.trim());
+  const found = [];
+  for (const line of lines) {
+    const m = line.trim().match(/^(\d+)\s+(\S+)\s+(.*)$/);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const user = m[2];
+    const args = m[3];
+    if (/node(\.mjs|\s|$)/.test(args) && /(node\.mjs|agentcoin|agt-node)/.test(args)) {
+      found.push({ pid, user, args: args.slice(0, 300) });
+    }
+  }
+  return { count: lines.length, matched: found.slice(0, 8) };
+}
+
+function parseSs(out) {
+  const ports = new Set();
+  for (const m of String(out || '').matchAll(/:(\d+)\b/g)) {
+    const p = Number(m[1]);
+    if (Number.isInteger(p) && p > 0 && p < 65536) ports.add(p);
+  }
+  return [...ports].sort((a, b) => a - b);
 }
 
 async function runOne(check, ctx) {
@@ -315,31 +608,134 @@ async function runOne(check, ctx) {
           throw { done: true };
         }
         const out = String(raw.stdout || '');
+        const stderrHead = String(raw.stderr || '').slice(0, 300);
+        const exitCode = raw.exitCode;
         rec.evidenceFile = saveEvidence('txt', out.slice(0, MAX_BODY_BYTES));
-        if (raw.exitCode !== 0 && !out.trim()) {
-          rec.status = 'unavailable';
-          rec.error = `ssh_exit_${raw.exitCode}: ${String(raw.stderr || '').slice(0, 200)}`;
-          throw { done: true };
-        }
-        if (check.command.startsWith('curl ')) {
+        if (check.kind === 'loopback-http' || check.command.startsWith('curl ')) {
+          if (exitCode !== 0 && exitCode !== null && exitCode !== undefined) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_curl_exit_${exitCode}: ${stderrHead}`;
+            rec.observedValue = { exitCode, stderr: stderrHead };
+            throw { done: true };
+          }
           const { httpStatus, contentType, body } = parseCurlDashI(out);
-          rec.evidenceFile = saveEvidence('json', body.slice(0, MAX_BODY_BYTES));
-          const r = classifyHttp({ httpStatus, contentType, body, expectJson: check.expectJson, chainPin: ctx.chainPin });
-          rec.status = r.status; rec.observedValue = r.observedValue; rec.error = r.error;
-        } else if (check.command.startsWith('sha256sum')) {
+          // common-block: строгая проверка запрошенной высоты и валидного хэша.
+          const cm = /common-block-(\d+)/.exec(check.checkId);
+          if (cm) {
+            const want = Number(cm[1]);
+            const ex = extractCommonBlock(body, want);
+            rec.evidenceFile = saveEvidence('json', body.slice(0, MAX_BODY_BYTES));
+            if (ex.ok) {
+              rec.status = 'ok';
+              rec.observedValue = { requestedHeight: want, height: ex.height, hash: ex.hash, httpStatus, exitCode };
+              rec.error = null;
+            } else {
+              rec.status = 'unknown';
+              rec.observedValue = { requestedHeight: want, httpStatus, exitCode, bodyHead: body.slice(0, 200) };
+              rec.error = ex.error || 'no_valid_hash';
+            }
+          } else {
+            rec.evidenceFile = saveEvidence('json', body.slice(0, MAX_BODY_BYTES));
+            const r = classifyHttp({ httpStatus, contentType, body, expectJson: check.expectJson, chainPin: ctx.chainPin, endpoint: check.endpoint });
+            r.observedValue.exitCode = exitCode;
+            rec.status = r.status; rec.observedValue = r.observedValue; rec.error = r.error;
+          }
+        } else if (check.kind === 'sha' || check.command.startsWith('sha256sum')) {
           const rows = out.trim().split('\n').map((l) => l.trim()).filter(Boolean);
           const files = {};
           for (const row of rows) {
             const m = row.match(/^([0-9a-f]{64})\s+(.+)$/);
-            if (m) files[m[2]] = m[1];
+            if (m) files[m[2]] = m[1].toLowerCase();
           }
-          rec.observedValue = { files, count: rows.length };
-          rec.status = rows.length ? 'ok' : 'mismatch';
-          if (!rows.length) rec.error = 'sha_empty';
+          const expected = Array.isArray(check.expectedFiles) ? check.expectedFiles : [];
+          const missing = expected.filter((f) => !files[f] || !HEX64_RE.test(files[f]));
+          rec.observedValue = { files, count: rows.length, expectedFiles: expected, exitCode, stderr: stderrHead };
+          if (exitCode !== 0 && !out.trim()) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
+          } else if (missing.length) {
+            rec.status = 'mismatch';
+            rec.error = `sha_missing: ${missing.join(', ').slice(0, 200)}`;
+          } else if (!rows.length) {
+            rec.status = 'mismatch';
+            rec.error = 'sha_empty';
+          } else {
+            rec.status = 'ok';
+            rec.error = null;
+          }
+        } else if (check.kind === 'unit-show') {
+          const parsed = parseSystemctlShow(out);
+          rec.observedValue = { ...parsed, exitCode, stderr: stderrHead };
+          if (exitCode !== 0 && !out.trim()) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
+          } else if (!parsed.ActiveState) {
+            rec.status = 'unknown';
+            rec.error = 'unit_state_unknown: ActiveState absent';
+          } else if (parsed.ActiveState !== 'active') {
+            rec.status = 'mismatch';
+            rec.error = `unit_inactive: ${parsed.ActiveState}`;
+          } else {
+            rec.status = 'ok';
+            rec.error = null;
+          }
+        } else if (check.kind === 'unit-active') {
+          const state = out.trim().split('\n')[0].trim();
+          rec.observedValue = { state, exitCode, stderr: stderrHead };
+          // is-active возвращает ненулевой код при inactive — это mismatch, а не недоступность.
+          if (state === 'active' && exitCode === 0) {
+            rec.status = 'ok';
+            rec.error = null;
+          } else if (!state) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead || 'empty'}`;
+          } else {
+            rec.status = 'mismatch';
+            rec.error = `unit_not_active: ${state}`;
+          }
+        } else if (check.kind === 'ps') {
+          if (exitCode !== 0 && !out.trim()) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
+            rec.observedValue = { exitCode, stderr: stderrHead };
+          } else {
+            const parsed = parsePs(out);
+            rec.observedValue = { ...parsed, exitCode, stderr: stderrHead };
+            if (parsed.matched.length) {
+              rec.status = 'ok';
+              rec.error = null;
+            } else {
+              rec.status = 'mismatch';
+              rec.error = 'process_not_found: no node.mjs/agentcoin process in ps';
+            }
+          }
+        } else if (check.kind === 'ss') {
+          if (exitCode !== 0 && !out.trim()) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
+            rec.observedValue = { exitCode, stderr: stderrHead };
+          } else {
+            const observedPorts = parseSs(out);
+            const expected = Array.isArray(check.expectedPorts) ? check.expectedPorts : [];
+            const missing = expected.filter((p) => !observedPorts.includes(p));
+            rec.observedValue = { observedPorts, expectedPorts: expected, exitCode, stderr: stderrHead };
+            if (missing.length) {
+              rec.status = 'mismatch';
+              rec.error = `missing_ports: ${missing.join(',')}`;
+            } else {
+              rec.status = 'ok';
+              rec.error = null;
+            }
+          }
         } else {
-          rec.observedValue = { head: out.slice(0, 2000) };
-          rec.status = out.trim() ? 'ok' : 'unknown';
-          if (!out.trim()) rec.error = 'empty_output';
+          rec.observedValue = { head: out.slice(0, 2000), exitCode, stderr: stderrHead };
+          if (exitCode !== 0 && !out.trim()) {
+            rec.status = 'unavailable';
+            rec.error = `ssh_exit_${exitCode}: ${stderrHead}`;
+          } else {
+            rec.status = out.trim() ? 'ok' : 'unknown';
+            if (!out.trim()) rec.error = 'empty_output';
+          }
         }
       }
     } else {
@@ -347,6 +743,14 @@ async function runOne(check, ctx) {
         rec.status = 'not_checked';
         rec.error = 'bare_path_needs_parameter (registry note documents bare 404 as expected)';
         rec.observedValue = { skipped: check.sourceEndpoint };
+        rec.completedAt = new Date(ctx.now()).toISOString();
+        return rec;
+      }
+      // Параметризованные пути capabilities/CAPS-проб: явный пропуск, без бессмысленного запроса.
+      if (check.skipReason) {
+        rec.status = 'not_checked';
+        rec.error = check.skipReason;
+        rec.observedValue = { skipped: check.sourceEndpoint || check.endpoint };
         rec.completedAt = new Date(ctx.now()).toISOString();
         return rec;
       }
@@ -360,10 +764,22 @@ async function runOne(check, ctx) {
       }
       const body = String(res.body || '');
       rec.evidenceFile = saveEvidence(/json/i.test(String(res.contentType || '')) || /^\s*[{[]/.test(body) ? 'json' : 'txt', body.slice(0, MAX_BODY_BYTES));
+      // 3xx на caps-пробах (/index → /): маршрут обработан (redirect), а не отсутствует.
+      // Для реестровых owner-маршрутов редирект остаётся mismatch (см. classify).
+      if (res.httpStatus >= 300 && res.httpStatus < 400 && check.kind === 'caps-probe' && res.location) {
+        rec.status = 'ok';
+        rec.observedValue = { httpStatus: res.httpStatus, location: String(res.location).slice(0, 200), redirect: true, contentType: res.contentType, size: body.length };
+        if (typeof res.truncated === 'boolean') rec.observedValue.truncated = res.truncated;
+        rec.error = null;
+        rec.completedAt = new Date(ctx.now()).toISOString();
+        return rec;
+      }
       const r = classifyHttp({
         httpStatus: res.httpStatus, contentType: res.contentType, body,
         expectJson: check.expectJson, expectDark: check.expectDark, chainPin: ctx.chainPin,
+        endpoint: check.endpoint,
       });
+      if (typeof res.truncated === 'boolean') r.observedValue.truncated = res.truncated;
       rec.status = r.status; rec.observedValue = r.observedValue; rec.error = r.error;
       // envScope вне прод (staging-only/offline-pilot): 404 на проде согласуется с ожиданием «не опубликовано».
       if (rec.status === 'mismatch' && res.httpStatus === 404 && /staging|offline|pilot/i.test(String(check.envScope || ''))) {
@@ -371,11 +787,12 @@ async function runOne(check, ctx) {
         rec.error = null;
         rec.observedValue.scopeConsistent = `404 consistent with envScope ${check.envScope} (not published on prod)`;
       }
-      // capabilities: разворачиваем рекламируемые GET-пути в отдельные пробы (только чтение).
+      // capabilities: рекламируемое фиксируем; сами пробы — фазой 1b ниже (все, без среза 12).
       if (check.isCaps && rec.status === 'ok') {
         const j = tryJson(body);
-        const adv = j.ok && j.value ? (j.value.availableReads || j.value.reads || []) : [];
-        rec.observedValue.advertisedReads = Array.isArray(adv) ? adv.slice(0, 40) : [];
+        const adv = j.ok ? getAdvertisedLists(j.value) : [];
+        rec.observedValue.advertisedReads = adv.slice();
+        rec.observedValue.advertisedCount = adv.length;
       }
     }
   } catch (e) {
@@ -395,7 +812,7 @@ export async function collect(reg, opts = {}) {
     now: opts.now || Date.now,
     httpTimeoutMs: opts.httpTimeoutMs || HTTP_TIMEOUT_MS,
     sshTimeoutMs: opts.sshTimeoutMs || SSH_TIMEOUT_MS,
-    concurrency: Math.max(1, Math.min(opts.concurrency || MAX_CONCURRENCY, 8)),
+    concurrency: Math.max(1, Math.min(opts.concurrency || MAX_CONCURRENCY, MAX_CONCURRENCY)),
     evidenceDir: opts.evidenceDir || null,
     publicOnly: !!opts.publicOnly,
     chainPin: reg && reg.chain ? { chainId: reg.chain.network, genesis: reg.chain.genesis } : null,
@@ -412,7 +829,7 @@ export async function collect(reg, opts = {}) {
   await Promise.all(workers);
 
   // Фаза 1b: capabilities рекламирует — проверяем доступность рекламируемого (только GET, только чтение).
-  // Недоступный рекламируемый маршрут = mismatch его пробы, а не молчаливое доверие списку.
+  // Без молчаливого среза: каждому объявленному маршруту — проба либо явный пропуск.
   try {
     const capsExtra = [];
     const pubBaseByComp = new Map();
@@ -423,16 +840,42 @@ export async function collect(reg, opts = {}) {
       if (!o || o.checkId !== 'mainnet-node-1:caps' || o.status !== 'ok') continue;
       const adv = (o.observedValue && o.observedValue.advertisedReads) || [];
       const base = pubBaseByComp.get('mainnet-node-1') || 'https://agentcoin.work';
-      for (const p of adv.slice(0, 12)) {
-        if (typeof p !== 'string' || !p.startsWith('/')) continue;
-        if (/^(POST|PUT|DELETE)\s/i.test(p)) continue;
+      for (const p of adv) {
+        if (typeof p !== 'string' || !p.startsWith('/')) {
+          capsExtra.push({
+            componentId: 'mainnet-node-1', checkId: `mainnet-node-1:caps-skip-${slug(String(p))}`,
+            via: 'https', url: `${base}/`, sourceEndpoint: `${base}${String(p)}`,
+            expectJson: false, skipReason: `caps_invalid_path: ${String(p).slice(0, 80)}`, endpoint: String(p),
+          });
+          continue;
+        }
+        if (/^(POST|PUT|DELETE|PATCH)\s/i.test(p)) {
+          capsExtra.push({
+            componentId: 'mainnet-node-1', checkId: `mainnet-node-1:caps-skip-${slug(p)}`,
+            via: 'https', url: `${base}/`, sourceEndpoint: `${base}${p}`,
+            expectJson: false, skipReason: `caps_not_get: ${p.slice(0, 80)}`, endpoint: p,
+          });
+          continue;
+        }
         const clean = p.replace(/\s.*$/, '');
+        if (isParamPath(clean)) {
+          capsExtra.push({
+            componentId: 'mainnet-node-1', checkId: `mainnet-node-1:caps-skip-${slug(clean)}`,
+            via: 'https', url: `${base}${clean}`,
+            sourceEndpoint: `${base}${clean}`,
+            expectJson: false, skipReason: `param_needs_value: ${clean} (no бессмысленный bare-запрос)`, endpoint: clean,
+          });
+          continue;
+        }
         if (observations.some((x) => x && x.sourceEndpoint === `${base}${queryFix(clean)}`)) continue;
+        if (capsExtra.some((x) => x && x.sourceEndpoint === `${base}${queryFix(clean)}`)) continue;
         capsExtra.push({
           componentId: 'mainnet-node-1', checkId: `mainnet-node-1:caps-probe-${slug(clean)}`,
           via: 'https', url: `${base}${queryFix(clean)}`,
           sourceEndpoint: `${base}${queryFix(clean)}`,
-          expectJson: true,
+          // Наличие, а не строгая JSON-схема: HTML-дашборды (/stats, /dashboard) — тоже ok;
+          // JSON с битым телом — mismatch (см. classify lenient-ветку).
+          expectJson: false, endpoint: clean, kind: 'caps-probe',
         });
       }
     }
@@ -443,11 +886,12 @@ export async function collect(reg, opts = {}) {
         observations.push(await runOne(capsExtra[i], ctx));
       }
     };
-    await Promise.all(Array.from({ length: Math.min(ctx.concurrency, Math.max(capsExtra.length, 1)) }, runCaps));
+    if (capsExtra.length) {
+      await Promise.all(Array.from({ length: Math.min(ctx.concurrency, capsExtra.length) }, runCaps));
+    }
   } catch { /* необязательно: частичный сбой не уничтожает фазу 1 */ }
 
   // Фаза 2: общий номер блока — минимальная ok-высота по локальным info, сверка хэша одного блока.
-  // Разные tipHash на последовательно опрошенных растущих вершинах сами по себе — не форк.
   try {
     const heights = [];
     for (const o of observations) {
@@ -470,9 +914,9 @@ export async function collect(reg, opts = {}) {
         extra.push({
           componentId: cid, checkId: `${cid}:common-block-${minH}`,
           via: 'ssh', ssh,
-          command: `curl -sS -m 8 -i http://127.0.0.1:9335/blocks?from=${minH}&limit=1`,
+          command: `curl -sS -m 8 -i 'http://127.0.0.1:9335/blocks?from=${minH}&limit=1'`,
           sourceEndpoint: `loopback /blocks?from=${minH}&limit=1 via ssh`,
-          expectJson: true,
+          expectJson: true, kind: 'common-block', endpoint: '/blocks', wantHeight: minH,
         });
       }
       for (const e of extra) {

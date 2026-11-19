@@ -6,7 +6,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { BLOCK_INTERVAL_SEC } from './net-collect.mjs';
+import { BLOCK_INTERVAL_SEC, HEX64_RE } from './net-collect.mjs';
+
+function isPubCheck(o) {
+  return /:pub-/.test(o.checkId) || /:caps/.test(o.checkId);
+}
+function isLocalCheck(o) {
+  return /:local-/.test(o.checkId) || /:proc-/.test(o.checkId) || /:files-sha/.test(o.checkId)
+    || /:listen/.test(o.checkId) || /:common-block-\d+/.test(o.checkId);
+}
 
 export function diff(reg, observations) {
   const obs = Array.isArray(observations) ? observations : [];
@@ -32,24 +40,37 @@ export function diff(reg, observations) {
     for (const o of un) unavailable.push(o);
     for (const o of unk) unknown.push(o);
     for (const o of nc) notChecked.push(o);
+    // Пропущенные обязательные проверки исключают полный match.
     let verdict = 'unknown';
     let note = '';
+    const pubL = list.filter(isPubCheck);
+    const locL = list.filter(isLocalCheck);
+    const pubOk = pubL.filter((o) => o.status === 'ok').length;
+    const locOk = locL.filter((o) => o.status === 'ok').length;
+    const coverage = `public=${pubOk}/${pubL.length} local=${locOk}/${locL.length} skipped=${nc.length} unavailable=${un.length} unknown=${unk.length}`;
     if (!list.length) { verdict = 'not_checked'; note = 'наблюдений нет (цели не заданы или сбор не покрыл)'; }
-    else if (mm.length) { verdict = 'mismatch'; note = mm.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 500); }
-    else if (ok && !un.length && !unk.length) { verdict = 'match'; note = `${ok}/${list.length} ok`; }
-    else if (ok) { verdict = 'partial'; note = `${ok}/${list.length} ok, unavailable=${un.length} unknown=${unk.length}`; }
-    else if (un.length && !ok) { verdict = 'unavailable'; note = un.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 300); }
+    else if (mm.length) { verdict = 'mismatch'; note = mm.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 500) + ` | ${coverage}`; }
+    else if (ok === list.length) { verdict = 'match'; note = `${ok}/${list.length} ok | ${coverage}`; }
+    else if (ok > 0) {
+      verdict = 'partial';
+      note = `${ok}/${list.length} ok, not_checked=${nc.length} unavailable=${un.length} unknown=${unk.length} | ${coverage}. Доступность публичных маршрутов и исправность ноды — разные выводы: см. public vs local.`;
+    }
+    else if (un.length && !unk.length && !nc.length) { verdict = 'unavailable'; note = un.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 300) + ` | ${coverage}`; }
+    else if (nc.length && !un.length && !unk.length) { verdict = 'not_checked'; note = `все ${nc.length} пропущены: ` + nc.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 300) + ` | ${coverage}`; }
+    else if (unk.length && !un.length && !nc.length) { verdict = 'unknown'; note = unk.map((o) => `${o.checkId}: ${o.error}`).join('; ').slice(0, 300) + ` | ${coverage}`; }
+    else if (un.length) { verdict = 'unavailable'; note = `ok=0, unavailable=${un.length} unknown=${unk.length} not_checked=${nc.length} | ${coverage}`; }
+    else { verdict = un.length ? 'unavailable' : (unk.length ? 'unknown' : 'not_checked'); note = coverage; }
     rows.push({
       componentId: c.componentId,
       expected: { expected: c.expected || null, chain: c.chain ? { chainId: c.chain.chainId, genesis: c.chain.genesis } : null, routes: (c.routes || []).filter((r) => r && r.owner === true).map((r) => `${r.method || 'GET'} ${r.host}${r.path}`) },
       observed: list.map((o) => ({ checkId: o.checkId, status: o.status, observedValue: o.observedValue, error: o.error, evidenceFile: o.evidenceFile, startedAt: o.startedAt, completedAt: o.completedAt })),
-      verdict, note,
+      verdict, note, coverage,
       proof: list.map((o) => o.evidenceFile).filter(Boolean),
     });
   }
 
-  // --- главный дефект мониторинга: локальные ответы vs публичный монитор ---
-  const monitor = { comparedAt: new Date().toISOString(), locals: {}, public: null, conclusion: '', proxySuspect: false, commonBlock: null };
+  // --- монитор: локальные ответы vs публичный /network/nodes ---
+  const monitor = { comparedAt: new Date().toISOString(), locals: {}, public: null, conclusion: '', proxySuspect: false, commonBlock: null, nodeCompare: [], proxyNote: '' };
   const findObs = (cid, suffix) => (byId.get(cid) || []).find((o) => o.checkId === `${cid}:${suffix}` && o.status === 'ok');
   for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
     const o = findObs(cid, 'local-info') || (byId.get(cid) || []).find((x) => /local-info/.test(x.checkId));
@@ -63,21 +84,65 @@ export function diff(reg, observations) {
   } else if (pubNodes) {
     monitor.public = { status: pubNodes.status, error: pubNodes.error, evidenceFile: pubNodes.evidenceFile };
   }
-  // Общий блок: сверка одного номера высоты по всем локальным.
+  // Общий блок: сверка одного номера высоты по всем локальным. Только валидные хэши.
   const commons = obs.filter((o) => /:common-block-\d+$/.test(o.checkId || ''));
   if (commons.length) {
     const hashes = {};
     for (const o of commons) {
       const v = o.observedValue || {};
-      const h = v.tipHash || (Array.isArray(v.blocks) && v.blocks[0] && (v.blocks[0].hash || v.blocks[0].tipHash)) || JSON.stringify(v).slice(0, 64);
-      hashes[o.componentId] = { status: o.status, hash: h, error: o.error, evidenceFile: o.evidenceFile };
+      let h = null;
+      let heightOk = false;
+      const want = Number((o.checkId.match(/common-block-(\d+)/) || [])[1]);
+      if (o.status === 'ok' && typeof v.hash === 'string' && HEX64_RE.test(v.hash) && Number.isSafeInteger(v.height) && v.height === want) {
+        h = v.hash.toLowerCase();
+        heightOk = true;
+      } else {
+        h = null;
+      }
+      hashes[o.componentId] = { status: o.status, hash: h, heightOk, height: v.height ?? null, requestedHeight: want, error: o.error, evidenceFile: o.evidenceFile };
     }
-    const okH = Object.values(hashes).filter((x) => x.status === 'ok').map((x) => x.hash);
+    const valid = Object.values(hashes).filter((x) => x.status === 'ok' && x.hash && x.heightOk).map((x) => x.hash);
     monitor.commonBlock = {
       height: (commons[0].checkId.match(/common-block-(\d+)/) || [])[1] || null,
       hashes,
-      sameChain: okH.length >= 2 ? okH.every((h) => h === okH[0]) : null,
+      validCount: valid.length,
+      sameChain: valid.length >= 2 ? valid.every((h) => h === valid[0]) : null,
     };
+  }
+  // Сопоставление записей монитора с локальными нодами.
+  try {
+    const entries = monitor.public && monitor.public.status === 'ok' && Array.isArray(monitor.public.observedValue?.nodes)
+      ? monitor.public.observedValue.nodes : null;
+    const pick = (pred) => (entries || []).find(pred) || null;
+    const selfEntry = entries ? (pick((n) => /эта нода|node1|self/i.test(String(n.name || ''))) || entries[0]) : null;
+    const n2Entry = entries ? pick((n) => /node2/i.test(String(n.name || ''))) : null;
+    const n3Entry = entries ? pick((n) => /node3/i.test(String(n.name || ''))) : null;
+    const map = { 'mainnet-node-1': selfEntry, 'mainnet-node-2': n2Entry, 'mainnet-node-3': n3Entry };
+    for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
+      const local = monitor.locals[cid];
+      const entry = map[cid];
+      if (!entry || !local || local.status !== 'ok' || !Number.isSafeInteger(local.blocks)) {
+        monitor.nodeCompare.push({
+          componentId: cid, result: 'INSUFFICIENT',
+          reason: !entry ? 'no monitor entry' : `local ${local.status}`,
+          localBlocks: local?.blocks ?? null, localTip: local?.tipHash ?? null,
+          monitorBlocks: entry?.blocks ?? null, monitorTip: entry?.tipHash ?? null,
+        });
+        continue;
+      }
+      const blocksEqual = entry.blocks === local.blocks;
+      const tipEqual = entry.tipHash && local.tipHash ? entry.tipHash === local.tipHash : null;
+      monitor.nodeCompare.push({
+        componentId: cid, result: blocksEqual && tipEqual ? 'CONSISTENT' : 'DIVERGENT',
+        localBlocks: local.blocks, localTip: local.tipHash,
+        monitorBlocks: entry.blocks ?? null, monitorTip: entry.tipHash ?? null,
+        blocksEqual, tipEqual,
+        monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
+        at: local.completedAt,
+      });
+    }
+  } catch (e) {
+    monitor.nodeCompare.push({ componentId: '*', result: 'INSUFFICIENT', reason: `compare-error ${String((e && e.message) || e).slice(0, 120)}` });
   }
   // Вывод: допуск дрейфа по времени опроса.
   try {
@@ -92,40 +157,63 @@ export function diff(reg, observations) {
       const times = ts.map((t) => Date.parse(t.at)).filter(Number.isFinite);
       const pollSec = times.length >= 2 ? Math.max(0, (Math.max(...times) - Math.min(...times)) / 1000) : 0;
       const allowance = Math.ceil(pollSec / BLOCK_INTERVAL_SEC) + 1;
-      const tips = new Set(ts.map((t) => t.tip).filter(Boolean));
       if (monitor.commonBlock && monitor.commonBlock.sameChain === true) {
-        monitor.conclusion = `COMMON-BLOCK MATCH at height ${monitor.commonBlock.height}: разброс вершин ${spread} — лаг догона, не форк.`;
+        monitor.conclusion = `COMMON-BLOCK MATCH at height ${monitor.commonBlock.height}: same hash on ${monitor.commonBlock.validCount} nodes for that historic height; does not prove absence of divergence above it. Разброс вершин ${spread} — отдельно.`;
       } else if (monitor.commonBlock && monitor.commonBlock.sameChain === false) {
-        monitor.conclusion = `FORK SIGNAL at height ${monitor.commonBlock.height}: хэши общего блока различаются — расхождение цепей.`;
+        monitor.conclusion = `FORK SIGNAL at height ${monitor.commonBlock.height}: хэши общего блока различаются — расхождение цепей на этой высоте.`;
         monitor.proxySuspect = false;
       } else if (spread <= allowance) {
-        monitor.conclusion = `DRIFT-OK: разброс высот ${spread} при допуске ${allowance} (опрос ${Math.round(pollSec)}с, интервал блока ~${BLOCK_INTERVAL_SEC}с). Разные tipHash растущих вершин — не форк без сверки общего блока.`;
+        monitor.conclusion = `DRIFT-OK: разброс высот ${spread} при допуске ${allowance} (опрос ${Math.round(pollSec)}с, интервал блока ~${BLOCK_INTERVAL_SEC}с). Различия tipHash растущих вершин сами по себе inconclusive: требуется сверка общего блока, чтобы отличить лаг от форка.`;
       } else {
         monitor.conclusion = `DRIFT-WARN: разброс высот ${spread} превышает допуск ${allowance} (опрос ${Math.round(pollSec)}с). Требуется сверка общего блока; вершины: ${ts.map((t) => `${t.cid}=${t.blocks}`).join(', ')}.`;
       }
-      void tips;
     } else {
       monitor.conclusion = 'INSUFFICIENT: локальных высот меньше двух — сравнение невозможно, см. unavailable/unknown.';
     }
   } catch (e) {
     monitor.conclusion = `COMPARE-ERROR: ${String((e && e.message) || e).slice(0, 200)}`;
   }
-  // Петля монитора (E23): публичный ответ резерва повторяет node1 вместо локального состояния.
-  // Признак: публичный tip резерва == локальный tip node1 при отличающемся локальном tip резерва.
+  // Подмена монитора (E23): запись резерва повторяет node1 при отличающемся локальном tip.
+  // Совпадение вершин само по себе НЕ доказывает проксирование: требуем время, общий блок
+  // и подтверждённый маршрут источника. Иначе — INSUFFICIENT/SUSPECT, а не LOOP.
   try {
     const n1 = monitor.locals['mainnet-node-1'];
+    const times = [];
+    for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
+      const t = Date.parse(monitor.locals[cid]?.completedAt);
+      if (Number.isFinite(t)) times.push(t);
+    }
+    const pollSpreadSec = times.length >= 2 ? (Math.max(...times) - Math.min(...times)) / 1000 : 0;
+    const timeOk = pollSpreadSec <= 180;
     for (const cid of ['mainnet-node-2', 'mainnet-node-3']) {
       const local = monitor.locals[cid];
-      const pub = (byId.get(cid) || []).find((o) => /:pub-(info|health)$/.test(o.checkId) && o.observedValue && Number.isSafeInteger(o.observedValue.blocks));
-      if (!pub || !local || local.status !== 'ok') continue;
-      const pubTip = pub.observedValue.tipHash;
-      if (n1 && n1.status === 'ok' && pubTip && n1.tipHash && pubTip === n1.tipHash && local.tipHash && pubTip !== local.tipHash) {
-        monitor.proxySuspect = true;
-        monitor.conclusion += ` PROXY-LOOP: публичный ответ ${cid} (${pub.checkId}) повторяет tip node1 (${String(pubTip).slice(0, 12)}…), локальный tip резерва иной (${String(local.tipHash).slice(0, 12)}…) — публичный монитор показывает node1 вместо резервов. Доказательства: ${pub.evidenceFile || '—'} vs ${local.evidenceFile || '—'}.`;
+      const cmp = monitor.nodeCompare.find((x) => x.componentId === cid);
+      if (!cmp || cmp.result === 'INSUFFICIENT') continue;
+      if (!local || local.status !== 'ok' || !n1 || n1.status !== 'ok') continue;
+      if (!local.tipHash || !n1.tipHash || !cmp.monitorTip) continue;
+      const monitorEqualsN1 = cmp.monitorTip === n1.tipHash && cmp.monitorBlocks === n1.blocks;
+      const localDiffersN1 = local.tipHash !== n1.tipHash;
+      if (monitorEqualsN1 && localDiffersN1) {
+        if (!timeOk) {
+          monitor.proxyNote = (monitor.proxyNote ? monitor.proxyNote + ' ' : '') + `SUSPECT-TIME: запись ${cid} повторяет node1, но опросы разнесены на ${Math.round(pollSpreadSec)}с — inconclusive.`;
+          continue;
+        }
+        if (monitor.commonBlock && monitor.commonBlock.sameChain === true) {
+          monitor.proxySuspect = true;
+          monitor.conclusion += ` PROXY-LOOP: запись ${cid} в /network/nodes повторяет tip/height node1 (${String(n1.tipHash).slice(0, 12)}…/${n1.blocks}), локальный tip резерва иной (${String(local.tipHash).slice(0, 12)}…/${local.blocks}); общий блок совпал — расхождение именно в подаче монитора. Маршрут источника подтверждён: ${pubNodes?.evidenceFile || '—'}.`;
+        } else if (monitor.commonBlock && monitor.commonBlock.sameChain === false) {
+          monitor.conclusion += ` DIVERGENCE (не прокси-вывод): общий блок различается — цепи разошлись, совпадение записи ${cid} с node1 требует отдельной проверки.`;
+        } else {
+          monitor.conclusion += ` PROXY-SUSPECT (unconfirmed): запись ${cid} повторяет node1 при ином локальном tip; общего блока нет — вывод о проксировании premature, требуется common-block.`;
+        }
       }
     }
-    if (!monitor.proxySuspect && monitor.public && monitor.public.status === 'ok') {
-      monitor.proxyNote = 'Публичный /network/nodes получен; явного расхождения «резерв-публично == node1 при ином локальном» не зафиксировано.';
+    if (!monitor.proxySuspect && monitor.public && monitor.public.status === 'ok' && !/PROXY/.test(monitor.conclusion)) {
+      const insuf = monitor.nodeCompare.filter((x) => x.result === 'INSUFFICIENT').length;
+      monitor.proxyNote = `Публичный /network/nodes получен; прямых расхождений «резерв==node1 при ином локальном» не зафиксировано. INSUFFICIENT записей: ${insuf}. Совпадение вершин само по себе проксирование не доказывает.`;
+    }
+    if ((!monitor.public || monitor.public.status !== 'ok')) {
+      monitor.proxyNote = `INSUFFICIENT: публичный /network/nodes недоступен (${monitor.public?.status || 'missing'}) — сопоставление невозможно.`;
     }
   } catch { /* ignore */ }
 
@@ -139,19 +227,25 @@ export function renderMarkdown(reg, observations, d) {
   L.push(`- registry: v${reg.version} updatedAt=${reg.updatedAt} chain=${reg.chain?.network}/${String(reg.chain?.genesis || '').slice(0, 8)}…`);
   L.push(`- наблюдений: ${observations.length}; вердикты: ` + ['match', 'partial', 'mismatch', 'unavailable', 'unknown', 'not_checked'].map((v) => `${v}=${d.rows.filter((r) => r.verdict === v).length}`).join(' '));
   L.push(`- Старые evidence (E01–E25) за новый опрос НЕ выдаются: доказательства — только evidenceFile ниже.`);
+  L.push(`- match = все наблюдения ok; любые not_checked/unavailable/unknown исключают match (partial). Публичные маршруты и исправность ноды — разные выводы (см. coverage).`);
   L.push('');
   L.push('## 1. Монитор: локальные ответы vs публичный /network/nodes');
   L.push(`- conclusion: ${d.monitor.conclusion}`);
+  if (d.monitor.proxyNote) L.push(`- proxy-note: ${d.monitor.proxyNote}`);
   for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
     const l = d.monitor.locals[cid];
     L.push(`- ${cid} local: status=${l.status} blocks=${l.blocks ?? '—'} tip=${l.tipHash ? String(l.tipHash).slice(0, 12) + '…' : '—'} err=${l.error || '—'} proof=${l.evidenceFile || '—'}`);
   }
   L.push(`- public /network/nodes: status=${d.monitor.public ? d.monitor.public.status : 'missing'} err=${(d.monitor.public && d.monitor.public.error) || '—'} proof=${(d.monitor.public && d.monitor.public.evidenceFile) || '—'}`);
+  for (const nc of (d.monitor.nodeCompare || [])) {
+    L.push(`- compare ${nc.componentId}: ${nc.result} local=${nc.localBlocks ?? '—'}/${nc.localTip ? String(nc.localTip).slice(0, 12) + '…' : '—'} monitor=${nc.monitorBlocks ?? '—'}/${nc.monitorTip ? String(nc.monitorTip).slice(0, 12) + '…' : '—'}${nc.reason ? ` reason=${nc.reason}` : ''}`);
+  }
   if (d.monitor.commonBlock) {
-    L.push(`- common-block height=${d.monitor.commonBlock.height} sameChain=${d.monitor.commonBlock.sameChain}`);
+    L.push(`- common-block height=${d.monitor.commonBlock.height} sameChain=${d.monitor.commonBlock.sameChain} valid=${d.monitor.commonBlock.validCount}`);
     for (const [cid, h] of Object.entries(d.monitor.commonBlock.hashes)) {
-      L.push(`  - ${cid}: status=${h.status} hash=${String(h.hash || '').slice(0, 32)}… err=${h.error || '—'}`);
+      L.push(`  - ${cid}: status=${h.status} hash=${h.hash ? String(h.hash).slice(0, 32) + '…' : '—'} heightOk=${h.heightOk} err=${h.error || '—'}`);
     }
+    L.push(`- note: совпадение одного исторического блока подтверждает общий блок на этой высоте; отсутствие расхождения выше этим не доказывается.`);
   } else {
     L.push('- common-block: нет (понадобится при DRIFT-WARN или споре о форке)');
   }
@@ -161,6 +255,7 @@ export function renderMarkdown(reg, observations, d) {
   for (const r of d.rows) {
     L.push(`### ${r.componentId} [${r.verdict}]`);
     L.push(`- ожидалось: ${JSON.stringify(r.expected.expected || r.expected)}`);
+    L.push(`- coverage: ${r.coverage || '—'}`);
     L.push(`- наблюдалось: ${r.observed.length ? '' : '—'}`);
     for (const o of r.observed.slice(0, 12)) {
       L.push(`  - ${o.checkId}: ${o.status} err=${o.error || '—'} val=${JSON.stringify(o.observedValue || {}).slice(0, 300)} proof=${o.evidenceFile || '—'}`);

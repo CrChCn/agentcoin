@@ -53,3 +53,33 @@ export function verifyArtifactHash(contentBytes, artifact) {
   const h = crypto.createHash('sha256').update(contentBytes).digest('hex');
   return h === artifact.contentHash ? null : `hash mismatch: content!=${artifact.contentHash}`;
 }
+
+/* Повторяющаяся услуга (ТЗ §6). Всё, что определяет обязательства сторон,
+   известно ДО первого запуска: каденция, период, потолок стоимости периода,
+   правила приёмки, отмены и продления. Пропущенный запуск не работа и не оплата;
+   продление — только в пределах renewalPolicy, отдельным решением заказчика. */
+export function validateSubscription(s) {
+  const e = req(s, [
+    'serviceId', 'customer', 'provider', 'cadence',
+    'periodStart', 'periodEnd', 'maxCostPerPeriodAtomic',
+    'acceptanceRules', 'cancellationRules', 'renewalPolicy',
+  ]);
+  if (e) return e;
+  if (!Number.isInteger(s.cadence) || s.cadence < 1000) return 'cadence must be integer ms >= 1000';
+  if (!isInt(s.maxCostPerPeriodAtomic) || s.maxCostPerPeriodAtomic <= 0) return 'maxCostPerPeriodAtomic must be positive integer atomic units';
+  if (s.priceAtomicPerRun !== undefined && (!isInt(s.priceAtomicPerRun) || s.priceAtomicPerRun > s.maxCostPerPeriodAtomic)) {
+    return 'priceAtomicPerRun must be integer atomic units <= maxCostPerPeriodAtomic';
+  }
+  const from = Number(s.periodStart);
+  const to = Number(s.periodEnd);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return 'periodEnd must be after periodStart';
+  if (to <= Date.now()) return 'subscription period expired';
+  if (!s.acceptanceRules || typeof s.acceptanceRules !== 'object') return 'acceptanceRules required (known before work)';
+  if (!s.acceptanceRules.method) return 'acceptanceRules.method required';
+  if (!s.cancellationRules || typeof s.cancellationRules !== 'object') return 'cancellationRules required';
+  if (!s.renewalPolicy || typeof s.renewalPolicy !== 'object') return 'renewalPolicy required';
+  if (s.renewalPolicy.autoRenew === true && s.renewalPolicy.approvedByCustomer !== true) {
+    return 'renewalPolicy.autoRenew requires explicit approvedByCustomer';
+  }
+  return null;
+}

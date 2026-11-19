@@ -178,7 +178,28 @@ let aid = null;
   ok(r.code === 2 && r.json?.error === 'bad_arguments' && /wallet/.test(r.json?.hint || ''), 'запись без --wallet → отказ, сеть не тронута');
 }
 
-// 10. stdout — ровно один JSON, диагностика отдельно
+// 10. подписка (§6) и тик — те же операции, что в SDK/MCP
+{
+  const sub = {
+    serviceId: 'cli-sub-1', customer: cust.addr, provider: prov.addr, cadence: 60000,
+    periodStart: Date.now(), periodEnd: Date.now() + 3_600_000,
+    maxCostPerPeriodAtomic: 500, priceAtomicPerRun: 100,
+    acceptanceRules: { method: 'human', rules: 'status + evidence' },
+    cancellationRules: { noticeMs: 0 },
+    renewalPolicy: { autoRenew: false },
+    targetUrl: 'https://example/api/health', maxConcurrentRuns: 4,
+  };
+  const subFile = path.join(tmp, 'sub.json');
+  fs.writeFileSync(subFile, JSON.stringify(sub));
+  const c = await cli(['subscription-create', '--subscription', '@' + subFile], wf(cust, 's1'));
+  ok(c.code === 0 && c.json?.ok === true && c.json?.result?.monitor?.subscription?.acceptanceRules,
+    'subscription-create через CLI сохраняет условия', c.json?.error || '');
+  const createdAt = c.json?.result?.monitor?.createdAt;
+  const t = await cli(['monitor-tick', '--monitor', 'cli-sub-1', '--now', String(createdAt + 10)], wf(cust, 's2'));
+  ok(t.code === 0 && (t.json?.ran || []).length === 1, 'monitor-tick через CLI создаёт один прогон', t.json?.error || '');
+}
+
+// 11. stdout — ровно один JSON, диагностика отдельно
 {
   const r = await cli(['status', '--pretty'], { address: prov.addr });
   ok(r.parseError === null && r.stdout.trim().startsWith('{') && r.stdout.trim().endsWith('}'), 'stdout — ровно один JSON-объект');

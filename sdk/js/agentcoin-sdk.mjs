@@ -398,7 +398,37 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return { ...r.data, _status: r.status, at: Date.now() };
   };
   const createMonitor = (addr, monitor) => signedMarket({ addr, action: 'monitor', body: { monitor }, endpoint: '/monitors/create', operationId: `monitor:${addr}:${monitor.monitorId || bodyDigest(monitor)}` });
-  const tickMonitor = async (monitorId, nowMs) => (await post('/monitors/tick', { monitorId, nowMs: nowMs || Date.now() })).data;
+  // Подписка (§6): тот же монитор, но обязательства сторон зафиксированы в subscription.
+  const createSubscription = (addr, sub) => {
+    if (!sub || typeof sub !== 'object') return Promise.resolve({ ok: false, error: 'subscription_required' });
+    return createMonitor(addr, {
+      monitorId: sub.serviceId,
+      targetUrl: sub.targetUrl,
+      provider: sub.provider,
+      periodMs: sub.cadence,
+      expiresAt: sub.periodEnd,
+      priceAtomicPerRun: sub.priceAtomicPerRun,
+      maxCostPerPeriodAtomic: sub.maxCostPerPeriodAtomic,
+      maxConcurrentRuns: sub.maxConcurrentRuns || 4,
+      subscription: sub,
+    });
+  };
+  // Тик подписан: стенд принимает только подписанный mtick (иначе 401).
+  // Сигнатура совместима со старой: tickMonitor(monitorId, nowMs, result[, addr]).
+  // Адрес берётся из makeClient({address}) — ключ всё равно из walletFile.
+  // Ответ плоский: { ok, ran, budgetPerPeriodAtomic, replay }.
+  const tickMonitor = async (monitorId, nowMs, result, addrOverride) => {
+    const a = addrOverride || address || process.env.AGENTCOIN_ADDRESS;
+    if (!a) return { ok: false, error: 'address_required', hint: 'makeClient({address}) или 4-й аргумент' };
+    const r = await signedMarket({
+      addr: a,
+      action: 'mtick',
+      body: { monitorId, nowMs: nowMs || Date.now(), result: result || null },
+      endpoint: '/monitors/tick',
+      operationId: `mtick:${monitorId}:${nowMs || 'now'}`,
+    });
+    return r.ok ? { ok: true, replay: !!r.replay, ...(r.result || {}) } : r;
+  };
   const monitorHistory = async (monitorId, requester) => {
     let suffix = '';
     if (requester) suffix = (await readProof(requester, 'monitor', monitorId)) || ('?requester=' + encodeURIComponent(requester));
@@ -428,7 +458,7 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return (await get(`/moderation/history${suffix}`)).data;
   };
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

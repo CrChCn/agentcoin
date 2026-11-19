@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AgentQueue } from '../../queue.mjs';
 import { verifyActionSig } from '../../queue-auth.mjs';
-import { validateServiceOffer, validateAssignment, validateArtifact, verifyArtifactHash, hashOf } from './schemas.mjs';
+import { validateServiceOffer, validateAssignment, validateArtifact, verifyArtifactHash, validateSubscription, hashOf } from './schemas.mjs';
 import crypto from 'node:crypto';
 
 const GENESIS = 'stand-genesis-001';
@@ -28,6 +28,42 @@ export async function createStand(tmp) {
   let runs = loadJson('runs.json', []);
   // ---- Проход 4: модерация (отдельный операторский контур, не меняет подписи/артефакты/расчёты) ----
   const OPERATOR = process.env.STAND_OPERATOR || loadJson('operator.json', { address: '' }).address || '';
+  // Проход 1 (ТЗ п.1): приватное чтение только с доказательством владения адресом.
+  // requester без валидной подписи action='read' НЕ доверяем: считаем анонимом.
+  // Тело подписи: {resource, id, requester}. Подмена адреса без ключа даёт только public/redacted.
+  const verifiedReader = (sp, resource, id) => {
+    const requester = String(sp.get('requester') || '');
+    if (!requester) return '';
+    const fromPub = String(sp.get('fromPub') || '');
+    const signature = String(sp.get('signature') || '');
+    const nonce = String(sp.get('nonce') || '');
+    const expiry = Number(sp.get('expiry') || 0);
+    if (!fromPub || !signature || !nonce || !expiry) return '';
+    const v = verifyActionSig({ address: requester, fromPub, signature, action: 'read', body: { resource: String(resource), id: String(id || ''), requester }, nonce, expiry, chain: 'AGENTCOIN' });
+    return v.ok ? requester : '';
+  };
+  // Faucet: лимит одной суммы недостаточен — общий бюджет + частота + контролируемый доступ.
+  const FAUCET_PER_REQUEST_MAX = 1000000;
+  const FAUCET_GLOBAL_CAP = Number(process.env.STAND_FAUCET_GLOBAL_CAP || 50000000);
+  const FAUCET_PER_ADDR_DAY = Number(process.env.STAND_FAUCET_PER_ADDR_DAY || 2000000);
+  const faucetStats = Object.assign({ total: 0, perAddr: {} }, loadJson('faucet-stats.json', {}));
+  const persistFaucet = () => saveJson('faucet-stats.json', faucetStats);
+  const faucetCheck = (to, amt) => {
+    if (!to || !Number.isInteger(amt) || amt <= 0 || amt > FAUCET_PER_REQUEST_MAX) return 'bad_faucet';
+    if (process.env.STAND_FAUCET_OPEN === '0') return 'faucet_closed';
+    const day = new Date().toISOString().slice(0, 10);
+    const e = faucetStats.perAddr[to] || { day, total: 0, times: [] };
+    const eday = e.day === day ? e : { day, total: 0, times: [] };
+    const now = Date.now();
+    eday.times = (eday.times || []).filter((t) => now - t < 60_000);
+    if (eday.times.length >= 5) return 'faucet_rate_limited';
+    if (eday.total + amt > FAUCET_PER_ADDR_DAY) return 'faucet_daily_limited';
+    if (faucetStats.total + amt > FAUCET_GLOBAL_CAP) return 'faucet_global_empty';
+    eday.total += amt; eday.times.push(now);
+    faucetStats.perAddr[to] = eday; faucetStats.total += amt;
+    persistFaucet();
+    return null;
+  };
   const moderation = Object.assign({ hidden: {}, suspended: {}, complaints: [], decisions: [], pubLog: [] }, loadJson('moderation.json', {}));
   let pubCount = loadJson('pubcount.json', {}); // provider -> [timestamps] антиспам
   const persistMod = () => { saveJson('moderation.json', moderation); saveJson('pubcount.json', pubCount); saveJson('operator.json', { address: OPERATOR }); };
@@ -61,43 +97,52 @@ export async function createStand(tmp) {
     const h = u2.hostname.toLowerCase();
     if (['localhost', '::1'].includes(h) || h.endsWith('.local') || h.endsWith('.internal')) return 'ssrf_denied';
     if (/^(127\.|0\.0\.0\.0|169\.254\.|10\.|192\.168\.)/.test(h)) return 'ssrf_denied';
+    if (h.includes(':') || h === '[::1]' || /^\[.*\]$/.test(h)) return 'ssrf_denied'; // IPv6-литералы запрещены
+    if (/^0x[0-9a-f]+$/i.test(h.replace(/\./g, '')) || /^\d+\.\d+\.\d+\.\d+$/.test(h)) {
+      const parts = h.split('.').map(Number);
+      if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) {
+        const [a, b2] = parts;
+        if (a === 127 || a === 10 || (a === 172 && b2 >= 16 && b2 <= 31) || (a === 192 && b2 === 168) || (a === 169 && b2 === 254) || a === 0) return 'ssrf_denied';
+      }
+    }
+    // DNS-rebinding/redirect: фактическое исходящее чтение запрещено без guardFetch
+    // (DNS-перепроверка + запрет редиректов + тайм-аут 10с + лимит 1MB + без секретов).
+    // Сейчас стенд targetUrl только хранит и отдаёт сторонам, fetch не выполняет.
     const m172 = h.match(/^172\.(\d+)\./); if (m172 && +m172[1] >= 16 && +m172[1] <= 31) return 'ssrf_denied';
     if (/^[a-z0-9-]+$/.test(h) && !h.includes('.') && h !== 'example') return 'ssrf_denied'; // однословные хосты, кроме стендового example
     return null;
   };
+  /* Каденция: возвращаем ВСЕ наступившие периоды с прошлого тика.
+     Пропущенный период — missed (не работа, не оплата), оплачиваемый только текущий.
+     Повтор тика идемпотентен: runId = monitorId|periodIndex. */
   const monitorDue = (mon, nowMs) => {
-    const start = mon.createdAt; const per = mon.periodMs;
-    if (nowMs >= mon.expiresAt || mon.canceled) return [];
-    if (mon.paused) return [];
-    const idx = Math.floor((nowMs - start) / per);
-    return idx >= 0 ? [idx] : [];
+    const per = mon.periodMs;
+    if (nowMs >= mon.expiresAt || mon.canceled || mon.paused) return { current: -1, indices: [] };
+    const current = Math.floor((nowMs - mon.createdAt) / per);
+    if (current < 0) return { current: -1, indices: [] };
+    const from = Number.isInteger(mon.lastIndex) ? mon.lastIndex + 1 : 0;
+    const indices = [];
+    for (let i = Math.max(0, from); i <= current; i++) indices.push(i);
+    return { current, indices };
   };
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
     let body = '';
-    req.on('data', (c) => { body += c; });
+    let bodyTooLarge = false;
+    req.on('data', (c) => { if (body.length + c.length > 262144) { bodyTooLarge = true; body = ''; try { req.destroy(); } catch {} return; } body += c; });
     req.on('end', () => {
+      if (bodyTooLarge) return send(413, { error: 'body_too_large', hint: 'лимит тела 256KB' });
       let b = {}; try { b = body ? JSON.parse(body) : {}; } catch { return send(400, { error: 'bad_json' }); }
       if (u.pathname === '/info') return send(200, { chain: 'AGENTCOIN-stand', blocks: 1, genesisHash: GENESIS });
-      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide'] });
+      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, auth: 'read-proof-required', actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide', 'read'] });
       if (u.pathname === '/queue/status') return send(200, queue.status());
       if (u.pathname === '/queue/assignments') return send(200, { onDuty: queue.state.onDuty }); // стенд-only: prod этого не отдаёт, там — ownership_unknown без журнала/истории
       if (u.pathname === '/queue/history') return send(200, { history: queue.state.history || [] });
       if (u.pathname === '/balances') return send(200, { balances: [{ address: u.searchParams.get('addresses'), balance: 0 }] });
       if (u.pathname === '/jobs/state') return send(200, { stats: { total: 0, open: 0 }, fees: [], open: [], history: [] });
-      if (u.pathname === '/queue/join' && req.method === 'POST') { const r = queue.join(String(b.address || ''), String(b.handle || '')); return send(r.ok ? 200 : 409, r); }
-      if (u.pathname === '/queue/claim' && req.method === 'POST') {
-        const r = queue.claim(String(b.taker || ''));
-        if (!r.ok) return send(409, r);
-        return send(200, { ...r, task: r.repeat ? null : 'стенд-задача', bountyAGT: 2 });
-      }
-      if (u.pathname === '/queue/done' && req.method === 'POST') {
-        if (!queue.state.onDuty[String(b.jobId)]) return send(404, { error: 'job_not_found' });
-        const agent = queue.state.onDuty[String(b.jobId)];
-        const r = queue.done(String(b.jobId), String(b.summary || ''), agent);
-        queue.requeue(agent);
-        return send(200, { ...r, agent, bounty: { skipped: true, reason: 'stand-no-fund' } });
+      if ((u.pathname === '/queue/join' || u.pathname === '/queue/claim' || u.pathname === '/queue/done') && req.method === 'POST') {
+        return send(410, { error: 'legacy_unsigned_disabled', hint: 'неподписанные мутации отключены: используйте POST /queue/signed/{join,claim,done} с подписью queue-auth' });
       }
       const m = u.pathname.match(/^\/queue\/signed\/(join|claim|done)$/);
       if (m && req.method === 'POST') {
@@ -208,9 +253,10 @@ export async function createStand(tmp) {
       if (mg && req.method === 'GET') {
         const o = orders[mg[1]];
         if (!o) return send(404, { error: 'order_not_found' });
-        const req2 = u.searchParams.get('requester') || '';
-        const pub = o.artifacts.map(a => ({ ...a.meta, content: a.meta.accessPolicy === 'public' || req2 === o.assignment.customer || req2 === o.assignment.provider ? a.content : undefined }));
-        return send(200, { assignment: o.assignment, artifacts: pub, acceptance: o.acceptance });
+        const auth = verifiedReader(u.searchParams, 'order', mg[1]);
+        const isParty = auth && (auth === o.assignment.customer || auth === o.assignment.provider);
+        const pub = o.artifacts.map(a => ({ ...a.meta, content: a.meta.accessPolicy === 'public' || isParty ? a.content : undefined }));
+        return send(200, { assignment: o.assignment, artifacts: pub, acceptance: isParty || o.acceptance?.verdict === undefined ? o.acceptance : (o.acceptance ? { verdict: o.acceptance.verdict, at: o.acceptance.at, method: o.acceptance.method } : null), auth: auth ? 'owner' : 'public' });
       }
       if (u.pathname === '/orders/submit-artifact' && req.method === 'POST') {
         const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'artifact', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
@@ -258,16 +304,19 @@ export async function createStand(tmp) {
       if (u.pathname === '/events' && req.method === 'GET') {
         const cur = u.searchParams.get('cursor') || '0';
         const lim = Math.min(100, Math.max(1, Number(u.searchParams.get('limit') || 20)));
-        const requester = u.searchParams.get('requester') || '';
+        const claimed = u.searchParams.get('requester') || '';
+        const auth = claimed ? verifiedReader(u.searchParams, 'events', cur) : '';
+        const requester = auth;
+        const spoofed = claimed && !auth;
         const idx = Number(cur);
         if (!Number.isInteger(idx) || idx < 0 || idx > events.length) return send(410, { error: 'cursor_expired', hint: 'курсор истёк — нужен новый снимок с cursor=0' });
         const slice = events.slice(idx, idx + lim);
-        const out = slice.filter((e) => e.visibility === 'public' || !requester ? e.visibility === 'public' : (e.parties || []).includes(requester) || e.visibility === 'public').map((e) => {
+        const out = slice.filter((e) => e.visibility === 'public' || (requester && (e.parties || []).includes(requester))).map((e) => {
           if (e.visibility === 'public') return e;
           const mine = requester && (e.parties || []).includes(requester);
           return mine ? e : { ...e, payload: { redacted: true } };
         });
-        return send(200, { events: out, nextCursor: String(idx + slice.length), total: events.length });
+        return send(200, { events: out, nextCursor: String(idx + slice.length), total: events.length, auth: auth ? 'owner' : 'public', spoofed: spoofed ? 'requester_without_proof_ignored' : undefined });
       }
       // ---- Этап C: api-monitor (повторяющаяся услуга) ----
       if (u.pathname === '/monitors/create' && req.method === 'POST') {
@@ -277,6 +326,17 @@ export async function createStand(tmp) {
         const prev = usedNonce.get(key);
         if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
         const mm = b.body?.monitor || {};
+        const sub = mm.subscription || null;
+        if (sub) {
+          const badSub = validateSubscription(sub);
+          if (badSub) return send(400, { error: 'bad_subscription', detail: badSub });
+          if (sub.customer && String(sub.customer).toLowerCase() !== String(b.address).toLowerCase()) {
+            return send(403, { error: 'foreign_subscription', hint: 'customer подписки должен совпадать с подписантом' });
+          }
+          if (Number(sub.cadence) !== Number(mm.periodMs)) return send(400, { error: 'cadence_mismatch', hint: 'cadence подписки и periodMs монитора должны совпадать' });
+          if (Number(sub.maxCostPerPeriodAtomic) !== Number(mm.maxCostPerPeriodAtomic)) return send(400, { error: 'budget_mismatch' });
+          if (sub.priceAtomicPerRun !== undefined && Number(sub.priceAtomicPerRun) !== Number(mm.priceAtomicPerRun)) return send(400, { error: 'price_mismatch' });
+        }
         const deny = isPrivateTarget(mm.targetUrl || '');
         if (deny) return send(400, { error: deny, hint: 'SSRF-защита: внутренние и служебные адреса запрещены' });
         if (!Number.isInteger(mm.periodMs) || mm.periodMs < 1000) return send(400, { error: 'bad_period', hint: 'periodMs целое >= 1000' });
@@ -285,7 +345,18 @@ export async function createStand(tmp) {
         if (Number(mm.expiresAt) <= Date.now()) return send(400, { error: 'monitor_expired' });
         const monitorId = String(mm.monitorId || crypto.createHash('sha256').update([b.address, mm.targetUrl, String(b.nonce)].join('|')).digest('hex').slice(0, 12));
         if (monitors[monitorId]) { const res = { ok: true, monitor: monitors[monitorId], replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
-        monitors[monitorId] = { monitorId, owner: b.address, provider: mm.provider || b.address, targetUrl: mm.targetUrl, periodMs: mm.periodMs, expiresAt: mm.expiresAt, priceAtomicPerRun: mm.priceAtomicPerRun, maxCostPerPeriodAtomic: mm.maxCostPerPeriodAtomic, maxConcurrentRuns: Math.min(4, Math.max(1, mm.maxConcurrentRuns || 1)), paused: false, canceled: false, createdAt: Date.now() };
+        monitors[monitorId] = {
+          monitorId, owner: b.address, provider: mm.provider || b.address, targetUrl: mm.targetUrl,
+          periodMs: mm.periodMs, expiresAt: mm.expiresAt, priceAtomicPerRun: mm.priceAtomicPerRun,
+          maxCostPerPeriodAtomic: mm.maxCostPerPeriodAtomic,
+          maxConcurrentRuns: Math.min(4, Math.max(1, mm.maxConcurrentRuns || 1)),
+          paused: false, canceled: false, createdAt: Date.now(), lastIndex: -1,
+          // Снимок обязательств: правка подписки после создания не меняет уже принятые условия
+          subscription: sub ? JSON.parse(JSON.stringify(sub)) : null,
+          acceptanceRules: sub ? sub.acceptanceRules : null,
+          cancellationRules: sub ? sub.cancellationRules : null,
+          renewalPolicy: sub ? sub.renewalPolicy : null,
+        };
         persistMarket();
         emit('monitor.created', monitorId, '1', 'parties', { targetUrl: mm.targetUrl }, [b.address]);
         const res = { ok: true, monitor: monitors[monitorId] };
@@ -293,33 +364,55 @@ export async function createStand(tmp) {
         return send(200, res);
       }
       if (u.pathname === '/monitors/tick' && req.method === 'POST') {
-        const nowMs = Number(b.nowMs || Date.now());
-        const mon = monitors[b.monitorId];
+        const vTick = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'mtick', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!vTick.ok) return send(401, vTick);
+        const nowMs = Number((b.body && b.body.nowMs) || b.nowMs || Date.now());
+        const mon = monitors[(b.body && b.body.monitorId) || b.monitorId];
         if (!mon) return send(404, { error: 'monitor_not_found' });
+        if (b.address !== mon.owner && b.address !== mon.provider) return send(403, { error: 'foreign_monitor' });
         if (mon.canceled) return send(409, { error: 'monitor_canceled' });
         if (mon.paused) return send(200, { ok: true, ran: [], note: 'paused — будущие запуски остановлены' });
-        const idxs = monitorDue(mon, nowMs);
+        const due = monitorDue(mon, nowMs);
         const ran = [];
-        for (const pi of idxs) {
+        const result = (b.body && b.body.result) || null;
+        for (const pi of due.indices) {
           const runId = `${mon.monitorId}|${pi}`;
-          if (runs.some((r) => r.runId === runId)) { ran.push({ runId, replay: true }); continue; }
+          const existing = runs.find((r) => r.runId === runId);
+          if (existing) { ran.push({ runId, replay: true, state: existing.state }); continue; }
+          if (pi < due.current) {
+            // Пропущенный период: фиксируем факт, но не выставляем счёт и не создаём заказ.
+            runs.push({ runId, monitorId: mon.monitorId, periodIndex: pi, assignmentId: null, state: 'missed', costAtomic: 0, createdAt: Date.now(), targetStatus: null, checkerStatus: null, evidence: null });
+            emit('monitor.missed', runId, '1', 'parties', { periodIndex: pi }, [mon.owner, mon.provider]);
+            ran.push({ runId, skipped: 'missed_period' });
+            continue;
+          }
+          // Потолок стоимости периода проверяется до создания обязательства.
+          const spent = runs.filter((r) => r.monitorId === mon.monitorId && r.periodIndex === pi && r.state !== 'missed')
+            .reduce((a, r) => a + Number(r.costAtomic || 0), 0);
+          if (spent + mon.priceAtomicPerRun > mon.maxCostPerPeriodAtomic) { ran.push({ runId, skipped: 'budget_exceeded' }); continue; }
           const active = runs.filter((r) => r.monitorId === mon.monitorId && r.state === 'open').length;
           if (active >= mon.maxConcurrentRuns) { ran.push({ runId, skipped: 'max_concurrent' }); continue; }
           const assignmentId = crypto.createHash('sha256').update(['monitor', runId].join('|')).digest('hex').slice(0, 16);
-          if (!orders[assignmentId]) orders[assignmentId] = { assignment: { assignmentId, offerId: 'api-monitor-v1', offerVersion: '1', offerSnapshotHash: 'monitor', customer: mon.owner, provider: mon.provider, input: { monitorId: mon.monitorId, periodIndex: pi, targetUrl: mon.targetUrl }, acceptanceMethod: 'human', state: 'open', createdAt: Date.now(), runId }, artifacts: [], acceptance: null };
-          runs.push({ runId, monitorId: mon.monitorId, periodIndex: pi, assignmentId, state: 'open', createdAt: Date.now(), costAtomic: mon.priceAtomicPerRun });
-          emit('monitor.run', runId, '1', 'parties', { assignmentId }, [mon.owner, mon.provider]);
-          ran.push({ runId, assignmentId });
+          if (!orders[assignmentId]) orders[assignmentId] = { assignment: { assignmentId, offerId: 'api-monitor-v1', offerVersion: '1', offerSnapshotHash: 'monitor', customer: mon.owner, provider: mon.provider, input: { monitorId: mon.monitorId, periodIndex: pi, targetUrl: mon.targetUrl }, acceptanceMethod: (mon.acceptanceRules && mon.acceptanceRules.method) || 'human', state: 'open', createdAt: Date.now(), runId }, artifacts: [], acceptance: null };
+          // Доступность цели и исправность проверяющего — РАЗНЫЕ поля: отчёт проверяющего
+          // не доказывает, что цель работала, и наоборот. Приёмку это не заменяет.
+          const targetStatus = result && result.targetStatus ? String(result.targetStatus).slice(0, 40) : null;
+          const checkerStatus = result && result.checkerStatus ? String(result.checkerStatus).slice(0, 40) : null;
+          runs.push({ runId, monitorId: mon.monitorId, periodIndex: pi, assignmentId, state: 'open', createdAt: Date.now(), costAtomic: mon.priceAtomicPerRun, targetStatus, checkerStatus, evidence: result && result.evidence ? String(result.evidence).slice(0, 500) : null });
+          emit('monitor.run', runId, '1', 'parties', { assignmentId, targetStatus, checkerStatus }, [mon.owner, mon.provider]);
+          ran.push({ runId, assignmentId, targetStatus, checkerStatus });
         }
+        if (due.current >= 0) mon.lastIndex = Math.max(Number.isInteger(mon.lastIndex) ? mon.lastIndex : -1, due.current);
         persistMarket();
-        return send(200, { ok: true, ran });
+        return send(200, { ok: true, ran, budgetPerPeriodAtomic: mon.maxCostPerPeriodAtomic });
       }
       const mhist = u.pathname.match(/^\/monitors\/([A-Za-z0-9|_-]+)\/history$/);
       if (mhist && req.method === 'GET') {
         const mon = monitors[mhist[1]];
         if (!mon) return send(404, { error: 'monitor_not_found' });
-        const requester = u.searchParams.get('requester') || '';
-        if (requester && requester !== mon.owner && requester !== mon.provider) return send(403, { error: 'foreign_monitor' });
+        const auth = verifiedReader(u.searchParams, 'monitor', mhist[1]);
+        if (!auth) return send(401, { error: 'auth_required', hint: 'история монитора приватна: приложите подпись read (requester+fromPub+signature+nonce+expiry)' });
+        if (auth !== mon.owner && auth !== mon.provider) return send(403, { error: 'foreign_monitor' });
         return send(200, { monitor: mon, runs: runs.filter((r) => r.monitorId === mon.monitorId) });
       }
       if ((u.pathname === '/monitors/pause' || u.pathname === '/monitors/cancel') && req.method === 'POST') {
@@ -338,7 +431,8 @@ export async function createStand(tmp) {
       // ---- Проход 3: тестовый расчёт TEST-AGT (стенд; не эскроу, не mainnet) ----
       if (u.pathname === '/settlements/faucet' && req.method === 'POST') {
         const to = String(b.address || ''); const amt = Number(b.amountAtomic || 0);
-        if (!to || !Number.isInteger(amt) || amt <= 0 || amt > 1000000) return send(400, { error: 'bad_faucet' });
+        const why = faucetCheck(to, amt);
+        if (why) return send(why === 'bad_faucet' ? 400 : 429, { error: why, hint: 'лимиты крана: ≤1M за раз, ≤2M/день/адрес, ≤5/мин, общий бюджет; внешняя публикация — только с контролируемым доступом' });
         testBalances[to] = (testBalances[to] || 0) + amt;
         persistMarket();
         emit('settlement.funded', to, '1', 'parties', { amountAtomic: amt, test: true }, [to]);
@@ -352,8 +446,9 @@ export async function createStand(tmp) {
       if (mset && req.method === 'GET') {
         const s = settlements[mset[1]];
         if (!s) return send(404, { error: 'settlement_not_found' });
-        const rq = u.searchParams.get('requester') || '';
-        if (rq && rq !== s.payer && rq !== s.recipient) return send(403, { error: 'foreign_settlement' });
+        const auth = verifiedReader(u.searchParams, 'settlement', mset[1]);
+        if (!auth) return send(401, { error: 'auth_required', hint: 'расчёт приватен: приложите подпись read' });
+        if (auth !== s.payer && auth !== s.recipient) return send(403, { error: 'foreign_settlement' });
         return send(200, { settlement: s });
       }
       if (u.pathname === '/settlements/create' && req.method === 'POST') {
@@ -399,6 +494,7 @@ export async function createStand(tmp) {
           return send(200, { ok: true, settlement: s });
         }
         if (act === 'sconfirm') {
+          if (b.address !== s.payer && b.address !== s.recipient) return send(403, { error: 'foreign_settle' });
           if (s.state === 'confirmed') return send(200, { ok: true, settlement: s, replay: true });
           if (s.state !== 'sent') return send(409, { error: 'bad_state', hint: 'подтверждается только sent' });
           s.state = 'confirmed'; testBalances[s.recipient] = (testBalances[s.recipient] || 0) + s.amountAtomic;
@@ -460,8 +556,8 @@ export async function createStand(tmp) {
         return send(200, { ok: true, complaint: c, before, after, note: 'административное решение; не является решением блокчейна; подписи/артефакты/расчёты не изменены' });
       }
       if (u.pathname === '/moderation/history' && req.method === 'GET') {
-        const rq = u.searchParams.get('requester') || '';
-        if (!OPERATOR || rq !== OPERATOR) return send(403, { error: 'foreign_operator' });
+        const auth = verifiedReader(u.searchParams, 'moderation', 'history');
+        if (!OPERATOR || !auth || auth !== OPERATOR) return send(403, { error: 'foreign_operator', hint: 'операторская история только с подписью read владельца OPERATOR' });
         return send(200, { complaints: moderation.complaints, decisions: moderation.decisions });
       }
       return send(404, { error: 'not_found' });

@@ -50,6 +50,7 @@ const HELP = `agentcoin-cli ${VERSION} — услуги Agentcoin из терм�
   order-submit --assignment <id> --artifact <file|json> --content <file|base64:…>
   order-accept --assignment <id> [--verdict <text>]
   monitor-create --monitor <file|json>
+  subscription-create --subscription <file|json>   (каденция, период, потолок, правила)
   monitor-pause --monitor <id> [--paused]
   monitor-cancel --monitor <id>
   settlement-create|send|confirm|cancel --assignment <id>
@@ -178,9 +179,15 @@ async function run(command, values, positionals) {
       needWallet(ctx);
       return await c.createMonitor(needAddress(ctx), readJsonArg(values.monitor, '--monitor'));
     }
-    case 'monitor-tick':
+    case 'subscription-create': {
+      needWallet(ctx);
+      return await c.createSubscription(needAddress(ctx), readJsonArg(values.subscription, '--subscription'));
+    }
+    case 'monitor-tick': {
+      needWallet(ctx);
       if (!values.monitor) throw usage('--monitor обязателен');
-      return await c.tickMonitor(String(values.monitor), values.now ? Number(values.now) : undefined);
+      return await c.tickMonitor(String(values.monitor), values.now ? Number(values.now) : undefined, null, needAddress(ctx));
+    }
     case 'monitor-history': {
       if (!values.monitor) throw usage('--monitor обязателен');
       return await c.monitorHistory(String(values.monitor), values.requester ? String(values.requester) : needAddress(ctx));
@@ -261,7 +268,7 @@ const OPTIONS = {
   input: { type: 'string' }, idempotency: { type: 'string' }, assignment: { type: 'string' },
   requester: { type: 'string' }, artifact: { type: 'string' }, content: { type: 'string' },
   verdict: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'string' },
-  monitor: { type: 'string' }, now: { type: 'string' }, paused: { type: 'boolean' },
+  monitor: { type: 'string' }, subscription: { type: 'string' }, now: { type: 'string' }, paused: { type: 'boolean' },
   amount: { type: 'string' }, reason: { type: 'string' }, 'target-type': { type: 'string' },
   'target-id': { type: 'string' }, complaint: { type: 'string' }, decision: { type: 'string' },
   job: { type: 'string' }, summary: { type: 'string' }, handle: { type: 'string' },

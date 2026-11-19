@@ -105,6 +105,47 @@ node orchestrator.mjs real \
 Режим (`mode`, `realAgentsArmed`) сохраняется в состоянии при инициализации,
 поэтому подменить fixture-адаптер реальным позже нельзя.
 
+## 0.5 Изоляция реального контура (fix3)
+
+fix2 запускал тестовые команды обычным `spawnSync` от имени пользователя: у
+процесса были файловая система хоста, сеть, дочерние процессы, а вычитающий
+фильтр пропускал `DATABASE_URL`, `SESSION_COOKIE`, `AUTH_HEADER`. fix3 убирает
+этот класс дефектов.
+
+**Окружение default-deny.** `lib/envpolicy.mjs` собирает env allowlist'ом;
+наследование `process.env` запрещено. Разрешены `PATH`, `LANG`, `LC_ALL`,
+`LC_CTYPE`, `TZ`, `TMPDIR`/`TMP`/`TEMP`, `NO_COLOR`, `FORCE_COLOR`, `TERM`
+(+ `SYSTEMROOT`/`SYSTEMDRIVE`/`WINDIR` на Windows). Рабочим командам не
+передаются `HOME`, ключи API, SSH-сокеты, cookie и cloud-переменные. Codex CLI
+получает `HOME` только для чтения ChatGPT-сессии.
+
+**OS-sandbox.** Реальные команды идут через bubblewrap (Linux) или bubblewrap
+внутри WSL2 (Windows): смонтирован только workspace, системные каталоги
+read-only, пустой `HOME`, tmpfs `/tmp`, нет сети, нет SSH-агента и docker.sock,
+PID-namespace, лимиты nproc/память/CPU/размер файла, внешний тайм-аут, среда
+уничтожается после завершения. Дополнительно включается permission-модель Node
+(`--permission --allow-fs-read/write=<workspace>`): чтение вне workspace,
+`child_process` и запись рядом с ним запрещены и на уровне процесса. Нет
+backend'а → `BLOCKED ISOLATED_RUNNER_UNAVAILABLE`, реальный цикл не начинается.
+
+**API-key режим заблокирован.** `OPENAI_API_KEY`/`CODEX_API_KEY` больше не
+считаются входом: preflight отдаёт `api_key_mode_blocked`. Разрешена только
+ChatGPT-сессия, и рабочий код не видит auth-хранилище Codex.
+
+**Вымарывание до записи.** stdout/stderr, JSONL, meta, prompts, отчёты и
+артефакт проходят через расширенный фильтр (KEY, TOKEN, SECRET, PASSWORD,
+PASS, CREDENTIAL, AUTH, COOKIE, SESSION, PRIVATE, MNEMONIC, SEED, WALLET,
+DATABASE_URL, CONNECTION_STRING, AWS_/AZURE_/GCP_/GOOGLE_/SSH_/GITHUB_/GITLAB_/NPM_)
+и маскирование строк `scheme://user:password@host`.
+
+**Hostile clean-room.** `node tools/hostile-check.mjs` создаёт workspace с
+враждебным тестом, канарейку вне workspace, поддельные `~/.ssh/id_rsa` и
+`~/.codex/auth.json`, canary-переменные и требует технического отказа на 15
+атак: чтение вне workspace, SSH-ключ, auth Codex, `DATABASE_URL`,
+`SESSION_COOKIE`, `OPENAI_API_KEY`, 127.0.0.1, публичный IP,
+curl/PowerShell/shell, docker.sock, SSH-агент, symlink наружу, запись рядом с
+workspace. Отчёт: `evidence/hostile-check.txt`.
+
 ---
 
 ## 1. Что нужно сделать владельцу один раз

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { redactText, redactValue, secretPairs } from '../lib/secrets.mjs';
+import { apiKeyMode, codexEnv } from '../lib/envpolicy.mjs';
 import { ORCH_ROOT } from '../lib/package.mjs';
 
 export const id = 'codex-cli';
@@ -22,8 +23,6 @@ export const EVIDENCE = {
   reference: 'https://developers.openai.com/codex/cli/reference',
   license: 'Apache-2.0 (npm package @openai/codex)',
 };
-
-const SECRET_ENV = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i;
 
 /* Тайм-аут → SIGTERM → grace → принудительное убийство дерева → отказ.
    Значения можно переопределить через окружение (нужно тестам). */
@@ -95,19 +94,32 @@ export function resolveBin() {
   return { cmd: raw, prefix: [], source: raw };
 }
 
-/* Агенту не передаются посторонние секреты окружения. Исключение — ключ,
-   которым реально аутентифицируется сам CLI (иначе запуск невозможен).
-   Ключ идёт только через env: в argv его нет. */
+/* Окружение CLI строится allowlist'ом, а не вычитанием из process.env:
+   DATABASE_URL, SESSION_COOKIE, AUTH_HEADER и прочие имена denylist не ловил.
+   HOME нужен только для чтения ChatGPT-сессии самим CLI; рабочим командам он
+   не передаётся. Ключи API не передаются вообще — режим API-key заблокирован. */
 export function agentEnv() {
-  const env = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (SECRET_ENV.test(key)) continue;
-    env[key] = value;
-  }
-  for (const key of ['CODEX_API_KEY', 'OPENAI_API_KEY']) {
-    if (process.env[key]) env[key] = process.env[key];
-  }
-  return env;
+  if (isDeclaredDouble()) return { ...process.env };
+  return codexEnv();
+}
+
+/* Объявленный тестовый двойник — наш собственный код, ему нужен стенд
+   (FAKE_CODEX_*), поэтому в тестовом режиме окружение не фильтруется. */
+export function isDeclaredDouble() {
+  const raw = process.env.CODEX_BIN || 'codex';
+  return path.resolve(raw) === path.resolve(TEST_DOUBLE);
+}
+
+/* API-key режим небезопасен: ключ пришлось бы держать в окружении рабочего
+   процесса, откуда его читает любой запущенный код. До credential broker — BLOCKED. */
+export function apiKeyBlock() {
+  if (isDeclaredDouble()) return null;
+  const mode = apiKeyMode();
+  if (!mode.active) return null;
+  return {
+    code: 'API_KEY_MODE_UNSUPPORTED',
+    detail: `API-key mode is blocked (${mode.names.join(', ')}): work processes must not receive provider keys; use ChatGPT session auth behind a credential broker`,
+  };
 }
 
 function runSync(args, options = {}) {
@@ -147,16 +159,22 @@ export function probe() {
   const login = runSync(['login', 'status']);
   const text = `${login.stdout}\n${login.stderr}`;
   const authenticated = /logged in|chatgpt/i.test(text) && !/not logged in/i.test(text);
-  const apiKey = Boolean(process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY);
+  /* Ключ в env больше не считается входом: такой режим запрещён. */
+  const apiKey = apiKeyMode().active;
   return {
     available: true,
     programmatic: true,
-    authenticated: authenticated || apiKey,
-    authKind: authenticated ? 'chatgpt-session' : apiKey ? 'api-key-env' : 'none',
+    authenticated,
+    authKind: authenticated ? 'chatgpt-session' : apiKey ? 'api-key-env-blocked' : 'none',
+    blocked: authenticated ? null : apiKey ? 'API_KEY_MODE_UNSUPPORTED' : null,
     version: version.stdout.split('\n')[0],
     binary: resolveBin().source,
-    reason: authenticated || apiKey ? null : 'codex CLI установлен, но вход не выполнен и CODEX_API_KEY/OPENAI_API_KEY не заданы',
-    requiresHuman: authenticated || apiKey ? null : 'codex login',
+    reason: authenticated
+      ? null
+      : apiKey
+        ? 'API-key mode is blocked: CODEX_API_KEY/OPENAI_API_KEY must not authenticate work runs; use ChatGPT session auth behind a credential broker'
+        : 'codex CLI установлен, но вход не выполнен',
+    requiresHuman: authenticated ? null : apiKey ? 'credential broker (API-key mode blocked)' : 'codex login',
     evidence: EVIDENCE.nonInteractive,
   };
 }
@@ -281,10 +299,11 @@ export function execWithEvents({
   graceMs = graceMsFromEnv(), reapMs = reapMsFromEnv(),
 }) {
   const guard = testGuard();
-  if (guard) {
+  const apiBlock = apiKeyBlock();
+  if (guard || apiBlock) {
     return Promise.resolve({
       ok: false,
-      blocked: guard,
+      blocked: guard || apiBlock,
       events: [],
       exitCode: null,
       timedOut: false,
@@ -461,6 +480,8 @@ export async function run(ctx) {
   const pairs = secretPairs();
   const guard = testGuard();
   if (guard) return { blocked: guard };
+  const apiBlock = apiKeyBlock();
+  if (apiBlock) return { blocked: apiBlock };
   const capability = probe();
   if (!capability.available) return { blocked: { code: 'agent_unavailable', detail: capability.reason } };
   if (!capability.authenticated) return { blocked: { code: 'agent_unauthenticated', detail: capability.requiresHuman || capability.reason } };

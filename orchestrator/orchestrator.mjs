@@ -15,6 +15,7 @@ import { Store } from './state/store.mjs';
 import { getAdapter, listAdapters } from './adapters/resolver.mjs';
 import { readJson } from './lib/fsx.mjs';
 import { reconcileLock, lockStatus } from './lib/lock.mjs';
+import { detectSandbox } from './lib/sandbox.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const DEFAULT_ROOT = ORCH_ROOT;
@@ -53,11 +54,14 @@ function preflight({ root, taskFile }) {
     present: fs.existsSync(file),
   }));
 
+  const sandbox = detectSandbox();
   const blockers = [];
   for (const adapter of adapters) {
     if (adapter.simulated) blockers.push({ role: adapter.role, code: 'SIMULATED_ADAPTER', detail: `${adapter.id} is a test double` });
     if (adapter.available === false) blockers.push({ role: adapter.role, code: 'agent_unavailable', detail: adapter.reason });
-    else if (adapter.authenticated === false) {
+    else if (adapter.blocked === 'API_KEY_MODE_UNSUPPORTED') {
+      blockers.push({ role: adapter.role, code: 'api_key_mode_blocked', detail: adapter.reason });
+    } else if (adapter.authenticated === false) {
       blockers.push({
         role: adapter.role, code: 'agent_unauthenticated',
         detail: `Run \`${adapter.requiresHuman || 'codex login'}\` once on this computer, then re-run preflight. Do not paste the key into chat or the repository.`,
@@ -68,6 +72,13 @@ function preflight({ root, taskFile }) {
     if (!schema.present) blockers.push({ code: 'SCHEMA_MISSING', detail: schema.file });
   }
   if (adapters[0].id === adapters[1].id) blockers.push({ code: 'SELF_REVIEW', detail: 'implementer and reviewer must be different adapters' });
+  /* Реальный контур без OS-isolation не начинается. */
+  if (!sandbox.available) {
+    blockers.push({
+      code: 'isolated_runner_unavailable',
+      detail: `real agents require an OS-level isolation backend (bubblewrap on Linux, WSL2 on Windows): ${sandbox.detail || 'none found'}`,
+    });
+  }
 
   const store = new Store(root, { readOnly: true });
   if (store.exists(task.taskId)) {
@@ -85,6 +96,7 @@ function preflight({ root, taskFile }) {
     ready: blockers.length === 0,
     taskId: task.taskId,
     root: path.resolve(root),
+    isolation: { available: sandbox.available, backend: sandbox.backend, detail: sandbox.detail },
     budgets: {
       maxIterations: task.maxIterations,
       maxRuntimePerAgentMinutes: task.maxRuntimePerAgentMinutes,

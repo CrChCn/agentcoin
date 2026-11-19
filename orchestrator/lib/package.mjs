@@ -21,7 +21,9 @@ const CONTAINER_DIRS = new Set(['state', 'logs', 'artifacts']);
 const SKIP_NAMES = new Set(['node_modules', '.git', 'runs', 'workspaces', 'dist']);
 
 const DATA_PREFIXES = ['contracts/', 'fixtures/', 'evidence/'];
-const REQUIRED_DATA = ['README.md', '.gitignore', 'state/.gitkeep', 'logs/.gitkeep', 'artifacts/.gitkeep'];
+/* Файлы, которые не связаны импортом, но нужны в архиве: hostile-атакующий
+   скрипт копируется в стенд по пути, а не импортируется. */
+const REQUIRED_DATA = ['README.md', '.gitignore', 'state/.gitkeep', 'logs/.gitkeep', 'artifacts/.gitkeep', 'tests/hostile/attacks.mjs'];
 
 export function walkTree(root = ORCH_ROOT) {
   const files = [];

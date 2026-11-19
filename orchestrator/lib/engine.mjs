@@ -16,6 +16,10 @@ import { applyArtifactTo, buildArtifact, verifyArtifactFiles } from '../artifact
 import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } from '../policies/policy.mjs';
 import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
 import { acquireLock } from './lock.mjs';
+import { detectSandbox, sandboxRun } from './sandbox.mjs';
+import { isDeclaredDouble } from '../adapters/codex-cli.mjs';
+import { runnerEnv } from './envpolicy.mjs';
+import { redactText, secretPairs } from './secrets.mjs';
 import { implementerPrompt, reviewerPrompt } from './prompts.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -173,18 +177,30 @@ export function workspacePaths(root, taskId) {
   };
 }
 
-export function commandRunner(workspace, task) {
+/* Команды реального агента выполняются только в OS-sandbox (bubblewrap/WSL2):
+   у процесса нет ни сети, ни хостового HOME, ни сокетов, ни прав на запись вне
+   workspace. Для фикстур (наш собственный код, simulated) sandbox не нужен, но
+   окружение всё равно собирается allowlist'ом — наследования process.env нет. */
+export function commandRunner(workspace, task, { sandboxRequired = false } = {}) {
   return (command) => {
     const parsed = checkCommand(task, command);
     if (!parsed.ok) {
       return { exitCode: 126, stdout: '', stderr: `policy: ${parsed.code}`, policyCode: parsed.code, durationMs: 0 };
     }
     const started = Date.now();
-    // Наследование NODE_TEST_CONTEXT/NODE_OPTIONS превращает вложенный
-    // `node --test` в подпроцесс внешнего раннера и скрывает падения.
-    const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' };
-    for (const key of ['NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'NODE_V8_COVERAGE', 'NODE_CHANNEL_FD', 'NODE_UNIQUE_ID']) {
-      delete env[key];
+    const pairs = secretPairs();
+    if (sandboxRequired) {
+      const result = sandboxRun({ workspace, argv: parsed.argv });
+      return {
+        exitCode: result.exitCode,
+        stdout: redactText(String(result.stdout || '').trim(), pairs),
+        stderr: redactText(String(result.stderr || '').trim(), pairs),
+        policyCode: result.policyCode || null,
+        sandboxed: Boolean(result.sandboxed),
+        sandboxBackend: result.backend || null,
+        timedOut: Boolean(result.timedOut),
+        durationMs: Date.now() - started,
+      };
     }
     const result = spawnSync(parsed.argv[0], parsed.argv.slice(1), {
       cwd: workspace,
@@ -192,15 +208,30 @@ export function commandRunner(workspace, task) {
       timeout: 120000,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
-      env,
+      env: runnerEnv({ extra: { NO_COLOR: '1', FORCE_COLOR: '0' } }),
     });
     return {
       exitCode: typeof result.status === 'number' ? result.status : -1,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
+      stdout: redactText(String(result.stdout || ''), pairs),
+      stderr: redactText(String(result.stderr || ''), pairs),
+      sandboxed: false,
       durationMs: Date.now() - started,
       timedOut: Boolean(result.error && result.error.code === 'ETIMEDOUT'),
     };
+  };
+}
+
+/* Отсутствие backend'а — это блокировка реального цикла, а не предупреждение. */
+export function isolationGate(adapter, sandbox = detectSandbox()) {
+  /* Объявленный тестовый двойник — наш собственный код; sandbox нужен
+     реальному агенту, а не стенду. */
+  if (!adapter || adapter.simulated || isDeclaredDouble()) return null;
+  if (sandbox.available) return null;
+  return {
+    action: 'isolation_check',
+    actor: 'orchestrator',
+    code: 'isolated_runner_unavailable',
+    detail: `real agents require an OS-level isolation backend (bubblewrap/WSL2): ${sandbox.detail || 'none found'}`,
   };
 }
 
@@ -358,7 +389,9 @@ async function runImplementer({ store, root, state }) {
     task, iteration, baseCommit: state.baseCommit, findings: state.findings || [],
     workspace: implementerDir, resume: Boolean(resumeId),
   });
-  const runCommand = commandRunner(implementerDir, task);
+  const isolation = isolationGate(adapter);
+  if (isolation) return store.markBlocked(task.taskId, isolation);
+  const runCommand = commandRunner(implementerDir, task, { sandboxRequired: !adapter.simulated && !isDeclaredDouble() });
   const started = Date.now();
 
   let outcome;
@@ -607,7 +640,9 @@ async function runReviewer({ store, root, state }) {
     artifactPath: archivePath, artifactSha256: meta.sha256, artifactBytes: bytes.length,
     appliedDir, baseDir,
   });
-  const runCommand = commandRunner(appliedDir, task);
+  const isolation = isolationGate(adapter);
+  if (isolation) return store.markBlocked(task.taskId, isolation);
+  const runCommand = commandRunner(appliedDir, task, { sandboxRequired: !adapter.simulated && !isDeclaredDouble() });
   const budgetMs = remainingBudgetMs(state, task, 'reviewer');
   const started = Date.now();
 

@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { gitEnv } from './envpolicy.mjs';
+
 const IDENTITY = [
   '-c', 'user.name=Agentcoin Orchestrator',
   '-c', 'user.email=orchestrator@agentcoin.invalid',
@@ -24,7 +26,7 @@ export function git(cwd, args, { env = {}, allowFail = false } = {}) {
       cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...FIXED_ENV, ...env },
+      env: gitEnv({ extra: { ...FIXED_ENV, ...env } }),
       maxBuffer: 64 * 1024 * 1024,
     }).trim();
   } catch (err) {
@@ -95,7 +97,7 @@ export function blobBuffer(dir, commit, file) {
     cwd: dir,
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...FIXED_ENV },
+          env: gitEnv({ extra: FIXED_ENV }),
   });
 }
 

@@ -7,11 +7,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i;
+import { SECRET_NAME } from './envpolicy.mjs';
+
 const MIN_SECRET_LENGTH = 8;
 const IGNORED_NAMES = new Set(['SSH_AUTH_SOCK', 'GPG_AGENT_INFO', 'KEYRING_PID']);
 
+/* Строка подключения с паролем: scheme://user:password@host. Значение может
+   быть любым (postgres, mysql, redis, amqp), поэтому маскируется по форме, а не
+   по имени переменной. */
+const CREDENTIAL_URL = /\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:@]+):([^/\s@]+)@/gi;
+
 export const REDACTED = '[REDACTED]';
+
+export function maskCredentialUrls(text) {
+  return String(text ?? '').replace(CREDENTIAL_URL, (_match, scheme) => `${scheme}${REDACTED}@`);
+}
 
 export function secretPairs(env = process.env) {
   const pairs = [];
@@ -20,6 +30,11 @@ export function secretPairs(env = process.env) {
     if (IGNORED_NAMES.has(name)) continue;
     if (!SECRET_NAME.test(name)) continue;
     pairs.push({ name, value });
+    /* Значение может содержать строку подключения целиком; её пароль тоже
+       должен быть вымаран, даже если имя переменной не похоже на секрет. */
+    const match = CREDENTIAL_URL.exec(value);
+    CREDENTIAL_URL.lastIndex = 0;
+    if (match) pairs.push({ name: `${name}#password`, value: match[3] });
   }
   /* Длинные значения вымарываются первыми: иначе короткий ключ может
      разрезать длинный и оставить его хвост. */
@@ -31,7 +46,7 @@ export function redactText(text, pairs = secretPairs()) {
   for (const { value } of pairs) {
     if (value && out.includes(value)) out = out.split(value).join(REDACTED);
   }
-  return out;
+  return maskCredentialUrls(out);
 }
 
 /* Глубокое вымарывание: применяется к структурам перед сериализацией,

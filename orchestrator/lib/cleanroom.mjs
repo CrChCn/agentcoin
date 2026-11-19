@@ -6,6 +6,7 @@
    тестов даёт одинаковый результат независимо от наличия настоящего Codex. */
 
 import fs from 'node:fs';
+import { toolEnv } from './envpolicy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -18,7 +19,8 @@ export const sha256 = (buffer) => crypto.createHash('sha256').update(buffer).dig
 const CLEAN_ENV_DROP = ['NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'NODE_V8_COVERAGE', 'NODE_CHANNEL_FD', 'NODE_UNIQUE_ID'];
 
 function cleanEnv(extra = {}) {
-  const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', ...extra };
+  // Упаковщик тоже не наследует окружение: только allowlist.
+  const env = toolEnv({ extra: { NO_COLOR: '1', FORCE_COLOR: '0', ...extra } });
   for (const key of CLEAN_ENV_DROP) delete env[key];
   for (const [key, value] of Object.entries(extra)) {
     if (value === null || value === undefined) delete env[key];

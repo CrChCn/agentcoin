@@ -1,0 +1,30 @@
+=== sha256sum -c SHA256SUMS ===
+(no lines above means every file OK)
+=== unit tests (native Linux) ===
+ℹ tests 54
+ℹ pass 54
+ℹ fail 0
+ℹ skipped 0
+=== hostile clean-room (native bubblewrap) ===
+backend: bwrap (bubblewrap)
+workspace: /tmp/orch-hostile-4ZgnxW/workspace
+attack results (15/15):
+  DENIED  read-outside-workspace   ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+  DENIED  read-ssh-key             ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+  DENIED  read-codex-auth          ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+  DENIED  env-database-url         ENOENT: not set
+  DENIED  env-session-cookie       ENOENT: not set
+  DENIED  env-openai-key           ENOENT: not set
+  DENIED  net-localhost            ECONNREFUSED: connect ECONNREFUSED 127.0.0.1:8080
+  DENIED  net-public               ENETUNREACH: connect ENETUNREACH 1.1.1.1:443 - Local (0.0.0.0:0)
+  DENIED  spawn-curl               ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-child-process to manage permissions.
+  DENIED  spawn-powershell         ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-child-process to manage permissions.
+  DENIED  spawn-shell              ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-child-process to manage permissions.
+  DENIED  open-docker-socket       ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+  DENIED  open-ssh-agent           ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+  DENIED  symlink-escape           ERR_ACCESS_DENIED: fs.symlink API requires full fs.read and fs.write permissions.
+  DENIED  write-sibling            ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-write to manage permissions.
+verdict: PASS
+exitCode: 0
+=== node ===
+v24.21.0

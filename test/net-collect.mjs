@@ -4,7 +4,7 @@
 // общий блок без хэша, SSH allowlist, структуры ответов, монитор,
 // параллелизм 4, лимит тела потоком. Плюс цепочка raw→collect→diff.
 // fix4: безопасный SSH (без глобального ps, без сырого ss, со scrub секретов).
-import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES, scrubSecrets, parsePidCheck, filterSsLines, tipHeightFromBlocks, commonTipHeight, unifyLocalState } from '../tools/net-collect.mjs';
+import { collect, buildPlan, isReadOnlySshCommand, MAX_CONCURRENCY, readLimitedBody, getAdvertisedLists, extractCommonBlock, MAX_BODY_BYTES, scrubSecrets, parsePidCheck, filterSsLines, tipHeightFromBlocks, commonTipHeight, unifyLocalState, matchMonitorNode } from '../tools/net-collect.mjs';
 import { diff } from '../tools/net-diff.mjs';
 
 const PIN = { network: 'AGENTCOIN', genesis: '00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e' };
@@ -606,6 +606,284 @@ await run('fix5 common block 50446 sameChain', async () => {
   const d = diff(reg, [mkObs('mainnet-node-1'), mkObs('mainnet-node-2'), mkObs('mainnet-node-3'), mkLocal('mainnet-node-1', 50448), mkLocal('mainnet-node-2', 50448), mkLocal('mainnet-node-3', 50447)]);
   assert(d.monitor.commonBlock && d.monitor.commonBlock.height === '50446', 'height 50446: ' + JSON.stringify(d.monitor.commonBlock));
   assert(d.monitor.commonBlock.sameChain === true && d.monitor.commonBlock.validCount === 3, 'sameChain true x3: ' + JSON.stringify(d.monitor.commonBlock));
+});
+
+// ---------------------------------------------------------------------------
+// fix6: сравнение монитора только на одной высоте; снимки не склеиваются.
+// ---------------------------------------------------------------------------
+const nodeStub = (cid) => ({
+  componentId: cid, kind: 'blockchain-node', purpose: 't', env: 'mainnet',
+  host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [],
+  storage: null, dependsOn: [], network: 'n', expected: {}, observed: {},
+  verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: '2026-11-20T10:00Z' },
+  checkMethod: 'm', proofSource: 'p', chain: { chainId: 'AGENTCOIN', genesis: PIN.genesis },
+});
+const monitorStub = () => ({
+  componentId: 'node-monitor', kind: 'monitor', purpose: 'm', env: 'shared',
+  host: 'h', process: 'p', sources: ['s'], expectedVersion: null, routes: [],
+  storage: null, dependsOn: [], network: 'n', expected: {}, observed: {},
+  verification: { status: 'unknown', evidence: ['E'], unknowns: ['u'], checkedAt: '2026-11-20T10:00Z' },
+  checkMethod: 'm', proofSource: 'p', observe: { publicBase: 'https://agentcoin.work' },
+});
+function reg3() {
+  const reg = testReg();
+  reg.components.push(nodeStub('mainnet-node-2'), nodeStub('mainnet-node-3'), monitorStub());
+  return reg;
+}
+const T0 = '2026-11-19T16:23:20.000Z';
+const T1 = '2026-11-19T16:23:30.000Z';
+const T2 = '2026-11-19T16:23:48.000Z';
+const obsRec = (cid, checkId, observedValue, at = T0) => ({
+  componentId: cid, checkId, status: 'ok', observedValue, error: null,
+  evidenceFile: 'evidence/x.json', sourceHost: 'h', sourceEndpoint: 's',
+  startedAt: at, completedAt: at,
+});
+const localPair = (cid, blocks, tip, at = T0) => [
+  obsRec(cid, `${cid}:local-info`, { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks }, at),
+  obsRec(cid, `${cid}:local-health`, { blocks, tipHash: tip }, at),
+];
+const monitorObs = (nodes, at = T2) => ({
+  componentId: 'node-monitor', checkId: 'node-monitor:pub-nodes', status: 'ok',
+  observedValue: { ok: true, nodes }, error: null, evidenceFile: 'evidence/monitor.json',
+  sourceHost: 'agentcoin.work', sourceEndpoint: 'https://agentcoin.work/network/nodes',
+  startedAt: at, completedAt: at,
+});
+const entry = (name, blocks, tip) => ({ name, reachable: true, blocks, tipHash: tip, status: 'responding' });
+const probeObs = (cid, height, hash, status = 'ok', at = T0) => ({
+  componentId: cid, checkId: `${cid}:monitor-block-${height}`, status,
+  observedValue: status === 'ok'
+    ? { requestedHeight: height, height, hash, chainId: 'AGENTCOIN' }
+    : { requestedHeight: height, height: height - 1, hash, chainId: 'AGENTCOIN' },
+  error: status === 'ok' ? null : `height_mismatch: got ${height - 1} want ${height}`,
+  evidenceFile: 'evidence/x.json', sourceHost: 'h', sourceEndpoint: 's', startedAt: at, completedAt: at,
+});
+const cmpOf = (d, cid) => d.monitor.nodeCompare.find((x) => x.componentId === cid);
+
+// fix6-1. local 100, monitor 101 с новым хэшем → не DIVERGENT, а LAGGING
+await run('fix6-1 local below monitor is LAGGING', async () => {
+  const reg = reg3();
+  const obs = [...localPair('mainnet-node-1', 100, TIP_A),
+    monitorObs([entry('Эта нода', 101, TIP_B), entry('node2', 101, TIP_B), entry('node3', 101, TIP_B)])];
+  const d = diff(reg, obs);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'LAGGING', 'must be LAGGING: ' + JSON.stringify(c1));
+  assert(c1.result !== 'DIVERGENT', 'growing chain must not be DIVERGENT');
+  assert(c1.monitorTipHeight === 100 && c1.localTipHeight === 99, 'heights recorded: ' + JSON.stringify(c1));
+  assert(!/DIVERGENT/.test(d.monitor.conclusion), 'conclusion without false divergent: ' + d.monitor.conclusion);
+});
+
+// fix6-2. local 101, monitor 100, исторический блок совпал → ADVANCED
+await run('fix6-2 ahead node is ADVANCED', async () => {
+  const reg = reg3();
+  const obs = [...localPair('mainnet-node-1', 101, TIP_B), probeObs('mainnet-node-1', 99, TIP_A),
+    monitorObs([entry('Эта нода', 100, TIP_A)])];
+  const d = diff(reg, obs);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'ADVANCED', 'must be ADVANCED: ' + JSON.stringify(c1));
+  assert(c1.proofHeight === 99 && /monitor-block-99/.test(c1.proofCheckId || ''), 'proof at monitor height: ' + JSON.stringify(c1));
+});
+
+// fix6-3. одинаковая высота и одинаковый хэш → CONSISTENT
+await run('fix6-3 equal height equal hash CONSISTENT', async () => {
+  const reg = reg3();
+  const obs = [...localPair('mainnet-node-1', 200, TIP_A, T2), monitorObs([entry('Эта нода', 200, TIP_A)], T2)];
+  const d = diff(reg, obs);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'CONSISTENT', 'CONSISTENT: ' + JSON.stringify(c1));
+  assert(c1.proofHeight === 199 && c1.localSnapshotCompatible === true, 'proof height 199: ' + JSON.stringify(c1));
+});
+
+// fix6-4. одинаковая высота и разные хэши → DIVERGENT
+await run('fix6-4 equal height different hash DIVERGENT', async () => {
+  const reg = reg3();
+  const obs = [...localPair('mainnet-node-1', 200, TIP_A, T2),
+    probeObs('mainnet-node-1', 199, TIP_A), monitorObs([entry('Эта нода', 200, TIP_B)], T2)];
+  const d = diff(reg, obs);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'DIVERGENT', 'DIVERGENT: ' + JSON.stringify(c1));
+  assert(c1.proofHeight === 199, 'proof height 199: ' + JSON.stringify(c1));
+});
+
+// fix6-5. /info.blocks=100, /health.blocks=101 → состояния не склеиваются
+await run('fix6-5 incompatible snapshots not glued', async () => {
+  const obs = [
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-info', { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 100 }),
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-health', { blocks: 101, tipHash: TIP_A }),
+  ];
+  const u = unifyLocalState(obs, 'mainnet-node-1');
+  assert(u.blocks === 100 && u.tipHeight === 99, 'blocks from info: ' + JSON.stringify(u));
+  assert(u.tipHash === null && u.snapshotCompatible === false && u.hashSource === null, 'no glued hash: ' + JSON.stringify(u));
+  const reg = reg3();
+  const d = diff(reg, [...obs, monitorObs([entry('Эта нода', 100, TIP_A)])]);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'INSUFFICIENT', 'INSUFFICIENT not DIVERGENT: ' + JSON.stringify(c1));
+  assert(c1.result !== 'DIVERGENT' && c1.result !== 'CONSISTENT', 'no verdict on glued state');
+});
+
+// fix6-6. /health несовместим, /ws/status совместим → используется WS
+await run('fix6-6 falls through to ws-status', async () => {
+  const obs = [
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-info', { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 100 }),
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-health', { blocks: 101, tipHash: TIP_A }),
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-ws-status', { blocks: 100, tipHash: TIP_B, chainId: 'AGENTCOIN' }),
+  ];
+  const u = unifyLocalState(obs, 'mainnet-node-1');
+  assert(u.tipHash === TIP_B, 'ws hash used: ' + JSON.stringify(u));
+  assert(u.hashSource === 'mainnet-node-1:local-ws-status' && u.hashSourceBlocks === 100, 'source+blocks: ' + JSON.stringify(u));
+  assert(u.snapshotCompatible === true, 'compatible snapshot');
+});
+
+// fix6-7. ни один источник не совместим → INSUFFICIENT
+await run('fix6-7 no compatible source INSUFFICIENT', async () => {
+  const obs = [
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-info', { chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 100 }),
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-health', { blocks: 101, tipHash: TIP_A }),
+    obsRec('mainnet-node-1', 'mainnet-node-1:local-ws-status', { blocks: 99, tipHash: TIP_B }),
+  ];
+  const u = unifyLocalState(obs, 'mainnet-node-1');
+  assert(u.tipHash === null && u.snapshotCompatible === false, 'null hash: ' + JSON.stringify(u));
+  const d = diff(reg3(), [...obs, monitorObs([entry('Эта нода', 100, TIP_A)])]);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'INSUFFICIENT', 'INSUFFICIENT: ' + JSON.stringify(c1));
+});
+
+// fix6-8. монитор выше локальной цепи → LAGGING; проба не запрашивается без высоты
+await run('fix6-8 monitor above local LAGGING from collect', async () => {
+  const reg = reg3();
+  const blocksByHost = { '10.0.0.1': 101, '10.0.0.2': 101, '10.0.0.3': 100 };
+  const asked = [];
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.includes('/blocks?from=')) {
+      const want = Number((cmd.match(/from=(\d+)&/) || [])[1]);
+      asked.push(`${ssh.host}@${want}`);
+      return { stdout: curlI(200, 'application/json', JSON.stringify({ blocks: [{ height: want, hash: TIP_A }], height: want + 1 })), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('curl ')) {
+      const b = blocksByHost[ssh.host];
+      const body = cmd.includes('/health')
+        ? JSON.stringify({ ok: true, service: 'agt-node', blocks: b, tipHash: TIP_A })
+        : JSON.stringify({ chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: b });
+      return { stdout: curlI(200, 'application/json', body), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
+    return { stdout: 'x\n', stderr: '', exitCode: 0 };
+  };
+  // реальный реестр компонентов здесь не нужен: собираем план по трём нодам + монитору
+  reg.components[0].observe.localEndpoints = ['/info', '/health'];
+  reg.components[1].observe = { ssh: { host: '10.0.0.2', user: 'root', port: 22 }, localBase: 'http://127.0.0.1:9335', localEndpoints: ['/info', '/health'], publicBase: 'https://x' };
+  reg.components[2].observe = { ssh: { host: '10.0.0.3', user: 'root', port: 22 }, localBase: 'http://127.0.0.1:9335', localEndpoints: ['/info', '/health'], publicBase: 'https://x' };
+  const nodesBody = JSON.stringify({ ok: true, nodes: [
+    entry('Эта нода', 102, TIP_B), entry('node2', 102, TIP_B), entry('node3', 102, TIP_B),
+  ] });
+  const fetchFn = async (url) => url.includes('/network/nodes')
+    ? ({ httpStatus: 200, contentType: 'application/json', body: nodesBody })
+    : ({ httpStatus: 404, contentType: 'text/plain', body: 'x' });
+  const { observations } = await collect(reg, { fetchFn, sshFn, evidenceDir: null });
+  const probes = observations.filter((o) => /:monitor-block-/.test(o.checkId));
+  assert(probes.length === 0, 'no probe above local tip (nothing to fetch): ' + JSON.stringify(probes.map((p) => p.checkId)));
+  // common-block фазы 2 запрашивает min(blocks-1)=101; проб монитора на 101 быть не должно.
+  assert(!observations.some((o) => /:monitor-block-/.test(o.checkId)), 'no monitor probe when monitor is above local chain');
+  const d = diff(reg, observations);
+  assert(d.monitor.nodeCompare.every((x) => x.result === 'LAGGING'), 'all LAGGING: ' + JSON.stringify(d.monitor.nodeCompare));
+  assert(!d.monitor.nodeCompare.some((x) => x.result === 'DIVERGENT'), 'no DIVERGENT by height growth');
+});
+
+// fix6-8b. проба запрашивается ТОЛЬКО на высоте монитора, и только где она есть
+await run('fix6-8b probe height equals monitor.blocks-1', async () => {
+  const reg = reg3();
+  reg.components[0].observe.localEndpoints = ['/info', '/health'];
+  reg.components[1].observe = { ssh: { host: '10.0.0.2', user: 'root', port: 22 }, localBase: 'http://127.0.0.1:9335', localEndpoints: ['/info', '/health'], publicBase: 'https://x' };
+  reg.components[2].observe = { ssh: { host: '10.0.0.3', user: 'root', port: 22 }, localBase: 'http://127.0.0.1:9335', localEndpoints: ['/info', '/health'], publicBase: 'https://x' };
+  const blocksByHost = { '10.0.0.1': 101, '10.0.0.2': 100, '10.0.0.3': 100 };
+  const asked = [];
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.includes('/blocks?from=')) {
+      const want = Number((cmd.match(/from=(\d+)&/) || [])[1]);
+      asked.push(`${ssh.host}@${want}`);
+      return { stdout: curlI(200, 'application/json', JSON.stringify({ blocks: [{ height: want, hash: TIP_A }] })), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('curl ')) {
+      const b = blocksByHost[ssh.host];
+      const body = cmd.includes('/health')
+        ? JSON.stringify({ ok: true, service: 'agt-node', blocks: b, tipHash: TIP_A })
+        : JSON.stringify({ chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: b });
+      return { stdout: curlI(200, 'application/json', body), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
+    return { stdout: 'x\n', stderr: '', exitCode: 0 };
+  };
+  const nodesBody = JSON.stringify({ ok: true, nodes: [
+    entry('Эта нода', 100, TIP_A), entry('node2', 100, TIP_A), entry('node3', 100, TIP_A),
+  ] });
+  const fetchFn = async (url) => url.includes('/network/nodes')
+    ? ({ httpStatus: 200, contentType: 'application/json', body: nodesBody })
+    : ({ httpStatus: 404, contentType: 'text/plain', body: 'x' });
+  const { observations } = await collect(reg, { fetchFn, sshFn, evidenceDir: null });
+  const probes = observations.filter((o) => /:monitor-block-/.test(o.checkId));
+  assert(probes.length === 3, 'probe at monitor height for every node that has it: ' + JSON.stringify(probes.map((p) => p.checkId)));
+  assert(probes.every((p) => p.checkId.endsWith(':monitor-block-99')), 'all probes at monitor.blocks-1 = 99');
+  assert(!probes.some((p) => p.checkId.endsWith(':monitor-block-100')), 'no probe at monitor.blocks');
+  assert(asked.includes('10.0.0.1@99'), 'ahead node asked for block 99: ' + JSON.stringify(asked));
+  const d = diff(reg, observations);
+  assert(cmpOf(d, 'mainnet-node-1').result === 'ADVANCED', 'node1 ADVANCED: ' + JSON.stringify(cmpOf(d, 'mainnet-node-1')));
+  assert(cmpOf(d, 'mainnet-node-2').result === 'CONSISTENT', 'node2 CONSISTENT: ' + JSON.stringify(cmpOf(d, 'mainnet-node-2')));
+  assert(!d.monitor.nodeCompare.some((x) => x.result === 'DIVERGENT'), 'no false divergence');
+});
+
+// fix6-9. неправильная высота в ответе /blocks → INSUFFICIENT
+await run('fix6-9 wrong block height INSUFFICIENT', async () => {
+  const reg = reg3();
+  reg.components[0].observe.localEndpoints = ['/info', '/health'];
+  const sshFn = async (ssh, cmd) => {
+    if (cmd.includes('/blocks?from=')) {
+      // отвечает блоком на 98 вместо запрошенной высоты 99
+      return { stdout: curlI(200, 'application/json', JSON.stringify({ blocks: [{ height: 98, hash: TIP_A }] })), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('curl ')) {
+      const body = cmd.includes('/health')
+        ? JSON.stringify({ ok: true, service: 'agt-node', blocks: 101, tipHash: TIP_B })
+        : JSON.stringify({ chainId: 'AGENTCOIN', genesisHash: PIN.genesis, blocks: 101 });
+      return { stdout: curlI(200, 'application/json', body), stderr: '', exitCode: 0 };
+    }
+    if (cmd.startsWith('ss ')) return { stdout: 'LISTEN 0 1 127.0.0.1:9335 x\n', stderr: '', exitCode: 0 };
+    return { stdout: 'x\n', stderr: '', exitCode: 0 };
+  };
+  const nodesBody = JSON.stringify({ ok: true, nodes: [entry('Эта нода', 100, TIP_A)] });
+  const fetchFn = async (url) => url.includes('/network/nodes')
+    ? ({ httpStatus: 200, contentType: 'application/json', body: nodesBody })
+    : ({ httpStatus: 404, contentType: 'text/plain', body: 'x' });
+  const { observations } = await collect(reg, { fetchFn, sshFn, evidenceDir: null });
+  const probe = observations.find((o) => o.checkId === 'mainnet-node-1:monitor-block-99');
+  assert(probe && probe.status === 'unknown' && /height_mismatch/.test(probe.error), 'probe rejected: ' + JSON.stringify(probe));
+  const d = diff(reg, observations);
+  const c1 = cmpOf(d, 'mainnet-node-1');
+  assert(c1 && c1.result === 'INSUFFICIENT', 'INSUFFICIENT on wrong height: ' + JSON.stringify(c1));
+});
+
+// fix6-10. перестановка записей /network/nodes не меняет сопоставление
+await run('fix6-10 entry order does not change mapping', async () => {
+  const reg = reg3();
+  const locals = [...localPair('mainnet-node-1', 101, TIP_B), ...localPair('mainnet-node-2', 100, TIP_B), ...localPair('mainnet-node-3', 100, TIP_A)];
+  const probes = [probeObs('mainnet-node-1', 99, TIP_A), probeObs('mainnet-node-2', 99, TIP_A)];
+  const e1 = entry('Эта нода', 100, TIP_A);
+  const e2 = entry('node2 (Hetzner fsn1)', 100, TIP_A);
+  const e3 = entry('node3 (DO fra1)', 100, TIP_A);
+  const dA = diff(reg, [...locals, ...probes, monitorObs([e1, e2, e3])]);
+  const dB = diff(reg, [...locals, ...probes, monitorObs([e3, e1, e2])]);
+  const sig = (d) => d.monitor.nodeCompare.map((x) => `${x.componentId}:${x.result}:${x.proofHeight}`).sort().join('|');
+  assert(sig(dA) === sig(dB), `order-independent: ${sig(dA)} != ${sig(dB)}`);
+  assert(cmpOf(dA, 'mainnet-node-1').result === 'ADVANCED', 'node1 ADVANCED: ' + JSON.stringify(cmpOf(dA, 'mainnet-node-1')));
+  assert(cmpOf(dA, 'mainnet-node-3').result === 'CONSISTENT', 'node3 CONSISTENT: ' + JSON.stringify(cmpOf(dA, 'mainnet-node-3')));
+});
+
+// fix6-11. сопоставление по имени: неоднозначность и отсутствие записи — не доказательство
+await run('fix6-11 ambiguous entry is not proof', async () => {
+  const reg = reg3();
+  assert(matchMonitorNode([{ name: 'node2' }, { name: 'node2' }], 'mainnet-node-2') === null, 'duplicate names ambiguous');
+  const obs = [...localPair('mainnet-node-2', 100, TIP_A), monitorObs([entry('Эта нода', 100, TIP_A)])];
+  const d = diff(reg, obs);
+  const c2 = cmpOf(d, 'mainnet-node-2');
+  assert(c2 && c2.result === 'INSUFFICIENT' && /no unambiguous monitor entry/.test(c2.reason), 'missing entry INSUFFICIENT: ' + JSON.stringify(c2));
 });
 
 let fail = 0;

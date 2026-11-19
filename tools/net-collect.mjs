@@ -255,10 +255,11 @@ export function commonTipHeight(blocksArr) {
   return Math.min(...blocksArr.map((b) => b - 1));
 }
 
-// fix5: единое локальное представление ноды. blocks — только из local-info
-// (число блоков, не высота); tipHeight = blocks - 1; tipHash — только из
-// local-health, иначе local-ws-status, иначе local-life; молча не подставляем —
-// источник каждого поля фиксируется в sources.
+// fix6: единое локальное представление ноды БЕЗ склейки несовместимых снимков.
+// blocks — только из local-info (число блоков, не высота); tipHeight = blocks - 1.
+// tipHash берётся только из ответа, чей собственный blocks совпадает с blocks из
+// local-info; иначе пробуем следующий источник, иначе tipHash:null и
+// snapshotCompatible:false (сравнение станет INSUFFICIENT, не DIVERGENT).
 export function unifyLocalState(allObservations, componentId) {
   const list = Array.isArray(allObservations)
     ? allObservations.filter((o) => o && o.componentId === componentId)
@@ -270,19 +271,30 @@ export function unifyLocalState(allObservations, componentId) {
   const life = findOk(/:local-life$/);
   const sources = {};
   let blocks = null;
+  let blocksSource = null;
   if (info && Number.isSafeInteger(info.observedValue.blocks) && info.observedValue.blocks >= 1) {
     blocks = info.observedValue.blocks;
+    blocksSource = info.checkId;
     sources.blocks = info.checkId;
   }
   const tipHeight = tipHeightFromBlocks(blocks);
   if (tipHeight !== null) sources.tipHeight = `${sources.blocks || 'local-info'}: blocks-1`;
   let tipHash = null;
   let tipSrc = null;
-  for (const cand of [health, ws, life]) {
-    const h = cand && cand.observedValue && cand.observedValue.tipHash;
-    if (typeof h === 'string' && HEX64_RE.test(h.trim())) {
+  let hashSourceBlocks = null;
+  let snapshotCompatible = false;
+  if (blocks !== null) {
+    for (const cand of [health, ws, life]) {
+      if (!cand || !cand.observedValue) continue;
+      const condBlocks = cand.observedValue.blocks;
+      // Снимок пригоден, только если число блоков в нём совпадает с local-info.
+      if (!Number.isSafeInteger(condBlocks) || condBlocks !== blocks) continue;
+      const h = cand.observedValue.tipHash;
+      if (typeof h !== 'string' || !HEX64_RE.test(h.trim())) continue;
       tipHash = h.trim();
       tipSrc = cand.checkId;
+      hashSourceBlocks = condBlocks;
+      snapshotCompatible = true;
       break;
     }
   }
@@ -306,7 +318,26 @@ export function unifyLocalState(allObservations, componentId) {
     const v = cand && cand.observedValue && cand.observedValue.tipAgeSec;
     if (Number.isSafeInteger(v)) { tipAgeSec = v; break; }
   }
-  return { blocks, tipHeight, tipHash, chainId, genesis, tipAgeSec, sources };
+  return {
+    blocks, tipHeight, tipHash, chainId, genesis, tipAgeSec, sources,
+    blocksSource, hashSource: tipSrc, hashSourceBlocks, snapshotCompatible,
+  };
+}
+
+// fix6: сопоставление записи публичного монитора с локальной нодой — только по
+// имени записи, не по порядку в массиве. Неоднозначность (0 или >1 записей) —
+// не доказательство: возвращаем null, сравнение станет INSUFFICIENT.
+const MONITOR_NAME_RE = {
+  'mainnet-node-1': /эта\s+нода|\bnode[\s-]*1\b|\bself\b/i,
+  'mainnet-node-2': /\bnode[\s-]*2\b/i,
+  'mainnet-node-3': /\bnode[\s-]*3\b/i,
+};
+
+export function matchMonitorNode(entries, componentId) {
+  const re = MONITOR_NAME_RE[componentId];
+  if (!re || !Array.isArray(entries)) return null;
+  const hits = entries.filter((n) => n && typeof n.name === 'string' && re.test(n.name));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 export function extractCommonBlock(body, wantHeight) {
@@ -326,7 +357,9 @@ export function extractCommonBlock(body, wantHeight) {
   if (Number.isSafeInteger(wantHeight) && h !== wantHeight) {
     return { ok: false, error: `height_mismatch: got ${h} want ${wantHeight}`, height: h, hash: hash.trim() };
   }
-  return { ok: true, height: h, hash: hash.trim() };
+  const rawChain = (cand.header && cand.header.chainId) || cand.chainId || null;
+  const chainId = typeof rawChain === 'string' && rawChain ? rawChain : null;
+  return { ok: true, height: h, hash: hash.trim(), chainId };
 }
 
 function withTimeout(promise, ms, label) {
@@ -708,20 +741,30 @@ async function runOne(check, ctx) {
             throw { done: true };
           }
           const { httpStatus, contentType, body } = parseCurlDashI(out);
-          // common-block: строгая проверка запрошенной высоты и валидного хэша.
+          // common-block / monitor-block (fix6): строгая проверка запрошенной
+          // высоты, валидного 64-hex и пина цепи; иначе — unknown, не «равно».
           const cm = /common-block-(\d+)/.exec(check.checkId);
-          if (cm) {
-            const want = Number(cm[1]);
+          if (cm || check.kind === 'monitor-block') {
+            const want = check.kind === 'monitor-block' ? Number(check.wantHeight) : Number(cm[1]);
             const ex = extractCommonBlock(body, want);
             rec.evidenceFile = saveEvidence('json', body.slice(0, MAX_BODY_BYTES));
-            if (ex.ok) {
+            const chainMismatch = ex.ok && ex.chainId && ctx.chainPin && ex.chainId !== ctx.chainPin.chainId;
+            if (ex.ok && !chainMismatch) {
               rec.status = 'ok';
-              rec.observedValue = { requestedHeight: want, height: ex.height, hash: ex.hash, httpStatus, exitCode };
+              rec.observedValue = {
+                requestedHeight: want, height: ex.height, hash: ex.hash, chainId: ex.chainId,
+                monitorBlocks: check.monitorBlocks ?? null, httpStatus, exitCode,
+              };
               rec.error = null;
             } else {
               rec.status = 'unknown';
-              rec.observedValue = { requestedHeight: want, httpStatus, exitCode, bodyHead: body.slice(0, 200) };
-              rec.error = ex.error || 'no_valid_hash';
+              rec.observedValue = {
+                requestedHeight: want, monitorBlocks: check.monitorBlocks ?? null,
+                httpStatus, exitCode, bodyHead: String(body || '').slice(0, 200),
+              };
+              rec.error = chainMismatch
+                ? `chain_pin_mismatch: block chainId ${ex.chainId} != ${ctx.chainPin.chainId}`
+                : (ex.error || 'no_valid_hash');
             }
           } else {
             rec.evidenceFile = saveEvidence('json', body.slice(0, MAX_BODY_BYTES));
@@ -1070,6 +1113,47 @@ export async function collect(reg, opts = {}) {
       }
     }
   } catch { /* фаза 2 необязательна: частичный сбой не уничтожает фазу 1 */ }
+
+  // Фаза 3 fix6: сравнение монитора только на одной высоте.
+  // monitorHeight = monitor.blocks - 1; у каждой локальной ноды запрашивается блок
+  // ИМЕННО этой высоты. Типы вершин не сравниваются: хэши разных высот обязаны
+  // отличаться. Если локальная цепь ещё ниже monitorHeight — проба не нужна
+  // (LAGGING).
+  try {
+    if (!ctx.publicOnly) {
+      const mon = observations.find((o) => o && o.checkId === 'node-monitor:pub-nodes' && o.status === 'ok');
+      const entries = mon && mon.observedValue && Array.isArray(mon.observedValue.nodes)
+        ? mon.observedValue.nodes : null;
+      const targets = new Map();
+      for (const c of (reg.components || [])) {
+        if (!c || !c.observe || !c.observe.ssh) continue;
+        const base = typeof c.observe.localBase === 'string' && c.observe.localBase
+          ? c.observe.localBase : 'http://127.0.0.1:9335';
+        const m = base.match(/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/);
+        const port = m && m[2] ? m[2].slice(1) : '9335';
+        targets.set(c.componentId, { ssh: c.observe.ssh, loop: `http://127.0.0.1:${port}` });
+      }
+      const probeChecks = [];
+      for (const [cid, t] of targets) {
+        const u = unifyLocalState(observations, cid);
+        if (u.tipHeight === null) continue;
+        const entry = matchMonitorNode(entries, cid);
+        if (!entry || !Number.isSafeInteger(entry.blocks) || entry.blocks < 1) continue;
+        const monitorHeight = entry.blocks - 1;
+        if (u.tipHeight < monitorHeight) continue; // LAGGING: блока такой высоты ещё нет
+        if (observations.some((x) => x && x.checkId === `${cid}:monitor-block-${monitorHeight}`)) continue;
+        probeChecks.push({
+          componentId: cid, checkId: `${cid}:monitor-block-${monitorHeight}`,
+          via: 'ssh', ssh: t.ssh,
+          command: `curl -sS -m 8 -i '${t.loop}/blocks?from=${monitorHeight}&limit=1'`,
+          sourceEndpoint: `loopback /blocks?from=${monitorHeight}&limit=1 via ssh (monitor tipHeight; monitorBlocks=${entry.blocks})`,
+          expectJson: true, kind: 'monitor-block', endpoint: '/blocks',
+          wantHeight: monitorHeight, monitorBlocks: entry.blocks,
+        });
+      }
+      for (const p of probeChecks) observations.push(await runOne(p, ctx));
+    }
+  } catch { /* фаза 3 необязательна: без пробы сравнение останется INSUFFICIENT */ }
 
   const summary = { total: observations.length };
   for (const o of observations) summary[o.status] = (summary[o.status] || 0) + 1;

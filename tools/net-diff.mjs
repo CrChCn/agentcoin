@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { BLOCK_INTERVAL_SEC, HEX64_RE, unifyLocalState } from './net-collect.mjs';
+import { BLOCK_INTERVAL_SEC, HEX64_RE, unifyLocalState, matchMonitorNode } from './net-collect.mjs';
 
 export const MONITOR_STALE_SEC = 180;
 
@@ -86,14 +86,20 @@ export function diff(reg, observations) {
     if (u.blocks !== null && u.tipHeight !== null) {
       monitor.locals[cid] = {
         status: 'ok', blocks: u.blocks, tipHeight: u.tipHeight, tipHash: u.tipHash,
+        blocksSource: u.blocksSource, hashSource: u.hashSource, hashSourceBlocks: u.hashSourceBlocks,
+        snapshotCompatible: u.snapshotCompatible,
         chainId: u.chainId, genesis: u.genesis, tipAgeSec: u.tipAgeSec ?? null, sources: u.sources,
-        error: u.tipHash ? null : 'local_tip_missing: no valid tipHash in local-health/ws-status/life',
+        error: u.snapshotCompatible
+          ? null
+          : 'local_snapshot_incompatible: no health/ws-status/life response with blocks === local-info.blocks',
         evidenceFile: info?.evidenceFile || null, tipEvidenceFile: tipObs?.evidenceFile || null,
         startedAt: primary?.startedAt || null, completedAt: primary?.completedAt || null,
       };
     } else {
       monitor.locals[cid] = {
         status: info ? info.status : 'missing', blocks: null, tipHeight: null, tipHash: u.tipHash,
+        blocksSource: u.blocksSource, hashSource: u.hashSource, hashSourceBlocks: u.hashSourceBlocks,
+        snapshotCompatible: u.snapshotCompatible,
         chainId: u.chainId, genesis: u.genesis, tipAgeSec: null, sources: u.sources,
         error: info ? (info.error || 'no local blocks>=1 in local-info') : 'no local-info observation',
         evidenceFile: info?.evidenceFile || null, tipEvidenceFile: null,
@@ -132,74 +138,114 @@ export function diff(reg, observations) {
       sameChain: valid.length >= 2 ? valid.every((h) => h === valid[0]) : null,
     };
   }
-  // Сопоставление записей монитора с локальными нодами.
+  // Сопоставление записей монитора с локальными нодами — по имени записи,
+  // не по индексу: перестановка массива /network/nodes не меняет результат.
   try {
     const entries = monitor.public && monitor.public.status === 'ok' && Array.isArray(monitor.public.observedValue?.nodes)
       ? monitor.public.observedValue.nodes : null;
-    const pick = (pred) => (entries || []).find(pred) || null;
-    const selfEntry = entries ? (pick((n) => /эта нода|node1|self/i.test(String(n.name || ''))) || entries[0]) : null;
-    const n2Entry = entries ? pick((n) => /node2/i.test(String(n.name || ''))) : null;
-    const n3Entry = entries ? pick((n) => /node3/i.test(String(n.name || ''))) : null;
-    const map = { 'mainnet-node-1': selfEntry, 'mainnet-node-2': n2Entry, 'mainnet-node-3': n3Entry };
-    // fix5: tipHash:null никогда не DIVERGENT; без сравнимого хэша — INSUFFICIENT;
-    // расхождение времени больше допуска — STALE.
+    // fix6: сравнение только на одной высоте. Хэши вершин разных высот обязаны
+    // различаться, поэтому tipHash сравнивается лишь после приведения к
+    // monitorHeight = monitor.blocks - 1 через исторический блок локальной ноды.
     for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
       const local = monitor.locals[cid];
-      const entry = map[cid];
+      const entry = matchMonitorNode(entries, cid);
+      const monitorTip = entry && typeof entry.tipHash === 'string' && HEX64_RE.test(entry.tipHash.trim())
+        ? entry.tipHash.trim().toLowerCase() : null;
+      const monitorBlocks = entry && Number.isSafeInteger(entry.blocks) ? entry.blocks : null;
+      const monitorHeight = monitorBlocks !== null && monitorBlocks >= 1 ? monitorBlocks - 1 : null;
       const base = {
         componentId: cid,
         localBlocks: local?.blocks ?? null, localTipHeight: local?.tipHeight ?? null, localTip: local?.tipHash ?? null,
-        localSources: local?.sources ?? null,
-        monitorBlocks: entry?.blocks ?? null, monitorTip: entry?.tipHash ?? null,
+        localSources: local?.sources ?? null, localSnapshotCompatible: local?.snapshotCompatible ?? null,
+        monitorEntryName: entry && typeof entry.name === 'string' ? entry.name : null,
+        monitorBlocks, monitorTipHeight: monitorHeight, monitorTip,
         at: local?.completedAt ?? null,
       };
+      if (!entries) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor /network/nodes unavailable: no entries to compare' });
+        continue;
+      }
       if (!entry) {
-        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'no monitor entry' });
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'no unambiguous monitor entry for this node (name mapping)' });
         continue;
       }
       if (!local || local.status !== 'ok' || !Number.isSafeInteger(local.blocks) || local.tipHeight === null) {
         monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: `local ${local?.status || 'missing'}: no comparable blocks/tipHeight`, localError: local?.error || null });
         continue;
       }
-      if (typeof local.tipHash !== 'string' || !HEX64_RE.test(local.tipHash)) {
-        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'local_tip_missing: no valid tipHash in local-health/ws-status/life', localError: local.error || null });
+      if (monitorBlocks === null || monitorHeight === null) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor blocks missing or < 1' });
         continue;
       }
-      if (!Number.isSafeInteger(entry.blocks)) {
-        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor blocks missing' });
-        continue;
-      }
-      if (typeof entry.tipHash !== 'string' || !HEX64_RE.test(entry.tipHash)) {
-        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor tip missing' });
+      if (!monitorTip) {
+        monitor.nodeCompare.push({ ...base, result: 'INSUFFICIENT', reason: 'monitor tip missing or not 64-hex' });
         continue;
       }
       const lt = Date.parse(local.completedAt);
       const pt = Date.parse(monitor.public?.completedAt || monitor.public?.startedAt);
       let dtSec = null;
       if (Number.isFinite(lt) && Number.isFinite(pt)) dtSec = Math.abs(lt - pt) / 1000;
-      const blocksEqual = entry.blocks === local.blocks;
-      const tipEqual = String(entry.tipHash).toLowerCase() === String(local.tipHash).toLowerCase();
+      const common = {
+        ...base, dtSec: dtSec === null ? null : Math.round(dtSec),
+        monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
+      };
       if (dtSec !== null && dtSec > MONITOR_STALE_SEC) {
+        monitor.nodeCompare.push({ ...common, result: 'STALE', reason: `time_separated ${Math.round(dtSec)}s > ${MONITOR_STALE_SEC}s` });
+        continue;
+      }
+      if (local.tipHeight < monitorHeight) {
         monitor.nodeCompare.push({
-          ...base, result: 'STALE', reason: `time_separated ${Math.round(dtSec)}s > ${MONITOR_STALE_SEC}s`,
-          blocksEqual, tipEqual, dtSec: Math.round(dtSec),
-          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
+          ...common, result: 'LAGGING',
+          reason: `local tipHeight ${local.tipHeight} < monitor tipHeight ${monitorHeight} (local blocks ${local.blocks} < monitor blocks ${monitorBlocks}); разные высоты сами по себе не расходятся`,
         });
         continue;
       }
-      if (blocksEqual && tipEqual) {
-        monitor.nodeCompare.push({
-          ...base, result: 'CONSISTENT', reason: 'comparable height+hash match within time window',
-          blocksEqual, tipEqual, dtSec,
-          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
-        });
-      } else {
-        monitor.nodeCompare.push({
-          ...base, result: 'DIVERGENT', reason: 'comparable values differ',
-          blocksEqual, tipEqual, dtSec,
-          monitorStatus: entry.status ?? null, monitorReachable: entry.reachable ?? null,
-        });
+      // Одинаковая высота: сравним tipHash, только если blocks этого снимка
+      // совпадают с local-info (иначе состояния склеены).
+      let proofHash = null;
+      let proofCheckId = null;
+      let proofEvidence = null;
+      let proofHeight = null;
+      let proofNote = null;
+      const probeId = `${cid}:monitor-block-${monitorHeight}`;
+      const probe = (byId.get(cid) || []).find((o) => o && o.checkId === probeId);
+      if (probe && probe.status === 'ok' && probe.observedValue
+        && typeof probe.observedValue.hash === 'string' && HEX64_RE.test(probe.observedValue.hash)
+        && Number.isSafeInteger(probe.observedValue.height) && probe.observedValue.height === monitorHeight) {
+        proofHash = probe.observedValue.hash.trim().toLowerCase();
+        proofCheckId = probe.checkId;
+        proofEvidence = probe.evidenceFile || null;
+        proofHeight = probe.observedValue.height;
+        proofNote = 'local historical block at monitorHeight (GET /blocks?from=monitorHeight&limit=1)';
+      } else if (local.tipHeight === monitorHeight && local.snapshotCompatible && typeof local.tipHash === 'string' && HEX64_RE.test(local.tipHash)) {
+        proofHash = local.tipHash.toLowerCase();
+        proofCheckId = local.hashSource || null;
+        proofEvidence = local.tipEvidenceFile || null;
+        proofHeight = monitorHeight;
+        proofNote = 'local tip: blocks-1 equals monitorHeight, snapshot blocks === local-info.blocks';
       }
+      if (!proofHash) {
+        const why = probe
+          ? `probe ${probe.status}: ${probe.error || 'height/hash invalid'}`
+          : (local.tipHeight === monitorHeight
+            ? 'local tip snapshot incompatible with local-info.blocks: tip carries no comparable height'
+            : `no block probe at height ${monitorHeight} (local tipHeight ${local.tipHeight})`);
+        monitor.nodeCompare.push({ ...common, result: 'INSUFFICIENT', reason: why, proofHeight: monitorHeight });
+        continue;
+      }
+      const equal = proofHash === monitorTip;
+      monitor.nodeCompare.push({
+        ...common,
+        result: equal ? (local.tipHeight > monitorHeight ? 'ADVANCED' : 'CONSISTENT') : 'DIVERGENT',
+        reason: equal
+          ? (local.tipHeight > monitorHeight
+            ? `local is ahead (${local.tipHeight} > ${monitorHeight}); historical block at ${monitorHeight} matches monitor tip`
+            : `same height ${monitorHeight} and same block hash`)
+          : `same height ${monitorHeight} but different block hash: local ${proofHash.slice(0, 12)}… vs monitor ${monitorTip.slice(0, 12)}…`,
+        proofHeight, proofCheckId, proofEvidence, proofNote,
+        proofHash: proofHash.slice(0, 12) + '…',
+        heightEqual: local.tipHeight === monitorHeight,
+      });
     }
   } catch (e) {
     monitor.nodeCompare.push({ componentId: '*', result: 'INSUFFICIENT', reason: `compare-error ${String((e && e.message) || e).slice(0, 120)}` });
@@ -251,26 +297,29 @@ export function diff(reg, observations) {
       if (!cmp || cmp.result === 'INSUFFICIENT') continue;
       if (!local || local.status !== 'ok' || !n1 || n1.status !== 'ok') continue;
       if (!local.tipHash || !n1.tipHash || !cmp.monitorTip) continue;
+      // fix6: прокси-вывод допустим только при доказанном DIVERGENT (одинаковая
+      // высота, разные хэши) и совпадении записи монитора с tip node1; разница
+      // вершин разной высоты больше не считается признаком.
       const monitorEqualsN1 = cmp.monitorTip === n1.tipHash && cmp.monitorBlocks === n1.blocks;
-      const localDiffersN1 = local.tipHash !== n1.tipHash;
-      if (monitorEqualsN1 && localDiffersN1) {
+      const provenDivergent = cmp.result === 'DIVERGENT';
+      if (monitorEqualsN1 && provenDivergent) {
         if (!timeOk) {
           monitor.proxyNote = (monitor.proxyNote ? monitor.proxyNote + ' ' : '') + `SUSPECT-TIME: запись ${cid} повторяет node1, но опросы разнесены на ${Math.round(pollSpreadSec)}с — inconclusive.`;
           continue;
         }
         if (monitor.commonBlock && monitor.commonBlock.sameChain === true) {
           monitor.proxySuspect = true;
-          monitor.conclusion += ` PROXY-LOOP: запись ${cid} в /network/nodes повторяет tip/height node1 (${String(n1.tipHash).slice(0, 12)}…/${n1.blocks}), локальный tip резерва иной (${String(local.tipHash).slice(0, 12)}…/${local.blocks}); общий блок совпал — расхождение именно в подаче монитора. Маршрут источника подтверждён: ${pubNodes?.evidenceFile || '—'}.`;
+          monitor.conclusion += ` PROXY-LOOP: запись ${cid} в /network/nodes повторяет tip/height node1 (${String(n1.tipHash).slice(0, 12)}…/${n1.blocks}), а блок резерва на той же высоте ${cmp.proofHeight} иной (${String(cmp.proofHash || local.tipHash || '').slice(0, 12)}…); общий блок совпал — расхождение именно в подаче монитора. Маршрут источника подтверждён: ${pubNodes?.evidenceFile || '—'}.`;
         } else if (monitor.commonBlock && monitor.commonBlock.sameChain === false) {
           monitor.conclusion += ` DIVERGENCE (не прокси-вывод): общий блок различается — цепи разошлись, совпадение записи ${cid} с node1 требует отдельной проверки.`;
         } else {
-          monitor.conclusion += ` PROXY-SUSPECT (unconfirmed): запись ${cid} повторяет node1 при ином локальном tip; общего блока нет — вывод о проксировании premature, требуется common-block.`;
+          monitor.conclusion += ` PROXY-SUSPECT (unconfirmed): запись ${cid} повторяет node1 при ином блоке резерва на той же высоте; общего блока нет — вывод о проксировании premature, требуется common-block.`;
         }
       }
     }
     if (!monitor.proxySuspect && monitor.public && monitor.public.status === 'ok' && !/PROXY/.test(monitor.conclusion)) {
       const insuf = monitor.nodeCompare.filter((x) => x.result === 'INSUFFICIENT').length;
-      monitor.proxyNote = `Публичный /network/nodes получен; прямых расхождений «резерв==node1 при ином локальном» не зафиксировано. INSUFFICIENT записей: ${insuf}. Совпадение вершин само по себе проксирование не доказывает.`;
+      monitor.proxyNote = `Публичный /network/nodes получен; доказанных расхождений «резерв==node1 при ином блоке той же высоты» нет. INSUFFICIENT записей: ${insuf}. Совпадение вершин разной высоты проксирование не доказывает.`;
     }
     if ((!monitor.public || monitor.public.status !== 'ok')) {
       monitor.proxyNote = `INSUFFICIENT: публичный /network/nodes недоступен (${monitor.public?.status || 'missing'}) — сопоставление невозможно.`;
@@ -294,12 +343,16 @@ export function renderMarkdown(reg, observations, d) {
   if (d.monitor.proxyNote) L.push(`- proxy-note: ${d.monitor.proxyNote}`);
   for (const cid of ['mainnet-node-1', 'mainnet-node-2', 'mainnet-node-3']) {
     const l = d.monitor.locals[cid];
-    L.push(`- ${cid} local: status=${l.status} blocks=${l.blocks ?? '—'} tipHeight=${l.tipHeight ?? '—'} tip=${l.tipHash ? String(l.tipHash).slice(0, 12) + '…' : '—'} src=${l.sources ? JSON.stringify(l.sources) : '—'} err=${l.error || '—'} proof=${l.evidenceFile || '—'}`);
+    L.push(`- ${cid} local: status=${l.status} blocks=${l.blocks ?? '—'} tipHeight=${l.tipHeight ?? '—'} tip=${l.tipHash ? String(l.tipHash).slice(0, 12) + '…' : '—'} blocksSource=${l.blocksSource || '—'} hashSource=${l.hashSource || '—'} hashSourceBlocks=${l.hashSourceBlocks ?? '—'} snapshotCompatible=${l.snapshotCompatible} src=${l.sources ? JSON.stringify(l.sources) : '—'} err=${l.error || '—'} proof=${l.evidenceFile || '—'}`);
   }
   L.push(`- public /network/nodes: status=${d.monitor.public ? d.monitor.public.status : 'missing'} err=${(d.monitor.public && d.monitor.public.error) || '—'} proof=${(d.monitor.public && d.monitor.public.evidenceFile) || '—'}`);
+  L.push('- модель fix6: tipHash сравнивается только на одной высоте monitorHeight = monitor.blocks - 1; разные высоты — не расхождение.');
   for (const nc of (d.monitor.nodeCompare || [])) {
-    L.push(`- compare ${nc.componentId}: ${nc.result} local=${nc.localBlocks ?? '—'}/${nc.localTip ? String(nc.localTip).slice(0, 12) + '…' : '—'} monitor=${nc.monitorBlocks ?? '—'}/${nc.monitorTip ? String(nc.monitorTip).slice(0, 12) + '…' : '—'}${nc.reason ? ` reason=${nc.reason}` : ''}`);
+    L.push(`- compare ${nc.componentId}: ${nc.result} localBlocks=${nc.localBlocks ?? '—'} localTipHeight=${nc.localTipHeight ?? '—'} monitorBlocks=${nc.monitorBlocks ?? '—'} monitorTipHeight=${nc.monitorTipHeight ?? '—'} proofHeight=${nc.proofHeight ?? '—'} localCompatible=${nc.localSnapshotCompatible ?? '—'} entry=${nc.monitorEntryName || '—'}${nc.proofCheckId ? ` proof=${nc.proofCheckId}` : ''}${nc.dtSec !== undefined ? ` dt=${nc.dtSec}s` : ''}${nc.reason ? ` reason=${nc.reason}` : ''}`);
   }
+  const cmpCounts = {};
+  for (const nc of (d.monitor.nodeCompare || [])) cmpCounts[nc.result] = (cmpCounts[nc.result] || 0) + 1;
+  L.push(`- nodeCompare summary: ${Object.entries(cmpCounts).map(([k, v]) => `${k}=${v}`).join(' ') || '—'}`);
   if (d.monitor.commonBlock) {
     L.push(`- common-block height=${d.monitor.commonBlock.height} sameChain=${d.monitor.commonBlock.sameChain} valid=${d.monitor.commonBlock.validCount}`);
     for (const [cid, h] of Object.entries(d.monitor.commonBlock.hashes)) {

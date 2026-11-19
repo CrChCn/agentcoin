@@ -36,7 +36,7 @@
 
 ```
 node test/registry-check.mjs   # 33/33 (25 этапа 1 сохранены + observe-кейсы)
-node test/net-collect.mjs      # 31/25+6 fix5, изолированно (fetch/ssh — моки)
+node test/net-collect.mjs      # 43/43 (31 fix4/fix5 + 12 fix6), изолированно (fetch/ssh — моки)
 ```
 
 Обязательные сценарии покрыты: исправный ответ; тайм-аут; 403/404/500;
@@ -57,12 +57,23 @@ INSUFFICIENT; цепочка raw→collect→diff.
 fix5: семантика высоты — /info.blocks это число блоков, tipHeight=blocks-1
 (blocks>=1 обязательно), общий блок min(blocks-1); запрос одного блока на
 commonHeight, приём только при returned.height===commonHeight и 64-hex.
-Локальное представление ноды едино: blocks/tipHeight/chainId/genesis из
-local-info, tipHash из local-health иначе local-ws-status иначе local-life,
-источник каждого поля — в sources. Сравнение: CONSISTENT — сравнимые
-высота+хэш совпали в допуске 180с; DIVERGENT — сравнимые значения реально
-различаются; INSUFFICIENT — нет сравнимого хэша (tipHash:null никогда не
-DIVERGENT); STALE — данные разделены временем больше допуска.
+fix6: сравнение монитора — только на одной высоте. monitorHeight =
+monitor.blocks - 1; у каждой локальной ноды запрашивается блок именно этой
+высоты (`/blocks?from=<monitorHeight>&limit=1`), приём только при HTTP 200,
+returned.height === monitorHeight, 64-hex и совпадении chainId/genesis с
+реестром. Классификация: CONSISTENT — одна высота и один хэш; DIVERGENT —
+одна высота, разные хэши; LAGGING — локальная цепь ниже высоты монитора;
+ADVANCED — локальная выше, но её блок на высоте монитора совпал; STALE —
+разнесено по времени больше допуска (180с); INSUFFICIENT — точное сравнение
+не выполнено. Разные высоты никогда не дают DIVERGENT.
+Локальное представление ноды не склеивается из разных снимков: blocks/
+tipHeight/chainId/genesis — из local-info; tipHash берётся из local-health,
+иначе local-ws-status, иначе local-life ТОЛЬКО если поле blocks этого ответа
+равно blocks из local-info. Иначе tipHash:null, snapshotCompatible:false и
+INSUFFICIENT. В отчёте: blocks, tipHeight, tipHash, blocksSource, hashSource,
+hashSourceBlocks, snapshotCompatible. Записи /network/nodes сопоставляются с
+нодами по имени, не по индексу: перестановка массива результат не меняет,
+неоднозначное имя — INSUFFICIENT.
 
 Вердикты компонентов: `match` — только когда все наблюдения `ok`.
 Любые `not_checked`/`unavailable`/`unknown` исключают полный `match`
@@ -91,14 +102,26 @@ observedValue, evidenceFile, error), `evidence/*` сырые тела,
 `COLLECT.md` сводка, `diff.json` + `DIFF.md` (компонент → ожидалось →
 наблюдалось → доказательство → вывод; отдельно недоступные и неизвестные;
 раздел «Монитор» сравнивает node1-local / node2-local / node3-local /
-публичный `/network/nodes` через `nodeCompare` — при недостатке данных
-INSUFFICIENT; совпадение вершин само по себе проксирование не доказывает —
-учитываются время, общий блок и подтверждённый маршрут источника; высоты —
-с допуском времени опроса, спор решает общий блок `common-block-<H>`
-только по валидным хэшам).
+публичный `/network/nodes` через `nodeCompare` — на одной высоте с указанием
+высоты доказательства (`proofHeight`) и источника (`proofCheckId`); при
+недостатке данных INSUFFICIENT; совпадение вершин разной высоты не считается
+ни расхождением, ни доказательством проксирования; высоты — с допуском
+времени опроса, спор решает общий блок `common-block-<H>` только по валидным
+хэшам).
 
 Статусы: `ok` | `mismatch` | `unavailable` | `unknown` | `not_checked`.
 Тайм-аут = `unavailable`, не «остановка». HTTP 200 с не-JSON = `mismatch`.
 Ответ через прокси ≠ состояние локальной ноды резерва.
 Тёмный резерв: только 403 с маркером `reserve node: dark` — ok;
 404 без маркера — mismatch (неизвестный 404 ≠ ожидаемый запрет).
+
+## Упаковка пакета (fix6)
+
+```
+node tools/zip-pack.mjs --list pack-files.txt --out ../agentcoin-registry-stage2-<date>-fix6.zip --prefix agentcoin --verify
+```
+
+Архив пишется вручную: разделитель `/`, каталоги — отдельные directory entries с
+правами 0755, файлы 0644 (`*.sh` — 0755), версия made-by — unix. После
+распаковки `unzip` на Linux никаких `chmod` не требуется; проверка обязательна в
+чистом каталоге (`unzip <zip> -d /tmp/fix6`).

@@ -26,6 +26,9 @@ export async function createStand(tmp) {
   let events = loadJson('events.json', []);
   const monitors = Object.assign({}, loadJson('monitors.json', {}));
   let runs = loadJson('runs.json', []);
+  // ---- Этап D: делегирование (бюджет/глубина), независимый reviewer, спор ----
+  const disputes = Object.assign({}, loadJson('disputes.json', {})); // disputeId -> {assignmentId, by, state,...}
+  const MAX_DELEGATION_DEPTH = 3; // жёсткий предел вложенности найма на стенде
   // ---- Проход 4: модерация (отдельный операторский контур, не меняет подписи/артефакты/расчёты) ----
   const OPERATOR = process.env.STAND_OPERATOR || loadJson('operator.json', { address: '' }).address || '';
   // Проход 1 (ТЗ п.1): приватное чтение только с доказательством владения адресом.
@@ -78,6 +81,7 @@ export async function createStand(tmp) {
     saveJson('runs.json', runs.slice(-500)); saveJson('offers.json', offers);
     saveJson('orders.json', orders); saveJson('idem.json', Object.fromEntries(idemOrder));
     saveJson('settlements.json', settlements); saveJson('test-balances.json', testBalances);
+    saveJson('disputes.json', disputes);
   };
   const emit = (eventType, entityId, entityVersion, visibility, payload, parties) => {
     const seq = events.length;
@@ -135,7 +139,7 @@ export async function createStand(tmp) {
       if (bodyTooLarge) return send(413, { error: 'body_too_large', hint: 'лимит тела 256KB' });
       let b = {}; try { b = body ? JSON.parse(body) : {}; } catch { return send(400, { error: 'bad_json' }); }
       if (u.pathname === '/info') return send(200, { chain: 'AGENTCOIN-stand', blocks: 1, genesisHash: GENESIS });
-      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, auth: 'read-proof-required', actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide', 'read'] });
+      if (u.pathname === '/queue/auth-capabilities') return send(200, { signed: true, chain: 'AGENTCOIN', genesis: GENESIS, auth: 'read-proof-required', actions: ['join', 'claim', 'done', 'publish', 'order', 'artifact', 'accept', 'monitor', 'mtick', 'mpause', 'mcancel', 'settle', 'ssend', 'sconfirm', 'sdispute', 'scancel', 'complain', 'mdecide', 'delegate', 'review', 'dispute', 'dresolve', 'read'] });
       if (u.pathname === '/queue/status') return send(200, queue.status());
       if (u.pathname === '/queue/assignments') return send(200, { onDuty: queue.state.onDuty }); // стенд-only: prod этого не отдаёт, там — ownership_unknown без журнала/истории
       if (u.pathname === '/queue/history') return send(200, { history: queue.state.history || [] });
@@ -238,7 +242,13 @@ export async function createStand(tmp) {
           return send(200, res);
         }
         const assignmentId = crypto.createHash('sha256').update([b.address, offerId, snap.version, idem || String(b.nonce)].join('|')).digest('hex').slice(0, 16);
-        const assignment = { assignmentId, offerId, offerVersion: snap.version, offerSnapshotHash: hashOf(snap), priceAtomic: snap.priceAtomic, customer: b.address, provider: snap.provider, input: input || {}, acceptanceMethod: snap.acceptance.method, state: 'open', createdAt: Date.now() };
+        const assignment = {
+          assignmentId, offerId, offerVersion: snap.version, offerSnapshotHash: hashOf(snap), priceAtomic: snap.priceAtomic,
+          customer: b.address, provider: snap.provider, input: input || {}, acceptanceMethod: snap.acceptance.method,
+          state: 'open', createdAt: Date.now(), parentId: null,
+          // Корень цепочки найма: бюджет — цена заказа, глубина 0.
+          delegation: { parentId: null, rootId: assignmentId, depth: 0, budgetAtomic: Number(snap.priceAtomic || 0), committedAtomic: 0, maxDepth: MAX_DELEGATION_DEPTH, ancestry: [b.address] },
+        };
         const verr = validateAssignment(assignment);
         if (verr) return send(400, { error: verr });
         orders[assignmentId] = { assignment, artifacts: [], acceptance: null };
@@ -256,7 +266,150 @@ export async function createStand(tmp) {
         const auth = verifiedReader(u.searchParams, 'order', mg[1]);
         const isParty = auth && (auth === o.assignment.customer || auth === o.assignment.provider);
         const pub = o.artifacts.map(a => ({ ...a.meta, content: a.meta.accessPolicy === 'public' || isParty ? a.content : undefined }));
-        return send(200, { assignment: o.assignment, artifacts: pub, acceptance: isParty || o.acceptance?.verdict === undefined ? o.acceptance : (o.acceptance ? { verdict: o.acceptance.verdict, at: o.acceptance.at, method: o.acceptance.method } : null), auth: auth ? 'owner' : 'public' });
+        return send(200, { assignment: o.assignment, artifacts: pub, dispute: o.assignment.disputeId ? (disputes[o.assignment.disputeId] || null) : null, acceptance: isParty || o.acceptance?.verdict === undefined ? o.acceptance : (o.acceptance ? { verdict: o.acceptance.verdict, at: o.acceptance.at, method: o.acceptance.method } : null), auth: auth ? 'owner' : 'public' });
+      }
+      // ---- Этап D: делегирование с бюджетом и глубиной ----
+      if (u.pathname === '/orders/delegate' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'delegate', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prev = usedNonce.get(key);
+        if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
+        const { parentId, offerId, offerVersion, input, budgetAtomic, maxDepth, idempotencyKey } = b.body || {};
+        const parent = orders[parentId];
+        if (!parent) return send(404, { error: 'order_not_found' });
+        if (b.address !== parent.assignment.provider) return send(403, { error: 'foreign_delegate', hint: 'делегирует только provider родительского заказа' });
+        if (parent.assignment.state !== 'open') return send(409, { error: 'bad_state', state: parent.assignment.state, hint: 'делегировать можно только пока заказ не принят/не в споре' });
+        const pe = offers[offerId];
+        if (!pe) return send(404, { error: 'offer_not_found' });
+        const psnap = offerVersion ? pe.versions.find((x) => x.version === offerVersion) : pe.versions[pe.versions.length - 1];
+        if (!psnap) return send(404, { error: 'offer_version_not_found' });
+        if (Number(psnap.expiresAt) <= Date.now()) return send(409, { error: 'offer_expired' });
+        const pd = parent.assignment.delegation || {
+          parentId: null, rootId: parent.assignment.assignmentId, depth: 0,
+          budgetAtomic: Number(parent.assignment.priceAtomic || 0), committedAtomic: 0,
+          maxDepth: MAX_DELEGATION_DEPTH, ancestry: [parent.assignment.customer],
+        };
+        const limit = Math.min(MAX_DELEGATION_DEPTH, Number.isInteger(pd.maxDepth) ? pd.maxDepth : MAX_DELEGATION_DEPTH);
+        if (maxDepth !== undefined && (!Number.isInteger(maxDepth) || maxDepth < 1)) return send(400, { error: 'bad_maxDepth' });
+        const depth = Number(pd.depth || 0) + 1;
+        const ancestry = [...(pd.ancestry || []), b.address];
+        const childProvider = String(psnap.provider);
+        if (childProvider.toLowerCase() === String(b.address).toLowerCase()) return send(409, { error: 'self_delegation', hint: 'нельзя нанять самого себя' });
+        if (ancestry.some((x) => String(x).toLowerCase() === childProvider.toLowerCase())) return send(409, { error: 'delegation_cycle', hint: 'подрядчик уже в цепочке найма' });
+        const allowedDepth = maxDepth === undefined ? limit : Math.min(limit, maxDepth);
+        if (depth > allowedDepth) return send(409, { error: 'depth_exceeded', depth, limit: allowedDepth, hint: 'предел вложенности найма исчерпан' });
+        const budget = Number(budgetAtomic);
+        if (!Number.isInteger(budget) || budget <= 0) return send(400, { error: 'bad_budget', hint: 'бюджет ребёнка — целые атомарные единицы > 0' });
+        const total = Number(pd.budgetAtomic || 0), committed = Number(pd.committedAtomic || 0);
+        if (committed + budget > total) return send(409, { error: 'budget_exceeded', budget, committed, total, hint: 'бюджет ребёнка превышает остаток бюджета родителя' });
+        const idem = String(idempotencyKey || '');
+        const idemKey = 'dlg|' + String(b.address).toLowerCase() + '|' + parentId + '|' + (idem || String(b.nonce));
+        const doneId = idemOrder.get(idemKey);
+        if (doneId && orders[doneId]) { const res = { ok: true, assignment: orders[doneId].assignment, replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+        const assignmentId = crypto.createHash('sha256').update(['delegate', parentId, b.address, psnap.offerId, psnap.version, idem || String(b.nonce)].join('|')).digest('hex').slice(0, 16);
+        const assignment = {
+          assignmentId, offerId, offerVersion: psnap.version, offerSnapshotHash: hashOf(psnap), priceAtomic: budget,
+          customer: b.address, provider: childProvider, input: input || {}, acceptanceMethod: psnap.acceptance.method,
+          state: 'open', createdAt: Date.now(), parentId,
+          delegation: { parentId, rootId: pd.rootId, depth, budgetAtomic: budget, committedAtomic: 0, maxDepth: limit, ancestry },
+        };
+        const verr = validateAssignment(assignment);
+        if (verr) return send(400, { error: verr });
+        orders[assignmentId] = { assignment, artifacts: [], acceptance: null };
+        // Бюджет родителя резервируется, а не переводится: деньги не движутся.
+        pd.committedAtomic = committed + budget;
+        parent.assignment.delegation = pd;
+        idemOrder.set(idemKey, assignmentId);
+        persistMarket();
+        emit('order.delegated', assignmentId, psnap.version, 'parties', { parentId, depth, budgetAtomic: budget }, [parent.assignment.customer, parent.assignment.provider, childProvider]);
+        const res = { ok: true, assignment };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
+      }
+      // ---- Этап D: независимый reviewer (не сторона заказа) ----
+      if (u.pathname === '/orders/review' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'review', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prev = usedNonce.get(key);
+        if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
+        const { assignmentId, verdict, rationale, evidenceHash } = b.body || {};
+        const o = orders[assignmentId];
+        if (!o) return send(404, { error: 'order_not_found' });
+        if (verdict !== 'accepted' && verdict !== 'rejected') return send(400, { error: 'bad_verdict', hint: "verdict: 'accepted' | 'rejected'" });
+        if (b.address === o.assignment.customer || b.address === o.assignment.provider) return send(403, { error: 'reviewer_not_independent', hint: 'ревьюер не может быть стороной заказа' });
+        if (o.assignment.state === 'disputed') return send(409, { error: 'disputed', hint: 'исход спора определяет арбитр, не ещё один отзыв' });
+        if (o.acceptance && o.acceptance.method === 'reviewer') {
+          if (o.acceptance.verdict === verdict && o.acceptance.reviewedBy === b.address) { const res = { ok: true, replay: true, assignment: o.assignment, acceptance: o.acceptance }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+          return send(409, { error: 'already_reviewed', reviewedBy: o.acceptance.reviewedBy, verdict: o.acceptance.verdict, hint: 'один отзыв на заказ; пересмотр — только через спор' });
+        }
+        if (!o.artifacts.length) return send(409, { error: 'no_artifact', hint: 'проверять нечего: provider ещё не сдал артефакт' });
+        if (o.assignment.state === 'accepted' || o.assignment.state === 'rejected') return send(409, { error: 'bad_state', state: o.assignment.state });
+        o.assignment.state = verdict === 'accepted' ? 'accepted' : 'rejected';
+        o.acceptance = { verdict, at: Date.now(), method: 'reviewer', reviewedBy: b.address, rationale: String(rationale || '').slice(0, 500), evidenceHash: evidenceHash ? String(evidenceHash).slice(0, 80) : null };
+        persistMarket();
+        emit('order.reviewed', assignmentId, '1', 'parties', { verdict, reviewedBy: b.address }, [o.assignment.customer, o.assignment.provider, b.address]);
+        const res = { ok: true, assignment: o.assignment, acceptance: o.acceptance };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
+      }
+      // ---- Этап D: спор сторон и независимый арбитр ----
+      if (u.pathname === '/orders/dispute' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'dispute', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prev = usedNonce.get(key);
+        if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
+        const { assignmentId, reason, evidenceHash } = b.body || {};
+        const o = orders[assignmentId];
+        if (!o) return send(404, { error: 'order_not_found' });
+        if (b.address !== o.assignment.customer && b.address !== o.assignment.provider) return send(403, { error: 'foreign_dispute', hint: 'спор открывает только сторона заказа' });
+        if (!reason) return send(400, { error: 'bad_reason', hint: 'причина обязательна: она входит в запись спора' });
+        if (o.assignment.state === 'canceled') return send(409, { error: 'bad_state', state: 'canceled' });
+        const open = o.assignment.disputeId ? disputes[o.assignment.disputeId] : null;
+        if (open && !open.resolved) { const res = { ok: true, dispute: open, replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+        const disputeId = 'd' + crypto.createHash('sha256').update([assignmentId, b.address, String(reason), String(b.nonce)].join('|')).digest('hex').slice(0, 12);
+        const d = { disputeId, assignmentId, by: b.address, reason: String(reason).slice(0, 500), evidenceHash: evidenceHash ? String(evidenceHash).slice(0, 80) : null, at: Date.now(), state: 'open', resolved: false, arbiter: null, verdict: null, rationale: null };
+        disputes[disputeId] = d;
+        o.assignment.disputeId = disputeId;
+        o.assignment.state = 'disputed';
+        persistMarket();
+        emit('order.disputed', disputeId, '1', 'parties', { assignmentId, reason: d.reason }, [o.assignment.customer, o.assignment.provider]);
+        const res = { ok: true, dispute: d, assignment: o.assignment };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
+      }
+      if (u.pathname === '/orders/disputes/resolve' && req.method === 'POST') {
+        const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'dresolve', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
+        if (!v.ok) return send(401, v);
+        const key = String(b.address).toLowerCase() + '|' + String(b.nonce);
+        const prev = usedNonce.get(key);
+        if (prev) { if (prev.digest !== v.digest) return send(409, { ok: false, error: 'NONCE_BODY_MISMATCH' }); return send(200, { ...prev.result, replay: true }); }
+        const { disputeId, verdict, rationale } = b.body || {};
+        const d = disputes[disputeId];
+        if (!d) return send(404, { error: 'dispute_not_found' });
+        const o = orders[d.assignmentId];
+        if (!o) return send(404, { error: 'order_not_found' });
+        if (verdict !== 'customer' && verdict !== 'provider') return send(400, { error: 'bad_verdict', hint: "verdict: 'customer' | 'provider'" });
+        if (d.resolved) { const res = { ok: true, dispute: d, replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+        if (b.address === o.assignment.customer || b.address === o.assignment.provider || b.address === o.acceptance?.reviewedBy) {
+          return send(403, { error: 'arbiter_not_independent', hint: 'арбитр не может быть стороной или ревьюером этого заказа' });
+        }
+        const st = settlements[d.assignmentId];
+        d.resolved = true; d.state = 'resolved'; d.verdict = verdict; d.arbiter = b.address; d.rationale = String(rationale || '').slice(0, 500); d.resolvedAt = Date.now();
+        if (st && st.state === 'confirmed') {
+          d.note = 'выплата уже подтверждена — решение фиксируется, но перевод не отменяется';
+          d.effect = 'recorded_only';
+        } else {
+          o.assignment.state = verdict === 'provider' ? 'accepted' : 'canceled';
+          d.effect = verdict === 'provider' ? 'payment_allowed' : 'no_payment';
+        }
+        persistMarket();
+        emit('order.dispute_resolved', d.disputeId, '1', 'parties', { verdict, effect: d.effect }, [o.assignment.customer, o.assignment.provider]);
+        const res = { ok: true, dispute: d, assignment: o.assignment, effect: d.effect, note: d.note };
+        usedNonce.set(key, { digest: v.digest, result: res });
+        return send(200, res);
       }
       if (u.pathname === '/orders/submit-artifact' && req.method === 'POST') {
         const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'artifact', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });
@@ -292,6 +445,8 @@ export async function createStand(tmp) {
         if (!o) return send(404, { error: 'order_not_found' });
         if (b.address !== o.assignment.customer) return send(403, { error: 'foreign_accept', hint: 'принимает только customer' });
         if (o.assignment.state === 'accepted') { const res = { ok: true, replay: true, assignment: o.assignment }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
+        if (o.assignment.state === 'rejected') return send(409, { error: 'order_rejected', hint: 'отклонённый результат принимает только разрешение спора, не повторный accept' });
+        if (o.assignment.state === 'disputed') return send(409, { error: 'disputed', hint: 'спор открыт — исход определяет независимый арбитр' });
         o.assignment.state = 'accepted';
         o.acceptance = { verdict: verdict || 'accepted', at: Date.now(), method: o.assignment.acceptanceMethod };
         persistMarket();
@@ -386,12 +541,20 @@ export async function createStand(tmp) {
             ran.push({ runId, skipped: 'missed_period' });
             continue;
           }
-          // Потолок стоимости периода проверяется до создания обязательства.
-          const spent = runs.filter((r) => r.monitorId === mon.monitorId && r.periodIndex === pi && r.state !== 'missed')
-            .reduce((a, r) => a + Number(r.costAtomic || 0), 0);
-          if (spent + mon.priceAtomicPerRun > mon.maxCostPerPeriodAtomic) { ran.push({ runId, skipped: 'budget_exceeded' }); continue; }
+          // Потолок периода здесь не нужен и не проверяется: при создании монитора
+          // гарантировано maxCostPerPeriodAtomic >= priceAtomicPerRun (bad_maxCost),
+          // а на период приходится не более одного оплачиваемого запуска
+          // (runId = monitorId|periodIndex, существующий перехватывается выше).
+          // Прежняя ветка «spent + price > cap» была недостижима и удалена.
           const active = runs.filter((r) => r.monitorId === mon.monitorId && r.state === 'open').length;
-          if (active >= mon.maxConcurrentRuns) { ran.push({ runId, skipped: 'max_concurrent' }); continue; }
+          if (active >= mon.maxConcurrentRuns) {
+            // Лимит параллельных запусков: период не оплачивается, но остаётся
+            // видимым в истории и в событиях — иначе он молча исчезает.
+            runs.push({ runId, monitorId: mon.monitorId, periodIndex: pi, assignmentId: null, state: 'skipped', skipReason: 'max_concurrent', costAtomic: 0, createdAt: Date.now(), targetStatus: null, checkerStatus: null, evidence: null });
+            emit('monitor.skipped', runId, '1', 'parties', { periodIndex: pi, reason: 'max_concurrent', active }, [mon.owner, mon.provider]);
+            ran.push({ runId, skipped: 'max_concurrent', recorded: true });
+            continue;
+          }
           const assignmentId = crypto.createHash('sha256').update(['monitor', runId].join('|')).digest('hex').slice(0, 16);
           if (!orders[assignmentId]) orders[assignmentId] = { assignment: { assignmentId, offerId: 'api-monitor-v1', offerVersion: '1', offerSnapshotHash: 'monitor', customer: mon.owner, provider: mon.provider, input: { monitorId: mon.monitorId, periodIndex: pi, targetUrl: mon.targetUrl }, acceptanceMethod: (mon.acceptanceRules && mon.acceptanceRules.method) || 'human', state: 'open', createdAt: Date.now(), runId }, artifacts: [], acceptance: null };
           // Доступность цели и исправность проверяющего — РАЗНЫЕ поля: отчёт проверяющего
@@ -461,6 +624,8 @@ export async function createStand(tmp) {
         if (settlements[assignmentId]) { const res = { ok: true, settlement: settlements[assignmentId], replay: true }; usedNonce.set(key, { digest: v.digest, result: res }); return send(200, res); }
         const o = orders[assignmentId];
         if (!o) return send(404, { error: 'order_not_found' });
+        const dsp = o.assignment.disputeId ? disputes[o.assignment.disputeId] : null;
+        if (dsp && !dsp.resolved) return send(409, { error: 'disputed', hint: 'спор открыт: расчёт заморожен до решения независимого арбитра' });
         if (o.assignment.state !== 'accepted') return send(409, { error: 'no_obligation', hint: 'обязательство возникает только после приёмки (accept)' });
         if (b.address !== o.assignment.customer) return send(403, { error: 'foreign_settle' });
         const amount = Number(o.assignment.priceAtomic ?? 0);
@@ -522,7 +687,7 @@ export async function createStand(tmp) {
         const orderStates = {}, settleStates = {};
         for (const o of Object.values(orders)) orderStates[o.assignment.state] = (orderStates[o.assignment.state] || 0) + 1;
         for (const s of Object.values(settlements)) settleStates[s.state] = (settleStates[s.state] || 0) + 1;
-        return send(200, { offers: Object.keys(offers).length, hidden: Object.keys(moderation.hidden).length, suspended: Object.keys(moderation.suspended).length, orders: orderStates, settlements: settleStates, events: events.length, monitors: Object.keys(monitors).length, runs: runs.length, complaintsOpen: moderation.complaints.filter((c) => c.status === 'open').length, decisions: moderation.decisions.length, genesis: GENESIS, test: true });
+        return send(200, { offers: Object.keys(offers).length, hidden: Object.keys(moderation.hidden).length, suspended: Object.keys(moderation.suspended).length, disputes: Object.keys(disputes).length, disputesOpen: Object.values(disputes).filter((d) => !d.resolved).length, orders: orderStates, settlements: settleStates, events: events.length, monitors: Object.keys(monitors).length, runs: runs.length, complaintsOpen: moderation.complaints.filter((c) => c.status === 'open').length, decisions: moderation.decisions.length, genesis: GENESIS, test: true });
       }
       if (u.pathname === '/moderation/complaint' && req.method === 'POST') {
         const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'complain', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });

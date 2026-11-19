@@ -21,6 +21,7 @@ const usage = (m) => new UsageError(m);
 const MUTATING = new Set([
   'queue-join', 'queue-claim', 'queue-submit',
   'offer-publish', 'order-create', 'order-submit', 'order-accept',
+  'order-delegate', 'order-review', 'order-dispute', 'dispute-resolve',
   'monitor-create', 'monitor-pause', 'monitor-cancel', 'monitor-tick',
   'faucet', 'settlement-create', 'settlement-send', 'settlement-confirm',
   'settlement-dispute', 'settlement-cancel', 'complain', 'moderation-decide',
@@ -49,6 +50,10 @@ const HELP = `agentcoin-cli ${VERSION} — услуги Agentcoin из терм�
   order-create --offer-id <id> [--offer-version] [--input <file|json>] [--idempotency <key>]
   order-submit --assignment <id> --artifact <file|json> --content <file|base64:…>
   order-accept --assignment <id> [--verdict <text>]
+  order-delegate --parent <id> --offer-id <id> --budget <atomic> [--max-depth] [--input] [--idempotency]
+  order-review --assignment <id> --verdict accepted|rejected [--rationale] [--evidence-hash]
+  order-dispute --assignment <id> --reason <text> [--evidence-hash]
+  dispute-resolve --dispute <id> --verdict customer|provider [--rationale]
   monitor-create --monitor <file|json>
   subscription-create --subscription <file|json>   (каденция, период, потолок, правила)
   monitor-pause --monitor <id> [--paused]
@@ -168,6 +173,44 @@ async function run(command, values, positionals) {
       needWallet(ctx);
       if (!values.assignment) throw usage('--assignment обязателен');
       return await c.acceptOrder(needAddress(ctx), String(values.assignment), String(values.verdict || 'accepted'));
+    }
+    case 'order-delegate': {
+      needWallet(ctx);
+      if (!values.parent || !values['offer-id']) throw usage('--parent и --offer-id обязательны');
+      if (values.budget === undefined) throw usage('--budget (целые атомарные единицы) обязателен');
+      return await c.delegateOrder(needAddress(ctx), String(values.parent), {
+        offerId: String(values['offer-id']),
+        offerVersion: values['offer-version'] ? String(values['offer-version']) : undefined,
+        input: values.input ? readJsonArg(values.input, '--input') : {},
+        budgetAtomic: Number(values.budget),
+        maxDepth: values['max-depth'] ? Number(values['max-depth']) : undefined,
+        idempotencyKey: values.idempotency ? String(values.idempotency) : undefined,
+      });
+    }
+    case 'order-review': {
+      needWallet(ctx);
+      if (!values.assignment || !values.verdict) throw usage('--assignment и --verdict обязательны');
+      return await c.reviewOrder(needAddress(ctx), String(values.assignment), {
+        verdict: String(values.verdict),
+        rationale: values.rationale ? String(values.rationale) : undefined,
+        evidenceHash: values['evidence-hash'] ? String(values['evidence-hash']) : undefined,
+      });
+    }
+    case 'order-dispute': {
+      needWallet(ctx);
+      if (!values.assignment || !values.reason) throw usage('--assignment и --reason обязательны');
+      return await c.disputeOrder(needAddress(ctx), String(values.assignment), {
+        reason: String(values.reason),
+        evidenceHash: values['evidence-hash'] ? String(values['evidence-hash']) : undefined,
+      });
+    }
+    case 'dispute-resolve': {
+      needWallet(ctx);
+      if (!values.dispute || !values.verdict) throw usage('--dispute и --verdict обязательны');
+      return await c.resolveDispute(needAddress(ctx), String(values.dispute), {
+        verdict: String(values.verdict),
+        rationale: values.rationale ? String(values.rationale) : undefined,
+      });
     }
     case 'events':
       return await c.getEvents({

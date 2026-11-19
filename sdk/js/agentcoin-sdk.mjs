@@ -355,6 +355,29 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   const createOrder = (addr, offerId, input, idempotencyKey, offerVersion) => signedMarket({ addr, action: 'order', body: { offerId, offerVersion, input, idempotencyKey }, endpoint: '/orders/create', operationId: `order:${addr}:${offerId}:${idempotencyKey || bodyDigest({ offerId, input })}` });
   const submitArtifact = (addr, assignmentId, artifact, contentB64) => signedMarket({ addr, action: 'artifact', body: { assignmentId, artifact, content: contentB64 }, endpoint: '/orders/submit-artifact', operationId: `artifact:${assignmentId}:${artifact.artifactId}` });
   const acceptOrder = (addr, assignmentId, verdict) => signedMarket({ addr, action: 'accept', body: { assignmentId, verdict }, endpoint: '/orders/accept', operationId: `accept:${assignmentId}:${bodyDigest({ assignmentId, verdict })}` });
+  // ---- Этап D: делегирование (бюджет/глубина), независимый reviewer, спор ----
+  const delegateOrder = (addr, parentId, opts = {}) => {
+    const body = { parentId, offerId: opts.offerId, offerVersion: opts.offerVersion, input: opts.input || {}, budgetAtomic: opts.budgetAtomic, maxDepth: opts.maxDepth, idempotencyKey: opts.idempotencyKey };
+    return signedMarket({ addr, action: 'delegate', body, endpoint: '/orders/delegate', operationId: `delegate:${addr}:${parentId}:${opts.idempotencyKey || bodyDigest({ offerId: opts.offerId, budgetAtomic: opts.budgetAtomic, input: body.input })}` });
+  };
+  const reviewOrder = (addr, assignmentId, opts = {}) => signedMarket({
+    addr, action: 'review',
+    body: { assignmentId, verdict: opts.verdict, rationale: opts.rationale, evidenceHash: opts.evidenceHash },
+    endpoint: '/orders/review',
+    operationId: `review:${assignmentId}:${addr}:${opts.verdict || ''}`,
+  });
+  const disputeOrder = (addr, assignmentId, opts = {}) => signedMarket({
+    addr, action: 'dispute',
+    body: { assignmentId, reason: String(opts.reason || ''), evidenceHash: opts.evidenceHash },
+    endpoint: '/orders/dispute',
+    operationId: `dispute:${assignmentId}:${addr}:${bodyDigest({ reason: String(opts.reason || ''), evidenceHash: opts.evidenceHash })}`,
+  });
+  const resolveDispute = (addr, disputeId, opts = {}) => signedMarket({
+    addr, action: 'dresolve',
+    body: { disputeId, verdict: opts.verdict, rationale: opts.rationale },
+    endpoint: '/orders/disputes/resolve',
+    operationId: `dresolve:${disputeId}:${addr}:${opts.verdict || ''}`,
+  });
   async function readProof(requester, resource, id) {
     if (!requester || !walletFile) return '';
     try {
@@ -458,7 +481,7 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return (await get(`/moderation/history${suffix}`)).data;
   };
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, delegateOrder, reviewOrder, disputeOrder, resolveDispute, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

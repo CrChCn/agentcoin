@@ -151,6 +151,38 @@ let id = null, createdAt = null;
   ok(after.runs.length === before.runs.length, 'после рестарта история прогонов не потеряна', `${before.runs.length} → ${after.runs.length}`);
 }
 
+// 11. период, пропущенный из-за лимита параллельных запусков, виден в истории
+{
+  const cA3 = makeClient({ node: stand.url, address: A.addr, walletFile: A.w, journalFile: J('ca3') });
+  const r = await cA3.createSubscription(A.addr, { ...baseSub(), serviceId: 'api-uptime-conc', targetUrl: 'https://example/api/conc', maxConcurrentRuns: 1 });
+  const m = r?.result?.monitor;
+  const t1 = await cA3.tickMonitor('api-uptime-conc', m.createdAt + 10);
+  const t2 = await cA3.tickMonitor('api-uptime-conc', m.createdAt + 2 * CADENCE + 10);
+  const h = await cA3.monitorHistory('api-uptime-conc', A.addr);
+  const skipped = h.runs.filter((x) => x.state === 'skipped');
+  ok(Boolean(t1.ran?.[0]?.assignmentId) && skipped.length === 1 && skipped[0].skipReason === 'max_concurrent',
+    'период из-за лимита параллельных запусков сохранён как skipped, а не потерян', `skipped=${skipped.length}`);
+  ok(skipped.length === 1 && skipped[0].costAtomic === 0 && skipped[0].assignmentId === null,
+    'skipped не оплачивается и не создаёт заказ');
+  ok((t2.ran || []).some((x) => x.skipped === 'max_concurrent' && x.recorded === true),
+    'тик сообщает о пропуске явно (skipped + recorded), а не молчит');
+  const t3 = await cA3.tickMonitor('api-uptime-conc', m.createdAt + 5 * CADENCE + 10);
+  const h2 = await cA3.monitorHistory('api-uptime-conc', A.addr);
+  // Поздний тик: периоды 3–4 уже в прошлом (missed), лимит параллельных запусков
+  // останавливает только текущий период 5 → skipped. Главное — нет дыр: 0..5 покрыты.
+  const idx = h2.runs.map((r) => r.periodIndex).sort((a, b) => a - b);
+  const covered = idx.length === 6 && idx.every((v, i) => v === i);
+  ok(covered && t3.ok === true && h2.runs.filter((x) => x.state === 'skipped').length === 2,
+    'ни один период не потерян: покрыты 0..5, текущий под лимитом — skipped',
+    `runs=${JSON.stringify(h2.runs.map((r) => [r.periodIndex, r.state]))}`);
+}
+// 12. потолок периода — инвариант создания, а не мёртвая ветка в тике
+{
+  const cA4 = makeClient({ node: stand.url, address: A.addr, walletFile: A.w, journalFile: J('ca4') });
+  const bad = await cA4.createMonitor(A.addr, { monitorId: 'cap-1', targetUrl: 'https://example/cap', periodMs: 60000, expiresAt: Date.now() + 3600000, priceAtomicPerRun: 100, maxCostPerPeriodAtomic: 50 });
+  ok(bad.ok === false && bad.error === 'bad_maxCost', 'цена запуска выше потолка периода отвергается при создании', bad.error || '');
+}
+
 console.log(`\nитог: ${pass} PASS, ${fail} FAIL`);
 stand.close();
 process.exit(fail ? 1 : 0);

@@ -410,7 +410,9 @@ async function defaultFetchFn(url) {
   const t = setTimeout(() => ctrl.abort(new Error('http_timeout')), HTTP_TIMEOUT_MS);
   try {
     // redirect manual: 3xx фиксируем как mismatch с location, а не unavailable.
-    const r = await fetch(url, { signal: ctrl.signal, redirect: 'manual' });
+    // connection: close — не переиспользуем сокет между независимыми пробами:
+    // оборванный ответ одного эндпоинта не должен отравлять пул для следующих.
+    const r = await fetch(url, { signal: ctrl.signal, redirect: 'manual', headers: { connection: 'close' } });
     const ct = r.headers.get('content-type');
     const loc = r.headers.get('location');
     const { text, truncated } = await readLimitedBody(r, MAX_BODY_BYTES);

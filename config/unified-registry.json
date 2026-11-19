@@ -27,17 +27,40 @@
       },
       "expectedVersion": "a5bd038(H1: fb81f609/0e286f00; sync отличается)",
       "host": "SRV-H1 2.31.145.160 (agentcoin.work + node1.agentcoin.work)",
-      "observe": {
-        "ssh": { "host": "2.31.145.160", "user": "root", "port": 22 },
-        "localBase": "http://127.0.0.1:9335",
-        "localEndpoints": ["/info", "/health", "/life", "/ws/status", "/capabilities", "/network/nodes"],
-        "units": ["agentcoin-node.service"],
-        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
-        "listenPorts": [9335, 80, 443],
-        "publicBase": "https://agentcoin.work"
-      },
+      "kind": "blockchain-node",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "files": [
+          "/opt/agentcoin-node/src/node.mjs",
+          "/opt/agentcoin-node/src/core.mjs",
+          "/opt/agentcoin-node/src/sync.mjs",
+          "/opt/agentcoin-node/src/ws.mjs"
+        ],
+        "listenPorts": [
+          9335,
+          80,
+          443
+        ],
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": [
+          "/info",
+          "/health",
+          "/life",
+          "/ws/status",
+          "/capabilities",
+          "/network/nodes"
+        ],
+        "publicBase": "https://agentcoin.work",
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-node.service"
+        ]
+      },
       "observed": {
         "chainValid": true,
         "height": 50053,
@@ -143,12 +166,12 @@
           "path": "/capabilities"
         },
         {
+          "aliasOf": "/capabilities",
           "host": "agentcoin.work",
           "method": "GET",
           "note": "alias карты на /capabilities; порядок: прямой путь ноды",
           "owner": false,
-          "path": "/api/v1/capabilities",
-          "aliasOf": "/capabilities"
+          "path": "/api/v1/capabilities"
         },
         {
           "host": "agentcoin.work",
@@ -203,8 +226,7 @@
           "Оператор: один владелец по имеющимся сведениям; независимых операторов нет",
           "Параметры активации консенсусных правил (высоты включения) неизвестны и отделены от depth6/fee0 и PoW-наблюдения"
         ]
-      },
-      "kind": "blockchain-node"
+      }
     },
     {
       "actionIds": [],
@@ -225,17 +247,37 @@
       },
       "expectedVersion": "aed5a948(node)/bed82d3e(core) файлы (E24); sync abbad0f2, ws 6571c2ee везде",
       "host": "SRV-H2 91.99.191.236 (node2.agentcoin.work)",
-      "observe": {
-        "ssh": { "host": "91.99.191.236", "user": "root", "port": 22 },
-        "localBase": "http://127.0.0.1:9335",
-        "localEndpoints": ["/info", "/health", "/ws/status"],
-        "units": ["agentcoin-node.service"],
-        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
-        "listenPorts": [9335, 80, 443],
-        "publicBase": "https://node2.agentcoin.work"
-      },
+      "kind": "blockchain-node",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "files": [
+          "/opt/agentcoin-node/src/node.mjs",
+          "/opt/agentcoin-node/src/core.mjs",
+          "/opt/agentcoin-node/src/sync.mjs",
+          "/opt/agentcoin-node/src/ws.mjs"
+        ],
+        "listenPorts": [
+          9335,
+          80,
+          443
+        ],
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": [
+          "/info",
+          "/health",
+          "/ws/status"
+        ],
+        "publicBase": "https://node2.agentcoin.work",
+        "ssh": {
+          "host": "91.99.191.236",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-node.service"
+        ]
+      },
       "observed": {
         "chainLocal": "50052 tip 00127a17 (E24) — на 1 блок ниже H1 на момент среза",
         "loadedReleaseId": null,
@@ -300,8 +342,7 @@
           "Одинаковость консенсусных правил с H1 (дифф снят, выравнивание не выполнено)",
           "Оператор не установлен (доступ тем же ключом; владелец по имеющимся сведениям)"
         ]
-      },
-      "kind": "blockchain-node"
+      }
     },
     {
       "actionIds": [],
@@ -322,17 +363,37 @@
       },
       "expectedVersion": "= node2 файлам (E24); sync/ws совпадают везде",
       "host": "SRV-DO 64.225.104.125 (node3.agentcoin.work)",
-      "observe": {
-        "ssh": { "host": "64.225.104.125", "user": "root", "port": 22 },
-        "localBase": "http://127.0.0.1:9335",
-        "localEndpoints": ["/info", "/health", "/ws/status"],
-        "units": ["agentcoin-node.service"],
-        "files": ["/opt/agentcoin-node/src/node.mjs", "/opt/agentcoin-node/src/core.mjs", "/opt/agentcoin-node/src/sync.mjs", "/opt/agentcoin-node/src/ws.mjs"],
-        "listenPorts": [9335, 80, 443],
-        "publicBase": "https://node3.agentcoin.work"
-      },
+      "kind": "blockchain-node",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "files": [
+          "/opt/agentcoin-node/src/node.mjs",
+          "/opt/agentcoin-node/src/core.mjs",
+          "/opt/agentcoin-node/src/sync.mjs",
+          "/opt/agentcoin-node/src/ws.mjs"
+        ],
+        "listenPorts": [
+          9335,
+          80,
+          443
+        ],
+        "localBase": "http://127.0.0.1:9335",
+        "localEndpoints": [
+          "/info",
+          "/health",
+          "/ws/status"
+        ],
+        "publicBase": "https://node3.agentcoin.work",
+        "ssh": {
+          "host": "64.225.104.125",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-node.service"
+        ]
+      },
       "observed": {
         "chainLocal": "50053 tip 005f7bf1 = tip H1 (E24)",
         "loadedReleaseId": null,
@@ -395,8 +456,7 @@
           "Одинаковость правил с H1 (C08)",
           "Оператор не установлен"
         ]
-      },
-      "kind": "blockchain-node"
+      }
     },
     {
       "actionIds": [],
@@ -412,13 +472,25 @@
       },
       "expectedVersion": "код 2026-10/11 (auto-miner tick 60с)",
       "host": "SRV-H1 (предположительно; место выполнения живьём не проверено)",
+      "kind": "miner",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-miner.service",
+          "agentcoin-watchdog.service"
+        ]
+      },
       "observed": {
-        "units": "agentcoin-miner.service active, agentcoin-heartbeat.timer active (E20) — активность юнитов наблюдалась",
         "chainEffect": "блоки ~30с (E04/E24 дрейф высот); difficultyBits 9 при shareDiff 12 (E01/F10) — наблюдение PoW на срезе, не параметры активации",
+        "launchProven": false,
         "txs": "образец heartbeat 0.001 + coinbase (E07)",
-        "launchProven": false
+        "units": "agentcoin-miner.service active, agentcoin-heartbeat.timer active (E20) — активность юнитов наблюдалась"
       },
       "observedVersion": null,
       "process": "auto-miner.mjs [port] [minerAddress] [intervalSec] + miner-client.mjs MINER_URL + tools/miner-watchdog.mjs (процессы живьём не снимались)",
@@ -464,8 +536,7 @@
           "Параметры активации консенсусных правил (высоты/версии включения) неизвестны и отделены от depth6/fee0 и от PoW-наблюдения shareDiff12/difficulty9",
           "observedVersion: наблюдаемая версия расписаний не снималась"
         ]
-      },
-      "kind": "miner"
+      }
     },
     {
       "actionIds": [
@@ -484,8 +555,24 @@
       },
       "expectedVersion": "Caddyfile H1 690 строк (E21); unit caddy active user caddy (E20)",
       "host": "SRV-H1 :80/:443 (agentcoin.work, node1.agentcoin.work)",
+      "kind": "proxy",
       "navIds": [],
       "network": "neutral",
+      "observe": {
+        "listenPorts": [
+          80,
+          443,
+          2019
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "caddy.service"
+        ]
+      },
       "observed": {
         "defaults": "дефолт agentcoin.work ведёт на node1/127.0.0.1:9335 (память проекта; конфиг не читался)",
         "exposed": "порты 9335/18745 loopback, 80/443 наружу (E20)"
@@ -537,8 +624,7 @@
           "TLS-терминация: конфиг не читался",
           "observedVersion: версия Caddy не снималась"
         ]
-      },
-      "kind": "proxy"
+      }
     },
     {
       "actionIds": [],
@@ -555,8 +641,30 @@
       },
       "expectedVersion": "Caddy-файлы резервов (E22 дословно)",
       "host": "SRV-H2 + SRV-DO :80/:443",
+      "kind": "proxy",
       "navIds": [],
       "network": "neutral",
+      "observe": {
+        "listenPorts": [
+          80,
+          443
+        ],
+        "ssh": {
+          "host": "91.99.191.236",
+          "port": 22,
+          "user": "root"
+        },
+        "sshTargets": [
+          {
+            "host": "64.225.104.125",
+            "port": 22,
+            "user": "root"
+          }
+        ],
+        "units": [
+          "caddy.service"
+        ]
+      },
       "observed": {
         "darkDefault": "остальное — respond 403 reserve node: dark (E16/E17/E22)",
         "loop": "монитор node1 с allowlisted-IP получает данные node1 (E23)"
@@ -615,8 +723,7 @@
           "Оператор резервов не установлен",
           "observedVersion: версии Caddy резервов не снимались"
         ]
-      },
-      "kind": "proxy"
+      }
     },
     {
       "actionIds": [
@@ -634,6 +741,7 @@
       },
       "expectedVersion": "site-v3 (release null E12)",
       "host": "agentcoin.work static (Caddy file_server)",
+      "kind": "static-site",
       "navIds": [
         "/",
         "/create-wallet",
@@ -759,8 +867,7 @@
           "C04: /ecosphere/ implemented vs 404 — деплой-лаг или роуты стенда",
           "/settlement: живой маршрут static v0.3 (E19) отсутствует в site/tree.json — навигационный пробел, navIds честно не заявляет"
         ]
-      },
-      "kind": "static-site"
+      }
     },
     {
       "actionIds": [],
@@ -776,6 +883,7 @@
       },
       "expectedVersion": "web-unknown (сверить)",
       "host": "agentcoin.work (Next catch-all риск)",
+      "kind": "app",
       "navIds": [
         "/workspace"
       ],
@@ -859,8 +967,7 @@
           "observedVersion: версия Next-билда не сверена",
           "Прод-статус карточки #nodes3/щита после коммита+деплоя — сверить по слову владельца (C07)"
         ]
-      },
-      "kind": "app"
+      }
     },
     {
       "actionIds": [
@@ -885,6 +992,7 @@
       },
       "expectedVersion": "room v1 / api 0.3 / protocol 0.3.0",
       "host": "agentcoin.work static (same-origin live API)",
+      "kind": "app",
       "navIds": [
         "/agent-room"
       ],
@@ -933,8 +1041,7 @@
         "unknowns": [
           "Живая сверка всех room-действий с прод-API после C07 — по слову владельца"
         ]
-      },
-      "kind": "app"
+      }
     },
     {
       "actionIds": [
@@ -955,8 +1062,32 @@
       },
       "expectedVersion": "0.2",
       "host": "SRV-H1 127.0.0.1:18745 -> Caddy /mainnet/*",
+      "kind": "gateway",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "files": [
+          "/opt/agentcoin-settlement/current/sdk/js/mainnet-server.mjs",
+          "/opt/agentcoin-settlement/current/scripts/ecosphere-settlement-gateway.mjs",
+          "/opt/agentcoin-settlement/current/sdk/js/mainnet-node-api.mjs"
+        ],
+        "listenPorts": [
+          18745
+        ],
+        "localBase": "http://127.0.0.1:18745",
+        "localEndpoints": [
+          "/version",
+          "/mainnet/info"
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agt-settlement.service"
+        ]
+      },
       "observed": {
         "info": "/mainnet/info 200 chainId+genesis+infoBlocks (E11)",
         "untested": "preview/obligations/submit/settlements — код + тесты, живьём не вызывались"
@@ -997,9 +1128,10 @@
         {
           "host": "agentcoin.work",
           "method": "GET",
-          "note": "статус settlement по журналу; живьём не вызывался",
+          "note": "статус settlement по журналу по orderId; голый /mainnet/settlements = 404 not_found (проверено 2026-11-19) — PARAM_REQUIRED, не mismatch",
           "owner": true,
-          "path": "/mainnet/settlements"
+          "paramRequired": true,
+          "path": "/mainnet/settlements/:orderId/status"
         }
       ],
       "sources": [
@@ -1023,8 +1155,7 @@
           "Содержимое policy/journal не читалось (вне прохода)",
           "/settlement: путь живьём (E19) отсутствует в site/tree.json — navIds оставлен пустым, связь только через routes"
         ]
-      },
-      "kind": "gateway"
+      }
     },
     {
       "actionIds": [
@@ -1043,6 +1174,7 @@
       },
       "expectedVersion": "signed-only (legacy 410)",
       "host": "внутри agt-node DATA_DIR (прод) + stand-server (стенд)",
+      "kind": "queue",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
       "observed": {
@@ -1110,16 +1242,12 @@
           "Прод-файлы очереди/журналы не читались",
           "Открытие прод-очередей — только после аудита каждого маршрута (limited)"
         ]
-      },
-      "kind": "queue"
+      }
     },
     {
       "actionIds": [],
       "checkMethod": "код node-monitor.mjs (49 строк) + файл test/node-monitor.mjs (приложен, живой прогон не воспроизводился) + E04 живьём; Cabinet #nodes3 + Shield hook — код, прод-сверка после C07",
       "componentId": "node-monitor",
-      "observe": {
-        "publicBase": "https://agentcoin.work"
-      },
       "dependsOn": [
         "mainnet-node-1"
       ],
@@ -1129,8 +1257,12 @@
       },
       "expectedVersion": "node-monitor 49 строк (TTL10с, probe 2.5с, cap 16)",
       "host": "n/a (library + browser hooks)",
+      "kind": "monitor",
       "navIds": [],
       "network": "neutral",
+      "observe": {
+        "publicBase": "https://agentcoin.work"
+      },
       "observed": {
         "apiResponse": "E04 /network/nodes 3/3 responding наблюдался (E04) — подтверждено этим evidence",
         "loopEffect": "записи node2/3 = данные node1 (E23) — монитор доказывает жив Caddy резервов + жив node1, не синхронность резервов",
@@ -1170,8 +1302,7 @@
           "Живой прогон test/node-monitor.mjs в этом пакете не выполнялся (файл приложен как артефакт, не как воспроизведённый прогон)",
           "Прод-статус кабинета/щита после коммита+деплоя — сверить по слову владельца (C07)"
         ]
-      },
-      "kind": "monitor"
+      }
     },
     {
       "actionIds": [],
@@ -1185,8 +1316,22 @@
       },
       "expectedVersion": "пин E01/E08",
       "host": "n/a (среда: SRV-H1 + SRV-H2 + SRV-DO)",
+      "kind": "env",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "listenPorts": [
+          9335
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-node.service"
+        ]
+      },
       "observed": {
         "height": "50043 tip 00480c09 (E04 09:23Z); H1 50053/node3 50053/node2 50052 (E24 09:33Z)",
         "ports": "9335 (рядом testnet 19335/19443, job-test 19336/19444 — по памяти, живьём не опрашивались)"
@@ -1216,8 +1361,7 @@
           "Накопленная chainWork числом не снята",
           "Локальные политики резервов не наблюдаемы"
         ]
-      },
-      "kind": "env"
+      }
     },
     {
       "actionIds": [],
@@ -1230,8 +1374,22 @@
       },
       "expectedVersion": "код R-03 (порт по умолчанию 19933)",
       "host": "n/a (изолированный локальный запуск)",
+      "kind": "env",
       "navIds": [],
       "network": "AGT_TESTNET/00022668",
+      "observe": {
+        "listenPorts": [
+          19335
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-staging-node.service"
+        ]
+      },
       "observed": {
         "liveProven": false
       },
@@ -1255,8 +1413,7 @@
           "Генезис testnet числом не сверялся",
           "observedVersion: наблюдаемая версия не снималась"
         ]
-      },
-      "kind": "env"
+      }
     },
     {
       "actionIds": [],
@@ -1269,8 +1426,22 @@
       },
       "expectedVersion": "пин по памяти проекта",
       "host": "n/a",
+      "kind": "env",
       "navIds": [],
       "network": "AGT_JOBTEST/0001b918",
+      "observe": {
+        "listenPorts": [
+          19336
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-autonomous-job-test-node.service"
+        ]
+      },
       "observed": {
         "liveProven": false
       },
@@ -1294,8 +1465,7 @@
           "storage: неизвестно (честно)",
           "observedVersion: не снималась"
         ]
-      },
-      "kind": "env"
+      }
     },
     {
       "actionIds": [],
@@ -1308,8 +1478,22 @@
       },
       "expectedVersion": "staging-only",
       "host": "ноутбук 127.0.0.1:18743 + staging-стенды",
+      "kind": "env",
       "navIds": [],
       "network": "AGENTCOIN/00026d18b9188e4e",
+      "observe": {
+        "listenPorts": [
+          19443
+        ],
+        "ssh": {
+          "host": "2.31.145.160",
+          "port": 22,
+          "user": "root"
+        },
+        "units": [
+          "agentcoin-staging-api.service"
+        ]
+      },
       "observed": {
         "rule": "127.0.0.1:18743 — локальный стенд, не опубликован"
       },
@@ -1334,8 +1518,7 @@
           "Прод-границы стенда vs mainnet — только по реестру",
           "observedVersion: не снималась"
         ]
-      },
-      "kind": "env"
+      }
     },
     {
       "actionIds": [
@@ -1354,6 +1537,7 @@
       },
       "expectedVersion": "0.2/0.1.0/0.3",
       "host": "n/a (client library browser+node)",
+      "kind": "sdk",
       "navIds": [],
       "network": "neutral",
       "observed": {
@@ -1397,8 +1581,7 @@
         "unknowns": [
           "Версия в прод-бандле не сверена (pin файла)"
         ]
-      },
-      "kind": "sdk"
+      }
     },
     {
       "actionIds": [],
@@ -1413,6 +1596,7 @@
       },
       "expectedVersion": "0.3.0",
       "host": "n/a (client)",
+      "kind": "cli",
       "navIds": [],
       "network": "neutral",
       "observed": {
@@ -1444,8 +1628,7 @@
         "unknowns": [
           "Живой прогон CLI против прод — не выполнялся (запрет мутаций)"
         ]
-      },
-      "kind": "cli"
+      }
     },
     {
       "actionIds": [],
@@ -1460,6 +1643,7 @@
       },
       "expectedVersion": "0.2",
       "host": "n/a (client stdio)",
+      "kind": "mcp",
       "navIds": [],
       "network": "neutral",
       "observed": {
@@ -1491,8 +1675,7 @@
         "unknowns": [
           "Живой вызов MCP против прод — не выполнялся"
         ]
-      },
-      "kind": "mcp"
+      }
     },
     {
       "actionIds": [],
@@ -1505,6 +1688,7 @@
       },
       "expectedVersion": "pilot v1",
       "host": "n/a (offline)",
+      "kind": "pilot",
       "navIds": [],
       "network": null,
       "observed": {
@@ -1530,8 +1714,7 @@
           "network: неприменимо (честно)",
           "observedVersion: не снималась"
         ]
-      },
-      "kind": "pilot"
+      }
     }
   ],
   "sources": {

@@ -1,0 +1,175 @@
+{
+  "version": "stage3-1",
+  "purpose": "Truth Gate: единый строгий контрольный шлюз. Только чтение и классификация; ничего не исправляет и не деплоит.",
+  "vocabulary": {
+    "component": ["PASS", "WARN", "FAIL", "BLOCKED", "OFFLINE_EXPECTED", "NOT_APPLICABLE", "UNKNOWN"],
+    "verdict": ["PASS", "WARN", "BLOCKED"],
+    "route": ["PASS", "PARAM_REQUIRED", "CAPABILITY_GHOST", "UNDOCUMENTED_ROUTE", "FAIL", "UNKNOWN"]
+  },
+  "notCheckedAllowedReasons": [
+    "param_required",
+    "offline_expected",
+    "not_applicable",
+    "public_only_ssh_skipped",
+    "bare_path_needs_parameter",
+    "mutation_not_called"
+  ],
+  "coverage": {
+    "critical": [
+      "mainnet-node-1",
+      "mainnet-node-2",
+      "mainnet-node-3",
+      "miner-stack",
+      "caddy-h1",
+      "caddy-reserve",
+      "settlement-gateway",
+      "site-static",
+      "env-mainnet",
+      "env-testnet",
+      "env-jobtest",
+      "env-staging"
+    ],
+    "required": {
+      "mainnet-node-1": ["local-info", "local-health", "proc-unit-show", "caps"],
+      "mainnet-node-2": ["local-info", "proc-unit-show"],
+      "mainnet-node-3": ["local-info", "proc-unit-show"],
+      "miner-stack": ["units", "cron", "miner-unit", "recent-blocks", "schedule"],
+      "caddy-h1": ["config", "map", "guard-scan"],
+      "caddy-reserve": ["config-node2", "config-node3"],
+      "site-static": ["page-root", "page-imperial", "pages-summary"],
+      "settlement-gateway": ["route-bare", "route-param", "source-sha"],
+      "env-mainnet": ["env-unit", "env-chain", "env-data"],
+      "env-testnet": ["env-unit", "env-chain", "env-data"],
+      "env-jobtest": ["env-unit", "env-chain", "env-data"],
+      "env-staging": ["env-unit", "env-chain", "env-data"],
+      "node-monitor": ["pub-nodes"],
+      "web-next": ["pub-"],
+      "agent-room": ["page-"],
+      "queue-orders-catalog": ["pub-"],
+      "sdk-js": ["files", "semantics"],
+      "cli": ["files", "semantics"],
+      "mcp": ["files", "semantics"],
+      "api-gateway-pilot": ["offline"]
+    },
+    "defaultRequired": ["any-ok"],
+    "evidenceRequiredPrefixes": [
+      "env-",
+      "miner-stack:",
+      "caddy-",
+      "site-static:",
+      "settlement-gateway:",
+      "mainnet-node-1:local-",
+      "mainnet-node-1:caps",
+      "node-monitor:"
+    ]
+  },
+  "chains": {
+    "mainnet": {
+      "chainId": "AGENTCOIN",
+      "genesis": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e"
+    },
+    "isolationRule": "Каждая не-mainnet среда обязана иметь собственный chainId и собственный genesis. Совпадение genesis с mainnet допустимо только при явной записи documentedReason в окружении."
+  },
+  "environments": {
+    "env-mainnet": {
+      "componentId": "env-mainnet",
+      "role": "mainnet",
+      "chainComponentIds": ["mainnet-node-1", "mainnet-node-2", "mainnet-node-3"]
+    },
+    "env-testnet": { "componentId": "env-testnet", "role": "testnet" },
+    "env-jobtest": { "componentId": "env-jobtest", "role": "job-test" },
+    "env-staging": { "componentId": "env-staging", "role": "staging" }
+  },
+  "envAllowedParamNames": ["DATA_DIR", "AGT_DATA_DIR", "AGT_BIND", "AGT_PUBLIC_URL", "PORT", "CHAIN_ID", "NETWORK", "NETWORK_ID", "NODE_ENV"],
+  "envForbiddenParamPattern": "(SECRET|TOKEN|KEY|PASS|PRIV|SEED|MNEMONIC|AUTH)",
+  "mining": {
+    "componentId": "miner-stack",
+    "sampleBlocks": 20,
+    "duplicateRule": "Два и более одновременно активных процессов/юнитов, формирующих block candidate, считаются дублирующими майнерами (WARN, при конфликте DATA_DIR — BLOCKED).",
+    "producerRule": "Адреса последних блоков фиксируются как наблюдаемые; совпадение адресов НЕ доказывает независимость операторов (UNKNOWN об операторах)."
+  },
+  "caddy": {
+    "configPath": "/etc/caddy/Caddyfile",
+    "ownerByUpstream": {
+      "127.0.0.1:9335": "mainnet-node-1",
+      "127.0.0.1:18745": "settlement-gateway",
+      "127.0.0.1:19443": "env-staging",
+      "127.0.0.1:19444": "env-jobtest",
+      "127.0.0.1:29335": "env-staging",
+      "127.0.0.1:19335": "env-testnet",
+      "https://node1.agentcoin.work": "mainnet-node-1"
+    },
+    "ownerByRoot": {
+      "/srv/agentcoin-empire/current": "site-static",
+      "/opt/agentcoin-node/skills": "site-static",
+      "/opt/agentcoin-node/bot": "site-static",
+      "/srv/agentcoin-empire/keeper": "site-static"
+    },
+    "allowedDualPaths": ["/mempool", "/cabinet/keeper-token"],
+    "blockingMutationPattern": "(cabinet|wallet|op-submit|op-request|payout|treasury|obligation|settlement|approve|admin|memory/upload|compute/rent)",
+    "sensitiveMutationPattern": "(cabinet|wallet|op-submit|op-request|tx|submit|send|login|challenge|passport|identity|memory/upload|compute/rent|queue|obligation|settlement|approve|payout|treasury|admin)",
+    "testHostPattern": "(^|\\.)(staging|test|job-test|api-staging)\\.",
+    "mainnetUpstreamPattern": "127\\.0\\.0\\.1:9335|https://node1\\.agentcoin\\.work",
+    "guardSignals": ["basicauth", "basic_auth", "forward_auth", "remote_ip", "X-Admin-Token", "respond \"", "403", "401"]
+  },
+  "site": {
+    "host": "agentcoin.work",
+    "pages": [
+      { "path": "/", "kind": "html", "module": "imperial-home", "owner": "site-static" },
+      { "path": "/imperial", "kind": "html", "module": "imperial-home", "owner": "site-static" },
+      { "path": "/agent-room", "kind": "html", "module": "agent-room", "owner": "agent-room" },
+      { "path": "/settlement", "kind": "html", "module": "settlement", "owner": "site-static" },
+      { "path": "/mainnet/info", "kind": "json", "module": "settlement-api", "owner": "settlement-gateway" },
+      { "path": "/api/v1/network/nodes", "kind": "json", "module": "network-api", "owner": "mainnet-node-1" },
+      { "path": "/ecosphere", "kind": "html", "module": "ecosphere", "owner": "site-static", "expectStatus": 404, "note": "реестр фиксирует 404 (C04): backing-файлы есть, публично модуль не опубликован" },
+      { "path": "/ws/status", "kind": "json", "module": "node-ws-status", "owner": "mainnet-node-1" }
+    ],
+    "duplicateRule": "Один публичный URL — один владелец. Два разных URL с побайтово одинаковым product-телом (HTML, тот же title/H1/shell) — двойник главной: BLOCKED DUPLICATE_ROOT_PRODUCT, если модули не разведены явно.",
+    "sharedShell": ["navigation", "visual-shell", "network-identity", "chain-status", "release-marker", "agent-room-entry", "api-error-display"]
+  },
+  "settlement": {
+    "componentId": "settlement-gateway",
+    "barePath": "/mainnet/settlements",
+    "requiredContract": "/mainnet/settlements/:orderId/status",
+    "probeOrderId": "truth-gate-probe-not-a-real-order",
+    "bareExpectation": "PARAM_REQUIRED",
+    "journalReadRule": "Журнал settlement и значения env не читаются. Допустим только GET статуса; mutation-routes не вызываются."
+  },
+  "mutation": {
+    "rule": "Mutation-route не вызывается. BLOCKED, если публичная mutation-route ведёт к деньгам/кабинету/админке без наблюдаемой защиты, либо тестовый хост проксирует запись в mainnet.",
+    "provenBy": ["remote_ip", "basicauth", "forward_auth", "X-Admin-Token", "respond 401/403", "signed-transaction requirement documented in registry"]
+  },
+  "blockers": {
+    "CHAIN_PIN_MISMATCH": "chainId/genesis не совпал с пином реестра",
+    "SAME_HEIGHT_FORK": "разные хэши одного блока на одной высоте",
+    "ROUTE_OWNER_CONFLICT": "конфликт владельцев одного публичного маршрута",
+    "SHARED_WRITABLE_DATA_DIR": "общий writable DATA_DIR у разных сетей",
+    "SECRET_IN_EVIDENCE": "в evidence обнаружен секрет",
+    "DUPLICATE_ROOT_PRODUCT": "двойная главная страница",
+    "UNPROVEN_MUTATION_ROUTE": "недоказанная защита публичной mutation-route",
+    "TEST_MUTATION_TO_MAINNET": "тестовый хост проксирует запись в mainnet",
+    "TEST_ENV_MAINNET_GENESIS": "testnet/staging с mainnet genesis без документированной причины",
+    "MONITOR_IMPERSONATION": "монитор выдаёт чужую ноду за другую",
+    "CRITICAL_COMPONENT_UNWATCHED": "критический компонент без наблюдения",
+    "SETTLEMENT_CONTRACT_BROKEN": "сломанная проверка settlement/платежей",
+    "UNJUSTIFIED_NOT_CHECKED": "необоснованный not_checked",
+    "CATCH_ALL_SHADOWS_MODULE": "catch-all перекрывает модуль",
+    "MISSING_EVIDENCE": "ok-наблюдение без evidence",
+    "CORRUPT_INPUT": "повреждённый JSON или неполный вход",
+    "MUTATION_ROUTE_CALLED": "наблюдение содержит вызов mutation-route"
+  },
+  "warnings": {
+    "TIMEOUT_OR_UNAVAILABLE": "тайм-аут — WARN/UNKNOWN, не доказательство падения",
+    "CAPABILITY_GHOST": "рекламируемый read-route отсутствует",
+    "UNDOCUMENTED_ROUTE": "публичный маршрут не рекламирован и не в реестре",
+    "DUPLICATE_MINER": "одновременный запуск дублирующих майнеров",
+    "LAGGING": "транзиентное отставание ноды",
+    "STALE_COMPARE": "сравнение разнесено по времени",
+    "OWNER_UNKNOWN": "владелец/оператор не доказан",
+    "PARAM_REQUIRED": "маршрут требует параметр, bare-запрос не выполняется",
+    "MODULE_NOT_PUBLISHED": "модуль документированно не опубликован (404), backing не выдаётся за работающий"
+  },
+  "offlineExpected": ["api-gateway-pilot"],
+  "notApplicable": [],
+  "determinism": "truth-gate.json не содержит времени генерации: повторный запуск на тех же входах даёт побайтово тот же результат."
+}

@@ -228,6 +228,17 @@ async function main(argv) {
       ...(isJs ? [process.execPath] : []),
       entry,
       'exec', '--json', '--sandbox', 'workspace-write',
+      /* Стенд намеренно не является git-репозиторием; Codex 0.171 и новее
+         отказывается стартовать в таком каталоге без явного флага. */
+      '--skip-git-repo-check',
+      /* Codex 0.171 снимает снапшот bash перед первой командой; в нём
+         подстановки и here-doc, которые прокси обязан отклонять. Без
+         отключения реальная команда модели не доходит до прокси вообще. */
+      '-c', 'features.shell_snapshot=false',
+      /* Внутренняя песочница Codex иначе блокирует unix-socket брокера
+         (EPERM). Внешний bwrap и прокси с --unshare-net остаются границей:
+         сеть самой модели и так идёт от родительского процесса. */
+      '-c', 'sandbox_workspace_write.network_access=true',
       '-C', fixture.ws,
       '-',
     ];

@@ -160,27 +160,51 @@ function normalizeArgv(argv, backend, agent = false) {
    /usr, а на WSL — на /mnt/c. Каталог пакета монтируется целиком, иначе
    require/ELF-загрузка entrypoint'а не найдёт свои файлы. */
 function packageDirOf(entry) {
-  const marker = `${path.sep}node_modules${path.sep}@openai${path.sep}codex`;
+  /* Монтируется весь scope @openai, а не только пакет codex: codex.js
+     запускает нативный бинарник из соседнего @openai/codex-<platform> и ищет
+     рядом codex-code-mode-host. Без соседей CLI падает внутри sandbox. */
+  const marker = `${path.sep}node_modules${path.sep}@openai`;
   const index = String(entry).indexOf(marker);
   return index === -1 ? null : String(entry).slice(0, index + marker.length);
 }
 
+/* Codex обращается к провайдеру из namespace'а с сетью хоста, но без
+   resolv.conf и корневых сертификатов TLS-запрос падает. Монтируются только
+   файлы резолвера и CA, а не весь /etc. */
+const PROVIDER_ETC_FILES = Object.freeze(['/etc/resolv.conf', '/etc/hosts', '/etc/nsswitch.conf', '/etc/gai.conf']);
+const PROVIDER_ETC_DIRS = Object.freeze(['/etc/ssl', '/etc/ca-certificates', '/etc/pki']);
+
+function providerNetworkMounts(backend) {
+  const mounts = [];
+  for (const file of PROVIDER_ETC_FILES) {
+    if (backendFileExists(backend, file)) mounts.push(['--ro-bind', file, file]);
+  }
+  for (const dir of PROVIDER_ETC_DIRS) {
+    if (backendDirExists(backend, dir)) mounts.push(['--ro-bind', dir, dir]);
+  }
+  return mounts;
+}
+
 function extraFileMounts(codexEntry, backend, mounts) {
   if (!codexEntry) return;
-  if (backend === 'wsl-bwrap') {
-    const entryUnix = toBackendPath(codexEntry, backend);
-    const packageDir = packageDirOf(codexEntry);
-    if (packageDir) {
-      const packageUnix = toBackendPath(packageDir, backend);
-      if (backendDirExists(backend, packageUnix)) {
-        mounts.push(['--ro-bind', packageUnix, packageUnix]);
-        return;
-      }
+  /* Один путь для обоих бэкендов: scope @openai, если он есть, иначе сам
+     entrypoint. Иначе на Linux (bwrap) монтировался только codex.js, и
+     нативный бинарник платформенного пакета оставался снаружи. */
+  const wsl = backend === 'wsl-bwrap';
+  const dirExists = (dir) => (wsl ? backendDirExists(backend, dir) : (() => {
+    try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+  })());
+  const fileExists = (file) => (wsl ? backendFileExists(backend, file) : fs.existsSync(file));
+  const entryUnix = toBackendPath(codexEntry, backend);
+  const packageDir = packageDirOf(codexEntry);
+  if (packageDir) {
+    const packageUnix = toBackendPath(packageDir, backend);
+    if (dirExists(packageUnix)) {
+      mounts.push(['--ro-bind', packageUnix, packageUnix]);
+      return;
     }
-    if (backendFileExists(backend, entryUnix)) mounts.push(['--ro-bind', entryUnix, entryUnix]);
-    return;
   }
-  if (fs.existsSync(codexEntry)) mounts.push(['--ro-bind', codexEntry, codexEntry]);
+  if (fileExists(entryUnix)) mounts.push(['--ro-bind', entryUnix, entryUnix]);
 }
 
 /* Аргументы боевого запуска НЕ монтируются по одному: fix4 так возвращал в
@@ -272,6 +296,7 @@ export function buildAgentPlan({
     staticMounts.push(['--ro-bind', toBackendPath(path.join(binDir, 'sh'), backend), `${dir}/sh`]);
   }
   if (credentialsDir) staticMounts.push(['--bind', toBackendPath(credentialsDir, backend), ISOLATED_CODEX_HOME]);
+  staticMounts.push(...providerNetworkMounts(backend));
 
   const baseEnv = {
     PATH: AGENT_PATH,

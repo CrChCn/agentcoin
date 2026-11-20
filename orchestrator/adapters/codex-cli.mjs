@@ -333,8 +333,14 @@ export function execWithEvents({
   args.push('--json', '--sandbox', sandbox, '-C', workspace);
   if (schemaPath) args.push('--output-schema', schemaPath);
   if (outputPath) args.push('--output-last-message', outputPath);
-  // Сеть в песочнице выключена; запись — только в рабочее дерево агента.
-  args.push('-c', 'sandbox_workspace_write.network_access=false');
+  /* Инструменты модели обязаны дойти до unix-socket брокера: внутренняя
+     песочница Codex без network_access блокирует connect() (EPERM). Сеть
+     инструментов всё равно отключена прокси (--unshare-net на каждую
+     команду), а сам Codex ходит к провайдеру из внешнего namespace.
+     Снапшот bash отключён: он состоит из подстановок, которые политика
+     обязана отклонять, и иначе первая же команда не доходит до прокси. */
+  args.push('-c', 'features.shell_snapshot=false');
+  args.push('-c', 'sandbox_workspace_write.network_access=true');
   args.push('-');
 
   const bin = resolveBin();

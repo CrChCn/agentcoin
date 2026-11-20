@@ -1,9 +1,9 @@
 Agentcoin orchestrator — clean-room verification
-archive: agentcoin-orchestrator-stage-a-fix5-20261120.zip
-files in archive: 83
+archive: agentcoin-orchestrator-stage-a-fix6-20261120.zip
+files in archive: 84
 extractor: unzip
 workspace root: <CLEANROOM>
-$ unzip -q agentcoin-orchestrator-stage-a-fix5-20261120.zip -d unpacked
+$ unzip -q agentcoin-orchestrator-stage-a-fix6-20261120.zip -d unpacked
 exit 0
 --- stdout ---
 
@@ -15,7 +15,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:17928) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:9224) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -44,11 +44,21 @@ exit 0
 ✔ a stale nonce, a reused nonce and a tampered signature are rejected (<ms>)
 ✔ a leaked auth.json value fails the evidence even when everything else is valid (<ms>)
 ✔ auth.json values are scanned in memory and only hashes are returned (<ms>)
-✔ the build fingerprint is computed from this tree (<ms>)
+✔ the build fingerprint covers the whole runtime closure (<ms>)
+✔ changing one byte of a runtime file invalidates the manifest (<ms>)
+✔ evidence from a dirty tree is rejected even with a matching commit (<ms>)
+✔ a tree without git is bound by the manifest digest, not by commit:null (<ms>)
+✔ evidence without proof of auth.json removal is rejected (<ms>)
+﹣ a symlinked or world-readable key store is refused (<ms>) # POSIX ownership/mode checks
+✔ the proxy accepts only -c/-lc and refuses every script mode (<ms>)
+✔ the proxy module has no filesystem access at all (<ms>)
+✔ the mandatory matrix contains the script-mode attacks (<ms>)
+✔ the temporary CODEX_HOME with auth.json is removed (<ms>)
+✔ plan.cleanup removes credentials, scratch, IPC and the broker socket (<ms>)
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:4232) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:3264) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -90,15 +100,17 @@ exit 0
 ✔ command substitution, pipes into denied programs and redirection are denied (<ms>)
 ✔ an empty or audit-only policy never silently allows a denied program (<ms>)
 ✔ absolute paths, home-relative paths and parent escapes are denied (<ms>)
+✔ substitution and path escapes are denied before any allowlist match (<ms>)
+✔ the task allowlist matches exactly, not by prefix (<ms>)
 ✔ a task command cannot smuggle a second command (<ms>)
-ℹ tests 74
+ℹ tests 86
 ℹ suites 0
-ℹ pass 65
+ℹ pass 76
 ℹ fail 0
 ℹ cancelled 0
-ℹ skipped 9
+ℹ skipped 10
 ℹ todo 0
-ℹ duration_ms 172532.7033
+ℹ duration_ms 223342.0644
 --- stderr ---
 
 
@@ -222,7 +234,7 @@ exit 0
   ]
 }
 --- stderr ---
-(node:12740) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:16136) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 
 $ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
@@ -232,7 +244,7 @@ exit 3
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-3Eye0k\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-eLLH2c\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
@@ -385,6 +397,7 @@ tests/contracts.test.mjs: OK
 tests/e2e.test.mjs: OK
 tests/env-policy.test.mjs: OK
 tests/evidence.test.mjs: OK
+tests/fix6.test.mjs: OK
 tests/helpers.mjs: OK
 tests/hostile/attacks.mjs: OK
 tests/lock-holder.mjs: OK
@@ -409,7 +422,7 @@ FILELIST.txt: OK
 --- stderr ---
 
 summary:
-  tests: exit 0, pass 65, fail 0
+  tests: exit 0, pass 76, fail 0
   capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
   preflight: exit 3, blockers agent_isolation_unproven,agent_unauthenticated
   sha256sum: exit 0

@@ -38,7 +38,7 @@ function useFeed() {
   return items;
 }
 
-export default function Home() {
+function Home() {
   const { t } = useLang();
   const feed = useFeed();
   const info = useApi('/api/v1/info', 15000);
@@ -197,5 +197,13 @@ export default function Home() {
         <div className="text-xs text-[#8b93a1]">{nodeList.length > alive.length ? t('proc.sub') : t('proc.all')}</div>
       </Card>
     </div>
+  );
+}
+export default function HomePage() {
+  return (
+    <>
+      <link rel="canonical" href="https://agentcoin.work/" />
+      <Home />
+    </>
   );
 }

@@ -14,13 +14,6 @@
           "file": "imperial.html"
         },
         {
-          "title": "Лэндинг (выведен из эксплуатации → 308 на /)",
-          "href": "/index",
-          "file": "index.html",
-          "deprecated": true,
-          "redirect": "/"
-        },
-        {
           "title": "Стать агентом",
           "href": "/create-wallet",
           "file": "create-wallet.html"

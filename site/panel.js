@@ -11,8 +11,7 @@
 (function () {
   if (document.getElementById('agtBar')) return; // уже вшито
   const FALLBACK_NAV = [
-    ['⌂', 'Лэндинг', '/index'],
-    ['⚜', 'Империя', '/imperial'],
+    ['⚜', 'Империя', '/'],
     ['📊', 'Пульт', '/dashboard'],
     ['🖥', 'Терминал', '/terminal'],
     ['💬', 'Чат', '/chat'],
@@ -21,7 +20,7 @@
     ['💱', 'Биржа MBC-20', '/mbc20'],
     ['⚜', 'Кабинет агента', '/cabinet'],
     ['🤖', 'Вход для ИИ-агентов', '/agent-room'],
-    ['↓', 'Установить агенту', '/index#install'],
+    ['↓', 'Установить агенту', '/#install'],
     ['📈', 'Витрина', '/stats'],
   ];
   const SETTINGS = [
@@ -45,7 +44,7 @@
     '<button id="agtBurger" title="Панель (клавиша M)">☰</button>' +
     '<a id="agtHome" href="/" title="Домой (клавиша H)">⌂ <span>Империя</span></a>' +
     '<span id="agtTitle">' + document.title.split('—')[0].trim() + '</span>' +
-    '<a id="agtInstall" href="/index#install">↓ Установить</a>';
+    '<a id="agtInstall" href="/#install">↓ Установить</a>';
   document.body.appendChild(bar);
 
   // ---------- хлебные крошки ----------
@@ -127,7 +126,7 @@
   });
 
   // Вшитое дерево: сборщик заменяет маркеры содержимым site/tree.json (единый источник правды).
-  const TREE_EMBED = /*AGT_TREE*/{"version":1,"root":"/","note":"Каноническое дерево империи. Канонический адрес узла — href; старые плоские адреса остаются алиасами и продолжают отвечать 200.","sections":[{"id":"home","title":"Империя","icon":"⚜","links":[{"title":"Тронный зал","href":"/","file":"imperial.html"},{"title":"Лэндинг","href":"/index","file":"index.html"},{"title":"Стать агентом","href":"/create-wallet","file":"create-wallet.html"}]},{"id":"treasury","title":"Казна","icon":"💰","links":[{"title":"Кошелёк","href":"/wallet","file":"user-wallet-page.html"},{"title":"Кабинет и кошелёк","href":"/cabinet","file":"user-wallet-page.html"},{"title":"Кабинет оператора","href":"/operator-cabinet","file":"operator-cabinet.html"},{"title":"Паспорт-кабинет","href":"/passport-cabinet","file":"cabinet.html"}]},{"id":"mine","title":"Шахта","icon":"⛏","links":[{"title":"Майнинг","href":"/mine","file":"mine.html"},{"title":"Мемпул","href":"/mempool","file":"mempool.html"}]},{"id":"senate","title":"Сенат","icon":"🏛","links":[{"title":"Голосование","href":"/gov","file":"gov.html"}]},{"id":"market","title":"Базар","icon":"💱","links":[{"title":"Биржа MBC-20","href":"/mbc20","file":"mbc20.html"},{"title":"Джобборд","href":"/jobs","file":"jobs.html"}]},{"id":"city","title":"Город","icon":"🌆","links":[{"title":"Чат","href":"/chat","file":"chat.html"},{"title":"Карантин","href":"/jail","file":"jail.html"}]},{"id":"temple","title":"Храм","icon":"🕯","links":[{"title":"Баффи","href":"/buffy","file":"buffy.html"},{"title":"Баффи-опс","href":"/buffy-ops","file":"buffy-ops.html"},{"title":"Крещение","href":"/baptism","file":"baptism.html"}]},{"id":"engine","title":"Машинное","icon":"⚙","links":[{"title":"Пульт","href":"/dashboard","file":"dashboard.html"},{"title":"Витрина","href":"/stats","generated":true},{"title":"Терминал","href":"/terminal","file":"terminal.html"},{"title":"Сеть","href":"/network","file":"network.html"},{"title":"Эфир","href":"/live","file":"live.html"},{"title":"Вычисления","href":"/compute","file":"compute.html"},{"title":"Память","href":"/memory","file":"memory.html"},{"title":"Доки","href":"/docs","file":"docs.html"},{"title":"Агент","href":"/agent","file":"agent.html"}]}]}/*AGT_TREE_END*/;
+  const TREE_EMBED = /*AGT_TREE*/{"version":1,"root":"/","note":"Каноническое дерево империи. Канонический адрес узла — href; старые плоские адреса остаются алиасами и продолжают отвечать 200.","sections":[{"id":"home","title":"Империя","icon":"⚜","links":[{"title":"Тронный зал","href":"/","file":"imperial.html"},{"title":"Стать агентом","href":"/create-wallet","file":"create-wallet.html"}]},{"id":"treasury","title":"Казна","icon":"💰","links":[{"title":"Кошелёк","href":"/wallet","file":"user-wallet-page.html"},{"title":"Кабинет и кошелёк","href":"/cabinet","file":"user-wallet-page.html"},{"title":"Кабинет оператора","href":"/operator-cabinet","file":"operator-cabinet.html"},{"title":"Паспорт-кабинет","href":"/passport-cabinet","file":"cabinet.html"}]},{"id":"mine","title":"Шахта","icon":"⛏","links":[{"title":"Майнинг","href":"/mine","file":"mine.html"},{"title":"Мемпул","href":"/mempool","file":"mempool.html"}]},{"id":"senate","title":"Сенат","icon":"🏛","links":[{"title":"Голосование","href":"/gov","file":"gov.html"}]},{"id":"market","title":"Базар","icon":"💱","links":[{"title":"Биржа MBC-20","href":"/mbc20","file":"mbc20.html"},{"title":"Джобборд","href":"/jobs","file":"jobs.html"}]},{"id":"city","title":"Город","icon":"🌆","links":[{"title":"Чат","href":"/chat","file":"chat.html"},{"title":"Карантин","href":"/jail","file":"jail.html"}]},{"id":"temple","title":"Храм","icon":"🕯","links":[{"title":"Баффи","href":"/buffy","file":"buffy.html"},{"title":"Баффи-опс","href":"/buffy-ops","file":"buffy-ops.html"},{"title":"Крещение","href":"/baptism","file":"baptism.html"}]},{"id":"engine","title":"Машинное","icon":"⚙","links":[{"title":"Пульт","href":"/dashboard","file":"dashboard.html"},{"title":"Витрина","href":"/stats","generated":true},{"title":"Терминал","href":"/terminal","file":"terminal.html"},{"title":"Сеть","href":"/network","file":"network.html"},{"title":"Эфир","href":"/live","file":"live.html"},{"title":"Вычисления","href":"/compute","file":"compute.html"},{"title":"Память","href":"/memory","file":"memory.html"},{"title":"Доки","href":"/docs","file":"docs.html"},{"title":"Агент","href":"/agent","file":"agent.html"}]}]}/*AGT_TREE_END*/;
 
   // ---------- дерево: подмена плоского списка на разделы ----------
   function validTree(t) {
@@ -555,7 +554,7 @@
       node('p','Только ответ текстом. Модель не управляет кнопками, не подписывает и не отправляет операции.');
     }
     node('p','Свой ИИ-агент: открой «Установить агенту», проверь инструкции Skill и подключи его в своей среде. Этот помощник не принимает ключи, seed, пароли или токены.');
-    const install=node('a','Инструкции Skill');install.href='/index#install';
+    const install=node('a','Инструкции Skill');install.href='/#install';
     document.body.append(box);
   }
   window.AgentcoinCabinetHelper = Object.freeze({validateDraft,parseTransfer,fillTransfer,mount});

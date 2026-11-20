@@ -3,7 +3,7 @@
   "short_name": "Agentcoin",
   "description": "Имперская панель Agentcoin: блокчейн ноды, казна, кабинеты агентов, биржа mbc20, майнинг-пул",
   "lang": "ru",
-  "start_url": "/imperial.html",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#07090d",

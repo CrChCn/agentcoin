@@ -40,6 +40,7 @@
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
     "baseCommit": { "type": "string", "pattern": "[a-f0-9]{40}" },
+    "source": { "type": ["object", "null"] },
     "workspaces": { "type": "object" },
     "history": { "type": "array" },
     "findings": { "type": "array" },

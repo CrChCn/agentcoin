@@ -11,7 +11,7 @@ import { Store } from '../state/store.mjs';
 import { assertRole } from '../adapters/resolver.mjs';
 import { assertValid, SchemaError } from './schema.mjs';
 import { canonical, copyTree, ensureDir, readJson, rmrf, sha256, writeJsonAtomic } from './fsx.mjs';
-import { changedFiles, cloneAt, commitAll, initRepo, revParse } from './git.mjs';
+import { changedFiles, cloneAt, commitAll, initRepo, isRepo, revParse } from './git.mjs';
 import { applyArtifactTo, buildArtifact, verifyArtifactFiles } from '../artifacts/store.mjs';
 import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } from '../policies/policy.mjs';
 import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
@@ -167,7 +167,38 @@ export function loadTask(taskFile) {
   if (task.maxRuntimePerAgentMinutes > task.maxTotalRuntimeMinutes) {
     invariant('maxRuntimePerAgentMinutes cannot exceed maxTotalRuntimeMinutes');
   }
+  // Источник — только локальный каталог и обычный ref: ни URL, ни опций git.
+  if (task.source) {
+    if (!task.source.repo.trim()) invariant('source.repo cannot be empty');
+    if (task.source.ref.startsWith('-') || task.source.ref.includes('..')) {
+      invariant(`source.ref is not a plain git ref: ${task.source.ref}`);
+    }
+  }
   return task;
+}
+
+/* Источник задания: настоящий репозиторий вместо фикстуры. Ref разрешается
+   в коммит здесь же, поэтому baseCommit — это коммит источника, а не
+   пересобранный шаблон. Сеть не используется: только локальный каталог. */
+export function taskSource(task) {
+  const source = task.source;
+  if (!source) return null;
+  const repo = path.isAbsolute(source.repo)
+    ? path.resolve(source.repo)
+    : path.resolve(ORCH_ROOT, source.repo);
+  if (!fs.existsSync(repo)) {
+    throw Object.assign(new Error(`task source repo not found: ${repo}`), { code: 'TASK_SOURCE_MISSING' });
+  }
+  if (!isRepo(repo)) {
+    throw Object.assign(new Error(`task source is not a git repository: ${repo}`), { code: 'TASK_SOURCE_NOT_REPO' });
+  }
+  const commit = revParse(repo, `${source.ref}^{commit}`);
+  if (!/^[a-f0-9]{40}$/.test(commit)) {
+    throw Object.assign(new Error(`task source ref did not resolve to a commit: ${source.ref}`), {
+      code: 'TASK_SOURCE_BAD_REF',
+    });
+  }
+  return { repo, ref: source.ref, commit };
 }
 
 export function workspacePaths(root, taskId) {
@@ -328,9 +359,16 @@ function checkout({ store, root, state }) {
   }
   const { wsRoot, implementerDir, reviewerDir } = workspacePaths(root, task.taskId);
   ensureDir(wsRoot);
+  const source = taskSource(task);
   if (!fs.existsSync(path.join(implementerDir, '.git'))) {
-    copyTree(FIXTURE_DIR, implementerDir);
-    initRepo(implementerDir);
+    if (source) {
+      // Копия источника на его коммите: рабочее дерево задания — клон, а сам
+      // репозиторий остаётся нетронутым, ветки и индекс не меняются.
+      cloneAt(source.repo, implementerDir, source.commit);
+    } else {
+      copyTree(FIXTURE_DIR, implementerDir);
+      initRepo(implementerDir);
+    }
   }
   const baseCommit = revParse(implementerDir, 'HEAD');
   return store.transition({
@@ -341,8 +379,11 @@ function checkout({ store, root, state }) {
     payload: {
       patch: {
         baseCommit,
+        source: source ? { repo: source.repo, ref: source.ref, commit: source.commit } : null,
         workspaces: { implementer: rel(root, implementerDir), reviewer: rel(root, reviewerDir) },
-        reason: `isolated workspaces prepared from fixture, base ${baseCommit.slice(0, 8)}`,
+        reason: source
+          ? `isolated workspaces cloned from ${source.repo}@${source.ref}, base ${baseCommit.slice(0, 8)}`
+          : `isolated workspaces prepared from fixture, base ${baseCommit.slice(0, 8)}`,
       },
     },
   });
@@ -693,10 +734,16 @@ async function runReviewer({ store, root, state }) {
   cloneAt(implementerDir, baseDir, state.baseCommit);
   cloneAt(implementerDir, appliedDir, state.baseCommit);
   applyArtifactTo(appliedDir, bytes);
-  fs.copyFileSync(
-    path.join(REVIEWER_CHECKS_DIR, 'reviewer.extra.test.mjs'),
-    path.join(appliedDir, 'tests', 'reviewer.extra.test.mjs'),
-  );
+  /* Независимая проверка проверяющего — деталь учебного шаблона: у него есть
+     фиксированный каталог tests/. У настоящего репозитория (task.source) такой
+     подкладки нет: ревьюер работает по tests/acceptance и commandsAllowed
+     самого задания, поэтому чужой файл в дерево не копируется. */
+  if (!task.source) {
+    fs.copyFileSync(
+      path.join(REVIEWER_CHECKS_DIR, 'reviewer.extra.test.mjs'),
+      path.join(appliedDir, 'tests', 'reviewer.extra.test.mjs'),
+    );
+  }
   const archivePath = path.join(appliedDir, '.review', 'artifact.zip');
   ensureDir(path.dirname(archivePath));
   fs.writeFileSync(archivePath, bytes);
@@ -1005,6 +1052,7 @@ export function report({ root, taskId }) {
     usage: state.usage || null,
     runtimeMs: { implementer: runtimeMsOf(state, 'implementer'), reviewer: runtimeMsOf(state, 'reviewer'), total: totalRuntimeMsOf(state) },
     budget: budgetSnapshot(state, state.task),
+    source: state.source || null,
     baseCommit: state.baseCommit || null,
     resultCommit: state.result ? state.result.resultCommit : null,
     acceptedArtifactSha256: state.acceptedArtifactSha256 || null,
@@ -1017,5 +1065,8 @@ export function report({ root, taskId }) {
   };
   const file = path.join(root, 'logs', taskId, 'report.json');
   writeJsonAtomic(file, summary);
+  /* Копия в корне прогона: читатель run-каталога не должен угадывать путь
+     logs/<taskId>/report.json. Оба файла пишутся из одного объекта. */
+  writeJsonAtomic(path.join(root, 'report.json'), summary);
   return { ...summary, reportPath: rel(root, file) };
 }

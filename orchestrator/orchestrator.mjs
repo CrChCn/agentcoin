@@ -152,6 +152,7 @@ function statusOf(state) {
     iteration: state.iteration,
     implementer: state.implementer,
     reviewer: state.reviewer,
+    source: state.source || null,
     baseCommit: state.baseCommit || null,
     resultCommit: state.result ? state.result.resultCommit : null,
     artifact: artifact ? { artifactId: artifact.artifactId, sha256: artifact.sha256, size: artifact.size } : null,

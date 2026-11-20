@@ -78,6 +78,10 @@ if [[ "$DRY" -ne 1 && -z "$PREFIX" && "$(id -u)" -ne 0 ]]; then
   echo "install.sh needs root (sudo) except for --dry-run and --prefix rehearsal" >&2
   exit 77
 fi
+if [[ -z "${SERVICE_USER//[[:space:]]/}" ]]; then
+  echo "SERVICE_USER is empty: refusing to install without a service account" >&2
+  exit 64
+fi
 if ! command -v node >/dev/null 2>&1 && [[ "$DRY" -ne 1 ]]; then
   echo "node is required in PATH (Node.js 20+)" >&2
   exit 78
@@ -279,11 +283,18 @@ if [[ "$DRY" -ne 1 ]]; then
   say "== manifest"
   install -d -m 0750 "$OPS_ROOT/inventory"
   MANIFEST="$OPS_ROOT/inventory/install-manifest-$TS.json"
-  node - "$RELEASE" "$UNIT_DST" "$MANIFEST" "$TS" "$CURRENT" "$OPS_ROOT" "$LOG_BASE" <<'NODE'
+  node - "$RELEASE" "$UNIT_DST" "$MANIFEST" "$TS" "$CURRENT" "$OPS_ROOT" "$LOG_BASE" "$SERVICE_USER" "$DEPLOY_USER" <<'NODE'
 const { execSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const [release, unitDir, out, ts, current, dataRoot, logRoot] = process.argv.slice(2);
+/* Пользователи передаются аргументами. Переменные install.sh не экспортированы,
+   поэтому чтение process.env.SERVICE_USER молча подставляло 'agt-orchestrator'
+   и записывало в манифест владельца, которого в системе может не быть. */
+const [release, unitDir, out, ts, current, dataRoot, logRoot, serviceUser, deployUser] = process.argv.slice(2);
+if (!serviceUser || !deployUser) {
+  console.error('refusing to write a manifest without serviceUser/deployUser');
+  process.exit(1);
+}
 const units = ['agt-orchestrator.service', 'agt-orchestrator-api.service', 'agt-orchestrator-scheduler.service',
   'agt-orchestrator-scheduler.timer', 'agt-orchestrator-watchdog.service', 'agt-orchestrator-watchdog.timer',
   'agt-deployer.service'];
@@ -302,7 +313,7 @@ const unitFiles = units.filter((unit) => fs.existsSync(path.join(unitDir, unit))
   sha256: execSync(`sha256sum "${path.join(unitDir, unit)}"`).toString().split(' ')[0],
 }));
 fs.writeFileSync(out, JSON.stringify({
-  installedAt: ts, release, current: fs.readlinkSync(current), dataRoot, logRoot, serviceUser: process.env.SERVICE_USER || 'agt-orchestrator',
+  installedAt: ts, release, current: fs.readlinkSync(current), dataRoot, logRoot, serviceUser, deployUser,
   codeFiles: files.length, units: unitFiles, files,
 }, null, 2) + '\n');
 console.log(`  ${files.length} code files + ${unitFiles.length} units recorded in ${out}`);

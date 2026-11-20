@@ -143,7 +143,7 @@ node service/opsd.mjs api --port 8799        # публичный allowlist API 
 node service/opsd.mjs watchdog               # проверка зависания (код 2)
 node service/opsd.mjs queue --add task.json  # задание владельца
 node service/opsd.mjs memory --lesson "…"    # заметка в память проекта
-node service/opsd.mjs stop|resume
+node service/opsd.mjs stop|resume           # отказ 78: STOP и resume ставит только service/operator.mjs
 ```
 
 ## Доказательства
@@ -156,6 +156,7 @@ node service/opsd.mjs stop|resume
 | `evidence/c1-real-crash-recovery.txt` | **BLOCKED**: настоящий Codex на этой машине недоступен (`agent_unavailable`, `adapterEndToEnd=false`); скрипт отказывается подменять доказательство дублёром |
 | `evidence/c1-install-dryrun.txt` | dry-run install/rollback/uninstall, повторный запуск, отказ при чужом владельце (79) и без root (77) |
 | `evidence/c2-acceptance.txt` / `.json` | 24 проверки C2: read-only код, IDLE, одна задача, symlink, инцидент, STOP/ключ, loopback API, deployer, rollback/uninstall, pinned runtime; 2 пункта `PENDING` (systemd/reboot на хосте) |
+| `evidence/c2-host-acceptance.txt` / `.json` | приёмка на реальном ops-host (`service/tools/c2-host-acceptance.sh`): юниты, loopback API, IDLE, одна задача по registry evidence, STOP/queue/checkpoint после reboot, rollback/uninstall; PASS только за выполненную проверку, остальное SKIP/PENDING |
 | `evidence/c2-install-rehearsal.txt` | новая раскладка: dry-run, идемпотентность, prefix-установка, отказ rollback без release (80), group-writable STOP (82), без root (77), границы репетиции |
 | `evidence/c1-systemd-verify.txt` | `systemd-analyze verify` для 7 юнитов |
 

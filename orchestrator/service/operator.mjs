@@ -62,10 +62,14 @@ function main() {
   if (command === 'stop') {
     requireOwner();
     const reason = String(opts.reason || 'operator stop');
+    /* Ключ и подпись готовятся до записи STOP: иначе STOP без подписанного
+       события (например, при отсутствующем ключе) останавливал бы сервис,
+       хотя команда завершилась ошибкой. */
+    const operator = loadOperatorPrivateKey(keyFileOf(opts));
+    const signed = signEntry(store.nextEntry('service.stop_signed', null, { reason, by: 'operator' }), operator);
     fs.mkdirSync(path.dirname(store.paths.stopFile), { recursive: true });
     fs.writeFileSync(store.paths.stopFile, `${new Date().toISOString()} ${reason}\n`, { mode: 0o644 });
-    const operator = loadOperatorPrivateKey(keyFileOf(opts));
-    const entry = store.commitEntry(signEntry(store.nextEntry('service.stop_signed', null, { reason, by: 'operator' }), operator));
+    const entry = store.commitEntry(signed);
     store.heartbeat({ state: 'stopping', reason: 'operator stop' });
     print({ stopFile: store.paths.stopFile, event: { seq: entry.seq, keyId: entry.keyId, alg: entry.alg } });
     return 0;

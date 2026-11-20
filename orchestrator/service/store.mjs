@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import { appendJsonl, ensureDir, readJson, readJsonl, writeJsonAtomic } from '../lib/fsx.mjs';
+import { appendJsonl, readJson, readJsonl, writeJsonAtomic } from '../lib/fsx.mjs';
 import { loadOperatorPublicKey, verifyEntry } from '../lib/opsauth.mjs';
 import { pidAlive } from '../lib/lock.mjs';
 import { hostId as machineId, processStartTime, processVerdict, selfIdentity } from '../lib/procinfo.mjs';
@@ -242,23 +242,12 @@ export class OpsStore {
     return out;
   }
 
+  /* STOP ставит только оператор (service/operator.mjs): он владеет control/ и
+     приватным ключом. У сервиса нет метода, создающего STOP, — это не
+     настройка прав, а отсутствие кода, поэтому никакая ошибка конфигурации не
+     открывает неподписанный путь. */
   stopRequested() {
     return fs.existsSync(this.paths.stopFile);
-  }
-
-  /* STOP создаёт оператор (service/operator.mjs) или watchdog, а не рабочий
-     цикл. Если каталог принадлежит root, у сервиса здесь будет EACCES — это
-     и есть требуемое поведение, а не ошибка. */
-  requestStop(reason = 'owner stop') {
-    if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
-    try {
-      ensureDir(path.dirname(this.paths.stopFile));
-      fs.writeFileSync(this.paths.stopFile, `${nowIso()} ${reason}\n`, { flag: 'w' });
-    } catch (err) {
-      throw Object.assign(new Error(`cannot create STOP in ${path.dirname(this.paths.stopFile)}: ${err.code || err.message}`), { code: 'STOP_NOT_WRITABLE', cause: err });
-    }
-    this.journal('service.stop_requested', null, { reason });
-    return this.paths.stopFile;
   }
 
   /* Снять STOP может только операторская команда: она удаляет файл и пишет

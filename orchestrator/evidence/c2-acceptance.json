@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-20T18:15:18.681Z",
+  "at": "2026-11-20T19:48:38.873Z",
   "root": "/tmp/c2-accept",
   "results": [
     {
@@ -15,12 +15,12 @@
     {
       "id": "code-read-only",
       "ok": true,
-      "detail": "release=opt/agentcoin-orchestrator/releases/20261120T181504Z; writable files=0; append blocked=true"
+      "detail": "release=opt/agentcoin-orchestrator/releases/20261120T194826Z; writable files=0; append blocked=true"
     },
     {
       "id": "code-outside-data",
       "ok": true,
-      "detail": "code opt/agentcoin-orchestrator/releases/20261120T181504Z is separate from data"
+      "detail": "code opt/agentcoin-orchestrator/releases/20261120T194826Z is separate from data"
     },
     {
       "id": "control-dir-not-service-writable",
@@ -110,7 +110,7 @@
     {
       "id": "rollback-restores-previous-release",
       "ok": true,
-      "detail": "release1=20261120T181504Z release2=20261120T181512Z after=20261120T181504Z"
+      "detail": "release1=20261120T194826Z release2=20261120T194834Z after=20261120T194826Z"
     },
     {
       "id": "uninstall-keeps-data",

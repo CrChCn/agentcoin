@@ -1,9 +1,9 @@
 Agentcoin orchestrator — clean-room verification
-archive: agentcoin-orchestrator-stage-a-fix6-20261120.zip
+archive: agentcoin-orchestrator-stage-a-fix7-20261120.zip
 files in archive: 84
 extractor: unzip
 workspace root: <CLEANROOM>
-$ unzip -q agentcoin-orchestrator-stage-a-fix6-20261120.zip -d unpacked
+$ unzip -q agentcoin-orchestrator-stage-a-fix7-20261120.zip -d unpacked
 exit 0
 --- stdout ---
 
@@ -15,7 +15,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:9224) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:13068) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -46,6 +46,8 @@ exit 0
 ✔ auth.json values are scanned in memory and only hashes are returned (<ms>)
 ✔ the build fingerprint covers the whole runtime closure (<ms>)
 ✔ changing one byte of a runtime file invalidates the manifest (<ms>)
+✔ state and artifacts modules are covered by the manifest, their data is not (<ms>)
+✔ every module reachable from a runtime entrypoint is in the manifest (<ms>)
 ✔ evidence from a dirty tree is rejected even with a matching commit (<ms>)
 ✔ a tree without git is bound by the manifest digest, not by commit:null (<ms>)
 ✔ evidence without proof of auth.json removal is rejected (<ms>)
@@ -58,7 +60,7 @@ exit 0
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:3264) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:15848) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -103,14 +105,14 @@ exit 0
 ✔ substitution and path escapes are denied before any allowlist match (<ms>)
 ✔ the task allowlist matches exactly, not by prefix (<ms>)
 ✔ a task command cannot smuggle a second command (<ms>)
-ℹ tests 86
+ℹ tests 88
 ℹ suites 0
-ℹ pass 76
+ℹ pass 78
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 10
 ℹ todo 0
-ℹ duration_ms 223342.0644
+ℹ duration_ms 181699.9043
 --- stderr ---
 
 
@@ -234,7 +236,7 @@ exit 0
   ]
 }
 --- stderr ---
-(node:16136) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:3120) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 
 $ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
@@ -244,7 +246,7 @@ exit 3
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-eLLH2c\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-GvEJrn\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
@@ -422,7 +424,7 @@ FILELIST.txt: OK
 --- stderr ---
 
 summary:
-  tests: exit 0, pass 76, fail 0
+  tests: exit 0, pass 78, fail 0
   capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
   preflight: exit 3, blockers agent_isolation_unproven,agent_unauthenticated
   sha256sum: exit 0

@@ -1,0 +1,4 @@
+# Репозиторий хранит файлы с CRLF: CR перед переводом строки — не ошибка пробелов.
+# cr-at-eol включён, остальные проверки сохранены, поэтому `git diff --check`
+# проходит без `-c core.whitespace=cr-at-eol`, а настоящие хвостовые пробелы ловятся.
+* whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

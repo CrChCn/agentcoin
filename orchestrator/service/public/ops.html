@@ -30,13 +30,13 @@
 <body>
 <main>
   <h1>⚜ AGENTCOIN · OPS</h1>
-  <div class="sub">Публичное наблюдение за автономной инженерной петлёй. Только чтение: здесь нельзя создать задачу, разрешить deployment, остановить оркестратор или откатить релиз — эти действия выполняет владелец на сервере.</div>
+  <div class="sub">Публичное наблюдение за автономной инженерной петлёй. Только чтение: здесь нельзя создать задачу, разрешить deployment, остановить оркестратор или откатить релиз — эти действия выполняет владелец на сервере. Публикуются только поля из allowlist; путей, PID, промптов и памяти проекта здесь нет по построению.</div>
 
   <div class="grid">
     <div class="card"><h2>Оркестратор</h2><div class="big" id="orchState">—</div><div id="orchMeta" class="dim">—</div></div>
-    <div class="card"><h2>Текущая задача</h2><div class="big" id="currentTask">—</div><div id="currentState" class="dim">—</div></div>
     <div class="card"><h2>Очередь</h2><div class="big" id="queueCounts">—</div><div class="dim">pending / leased / done</div></div>
     <div class="card"><h2>Heartbeat</h2><div class="big" id="beat">—</div><div id="beatMeta" class="dim">—</div></div>
+    <div class="card"><h2>Deployment</h2><div class="big" id="deploy">—</div><div class="dim">выключен до доказанного rollback</div></div>
   </div>
 
   <section>
@@ -45,19 +45,9 @@
   </section>
 
   <section>
-    <h2>Очередь задач</h2>
-    <table><thead><tr><th>Задача</th><th>Статус</th><th>Попытки</th><th>Commit</th><th>Артефакт SHA256</th></tr></thead><tbody id="queueRows"></tbody></table>
-    <div class="note" id="queueNote"></div>
-  </section>
-
-  <section>
-    <h2>Память проекта · последние решения</h2>
-    <ul id="lessons" class="empty"></ul>
-  </section>
-
-  <section>
-    <h2>Релизы</h2>
-    <div class="card"><div id="releases" class="dim">—</div><div class="note">Публикация выключена на этапе C1: deployer существует как выключенный юнит и не имеет права писать в production.</div></div>
+    <h2>Задачи</h2>
+    <table><thead><tr><th>Задача</th><th>Статус</th><th>Основание</th><th>Попытки</th><th>Commit</th><th>Артефакт SHA256</th></tr></thead><tbody id="taskRows"></tbody></table>
+    <div class="note">Задачи ставит планировщик только по доказанному расхождению (реестр проверок) или владелец. Без evidence — IDLE.</div>
   </section>
 
   <div class="note" id="stamp"></div>
@@ -67,64 +57,36 @@
   const el = (id) => document.getElementById(id);
   const text = (id, value) => { const node = el(id); if (node) node.textContent = value == null ? '—' : String(value); };
   const esc = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-
-  function statePill(ok, label) {
-    const cls = ok === true ? 'ok' : ok === false ? 'bad' : 'warn';
-    return '<span class="pill ' + cls + '">' + esc(label) + '</span>';
-  }
+  const pill = (ok, label) => '<span class="pill ' + (ok === true ? 'ok' : ok === false ? 'bad' : 'warn') + '">' + esc(label) + '</span>';
 
   async function load() {
     try {
-      const [status, queue, releases] = await Promise.all([
-        fetch(API + '/status', { cache: 'no-store' }).then((r) => r.json()),
-        fetch(API + '/queue?limit=20', { cache: 'no-store' }).then((r) => r.json()),
-        fetch(API + '/releases', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ releases: [] })),
-      ]);
-
+      const status = await fetch(API + '/status', { cache: 'no-store' }).then((r) => r.json());
       const orc = status.orchestrator || {};
-      text('orchState', orc.state || 'unknown');
-      el('orchState').innerHTML = esc(orc.state || 'unknown') + ' ' + statePill(orc.stale === false, orc.stale ? 'stale' : 'live');
-      text('orchMeta', 'pid ' + (orc.pid || '—') + ' · ' + (status.host || '—') + ' · снимок ' + (status.generatedAt || '—'));
-
-      const checkpoint = status.checkpoint || {};
-      text('currentTask', checkpoint.taskId || 'нет активной задачи');
-      text('currentState', checkpoint.state ? (checkpoint.state + ' · iteration ' + (checkpoint.iteration ?? '—')) : '—');
+      el('orchState').innerHTML = esc(orc.state || 'unknown') + ' ' + pill(orc.stale === false, orc.stale ? 'stale' : 'live');
+      text('orchMeta', orc.continuous ? 'миссия непрерывна · снимок ' + (status.generatedAt || '—') : 'снимок ' + (status.generatedAt || '—'));
 
       const counts = status.queue || {};
-      el('queueCounts').textContent = (counts.pending || 0) + ' / ' + (counts.leased || 0) + ' / ' + (counts.done || 0);
-      text('beat', (status.orchestrator && status.orchestrator.heartbeatAgeSec != null) ? status.orchestrator.heartbeatAgeSec + ' s' : '—');
-      text('beatMeta', status.orchestrator && status.orchestrator.heartbeatAt ? ('последний ' + status.orchestrator.heartbeatAt) : '—');
+      text('queueCounts', (counts.pending || 0) + ' / ' + (counts.leased || 0) + ' / ' + (counts.done || 0));
+      text('beat', orc.heartbeatAgeSec == null ? '—' : orc.heartbeatAgeSec + ' s');
+      text('beatMeta', orc.heartbeatAgeSec == null ? 'нет heartbeat' : 'возраст heartbeat');
+      text('deploy', status.deployment || 'not-enabled');
 
-      const memory = status.memory || {};
-      const facts = memory.facts || {};
-      const missionTitle = (status.mission && status.mission.text) || 'Развивать Agentcoin как открытую сеть и экономику ИИ-агентов.';
-      text('mission', missionTitle);
-      const priorities = (document.getElementById('priorities'));
-      priorities.innerHTML = (status.mission && status.mission.priorities ? status.mission.priorities : []).map((p) => '<li>' + esc(p) + '</li>').join('');
-      if (facts.lastAcceptedTask) priorities.insertAdjacentHTML('beforeend', '<li class="dim">последняя принятая: ' + esc(facts.lastAcceptedTask) + ' · ' + esc(facts.lastAcceptedCommit || '') + '</li>');
+      const mission = status.mission || {};
+      text('mission', mission.title || '—');
+      el('priorities').innerHTML = (mission.priorities || []).map((p) => '<li>' + esc(p) + '</li>').join('');
 
-      const rows = (queue.items || []).map((item) => {
-        const result = item.result || {};
-        return '<tr><td>' + esc(item.taskId) + '<div class="dim">' + esc(item.title || '') + '</div></td>' +
-          '<td>' + statePill(item.status === 'done', item.status) + '</td>' +
-          '<td>' + esc(item.attempts) + '</td>' +
-          '<td><code>' + esc((result.commit || '').slice(0, 12)) + '</code></td>' +
-          '<td><code>' + esc((result.artifactSha || '').slice(0, 16)) + '</code></td></tr>';
-      });
-      el('queueRows').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="5" class="empty">очередь пуста</td></tr>';
-      text('queueNote', 'Задания создаёт planner из миссии или владелец. Посетитель страницы не может поставить задачу: API принимает только GET.');
-
-      const lessons = (memory.lessons || []).slice(-8).map((lesson) =>
-        '<li>' + esc(lesson.task || lesson.kind || '') + ' — ' + esc(lesson.kind || '') +
-        (lesson.commit ? ' · <code>' + esc(String(lesson.commit).slice(0, 12)) + '</code>' : '') + '</li>');
-      el('lessons').innerHTML = lessons.length ? lessons.join('') : '<li class="empty">пока нет записей</li>';
-
-      const releaseList = releases.releases || [];
-      text('releases', releases.deployment === 'not-enabled' ? 'deployment: not-enabled' : ('релизов: ' + releaseList.length));
+      const rows = (status.tasks || []).map((task) =>
+        '<tr><td>' + esc(task.taskId) + '</td>' +
+        '<td>' + pill(task.status === 'done', task.status) + '</td>' +
+        '<td>' + esc(task.triggerType || 'owner backlog') + '</td>' +
+        '<td>' + esc(task.attempts) + '</td>' +
+        '<td><code>' + esc((task.commit || '').slice(0, 12)) + '</code></td>' +
+        '<td><code>' + esc((task.artifactSha || '').slice(0, 16)) + '</code></td></tr>');
+      el('taskRows').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="6" class="empty">задач нет</td></tr>';
       text('stamp', 'обновлено ' + new Date().toLocaleString('ru-RU') + ' · источник ' + API);
     } catch (err) {
-      text('orchState', 'API недоступен');
-      el('orchState').innerHTML = 'API недоступен ' + statePill(false, 'offline');
+      el('orchState').innerHTML = 'API недоступен ' + pill(false, 'offline');
       text('orchMeta', String(err && err.message ? err.message : err));
     }
   }

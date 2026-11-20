@@ -13,11 +13,13 @@
    - настоящие адаптеры (codex-*) включаются лишь при mission.allowRealAgents
      и доказанной изоляции; по умолчанию работают детерминированные дублёры. */
 
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 import { TERMINAL, initTask, report, step } from '../lib/engine.mjs';
 import { Store } from '../state/store.mjs';
-import { acquireLock, lockStatus, pidAlive, reconcileLock } from '../lib/lock.mjs';
+import { lockStatus, reconcileLock } from '../lib/lock.mjs';
 import { detectSandbox } from '../lib/sandbox.mjs';
 import { isolationEvidence } from '../lib/agentsandbox.mjs';
 
@@ -54,7 +56,9 @@ export function reconcileDeadLocks(store, queueItems) {
   for (const item of queueItems) {
     const status = lockStatus(store.paths.base, item.taskId);
     if (!status.locked || !status.lock) continue;
-    if (pidAlive(status.lock.pid)) continue;
+    /* Решение по всей комбинации hostId + bootId + pid + processStartTime:
+       pid сам по себе после перезагрузки может принадлежать другому процессу. */
+    if (status.ownerAlive) continue;
     let journalOk = true;
     try {
       journalOk = new Store(store.paths.base, { readOnly: true }).verifyJournal(item.taskId).ok;
@@ -68,7 +72,14 @@ export function reconcileDeadLocks(store, queueItems) {
     const result = reconcileLock(store.paths.base, item.taskId, { force: true });
     if (result.ok) {
       reconciled.push({ taskId: item.taskId, lock: result.lock });
-      store.journal('lock.reconciled', item.taskId, { deadPid: status.lock.pid, operationId: status.lock.operationId });
+      store.journal('lock.reconciled', item.taskId, {
+        deadPid: status.lock.pid,
+        operationId: status.lock.operationId,
+        reason: status.verdict ? status.verdict.reason : null,
+        weak: status.verdict ? status.verdict.weak : null,
+        bootId: status.lock.bootId || null,
+        processStartTime: status.lock.processStartTime ?? null,
+      });
     } else {
       store.journal('lock.reconcile_refused', item.taskId, { code: result.code, reason: result.reason });
     }
@@ -82,6 +93,45 @@ function adaptersFor(mission, gate) {
     return { implementer: adapters.implementer || 'codex-implementer', reviewer: adapters.reviewer || 'codex-reviewer', real: true };
   }
   return { implementer: adapters.fixtureImplementer || 'fixture-implementer', reviewer: adapters.fixtureReviewer || 'fixture-reviewer', real: false };
+}
+
+/* Предохранитель: несколько подряд неудачных заданий — это не повод
+   продолжать. Пока breaker не снят владельцем (правкой очереди/памяти),
+   планировщик новых задач не создаёт. */
+export function breakerState(store, mission) {
+  const limit = Number((mission.budget || {}).consecutiveFailureBreaker || 0);
+  if (!limit) return { tripped: false, failures: 0, limit: 0 };
+  const terminal = store.list()
+    .filter((item) => item.status === STATUS.FAILED || item.status === STATUS.BLOCKED || item.status === STATUS.DONE)
+    .sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)));
+  let failures = 0;
+  for (let i = terminal.length - 1; i >= 0; i--) {
+    if (terminal[i].status === STATUS.DONE) break;
+    failures += 1;
+  }
+  return { tripped: failures >= limit, failures, limit };
+}
+
+/* Источник должен быть доступен только на чтение: запись в source-репозиторий
+   означала бы, что агент меняет базу будущих задач, а не только свою копию.
+   По умолчанию это предупреждение в журнале; enforceReadOnly=true блокирует. */
+export function sourceAccess(store, mission, taskFile) {
+  try {
+    const task = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
+    if (!task || !task.source || !task.source.repo) return { checked: false, reason: 'task has no source repo' };
+    const repoPath = path.isAbsolute(task.source.repo) ? task.source.repo : path.resolve(store.paths.base, task.source.repo);
+    if (!fs.existsSync(repoPath)) return { checked: true, exists: false, repo: task.source.repo };
+    let writable = false;
+    try {
+      fs.accessSync(repoPath, fs.constants.W_OK);
+      writable = true;
+    } catch {
+      writable = false;
+    }
+    return { checked: true, exists: true, writable, repo: task.source.repo, enforced: Boolean((mission.sourceRequirements || {}).enforceReadOnly) };
+  } catch (err) {
+    return { checked: false, reason: String(err.message || err) };
+  }
 }
 
 /* Один шаг задания с heartbeat. Возвращает состояние или null при отказе
@@ -109,14 +159,25 @@ export async function tick({ root, mission, signal = null } = {}) {
   const maxSteps = Number.isInteger(loop.maxStepsPerTick) ? loop.maxStepsPerTick : 8;
 
   const released = store.releaseExpiredLeases();
-  if (released.length) store.heartbeat({ state: 'recovering', released: released.map((r) => r.taskId) });
+  if (released.length) {
+    store.heartbeat({ state: 'recovering', released: released.map((r) => r.taskId) });
+    for (const record of released) store.journal('lease.released_after_crash', record.taskId, record.verdict || null);
+  }
 
   const queueItems = store.list();
   const reconciled = reconcileDeadLocks(store, queueItems.filter((item) => item.status === STATUS.LEASED || item.status === STATUS.PENDING));
 
   if (store.stopRequested()) {
+    /* STOP сильнее планировщика и аренды: ни задача не создаётся, ни шаг не
+       начинается. Файл на диске переживает перезапуск процесса. */
     store.heartbeat({ state: 'stopped', stopFile: store.paths.stopFile });
     return { action: 'stopped', released, reconciled };
+  }
+
+  const breaker = breakerState(store, mission);
+  if (breaker.tripped) {
+    store.heartbeat({ state: 'breaker', failures: breaker.failures, limit: breaker.limit });
+    return { action: 'breaker', breaker, released, reconciled };
   }
 
   const gate = realAgentsGate(mission);
@@ -126,6 +187,16 @@ export async function tick({ root, mission, signal = null } = {}) {
     store.checkpoint({ taskId: null, state: 'idle', iteration: null, seq: null });
     store.heartbeat({ state: 'idle', gate: gate.requested ? { ok: gate.ok, detail: gate.detail } : null });
     return { action: plan.action === 'enqueued' ? 'planned' : 'idle', plan, released, reconciled, gate };
+  }
+
+  const source = item.taskFile ? sourceAccess(store, mission, item.taskFile) : { checked: false, reason: 'no task file' };
+  if (source.checked && source.exists && source.writable) {
+    store.journal('source.writable', item.taskId, source);
+    if (source.enforced) {
+      store.fail(item.taskId, { status: STATUS.BLOCKED, reason: 'source repository is writable; read-only access is required' });
+      store.heartbeat({ state: 'idle', lastError: 'source_not_read_only' });
+      return { action: 'source-refused', taskId: item.taskId, source, released, reconciled };
+    }
   }
 
   store.heartbeat({ state: 'working', taskId: item.taskId, taskState: 'starting' });

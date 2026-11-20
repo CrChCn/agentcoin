@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "mission": "Развивать Agentcoin как открытую сеть и экономику ИИ-агентов.",
   "continuous": true,
   "priorities": [
@@ -15,15 +15,22 @@
   ],
   "planner": {
     "enabled": true,
-    "maxOpenTasks": 1,
-    "template": "fixtures/tasks/lesson-01.json",
-    "taskPrefix": "plan",
-    "titleSuffix": "rehearsal"
+    "taskPrefix": "gap",
+    "registry": "registry.json",
+    "note": "планировщик не клонирует шаблоны: задача ставится только по доказанному расхождению из реестра или backlog владельца; иначе IDLE"
   },
+  "repositoryRoot": "repository",
   "loop": {
     "intervalSec": 60,
     "maxTaskMinutes": 30,
-    "maxStepsPerTick": 8
+    "maxStepsPerTick": 8,
+    "processIdleTimeoutSec": 300
+  },
+  "budget": {
+    "project": "unlimited",
+    "task": "finite",
+    "processIdleTimeoutSec": 300,
+    "consecutiveFailureBreaker": 3
   },
   "adapters": {
     "mode": "fixture",
@@ -43,6 +50,13 @@
     "productionWrites": "forbidden",
     "wallets": "forbidden",
     "transactions": "forbidden"
+  },
+  "sourceRequirements": {
+    "readOnly": true,
+    "fetch": "owner-only",
+    "push": "forbidden",
+    "pinnedCommit": true,
+    "personalWriteKeys": "forbidden"
   },
   "ownerActions": [
     "создание стратегической цели",

@@ -1,184 +1,158 @@
-# Этап C1 — Always-on Orchestrator
+# Этап C1.1 — Always-on Orchestrator, hardening
 
-Постоянный сервис поверх движка этапа A. Задача этапа: оркестратор перестаёт
-зависеть от ноутбука — очередь, миссия, планировщик, память проекта, systemd и
-read-only статус для сайта. **Публикации в production на этом этапе нет.**
+Сервис поверх движка этапа A: очередь, миссия, планировщик по доказанным
+расхождениям, память проекта, systemd и публичный read-only статус.
+**Публикации в production нет, настоящие агенты по умолчанию выключены.**
 
-```
-agentcoin.work/ops                  ← публичный статус (только чтение)
-        │  Caddy → 127.0.0.1:8799
-Agentcoin Ops API                   ← service/api.mjs
-        │
-Оркестратор 24/7                    ← service/opsd.mjs loop
-        │
-   planner (timer) → queue → engine step → reviewer → ACCEPTED
-        │
-   project-memory + artifacts + commits (без push и без деплоя)
-```
+C1.1 закрывает восемь дефектов C1: самоповторяющийся planner, слабый lease,
+недоказанный STOP, адреса API, публичные поля, hard budget, read-only источник
+и установку без dry-run/rollback.
 
-## Что сервис умеет и чего не умеет
+## Что изменилось в C1.1
 
-| Разрешено | Запрещено |
-|---|---|
-| читать source-репозиторий и создавать рабочие копии | push в любой remote |
-| писать код в изолированном workspace | deployment, staging, production |
-| запускать разрешённые контрактом тесты | SSH к нодам, Caddy, DATA_DIR цепи |
-| создавать commits и артефакты | кошельки, казна, транзакции, мост |
-| вести очередь, память, журнал решений | принимать задачи от посетителей сайта |
+| Дефект C1 | Как закрыт в C1.1 | Доказательство |
+|---|---|---|
+| Planner клонировал `planner.template` бесконечно | задачи только по доказанному расхождению из `queue/registry.json` или backlog владельца; нет evidence → **IDLE** | `planner: empty registry is IDLE`, `proven gap ... deduplication` (tests) |
+| Lease = pid + host | lease/lock: `hostId`, `bootId`, `pid`, `processStartTime`, `operationId`, `taskId`; решение по всей комбинации | `lib/procinfo.mjs`, тест `lease: ... survives PID reuse` |
+| STOP доказан частично | STOP останавливает planner, lease, implementer, reviewer; переживает перезапуск; resume пишет HMAC-подписанное событие | `evidence/c1-stop-proof.txt` |
+| API: только unit-файл | bind строго `127.0.0.1` и `::1`; проверка `ss -ltnp` в доказательстве | `evidence/c1-stop-proof.txt` (LISTEN 127.0.0.1 / [::1] только) |
+| Публичный JSON = внутренний объект | `contracts/public-status.schema.json` + allowlist-сборщик `service/publicview.mjs` | тесты схемы и утечек |
+| Перерасход 290 851 при лимите 200 000 → ACCEPTED | hard budget (`maxTotalTokens`, `maxTotalRuntimeMinutes`) исключает ACCEPTED, событие `budget.overrun`; soft-порог пишет `budget.soft_exceeded` | тест `budget: hard overrun ... excludes ACCEPTED` |
+| Источник репозитория не ограничен | `sourceRequirements` в mission, проверка `source.writable`, `enforceReadOnly` | `service/runner.mjs: sourceAccess` |
+| install.sh без отката | `--dry-run`, повторный запуск, `inventory/install-manifest-<ts>.json` с SHA256, backup кода, `--rollback=<dir>`, `--uninstall`, отказ при чужом владельце и изменении `queue.json` | `bash -n`, `--dry-run` в доказательстве |
 
-Реальные агенты (`codex-implementer` / `codex-reviewer`) включаются только
-двумя условиями сразу: `allowRealAgents: true` в mission **и** доказанная
-изоляция (`adapterEndToEnd=true`, см. `orchestrator.mjs preflight`). Пока этого
-нет, сервис работает детерминированными дублёрами — они честно помечены
-`simulated=true` в состоянии задания, и это видно в API.
+## Планировщик: только доказанное расхождение
 
-## Раскладка на ops-хосте
+`queue/registry.json` — реестр проверок, которые владелец считает значимыми:
 
-```
-/srv/agentcoin-ops/
-├── orchestrator/      код (этот каталог после install.sh)
-├── repository/        source-репозиторий, только чтение для сервиса
-├── workspaces/        изолированные копии на задание
-├── runs/              отчёты прогонов движка
-├── artifacts/         ZIP-артефакты accepted-заданий
-├── project-memory/    memory.json + lessons.jsonl
-├── queue/             queue.json, tasks/, backlog/, mission.json, journal.jsonl, STOP
-├── logs/              журнал заданий движка
-└── state/             heartbeat.json, checkpoint.json, watchdog.json
+```json
+{
+  "id": "docs-claim-mismatch",
+  "priority": 40,
+  "type": "registry_gap",
+  "check": { "kind": "file_includes", "path": "docs/EXAMPLE.md", "needle": "обязательный текст" },
+  "task": { "...": "полный контракт задания (scope, acceptance, лимиты)" }
+}
 ```
 
-Каталоги создаёт `service/install.sh`; владелец — системный пользователь
-`agt-orchestrator` без shell и без sudo. `agt-deployer` существует отдельно и
-не имеет доступа к `OPS_ROOT` на запись.
+Типы проверок: `file_exists`, `file_includes`, `file_excludes`,
+`json_field_equals`, `manual`. Все проверки читают только `repositoryRoot`,
+абсолютные пути и `..` запрещены.
 
-## Очередь и миссия
+Порядок работы tick: STOP → breaker → backlog владельца → проверки реестра →
+IDLE. Каждая автоматическая задача несёт:
 
-`queue/mission.json` — стратегическая цель, приоритеты и границы прав.
-Общего конца у mission нет; каждая задача конечна и имеет доказательство
-(коммит + артефакт + отчёт).
+```json
+"trigger": {
+  "type": "registry_gap",
+  "evidence": ["docs/EXAMPLE.md: does not contain \"обязательный текст\""],
+  "observedAt": "2026-11-20T17:00:00.000Z",
+  "deduplicationKey": "<sha256 от id проверки и её наблюдаемого состояния>"
+}
+```
 
-Очередь (`queue/queue.json`) хранит по заданию: `taskId`, `status`
-(`pending|leased|done|failed|blocked`), `attempts`, lease с pid и хостом,
-результат (`state`, `commit`, `artifactSha`). Все изменения дублируются в
-`queue/journal.jsonl` событиями `queue.enqueued`, `queue.claimed`,
-`lease.expired`, `lock.reconciled`, `queue.done`, …
+Без `evidence` задача не ставится. Повтор с тем же `deduplicationKey` невозможен:
+ключ живёт в очереди и памяти, поэтому одна и та же находка не превращается в
+бесконечную серию задач с новыми `taskId`.
 
-Планировщик (`service/planner.mjs`):
-1. если в очереди есть незавершённое задание — новых не создаёт;
-2. иначе забирает контракт владельца из `queue/backlog/*.json`;
-3. иначе клонирует `planner.template` с новым `taskId`. Содержание контракта
-   (scope, acceptance, лимиты) не меняется: планировщик не редактирует
-   требования.
+## Lease и lock: вся комбинация, а не pid
 
-`queue/STOP` останавливает и планирование, и исполнение: цикл доигрывает
-текущий переход движка и встаёт. Снимается `opsd.mjs resume`.
+`lib/procinfo.mjs` определяет владельца по `hostId` + `bootId` + `pid` +
+`processStartTime`: другой хост, другая загрузка, отсутствующий pid или
+несовпавшее время старта означают «владелец мёртв». Где `/proc` нет (Windows),
+`bootId`/`processStartTime` остаются `null`, решение помечается `weak` и это
+видно в журнале — слабое доказательство не выдаётся за сильное.
 
-## Восстановление после перезапуска
+## Бюджеты
 
-Шаги задания живут в hash-журнале движка (`logs/<taskId>/events.jsonl`), а не в
-очереди. Поэтому:
+- `maxTotalTokens` / `maxTotalRuntimeMinutes` — **hard**: превышение пишет
+  `budget.overrun` и блокирует задание (`budget_overrun_hard`); ACCEPTED после
+  нарушенного hard budget невозможен (три уровня: перед ролью, после роли,
+  перед приёмкой).
+- `softTotalTokens` / `softRuntimePerAgentMinutes` — **soft**: только событие
+  `budget.soft_exceeded`, задание продолжается.
+- `mission.budget`: `project: unlimited`, `task: finite`,
+  `processIdleTimeoutSec`, `consecutiveFailureBreaker` — после N подряд
+  неудачных заданий planner не создаёт новых (`state: breaker`).
 
-- SIGTERM — процесс доигрывает шаг, пишет checkpoint и выходит с кодом 0;
-- SIGKILL / выключение машины — lease остаётся с мёртвым pid, а lock задания —
-  с мёртвым владельцем;
-- следующий процесс: `releaseExpiredLeases` возвращает задание в `pending`
-  (событие `lease.expired`), `reconcileDeadLocks` снимает lock **только** если
-  pid мёртв и журнал задания цел (событие `lock.reconciled`), затем задание
-  продолжается с последнего подтверждённого состояния;
-- повторная постановка того же `taskId` невозможна (`QUEUE_DUPLICATE`), поэтому
-  перезапуск не создаёт дубль задания.
+## Публичный статус
 
-Доказательство: `service/tools/c1-restart-proof.sh` и его вывод в
-`evidence/c1-restart-proof.txt` (SIGKILL на середине задания, затем ACCEPTED,
-затем следующее задание из planner, штатная остановка SIGTERM).
+API отдаёт только `contracts/public-status.schema.json`: `service`,
+`generatedAt`, `orchestrator {state, stale, heartbeatAgeSec, continuous}`,
+`queue {counts}`, `tasks [{taskId, status, attempts, commit, artifactSha,
+triggerType}]`, `mission {title, priorities}`, `deployment: not-enabled`.
+Путей, usernames, PID, внутренних адресов, промптов, stderr, credentials,
+памяти проекта и имён секретов там нет по построению — объект собирается
+allowlist-ом (`service/publicview.mjs`), а не вырезанием полей.
+
+`/ops/memory` отдаёт только счётчики решений и уроков.
+
+## STOP
+
+`opsd stop` создаёт `queue/STOP` и подписывает событие `service.stop_signed`
+(HMAC-SHA256 ключом машины `state/machine.key`, 0600). Пока файл есть:
+
+- `plan` не создаёт задач, `tick` не берёт lease, implementer/reviewer не
+  запускаются (`logs/`, `workspaces/` остаются пустыми);
+- deployer остаётся выключенным (юнит под `ConditionPathExists`, скрипт
+  отказывает кодом 3);
+- перезапуск процесса ничего не меняет: файл на диске.
+
+`opsd resume` снимает файл и пишет `service.resume_signed`; подпись проверяется,
+подделанное событие не проходит.
+
+## Установка и откат
+
+```bash
+./service/install.sh --dry-run                  # план, ничего не меняется
+sudo ./service/install.sh                       # файлы, юниты, manifest, backup
+sudo ./service/install.sh --enable              # + enable/start
+sudo ./service/install.sh --rollback=/srv/agentcoin-ops/backups/install-<ts>
+sudo ./service/install.sh --uninstall           # код и юниты, данные остаются
+```
+
+Гарантии install.sh: manifest `inventory/install-manifest-<ts>.json` с SHA256
+каждого файла; предыдущий `orchestrator/` копируется в `backups/install-<ts>`;
+`queue/`, `project-memory/`, `workspaces/`, `runs/`, `artifacts/`, `logs/` не
+перезаписываются; отказ, если `OPS_ROOT` принадлежит неожиданному владельцу;
+отказ, если `queue/queue.json` изменился во время установки.
 
 ## Команды
 
 ```bash
-node service/opsd.mjs status                 # состояние, очередь, checkpoint, память
-node service/opsd.mjs plan                   # один проход планировщика (таймер)
-node service/opsd.mjs tick                   # один цикл: восстановление → план → шаги
+node service/opsd.mjs status                 # внутренний статус (для владельца)
+node service/opsd.mjs plan                   # один проход планировщика
+node service/opsd.mjs tick                   # один цикл
 node service/opsd.mjs loop                   # постоянный цикл
-node service/opsd.mjs api --port 8799        # read-only API
-node service/opsd.mjs watchdog               # проверка зависания (код 2 = внимание)
-node service/opsd.mjs queue --add task.json  # поставить задание владельцем
-node service/opsd.mjs stop|resume            # STOP-файл
+node service/opsd.mjs api --port 8799        # публичный allowlist API (loopback)
+node service/opsd.mjs watchdog               # проверка зависания (код 2)
+node service/opsd.mjs queue --add task.json  # задание владельца
+node service/opsd.mjs memory --lesson "…"    # заметка в память проекта
+node service/opsd.mjs stop|resume
 ```
 
-## Read-only Ops API
+## Доказательства
 
-Слушает только loopback (`127.0.0.1:8799`, юнит запрещает прочие адреса).
-Только `GET`/`HEAD`: `POST`/`PUT`/`DELETE` получают `405`. Все ответы
-`cache-control: no-store`.
-
-| Маршрут | Содержимое |
+| Файл | Что показывает |
 |---|---|
-| `/ops/status` | состояние оркестратора, heartbeat, checkpoint, счётчики очереди, память |
-| `/ops/queue` | задания: статус, попытки, коммит, sha256 артефакта |
-| `/ops/memory` | факты, решения и последние уроки |
-| `/ops/releases` | `deployment: not-enabled` до появления deployer |
-| `/ops/health` | свежесть heartbeat (для мониторинга) |
+| `evidence/c1-service-tests.txt` | 11 тестов: очередь, lease/PID reuse, planner IDLE/dedup, цикл до ACCEPTED, restart, STOP, budget overrun, публичная схема, API, watchdog/breaker |
+| `evidence/c1-restart-proof.txt` | SIGKILL на середине задания → lease и lock мёртвого владельца → продолжение до ACCEPTED → второе задание из backlog |
+| `evidence/c1-stop-proof.txt` | STOP до и после перезапуска, отсутствие side effects, подписанные stop/resume, `ss -ltnp` только loopback, отказ deployer |
+| `evidence/c1-real-crash-recovery.txt` | **BLOCKED**: настоящий Codex на этой машине недоступен (`agent_unavailable`, `adapterEndToEnd=false`); скрипт отказывается подменять доказательство дублёром |
+| `evidence/c1-install-dryrun.txt` | dry-run install/rollback/uninstall, повторный запуск, отказ при чужом владельце (79) и без root (77) |
+| `evidence/c1-systemd-verify.txt` | `systemd-analyze verify` для 7 юнитов |
 
-Публикация на сайт — отдельным решением владельца, конфигурация Caddy:
-
-```caddy
-handle /ops {
-    reverse_proxy 127.0.0.1:8799
-}
-```
-
-Страница `service/public/ops.html` берёт те же данные и не содержит ни одной
-операции записи: кнопки STOP, разрешения deployment и rollback на ней нет по
-замыслу — это действия владельца на сервере.
-
-## systemd
-
-| Юнит | Роль |
-|---|---|
-| `agt-orchestrator.service` | постоянный цикл (`opsd loop`), `Restart=always`, `TimeoutStopSec=180` |
-| `agt-orchestrator-scheduler.timer` (+ `.service`) | каждые 5 минут один проход планировщика |
-| `agt-orchestrator-api.service` | read-only API на loopback |
-| `agt-orchestrator-watchdog.timer` (+ `.service`) | каждые 2 минуты проверка зависания |
-| `agt-deployer.service` | выключен; `ConditionPathExists=/etc/agentcoin/deploy-enabled`, в C1 всегда отказ |
-
-Общие ограничения юнитов: `NoNewPrivileges`, `ProtectSystem=strict`,
-`ProtectHome`, `PrivateTmp`, пустой `CapabilityBoundingSet`,
-`ReadWritePaths=/srv/agentcoin-ops` (у API — `ReadOnlyPaths`), `UMask=0077`,
-`RestrictAddressFamilies`, `SystemCallFilter=@system-service`.
-`MemoryDenyWriteExecute` намеренно не включён: Node нуждается в JIT.
-Проверено `systemd-analyze verify` — 7 файлов без замечаний.
-
-Watchdog ничего не убивает и не перезапускает: он пишет вердикт в
-`state/watchdog.json` и выходит с кодом 2. Зависание — событие для владельца,
-а не повод для автомата.
-
-## Установка
-
-```bash
-# на ops-хосте, от root
-sudo OPS_ROOT=/srv/agentcoin-ops ./service/install.sh          # разложить, не запускать
-sudo systemctl enable --now agt-orchestrator.service agt-orchestrator-api.service
-sudo systemctl enable --now agt-orchestrator-scheduler.timer agt-orchestrator-watchdog.timer
-sudo -u agt-orchestrator OPS_ROOT=/srv/agentcoin-ops \
-  node /srv/agentcoin-ops/orchestrator/service/opsd.mjs status
-```
-
-Если отдельного сервера нет, тот же скрипт ставится на H1: отдельный
-пользователь, отдельный каталог, отдельный юнит, без доступа к `DATA_DIR`
-цепи, без кошельков и без root-shell.
-
-## Проверка
-
-```bash
-node --test service/tests/service.test.mjs   # 7 тестов: очередь, lease, planner, цикл, restart, API, watchdog
-bash service/tools/c1-restart-proof.sh       # доказательство перезапуска (Linux/WSL)
-systemd-analyze verify service/systemd/*.service service/systemd/*.timer
-```
+`evidence/c1-real-crash-recovery.txt` — единственный незакрытый пункт C1.1:
+реальный crash-recovery требует машины с установленным и авторизованным Codex
+(`codex login`) и `adapterEndToEnd=true` после
+`node tools/agent-hostile-check.mjs --real`. Скрипт
+`service/tools/c1-real-crash-recovery.sh` для этого готов: он проверяет
+preflight, убивает процесс в середине implementer-шага, проверяет отсутствие
+осиротевших codex/bwrap, broker-сокетов и временных `CODEX_HOME`, и требует
+ровно один коммит и тот же артефакт у ревьюера.
 
 ## Границы этапа
 
-Не реализовано и не включено намеренно: staging-сборка, атомарный release,
-backup, health-check, rollback, автоматическая публикация, доступ агентов к
-`/agent-room`, приём задач извне. Это следующие этапы; C1 заканчивается там,
-где заканчивается безопасная автономия — писать код, коммитить и готовить
-артефакты без права публиковать.
+Не включено: staging, атомарный release, backup/health-check/rollback
+публикации, доступ агентов к `/agent-room`, приём задач извне. Deployer —
+выключенный юнит, который всегда отказывает. Production не затрагивается.

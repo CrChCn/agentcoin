@@ -1,7 +1,7 @@
-agt-deployer.service                       OK
-agt-orchestrator-api.service               OK
-agt-orchestrator-scheduler.service         OK
-agt-orchestrator-scheduler.timer           OK
-agt-orchestrator-watchdog.service          OK
-agt-orchestrator-watchdog.timer            OK
-agt-orchestrator.service                   OK
+agt-deployer.service: OK
+agt-orchestrator-api.service: OK
+agt-orchestrator-scheduler.service: OK
+agt-orchestrator-scheduler.timer: OK
+agt-orchestrator-watchdog.service: OK
+agt-orchestrator-watchdog.timer: OK
+agt-orchestrator.service: OK

@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 
 import { appendJsonl, ensureDir, readJson, readJsonl, writeJsonAtomic } from '../lib/fsx.mjs';
 import { pidAlive } from '../lib/lock.mjs';
+import { hostId as machineId, processStartTime, processVerdict, selfIdentity } from '../lib/procinfo.mjs';
 
 export const STATUS = Object.freeze({
   PENDING: 'pending',
@@ -97,7 +98,7 @@ export class OpsStore {
     return this.load().items.find((item) => item.taskId === taskId) || null;
   }
 
-  enqueue({ taskId, title, priority = 100, taskFile, origin = 'owner' }) {
+  enqueue({ taskId, title, priority = 100, taskFile, origin = 'owner', trigger = null }) {
     if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(String(taskId || ''))) {
       throw Object.assign(new Error(`invalid taskId: ${taskId}`), { code: 'QUEUE_BAD_TASK_ID' });
@@ -113,6 +114,7 @@ export class OpsStore {
       priority: Number.isFinite(priority) ? priority : 100,
       origin,
       status: STATUS.PENDING,
+      trigger: trigger || null,
       attempts: 0,
       maxAttempts: 2,
       taskFile: taskFile ? path.resolve(taskFile) : null,
@@ -123,7 +125,7 @@ export class OpsStore {
       lastError: null,
     });
     this.save(queue);
-    this.journal('queue.enqueued', taskId, { origin, priority });
+    this.journal('queue.enqueued', taskId, { origin, priority, trigger: trigger ? { type: trigger.type, deduplicationKey: trigger.deduplicationKey } : null });
     return this.get(taskId);
   }
 
@@ -135,8 +137,16 @@ export class OpsStore {
       .filter((item) => item.status === STATUS.PENDING)
       .sort((a, b) => (a.priority - b.priority) || String(a.createdAt).localeCompare(String(b.createdAt)) || a.taskId.localeCompare(b.taskId))[0];
     if (!candidate) return null;
+    /* hostId + bootId + processStartTime: после перезагрузки тот же pid может
+       принадлежать другому процессу, поэтому lease фиксирует всю комбинацию. */
+    const identity = selfIdentity();
     candidate.status = STATUS.LEASED;
-    candidate.lease = { runId, pid, host: this.host, at: nowIso() };
+    candidate.lease = {
+      runId, host: this.host, at: nowIso(),
+      hostId: identity.hostId, bootId: identity.bootId, pid,
+      processStartTime: identity.processStartTime, taskId: candidate.taskId,
+      operationId: runId,
+    };
     candidate.updatedAt = nowIso();
     this.save(queue);
     this.journal('queue.claimed', candidate.taskId, { runId, pid, attempt: candidate.attempts });
@@ -145,18 +155,17 @@ export class OpsStore {
 
   /* Просроченные lease мёртвых процессов возвращаются в pending.
      Живой pid не трогаем никогда: два писателя в один журнал запрещены. */
-  releaseExpiredLeases({ pidAliveFn = pidAlive } = {}) {
+  releaseExpiredLeases({ pidAliveFn = pidAlive, current = null } = {}) {
     if (this.readOnly) return [];
     const queue = this.load();
     const released = [];
     for (const item of queue.items) {
       if (item.status !== STATUS.LEASED || !item.lease) continue;
-      const sameHost = item.lease.host === this.host;
-      const dead = sameHost ? !pidAliveFn(item.lease.pid) : false;
-      if (!dead) continue;
+      const verdict = processVerdict(item.lease, { pidAliveFn, current });
+      if (verdict.alive) continue;
       item.status = STATUS.PENDING;
-      item.lastError = `lease owner pid ${item.lease.pid} is gone`;
-      released.push({ taskId: item.taskId, lease: item.lease, attempts: item.attempts });
+      item.lastError = `lease owner is gone: ${verdict.reason}`;
+      released.push({ taskId: item.taskId, lease: item.lease, attempts: item.attempts, verdict });
       item.lease = null;
       item.updatedAt = nowIso();
     }
@@ -304,6 +313,46 @@ export class OpsStore {
 
   lessons(limit = 50) {
     return readJsonl(this.paths.lessonsFile).slice(-limit);
+  }
+
+  /* Событие без смены состояния: подпись (HMAC-SHA256 машины) приклеивается
+     к каноническому телу записи. Ключ хранится в state/machine.key (0600). */
+  signedJournal(event, taskId = null, detail = null) {
+    if (this.readOnly) return null;
+    const queue = this.load();
+    const entry = {
+      seq: queue.seq, at: nowIso(), hostId: machineId(), event, taskId, detail,
+    };
+    const key = this.machineKey();
+    entry.keyId = key ? key.keyId : null;
+    entry.sig = key ? crypto.createHmac('sha256', key.secret).update(JSON.stringify(entry)).digest('hex') : null;
+    appendJsonl(this.paths.queueJournal, entry);
+    queue.seq += 1;
+    this.save(queue);
+    return entry;
+  }
+
+  machineKey() {
+    if (this._machineKey !== undefined) return this._machineKey;
+    const file = path.join(this.paths.base, 'state', 'machine.key');
+    if (this.readOnly) {
+      this._machineKey = fs.existsSync(file) ? { keyId: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16), secret: fs.readFileSync(file) } : null;
+      return this._machineKey;
+    }
+    ensureDir(path.dirname(file));
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(file, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
+    }
+    const secret = fs.readFileSync(file);
+    this._machineKey = { keyId: crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16), secret };
+    return this._machineKey;
+  }
+
+  verifySignature(entry) {
+    const key = this.machineKey();
+    if (!key || !entry || !entry.sig) return false;
+    const { sig, ...rest } = entry;
+    return crypto.createHmac('sha256', key.secret).update(JSON.stringify(rest)).digest('hex') === sig;
   }
 
   watchdogRecord(record) {

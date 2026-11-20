@@ -1,0 +1,9 @@
+== preflight (real adapters)
+  status: BLOCKED | blockers: agent_unavailable,agent_unavailable,agent_isolation_unproven
+  levels: {"installed":true,"smokeTested":true,"adapterEndToEnd":false}
+  nextCommand: install the agent CLI on this host (npm i -g @openai/codex), then re-run preflight
+BLOCKED: real crash-recovery cannot run on this host.
+  Reason: preflight is not READY (see status/blockers above).
+  Required on the target machine: codex installed, `codex login`, then
+  `node tools/agent-hostile-check.mjs --real` producing adapterEndToEnd=true.
+  A fixture double is NOT accepted as proof for this item.

@@ -11,6 +11,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+import { pidAlive, processVerdict, selfIdentity } from './procinfo.mjs';
+
+/* Реэкспорт: остальные модули исторически импортируют pidAlive из lock. */
+export { pidAlive };
+
 export const TASK_BUSY = 'TASK_BUSY';
 export const NEEDS_RECONCILE = 'NEEDS_RECONCILE';
 
@@ -18,16 +23,6 @@ export function lockPaths(root, taskId) {
   const base = path.join(path.resolve(root), 'locks');
   const dir = path.join(base, taskId);
   return { base, dir, file: path.join(dir, 'lock.json') };
-}
-
-export function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err.code === 'EPERM';
-  }
 }
 
 export function readLock(root, taskId) {
@@ -49,7 +44,13 @@ export function acquireLock(root, taskId, { action = 'step', operationId = newOp
   const { base, dir } = lockPaths(root, taskId);
   fs.mkdirSync(base, { recursive: true });
 
-  const record = { taskId, operationId, pid, startedAt: new Date().toISOString(), action };
+  /* hostId + bootId + processStartTime: pid сам по себе не доказывает, что
+     владелец блокировки — тот же процесс (PID reuse после перезагрузки). */
+  const identity = selfIdentity();
+  const record = {
+    taskId, operationId, pid, startedAt: new Date().toISOString(), action,
+    hostId: identity.hostId, bootId: identity.bootId, processStartTime: identity.processStartTime,
+  };
   const staging = path.join(base, `.${taskId}.${operationId}.tmp`);
   fs.mkdirSync(staging, { recursive: true });
   fs.writeFileSync(path.join(staging, 'lock.json'), `${JSON.stringify(record, null, 2)}\n`);
@@ -61,8 +62,9 @@ export function acquireLock(root, taskId, { action = 'step', operationId = newOp
     if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(err.code)) throw err;
     const existing = readLock(root, taskId);
     if (!existing) return { ok: false, code: NEEDS_RECONCILE, lock: null, reason: 'lock directory exists without a readable lock.json' };
-    if (pidAlive(existing.pid)) return { ok: false, code: TASK_BUSY, lock: existing };
-    return { ok: false, code: NEEDS_RECONCILE, lock: existing, reason: `lock owner pid ${existing.pid} is not running` };
+    const verdict = processVerdict(existing);
+    if (verdict.alive) return { ok: false, code: TASK_BUSY, lock: existing };
+    return { ok: false, code: NEEDS_RECONCILE, lock: existing, reason: `lock owner is gone: ${verdict.reason}` };
   }
 
   let released = false;
@@ -87,11 +89,12 @@ export function reconcileLock(root, taskId, { force = false } = {}) {
   if (!lock) {
     return { ok: false, code: NEEDS_RECONCILE, reason: 'lock directory exists without a readable lock.json; inspect it manually' };
   }
-  if (pidAlive(lock.pid)) {
-    return { ok: false, code: TASK_BUSY, lock, reason: `lock owner pid ${lock.pid} is still running` };
+  const verdict = processVerdict(lock);
+  if (verdict.alive) {
+    return { ok: false, code: TASK_BUSY, lock, reason: `lock owner is still running: ${verdict.reason}` };
   }
   if (!force) {
-    return { ok: false, code: NEEDS_RECONCILE, lock, reason: `lock owner pid ${lock.pid} is not running; re-run with --force` };
+    return { ok: false, code: NEEDS_RECONCILE, lock, reason: `lock owner is gone (${verdict.reason}); re-run with --force` };
   }
   fs.rmSync(dir, { recursive: true, force: true });
   return { ok: true, reconciled: true, lock };
@@ -101,5 +104,7 @@ export function lockStatus(root, taskId) {
   const { dir } = lockPaths(root, taskId);
   if (!fs.existsSync(dir)) return { locked: false, lock: null };
   const lock = readLock(root, taskId);
-  return { locked: true, lock, ownerAlive: lock ? pidAlive(lock.pid) : null };
+  if (!lock) return { locked: true, lock: null, ownerAlive: null };
+  const verdict = processVerdict(lock);
+  return { locked: true, lock, ownerAlive: verdict.alive, verdict };
 }

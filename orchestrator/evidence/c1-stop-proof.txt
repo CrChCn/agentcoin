@@ -1,0 +1,87 @@
+== workspace
+== STOP
+{
+  "stopFile": "/tmp/c1-stop/queue/STOP",
+  "stopEvent": {
+    "seq": 1,
+    "keyId": "b70f9adcdcb4a651",
+    "sig": "5110bea629654c7acafcd434c6f0191ce2d0d8c30c61a88d91807fddc5bb1138"
+  },
+  "heartbeat": "stopping"
+}
+== planner with STOP
+{
+  "action": "stopped",
+  "reason": "STOP file present"
+}
+== scheduler tick with STOP
+{
+  "action": "stopped",
+  "released": [],
+  "reconciled": []
+}
+== loop --once with STOP
+{
+  "root": "/tmp/c1-stop",
+  "ticks": 0,
+  "last": null
+}
+== side effects (must be empty)
+  logs/: empty
+  workspaces/: empty
+  queue: empty (planner stayed idle)
+  backlog untouched: stop-01.json
+== restart sees the same STOP
+  stopRequested in a new process: true
+  stop file: /tmp/c1-stop/queue/STOP
+== deployer stays disabled
+{
+  "status": "BLOCKED",
+  "blockedCode": "DEPLOYMENT_NOT_ENABLED_IN_C1",
+  "enableFile": "/etc/agentcoin/deploy-enabled",
+  "enableFilePresent": false,
+  "note": "C1 готовит сервис и очередь; публикация начинается только после отдельного этапа deployer со staging, backup, health-check и rollback."
+}
+  deployer exit code: 3
+  unit guard present: ConditionPathExists
+== resume (signed event)
+{
+  "stopRequested": false,
+  "resumeEvent": {
+    "seq": 4,
+    "keyId": "b70f9adcdcb4a651",
+    "sig": "bcfb88729c5f37aa1f7548130ecc5f3d202dbabfb229592d1228d99b65abd901"
+  }
+}
+  stop event signed: true keyId: b70f9adcdcb4a651
+  resume event signed: true keyId: b70f9adcdcb4a651
+  tampered resume verifies: false
+== planner after resume
+{
+  "action": "enqueued",
+  "taskId": "stop-01",
+  "taskFile": "/tmp/c1-stop/queue/tasks/stop-01.json",
+  "origin": "owner-backlog"
+}
+== api listens on loopback only
+LISTEN 0      511         127.0.0.1:8797       0.0.0.0:*    users:(("MainThread",pid=153977,fd=22))
+LISTEN 0      511             [::1]:8797          [::]:*    users:(("MainThread",pid=153977,fd=23))
+  GET /ops/status -> 200
+  POST /ops/status -> 405 (read-only)
+{
+  "service": "agentcoin-ops",
+  "generatedAt": "2026-11-20T17:21:40.620Z",
+  "orchestrator": {
+    "state": "idle",
+    "stale": false,
+    "heartbeatAgeSec": 4,
+    "continuous": true
+  },
+  "queue": {
+    "pending": 1,
+    "leased": 0,
+    "done": 0,
+    "failed": 0,
+    "blocked": 0,
+    "total
+== done

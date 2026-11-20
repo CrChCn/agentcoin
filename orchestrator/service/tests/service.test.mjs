@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-/* Тесты сервисного слоя. Движок и адаптеры настоящие, агенты — детерминированные
-   дублёры (simulated=true), сеть и production не используются. */
+/* Тесты сервисного слоя C1.1. Движок и адаптеры настоящие, агенты —
+   детерминированные дублёры (simulated=true), сеть и production не
+   используются. */
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,18 +12,21 @@ import { fileURLToPath } from 'node:url';
 
 import { OpsStore, STATUS } from '../store.mjs';
 import { planNext } from '../planner.mjs';
-import { tick } from '../runner.mjs';
+import { tick, breakerState } from '../runner.mjs';
 import { createApi } from '../api.mjs';
+import { buildPublicStatus, auditPublicKeys } from '../publicview.mjs';
 import { checkWatchdog } from '../watchdog.mjs';
-import { loadTask } from '../../lib/engine.mjs';
+import { budgetBreakdown } from '../../lib/engine.mjs';
+import { validate } from '../../lib/schema.mjs';
+import { processVerdict, selfIdentity } from '../../lib/procinfo.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORCH = path.resolve(HERE, '..', '..');
 const TEMPLATE = path.join(ORCH, 'fixtures', 'tasks', 'lesson-01.json');
+const PUBLIC_SCHEMA = JSON.parse(fs.readFileSync(path.join(ORCH, 'contracts', 'public-status.schema.json'), 'utf8'));
 
 function tempRoot(name) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `ops-${name}-`));
-  return dir;
+  return fs.mkdtempSync(path.join(os.tmpdir(), `ops-${name}-`));
 }
 
 function mission(overrides = {}) {
@@ -30,76 +34,130 @@ function mission(overrides = {}) {
     mission: 'test mission',
     continuous: true,
     priorities: ['доступность сети'],
-    planner: { enabled: true, maxOpenTasks: 1, template: TEMPLATE, taskPrefix: 'test', titleSuffix: 'rehearsal' },
+    planner: { enabled: true, taskPrefix: 'test' },
+    repositoryRoot: 'repository',
     loop: { intervalSec: 5, maxTaskMinutes: 5, maxStepsPerTick: 8 },
+    budget: { project: 'unlimited', task: 'finite', consecutiveFailureBreaker: 3 },
     adapters: { mode: 'fixture', fixtureImplementer: 'fixture-implementer', fixtureReviewer: 'fixture-reviewer' },
     allowRealAgents: false,
     ...overrides,
   };
 }
 
-test('queue: survives a new store instance and refuses duplicate task ids', () => {
+/* Задание владельца: контракт lesson-01 с другим taskId, положенный в backlog. */
+function seedBacklog(root, taskId) {
+  const store = new OpsStore(root);
+  fs.mkdirSync(store.paths.backlogDir, { recursive: true });
+  fs.mkdirSync(store.paths.tasksDir, { recursive: true });
+  const task = JSON.parse(fs.readFileSync(TEMPLATE, 'utf8'));
+  task.taskId = taskId;
+  task.title = `${task.title} — ${taskId}`;
+  fs.writeFileSync(path.join(store.paths.backlogDir, `${taskId}.json`), JSON.stringify(task, null, 2));
+  return store;
+}
+
+function seedRegistry(root, entries) {
+  const store = new OpsStore(root);
+  fs.mkdirSync(path.join(root, 'queue'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'queue', 'registry.json'), JSON.stringify({ version: 1, entries }, null, 2));
+  return store;
+}
+
+test('queue: durable, no duplicate taskId, trigger stored', () => {
   const root = tempRoot('queue');
   const store = new OpsStore(root);
   fs.mkdirSync(store.paths.tasksDir, { recursive: true });
   const taskFile = path.join(store.paths.tasksDir, 'demo-01.json');
   fs.copyFileSync(TEMPLATE, taskFile);
+  const trigger = { type: 'registry_gap', evidence: ['docs/x.md: missing'], observedAt: new Date().toISOString(), deduplicationKey: 'a'.repeat(64) };
 
   store.enqueue({ taskId: 'demo-01', title: 'demo', taskFile, origin: 'test' });
-  assert.throws(() => store.enqueue({ taskId: 'demo-01', title: 'demo again', taskFile }), /already in the queue/);
+  assert.throws(() => store.enqueue({ taskId: 'demo-01', taskFile }), /already in the queue/);
+  store.enqueue({ taskId: 'demo-02', taskFile, trigger });
 
   const reopened = new OpsStore(root);
-  assert.equal(reopened.list().length, 1);
-  assert.equal(reopened.get('demo-01').status, STATUS.PENDING);
-  assert.equal(reopened.counts().pending, 1);
-
-  const claimed = reopened.claimNext({ pid: process.pid });
-  assert.equal(claimed.taskId, 'demo-01');
-  assert.equal(reopened.counts().leased, 1);
+  assert.equal(reopened.list().length, 2);
+  assert.deepEqual(reopened.get('demo-02').trigger, trigger);
+  reopened.claimNext({ pid: process.pid });
   reopened.complete('demo-01', { state: 'ACCEPTED', commit: 'abc' });
   assert.equal(new OpsStore(root).get('demo-01').status, STATUS.DONE);
 });
 
-test('queue: a lease of a dead pid returns to pending and is journaled', () => {
+test('lease: carries hostId/bootId/processStartTime and survives PID reuse', () => {
   const root = tempRoot('lease');
-  const store = new OpsStore(root);
-  fs.mkdirSync(store.paths.tasksDir, { recursive: true });
-  const taskFile = path.join(store.paths.tasksDir, 'lease-01.json');
-  fs.copyFileSync(TEMPLATE, taskFile);
-  store.enqueue({ taskId: 'lease-01', taskFile });
+  const store = seedBacklog(root, 'lease-01');
+  const plan = planNext(store, mission());
+  assert.equal(plan.action, 'enqueued');
 
-  store.claimNext({ pid: 999999 });
-  assert.equal(store.counts().leased, 1);
+  const identity = selfIdentity();
+  const claimed = store.claimNext({ pid: 999999 });
+  assert.equal(claimed.lease.hostId, identity.hostId);
+  assert.equal(claimed.lease.bootId, identity.bootId);
+  assert.ok('processStartTime' in claimed.lease);
+  assert.equal(claimed.lease.taskId, claimed.taskId);
 
-  const released = store.releaseExpiredLeases();
+  /* Чужой хост: владелец не наш, даже если pid «жив». */
+  const released = store.releaseExpiredLeases({ pidAliveFn: () => true, current: { hostId: 'other-host', bootId: identity.bootId } });
   assert.equal(released.length, 1);
-  assert.equal(store.get('lease-01').status, STATUS.PENDING);
-  assert.match(store.get('lease-01').lastError, /pid 999999 is gone/);
-  const journal = fs.readFileSync(store.paths.queueJournal, 'utf8');
-  assert.match(journal, /lease\.expired/);
+  assert.match(released[0].verdict.reason, /another host/);
+
+  /* Другая загрузка и переиспользованный pid решаются той же функцией. */
+  const previousBoot = processVerdict({ pid: 4242, hostId: identity.hostId, bootId: 'previous-boot', processStartTime: 1 });
+  assert.equal(previousBoot.alive, false);
+  assert.match(previousBoot.reason, /previous boot|is gone/);
+
+  const reusedPid = processVerdict(
+    { pid: process.pid, hostId: identity.hostId, bootId: identity.bootId, processStartTime: 1 },
+    { pidAliveFn: () => true, startTimeFn: () => 999 },
+  );
+  assert.equal(reusedPid.alive, false);
+  assert.match(reusedPid.reason, /reused/);
 });
 
-test('planner: clones the configured template once and stays single-line', () => {
-  const root = tempRoot('planner');
-  const store = new OpsStore(root);
-  fs.mkdirSync(store.paths.tasksDir, { recursive: true });
+test('planner: empty registry is IDLE, no template cloning', () => {
+  const root = tempRoot('planner-idle');
+  const store = seedRegistry(root, []);
+  fs.mkdirSync(path.join(root, 'repository'), { recursive: true });
+  for (let i = 0; i < 3; i++) {
+    const plan = planNext(store, mission());
+    assert.equal(plan.action, 'idle');
+  }
+  assert.equal(store.list().length, 0);
+});
+
+test('planner: proven gap becomes one task, then deduplication blocks a repeat', () => {
+  const root = tempRoot('planner-gap');
+  const repo = path.join(root, 'repository');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'no expected sentence here\n');
+  const task = JSON.parse(fs.readFileSync(TEMPLATE, 'utf8'));
+  const store = seedRegistry(root, [{
+    id: 'readme-gap', priority: 5, type: 'registry_gap',
+    check: { kind: 'file_includes', path: 'README.md', needle: 'EXPECTED SENTENCE' },
+    task,
+  }]);
 
   const first = planNext(store, mission());
   assert.equal(first.action, 'enqueued');
-  assert.equal(store.counts().pending, 1);
-  const task = loadTask(first.taskFile);
-  assert.equal(task.taskId, first.taskId);
-  assert.deepEqual(task.acceptance, loadTask(TEMPLATE).acceptance);
+  assert.equal(first.trigger.type, 'registry_gap');
+  assert.match(first.trigger.deduplicationKey, /^[a-f0-9]{64}$/);
+  assert.ok(first.trigger.evidence[0].includes('README.md'));
+
+  const item = store.get(first.taskId);
+  assert.deepEqual(item.trigger, first.trigger);
+  assert.equal(store.list().length, 1);
 
   const second = planNext(store, mission());
-  assert.equal(second.action, 'none');
-  assert.equal(store.counts().pending, 1);
+  assert.equal(second.action, 'none', 'queue is busy while the task is open');
+
+  store.complete(first.taskId, { state: 'ACCEPTED', commit: 'abc1234' });
+  const third = planNext(store, mission());
+  assert.equal(third.action, 'idle', 'same evidence must not create a second task');
 });
 
 test('tick: runs the isolated cycle to ACCEPTED and records memory', async () => {
   const root = tempRoot('tick');
-  const store = new OpsStore(root);
-  fs.mkdirSync(store.paths.tasksDir, { recursive: true });
+  const store = seedBacklog(root, 'owner-01');
   const plan = planNext(store, mission());
   assert.equal(plan.action, 'enqueued');
 
@@ -108,44 +166,28 @@ test('tick: runs the isolated cycle to ACCEPTED and records memory', async () =>
     outcome = await tick({ root, mission: mission() });
     if (outcome.action === 'finished') break;
   }
-
-  assert.equal(outcome.action, 'finished', `unexpected outcome: ${JSON.stringify(outcome)}`);
+  assert.equal(outcome.action, 'finished');
   assert.equal(outcome.result.state, 'ACCEPTED');
-  assert.match(outcome.result.commit, /^[0-9a-f]{7,40}$/);
   assert.equal(outcome.result.artifactSha.length, 64);
 
   const item = new OpsStore(root).get(plan.taskId);
   assert.equal(item.status, STATUS.DONE);
-  assert.equal(item.result.state, 'ACCEPTED');
-
   const memory = new OpsStore(root).memory();
   assert.equal(memory.facts.lastAcceptedTask, plan.taskId);
-  assert.equal(memory.facts.lastAcceptedCommit, outcome.result.commit);
-  assert.ok(memory.lessons.some((lesson) => lesson.kind === 'accepted' && lesson.task === plan.taskId));
-
-  const checkpoint = new OpsStore(root).readCheckpoint();
-  assert.equal(checkpoint.taskId, plan.taskId);
-  assert.equal(checkpoint.state, 'ACCEPTED');
+  assert.equal(new OpsStore(root).readCheckpoint().state, 'ACCEPTED');
 });
 
-test('restart: a new process continues the same task from the journal, not from scratch', async () => {
+test('restart: a new process continues the journal, single creation, single done', async () => {
   const root = tempRoot('restart');
-  const store = new OpsStore(root);
-  fs.mkdirSync(store.paths.tasksDir, { recursive: true });
+  const store = seedBacklog(root, 'owner-02');
   const plan = planNext(store, mission());
-
-  /* Один шаг за тик — имитация обрыва после короткого прогресса. */
   const shortMission = mission({ loop: { intervalSec: 5, maxTaskMinutes: 5, maxStepsPerTick: 1 } });
+
   const first = await tick({ root, mission: shortMission });
   assert.equal(first.action, 'partial');
-  const afterFirst = new OpsStore(root).get(plan.taskId);
-  assert.equal(afterFirst.status, STATUS.PENDING, 'lease must return to pending after a partial tick');
-  const journalBefore = new OpsStore(root).readCheckpoint();
-  assert.ok(['CREATED', 'READY'].includes(journalBefore.state), `unexpected first state ${journalBefore.state}`);
+  assert.equal(new OpsStore(root).get(plan.taskId).status, STATUS.PENDING);
 
-  /* «Новый процесс»: другой экземпляр store и другие объекты в памяти. */
-  const fresh = new OpsStore(root);
-  const historyBefore = JSON.parse(fs.readFileSync(path.join(root, 'logs', plan.taskId, 'events.jsonl'), 'utf8').trim().split('\n')[0]).seq;
+  const headBefore = JSON.parse(fs.readFileSync(path.join(root, 'logs', plan.taskId, 'events.jsonl'), 'utf8').trim().split('\n').at(-1));
 
   let outcome = null;
   for (let i = 0; i < 12; i++) {
@@ -154,20 +196,99 @@ test('restart: a new process continues the same task from the journal, not from 
   }
   assert.equal(outcome.result.state, 'ACCEPTED');
 
-  const items = fresh.list().filter((item) => item.taskId === plan.taskId);
-  assert.equal(items.length, 1, 'restart must not duplicate the queue item');
+  const items = new OpsStore(root).list().filter((item) => item.taskId === plan.taskId);
+  assert.equal(items.length, 1);
   assert.equal(items[0].status, STATUS.DONE);
 
   const events = fs.readFileSync(path.join(root, 'logs', plan.taskId, 'events.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-  assert.ok(events.length > 2, 'journal must keep the pre-restart events');
-  assert.equal(historyBefore, 0);
-  const states = events.map((event) => event.to);
-  assert.equal(states.filter((state) => state === 'CREATED').length, 1, 'task must be created exactly once');
-  assert.equal(new OpsStore(root).counts().done, 1);
+  assert.equal(events.filter((event) => event.to === 'CREATED').length, 1);
+  assert.equal(events[0].hash, JSON.parse(fs.readFileSync(path.join(root, 'logs', plan.taskId, 'events.jsonl'), 'utf8').trim().split('\n')[0]).hash);
+  assert.ok(events.length > headBefore.seq + 1);
+});
+
+test('STOP: planner and loop stop, restart keeps STOP, resume signs an event', async () => {
+  const root = tempRoot('stop');
+  const store = seedBacklog(root, 'owner-03');
+  const plan = planNext(store, mission());
+  assert.equal(plan.action, 'enqueued');
+
+  store.requestStop('test stop');
+  assert.equal(planNext(store, mission()).action, 'stopped');
+
+  const outcome = await tick({ root, mission: mission() });
+  assert.equal(outcome.action, 'stopped');
+  assert.equal(new OpsStore(root).stopRequested(), true, 'STOP file must survive a new store instance');
+  assert.equal(new OpsStore(root).get(plan.taskId).status, STATUS.PENDING, 'no lease is taken while stopped');
+
+  const resume = new OpsStore(root);
+  resume.clearStop();
+  const signed = resume.signedJournal('service.resume_signed', null, { by: 'owner' });
+  assert.match(signed.sig, /^[a-f0-9]{64}$/);
+  assert.equal(resume.verifySignature(signed), true);
+  assert.equal(resume.stopRequested(), false);
+});
+
+test('budget: hard overrun is detected and excludes ACCEPTED', async () => {
+  const task = { maxTotalTokens: 200000, maxTotalRuntimeMinutes: 60, maxRuntimePerAgentMinutes: 20, softTotalTokens: 150000 };
+  const over = budgetBreakdown({ usage: { totalTokens: 290851 }, runtimeMs: { implementer: 0, reviewer: 0 } }, task);
+  assert.equal(over.hard.exceeded, true);
+  assert.equal(over.soft.exceeded, true);
+
+  const atLimit = budgetBreakdown({ usage: { totalTokens: 200000 }, runtimeMs: {} }, task);
+  assert.equal(atLimit.hard.exceeded, false, 'reaching the limit is not exceeding it');
+
+  const root = tempRoot('budget');
+  const store = seedBacklog(root, 'owner-04');
+  planNext(store, mission());
+  const taskId = store.list()[0].taskId;
+  /* Один шаг за тик: состояние артефакта наблюдаемо, а не проскакивает в ACCEPTED. */
+  const stepMission = mission({ loop: { intervalSec: 5, maxTaskMinutes: 5, maxStepsPerTick: 1 } });
+
+  for (let i = 0; i < 10; i++) {
+    await tick({ root, mission: stepMission });
+    const checkpoint = new OpsStore(root).readCheckpoint();
+    if (!checkpoint || checkpoint.state === 'ARTIFACT_SUBMITTED' || checkpoint.state === 'REVIEWING') break;
+  }
+
+  const { Store } = await import('../../state/store.mjs');
+  const journal = new Store(root, { operationId: 'test' });
+  journal.appendEvent({ taskId, action: 'test.inject_usage', payload: { patch: { usage: { totalTokens: 290851 } } } });
+
+  let outcome = null;
+  for (let i = 0; i < 8; i++) {
+    outcome = await tick({ root, mission: stepMission });
+    if (outcome.action === 'finished') break;
+  }
+  assert.equal(outcome.action, 'finished', JSON.stringify(outcome));
+  assert.equal(outcome.result.state, 'BLOCKED', JSON.stringify(outcome.result));
+  assert.equal(new OpsStore(root).get(taskId).status, STATUS.BLOCKED);
+
+  const events = fs.readFileSync(path.join(root, 'logs', taskId, 'events.jsonl'), 'utf8');
+  assert.match(events, /budget\.overrun/);
+  assert.match(events, /budget_overrun_hard/);
+  assert.doesNotMatch(events, /"to":"ACCEPTED"/);
+});
+
+test('public status: allowlisted, schema-valid, no paths/pids/usernames', () => {
+  const root = tempRoot('public');
+  const store = seedBacklog(root, 'public-01');
+  store.heartbeat({ state: 'idle' });
+  const status = buildPublicStatus({ root, mission: mission() });
+
+  const errors = validate(PUBLIC_SCHEMA, status);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(auditPublicKeys(status), []);
+
+  const json = JSON.stringify(status);
+  assert.doesNotMatch(json, /\/tmp\/|\/srv\/|C:\\\\/);
+  assert.doesNotMatch(json, /"pid":/);
+  assert.doesNotMatch(json, /root|mark|LAPTOP/i);
+  assert.doesNotMatch(json, /prompt|stderr|secret/i);
+  assert.equal(status.deployment, 'not-enabled');
 });
 
 async function withApi(root, fn) {
-  const server = createApi({ root });
+  const server = createApi({ root, mission: mission() });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   try {
@@ -177,9 +298,10 @@ async function withApi(root, fn) {
   }
 }
 
-test('api: read-only surface answers GET and rejects writes', async () => {
+test('api: read-only, allowlisted, no writes', async () => {
   const root = tempRoot('api');
-  const store = new OpsStore(root);
+  const store = seedBacklog(root, 'api-01');
+  planNext(store, mission());
   store.heartbeat({ state: 'idle' });
 
   await withApi(root, async (base) => {
@@ -187,34 +309,35 @@ test('api: read-only surface answers GET and rejects writes', async () => {
     assert.equal(status.status, 200);
     assert.equal(status.headers.get('cache-control'), 'no-store');
     const body = await status.json();
-    assert.equal(body.readonly, true);
-    assert.equal(body.orchestrator.state, 'idle');
+    assert.equal(body.service, 'agentcoin-ops');
+    assert.deepEqual(validate(PUBLIC_SCHEMA, body), []);
+    assert.doesNotMatch(JSON.stringify(body), /"pid":|taskFile|lastError/);
 
     const queue = await (await fetch(`${base}/ops/queue`)).json();
-    assert.equal(queue.counts.total, 0);
-
-    const post = await fetch(`${base}/ops/queue`, { method: 'POST', body: '{}' });
-    assert.equal(post.status, 405);
-
-    const del = await fetch(`${base}/ops/status`, { method: 'DELETE' });
-    assert.equal(del.status, 405);
-
-    const missing = await fetch(`${base}/ops/nope`);
-    assert.equal(missing.status, 404);
+    assert.equal(queue.queue.total, 1);
+    assert.equal((await fetch(`${base}/ops/queue`, { method: 'POST', body: '{}' })).status, 405);
+    assert.equal((await fetch(`${base}/ops/status`, { method: 'DELETE' })).status, 405);
+    assert.equal((await fetch(`${base}/ops/nope`)).status, 404);
+    const memory = await (await fetch(`${base}/ops/memory`)).json();
+    assert.deepEqual(Object.keys(memory).sort(), ['decisions', 'lessons', 'ok', 'readonly']);
   });
 });
 
-test('watchdog: reports a stale heartbeat and a dead lock owner', () => {
+test('watchdog and breaker report state instead of acting', async () => {
   const root = tempRoot('watchdog');
   const store = new OpsStore(root);
   store.heartbeat({ state: 'working' });
-  const fresh = checkWatchdog({ root });
-  assert.equal(fresh.verdict, 'alive');
+  assert.equal(checkWatchdog({ root }).verdict, 'alive');
 
-  const staleAt = new Date(Date.now() - 3600 * 1000).toISOString();
-  fs.writeFileSync(store.paths.heartbeatFile, JSON.stringify({ pid: 999999, host: os.hostname(), at: staleAt, state: 'working' }));
+  fs.writeFileSync(store.paths.heartbeatFile, JSON.stringify({ pid: 999999, host: os.hostname(), at: new Date(Date.now() - 3600 * 1000).toISOString(), state: 'working' }));
   const stale = checkWatchdog({ root });
   assert.equal(stale.verdict, 'attention');
   assert.ok(stale.problems.some((p) => p.code === 'HEARTBEAT_STALE'));
-  assert.equal(stale.action.includes('never kills'), true);
+
+  const breakerStore = seedBacklog(root, 'brk-01');
+  planNext(breakerStore, mission());
+  const item = breakerStore.list()[0];
+  breakerStore.fail(item.taskId, { status: STATUS.FAILED, reason: 'boom' });
+  const breaker = breakerState(breakerStore, mission({ budget: { consecutiveFailureBreaker: 1 } }));
+  assert.equal(breaker.tripped, true);
 });

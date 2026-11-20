@@ -1,0 +1,55 @@
+== install dry-run (plan, no changes)
+exit=0
+== mode: install | root: /tmp/c1-install-dry
+== users
+  [dry-run] useradd --system --home-dir '/tmp/c1-install-dry' --shell /usr/sbin/nologin 'agt-orchestrator'
+  agt-orchestrator will be created (no shell, no sudo)
+  [dry-run] useradd --system --home-dir '/tmp/c1-install-dry' --shell /usr/sbin/nologin 'agt-deployer'
+  agt-deployer will be created (no shell, no sudo)
+== layout
+  [dry-run] install -d -o 'agt-orchestrator' -g 'agt-orchestrator' -m 0750 '/tmp/c1-install-dry/repository'
+  [dry-run] install -d -o 'agt-orchestrator' -g 'agt-orchestrator' -m 0750 '/tmp/c1-install-dry/workspaces'
+  ...
+  sudo -u agt-orchestrator OPS_ROOT=/tmp/c1-install-dry node /tmp/c1-install-dry/orchestrator/service/opsd.mjs status
+
+Откат кода:  sudo /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/service/install.sh --rollback=/tmp/c1-install-dry/backups/install-20261120T172753Z
+Снятие:      sudo /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/service/install.sh --uninstall
+
+Deployer остаётся выключенным: /etc/agentcoin/deploy-enabled не создаётся.
+
+== repeat dry-run is identical (idempotent planning)
+exit=0
+  plan identical apart from the timestamp
+
+== dry-run touched nothing
+ls: cannot access '/tmp/c1-install-dry': No such file or directory
+  OPS_ROOT was not created
+
+== rollback dry-run with missing backup is refused
+== mode: rollback | root: /tmp/c1-install-dry
+refusing: /tmp/c1-install-dry/backups/install-missing/orchestrator not found
+exit=80
+
+== rollback dry-run with a backup dir prints the plan
+  [dry-run] rm -rf '/tmp/c1-install-dry/orchestrator.current'
+  [dry-run] mv '/tmp/c1-install-dry/orchestrator' '/tmp/c1-install-dry/orchestrator.current'
+  [dry-run] cp -a '/tmp/fake-backup/orchestrator' '/tmp/c1-install-dry/orchestrator'
+  [dry-run] chown -R 'agt-orchestrator:agt-orchestrator' '/tmp/c1-install-dry/orchestrator'
+  [dry-run] systemctl restart agt-orchestrator.service agt-orchestrator-api.service || true
+  rollback done; previous tree kept at /tmp/c1-install-dry/orchestrator.current
+exit=0
+
+== uninstall dry-run
+  [dry-run] systemctl daemon-reload || true
+  [dry-run] rm -rf '/tmp/c1-install-dry/orchestrator'
+  data kept: queue/, project-memory/, workspaces/, runs/, artifacts/, logs/, state/
+  to remove everything, delete /tmp/c1-install-dry manually after inspection
+
+== owner check: foreign owner is refused
+== mode: install | root: /tmp/foreign-root
+refusing: /tmp/foreign-root belongs to 'mark', expected 'agt-orchestrator' or root
+exit=79
+
+== a real install without root is refused
+install.sh needs root (sudo) except for --dry-run
+exit=77

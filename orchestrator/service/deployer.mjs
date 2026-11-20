@@ -17,10 +17,15 @@ import { OpsStore } from './store.mjs';
 const ENABLE_FILE = process.env.OPS_DEPLOY_ENABLE_FILE || '/etc/agentcoin/deploy-enabled';
 const root = process.env.OPS_ROOT || '/srv/agentcoin-ops';
 
-const store = new OpsStore(root);
 const enabled = fs.existsSync(ENABLE_FILE);
 
-store.journal('deployer.refused', null, { enabled, stage: 'C1', reason: 'deployment is not part of C1' });
+/* Отказ не должен зависеть от того, доступен ли OPS_ROOT на запись: deployer
+   обязан честно сказать «нельзя» даже при чужом или отсутствующем каталоге. */
+try {
+  new OpsStore(root).journal('deployer.refused', null, { enabled, stage: 'C1.1', reason: 'deployment is not part of C1.1' });
+} catch (err) {
+  console.error(`deployer: cannot journal refusal (${err.code || err.message}); refusing anyway`);
+}
 
 console.log(JSON.stringify({
   status: 'BLOCKED',

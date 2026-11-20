@@ -1,15 +1,19 @@
-✔ queue: survives a new store instance and refuses duplicate task ids (127.9316ms)
-✔ queue: a lease of a dead pid returns to pending and is journaled (96.1931ms)
-✔ planner: clones the configured template once and stays single-line (65.5617ms)
-✔ tick: runs the isolated cycle to ACCEPTED and records memory (18495.805ms)
-✔ restart: a new process continues the same task from the journal, not from scratch (17098.2948ms)
-✔ api: read-only surface answers GET and rejects writes (253.0212ms)
-✔ watchdog: reports a stale heartbeat and a dead lock owner (50.7186ms)
-ℹ tests 7
+✔ queue: durable, no duplicate taskId, trigger stored (66.756672ms)
+✔ lease: carries hostId/bootId/processStartTime and survives PID reuse (21.593046ms)
+✔ planner: empty registry is IDLE, no template cloning (4.767923ms)
+✔ planner: proven gap becomes one task, then deduplication blocks a repeat (21.590699ms)
+✔ tick: runs the isolated cycle to ACCEPTED and records memory (4650.454324ms)
+✔ restart: a new process continues the journal, single creation, single done (3955.30107ms)
+✔ STOP: planner and loop stop, restart keeps STOP, resume signs an event (30.738381ms)
+✔ budget: hard overrun is detected and excludes ACCEPTED (653.145907ms)
+✔ public status: allowlisted, schema-valid, no paths/pids/usernames (12.957792ms)
+✔ api: read-only, allowlisted, no writes (280.527429ms)
+✔ watchdog and breaker report state instead of acting (15.987706ms)
+ℹ tests 11
 ℹ suites 0
-ℹ pass 7
+ℹ pass 11
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 36725.7254
+ℹ duration_ms 11064.352928

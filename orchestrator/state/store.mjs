@@ -203,6 +203,16 @@ export class Store {
     return next;
   }
 
+  /* Событие без смены состояния: нужно для фактов, которые обязаны попасть в
+     hash-журнал, но не являются переходом (budget.overrun, budget.soft_exceeded). */
+  appendEvent({ taskId, action, actor = 'orchestrator', payload = {} }) {
+    const state = this.load(taskId);
+    return this._appendEvent({
+      taskId, from: state.state, to: state.state, action, actor,
+      iteration: state.iteration, patch: payload.patch || {}, extra: payload,
+    });
+  }
+
   markBlocked(taskId, { action, actor, code, detail, patch = {} }) {
     return this.transition({
       taskId,

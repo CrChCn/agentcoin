@@ -652,7 +652,7 @@ node orchestrator.mjs verify --task lesson-01 --artifact <zip>
 
 ---
 
-## 10. Этап C1 — always-on сервис
+## 10. Этапы C1 / C1.1 — always-on сервис и hardening
 
 Движок этапа A остался прежним; поверх него добавлен сервисный слой
 `service/` — очередь, непрерывная миссия, planner, память проекта, systemd,
@@ -663,16 +663,25 @@ read-only Ops API и публичный статус. Подробности, р
 
 - `service/opsd.mjs` — единая точка входа: `loop`, `plan`, `tick`, `api`,
   `watchdog`, `status`, `queue`, `memory`, `stop`, `resume`;
-- `service/store.mjs` — атомарная очередь, lease с pid, память и heartbeat;
-- `service/planner.mjs` — следующая конечная задача из миссии или backlog
-  владельца, без редактирования контракта;
-- `service/runner.mjs` — восстановление после падения (lease + lock), шаги
-  движка, бюджеты, graceful shutdown по SIGTERM;
-- `service/api.mjs` + `service/public/ops.html` — только чтение;
-- `service/systemd/*` — 7 юнитов, проверены `systemd-analyze verify`;
-- `service/tools/c1-restart-proof.sh` — доказательство: SIGKILL на середине
-  задания, затем продолжение до ACCEPTED и следующее задание из planner.
+- `service/store.mjs` — атомарная очередь, lease с `hostId`/`bootId`/
+  `processStartTime`/`operationId`, подписанные stop/resume, память, heartbeat;
+- `service/planner.mjs` — только доказанное расхождение из
+  `queue/registry.json` или backlog владельца; без evidence — IDLE, без
+  клонирования шаблонов и с дедупликацией по ключу находки;
+- `service/runner.mjs` — восстановление после падения по полной идентичности
+  владельца, шаги движка, soft/hard бюджеты, breaker, STOP до claim,
+  graceful shutdown по SIGTERM;
+- `service/api.mjs` + `service/public/ops.html` — только чтение, bind строго
+  на `127.0.0.1` и `::1`, публичный JSON по allowlist
+  (`contracts/public-status.schema.json`);
+- `service/systemd/*` — 7 юнитов, `IPAddressDeny=any` + `IPAddressAllow=localhost`,
+  проверены `systemd-analyze verify`;
+- `service/tools/c1-restart-proof.sh`, `c1-stop-proof.sh` — доказательства
+  SIGKILL/восстановления и STOP до/после перезапуска;
+- `service/tools/c1-real-crash-recovery.sh` — проход на настоящих Codex+bwrap;
+  на этой машине **BLOCKED** (Codex не установлен), дублёр не подставляется.
 
-Доказательства: `evidence/c1-restart-proof.txt`, `evidence/c1-service-tests.txt`,
-`evidence/c1-systemd-verify.txt`. Публикация, staging и настоящие агенты на
-этом этапе выключены.
+Доказательства: `evidence/c1-restart-proof.txt`,
+`evidence/c1-stop-proof.txt`, `evidence/c1-service-tests.txt`,
+`evidence/c1-systemd-verify.txt`, `evidence/c1-real-crash-recovery.txt`.
+Публикация, staging, SSH к нодам и настоящие агенты на этом этапе выключены.

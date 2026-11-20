@@ -104,6 +104,55 @@ function budgetStop(state, task, role) {
   return null;
 }
 
+/* Жёсткий и мягкий бюджеты — разные вещи. Жёсткий (maxTotalTokens /
+   maxTotalRuntimeMinutes) после превышения исключает ACCEPTED: задание
+   блокируется с событием budget.overrun. Мягкий только фиксируется. */
+function softBudgetOf(task) {
+  const tokens = Number.isInteger(task.softTotalTokens) ? Math.min(task.softTotalTokens, task.maxTotalTokens) : task.maxTotalTokens;
+  const minutes = Number.isInteger(task.softRuntimePerAgentMinutes)
+    ? Math.min(task.softRuntimePerAgentMinutes, task.maxRuntimePerAgentMinutes)
+    : task.maxRuntimePerAgentMinutes;
+  return { tokens, minutes };
+}
+
+export function budgetBreakdown(state, task) {
+  const tokens = totalTokensOf(state);
+  const totalRuntimeMs = totalRuntimeMsOf(state);
+  const soft = softBudgetOf(task);
+  const hardTokens = tokens > task.maxTotalTokens;
+  const hardRuntime = totalRuntimeMs > task.maxTotalRuntimeMinutes * MINUTE_MS;
+  const softTokensHit = tokens > soft.tokens;
+  const softRuntimeHit = runtimeMsOf(state, 'implementer') > soft.minutes * MINUTE_MS || runtimeMsOf(state, 'reviewer') > soft.minutes * MINUTE_MS;
+  return {
+    hard: { exceeded: hardTokens || hardRuntime, tokensExceeded: hardTokens, runtimeExceeded: hardRuntime },
+    soft: { exceeded: softTokensHit || softRuntimeHit, tokensExceeded: softTokensHit, runtimeExceeded: softRuntimeHit },
+    tokens,
+    totalRuntimeMs,
+    limits: { maxTotalTokens: task.maxTotalTokens, maxTotalRuntimeMinutes: task.maxTotalRuntimeMinutes, softTokens: soft.tokens, softMinutes: soft.minutes },
+  };
+}
+
+/* Единая точка учёта превышения: журнал + блокировка при жёстком перерасходе. */
+function recordBudget({ store, state, task, evidence, role }) {
+  const merged = { ...state, usage: evidence.usage, runtimeMs: evidence.runtimeMs };
+  const breakdown = budgetBreakdown(merged, task);
+  if (breakdown.soft.exceeded) {
+    store.appendEvent({ taskId: task.taskId, action: 'budget.soft_exceeded', payload: { patch: { softBudgetExceeded: breakdown.soft }, role } });
+  }
+  if (breakdown.hard.exceeded) {
+    store.appendEvent({ taskId: task.taskId, action: 'budget.overrun', payload: { patch: { budgetOverrun: breakdown } } });
+    const blocked = store.markBlocked(task.taskId, {
+      action: 'budget_hard_exceeded',
+      actor: 'orchestrator',
+      code: 'budget_overrun_hard',
+      detail: `role ${role} pushed recorded usage past the hard budget: ${breakdown.tokens} tokens (limit ${task.maxTotalTokens}), ${Math.round(breakdown.totalRuntimeMs / 1000)}s (limit ${task.maxTotalRuntimeMinutes} min); ACCEPTED is forbidden`,
+      patch: { ...evidence, budget: budgetSnapshot(merged, task), budgetOverrun: breakdown },
+    });
+    return { blocked: true, state: blocked, breakdown };
+  }
+  return { blocked: false, breakdown };
+}
+
 function budgetSnapshot(state, task) {
   return {
     maxIterations: task.maxIterations,
@@ -434,9 +483,12 @@ async function runImplementer({ store, root, state }) {
 
   const stop = budgetStop(state, task, 'implementer');
   if (stop) {
+    const breakdown = budgetBreakdown(state, task);
+    store.appendEvent({ taskId: task.taskId, action: 'budget.overrun', payload: { patch: { budgetOverrun: breakdown } } });
     return store.markBlocked(task.taskId, {
-      action: 'budget_check', actor: 'orchestrator', code: stop.code, detail: stop.detail,
-      patch: { budget: budgetSnapshot(state, task) },
+      action: 'budget_hard_exceeded', actor: 'orchestrator', code: 'budget_overrun_hard',
+      detail: `${stop.code}: ${stop.detail}`,
+      patch: { budget: budgetSnapshot(state, task), budgetOverrun: breakdown },
     });
   }
 
@@ -506,6 +558,10 @@ async function runImplementer({ store, root, state }) {
   }
   const elapsedMs = Date.now() - started;
   const evidence = accounting({ root, state, role: 'implementer', outcome, elapsedMs, iteration, kind: resumeId ? 'resume' : 'fresh' });
+  {
+    const budget = recordBudget({ store, state, task, evidence, role: 'implementer' });
+    if (budget.blocked) return budget.state;
+  }
   appendLog(logFile, {
     phase: 'implementer', adapter: state.implementer, iteration,
     durationMs: elapsedMs, blocked: outcome.blocked || null,
@@ -694,9 +750,12 @@ async function runReviewer({ store, root, state }) {
 
   const stop = budgetStop(state, task, 'reviewer');
   if (stop) {
+    const breakdown = budgetBreakdown(state, task);
+    store.appendEvent({ taskId: task.taskId, action: 'budget.overrun', payload: { patch: { budgetOverrun: breakdown } } });
     return store.markBlocked(task.taskId, {
-      action: 'budget_check', actor: 'orchestrator', code: stop.code, detail: stop.detail,
-      patch: { budget: budgetSnapshot(state, task) },
+      action: 'budget_hard_exceeded', actor: 'orchestrator', code: 'budget_overrun_hard',
+      detail: `${stop.code}: ${stop.detail}`,
+      patch: { budget: budgetSnapshot(state, task), budgetOverrun: breakdown },
     });
   }
 
@@ -796,6 +855,10 @@ async function runReviewer({ store, root, state }) {
   }
   const elapsedMs = Date.now() - started;
   const evidence = accounting({ root, state, role: 'reviewer', outcome, elapsedMs, iteration: state.iteration, kind: 'fresh' });
+  {
+    const budget = recordBudget({ store, state, task, evidence, role: 'reviewer' });
+    if (budget.blocked) return budget.state;
+  }
   appendLog(logFile, {
     phase: 'reviewer', adapter: state.reviewer, durationMs: elapsedMs,
     verdict: outcome.review ? outcome.review.verdict : null,
@@ -869,6 +932,17 @@ async function runReviewer({ store, root, state }) {
   const signatures = [...(state.findingsSignatures || []), signature];
 
   if (verdict === 'ACCEPTED') {
+    /* Defense in depth: даже если перерасход не поймали сразу после роли,
+       нарушенный жёсткий бюджет исключает ACCEPTED. */
+    const guard = budgetBreakdown({ ...state, usage: evidence.usage, runtimeMs: evidence.runtimeMs }, task);
+    if (guard.hard.exceeded) {
+      store.appendEvent({ taskId: task.taskId, action: 'budget.overrun', payload: { patch: { budgetOverrun: guard } } });
+      return store.markBlocked(task.taskId, {
+        action: 'budget_hard_exceeded', actor: 'orchestrator', code: 'budget_overrun_hard',
+        detail: `ACCEPTED refused: recorded usage exceeds the hard budget (${guard.tokens} tokens, ${Math.round(guard.totalRuntimeMs / 1000)}s)`,
+        patch: { ...evidence, review: normalized, budget: budgetSnapshot(state, task), budgetOverrun: guard },
+      });
+    }
     return store.transition({
       taskId: task.taskId, to: 'ACCEPTED', action: 'submit_review', actor: state.reviewer,
       payload: {

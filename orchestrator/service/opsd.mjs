@@ -106,11 +106,14 @@ async function main() {
 
   if (command === 'api') {
     ensureLayout(root);
-    const host = String(opts.host || process.env.OPS_API_HOST || '127.0.0.1');
     const port = Number(opts.port || process.env.OPS_API_PORT || 8799);
-    const { server, address } = await startApi({ root, host, port, publicOrigin: process.env.OPS_PUBLIC_ORIGIN || null });
-    print({ listening: address, readonly: true, root });
-    const shutdown = () => { server.close(() => process.exit(0)); };
+    const hosts = String(opts.hosts || process.env.OPS_API_HOSTS || '127.0.0.1,::1')
+      .split(',').map((host) => host.trim()).filter(Boolean);
+    let mission = null;
+    try { mission = loadMission(root, opts.mission || null).mission; } catch { mission = null; }
+    const started = await startApi({ root, mission, hosts, port });
+    print({ listening: started.addresses, readonly: true, allowlist: 'contracts/public-status.schema.json' });
+    const shutdown = () => { started.close().then(() => process.exit(0)); };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
     return new Promise(() => {});
@@ -151,14 +154,18 @@ async function main() {
 
   if (command === 'stop') {
     const store = new OpsStore(root);
-    print({ stopFile: store.requestStop(String(opts.reason || 'owner stop')), note: 'текущий шаг будет доигран, новый не начнётся' });
+    const stopFile = store.requestStop(String(opts.reason || 'owner stop'));
+    const event = store.signedJournal('service.stop_signed', null, { reason: String(opts.reason || 'owner stop') });
+    const beat = store.heartbeat({ state: 'stopping', reason: 'owner stop' });
+    print({ stopFile, stopEvent: { seq: event.seq, keyId: event.keyId, sig: event.sig }, heartbeat: beat.state });
     return 0;
   }
 
   if (command === 'resume') {
     const store = new OpsStore(root);
     store.clearStop();
-    print({ stopRequested: store.stopRequested() });
+    const event = store.signedJournal('service.resume_signed', null, { by: 'owner' });
+    print({ stopRequested: store.stopRequested(), resumeEvent: { seq: event.seq, keyId: event.keyId, sig: event.sig } });
     return 0;
   }
 

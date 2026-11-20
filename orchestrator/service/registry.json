@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "note": "Реестр доказанных расхождений. Задача ставится только если проверка доказывает расхождение и такой задачи ещё не было (deduplicationKey). Пустой реестр = planner IDLE: бесконечного клонирования шаблона больше нет. Пример формы записи в _example, он не выполняется.",
+  "entries": [],
+  "_example": {
+    "id": "docs-claim-mismatch",
+    "enabled": false,
+    "priority": 40,
+    "type": "registry_gap",
+    "check": {
+      "kind": "file_includes",
+      "path": "docs/EXAMPLE.md",
+      "needle": "текст, который обязан быть в файле"
+    },
+    "task": {
+      "taskId": "set-by-planner",
+      "title": "Короткое название конечной задачи",
+      "objective": "Что именно исправить, с ссылкой на доказательство",
+      "scope": {
+        "allowedPaths": ["docs"],
+        "forbiddenPaths": ["config", ".env"],
+        "environment": "isolated"
+      },
+      "acceptance": ["AC-1: проверяемое утверждение"],
+      "commandsAllowed": ["node --test tests/acceptance.test.mjs"],
+      "networkPolicy": "none",
+      "productionWrites": false,
+      "moneyOperations": false,
+      "consensusChanges": false,
+      "maxIterations": 3,
+      "maxRuntimePerAgentMinutes": 20,
+      "maxTotalRuntimeMinutes": 60,
+      "maxTotalTokens": 200000,
+      "softTotalTokens": 150000,
+      "deadline": "2027-12-31T00:00:00Z"
+    }
+  }
+}

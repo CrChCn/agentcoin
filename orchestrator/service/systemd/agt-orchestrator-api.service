@@ -11,7 +11,7 @@ Group=agt-orchestrator
 WorkingDirectory=/srv/agentcoin-ops/orchestrator
 EnvironmentFile=-/etc/agentcoin/ops.env
 Environment=OPS_ROOT=/srv/agentcoin-ops
-Environment=OPS_API_HOST=127.0.0.1
+Environment=OPS_API_HOSTS=127.0.0.1,::1
 Environment=OPS_API_PORT=8799
 ExecStart=/usr/bin/env node service/opsd.mjs api
 Restart=always

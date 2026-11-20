@@ -2,7 +2,7 @@
 # Ставится install.sh только если файла ещё нет; права 0640 root:agt-orchestrator.
 
 OPS_ROOT=/srv/agentcoin-ops
-OPS_API_HOST=127.0.0.1
+OPS_API_HOSTS=127.0.0.1,::1
 OPS_API_PORT=8799
 OPS_STALE_AFTER_SEC=900
 OPS_PUBLIC_ORIGIN=https://agentcoin.work

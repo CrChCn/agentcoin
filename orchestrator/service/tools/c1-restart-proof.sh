@@ -22,19 +22,24 @@ NODE="${NODE:-node}"
 
 echo "== workspace"
 rm -rf "$ROOT"
-mkdir -p "$ROOT/queue" "$ROOT/state" "$ROOT/logs"
+mkdir -p "$ROOT/queue/backlog" "$ROOT/state" "$ROOT/logs"
 
+# Два задания владельца в backlog: planner больше не клонирует шаблон сам,
+# поэтому доказательство строится на настоящих очередных заданиях.
 "$NODE" -e '
 const fs = require("node:fs");
-const [orch, out] = process.argv.slice(1);
+const [orch, out, backlog] = process.argv.slice(1);
 const mission = JSON.parse(fs.readFileSync(orch + "/service/mission.json", "utf8"));
-mission.planner.template = orch + "/fixtures/tasks/lesson-01.json";
-mission.planner.titleSuffix = "restart-proof";
 mission.loop.intervalSec = 5;
 mission.loop.maxStepsPerTick = 3;
 mission.loop.maxTaskMinutes = 20;
 fs.writeFileSync(out, JSON.stringify(mission, null, 2) + "\n");
-' "$ORCH" "$MISSION"
+const base = JSON.parse(fs.readFileSync(orch + "/fixtures/tasks/lesson-01.json", "utf8"));
+for (const id of ["proof-a", "proof-b"]) {
+  const task = { ...base, taskId: id, title: base.title + " — " + id };
+  fs.writeFileSync(backlog + "/" + id + ".json", JSON.stringify(task, null, 2) + "\n");
+}
+' "$ORCH" "$MISSION" "$ROOT/queue/backlog"
 
 state_of() {
   "$NODE" -e 'try{const c=require(process.argv[1]);process.stdout.write(c.state||"none")}catch(e){process.stdout.write("none")}' "$ROOT/state/checkpoint.json"

@@ -38,7 +38,10 @@ test('a process that ignores SIGTERM still ends the run: BLOCKED, never a hang',
   const result = await codex.execWithEvents({
     prompt: 'x',
     workspace: ctx.workspace,
-    timeoutMs: 300,
+    /* 1500, а не 300: под нагрузкой node-двойник может не успеть установить
+       обработчик SIGTERM, и процесс умрёт от сигнала по умолчанию — тогда
+       эскалации не будет вовсе, хотя политика ни при чём. */
+    timeoutMs: 1500,
     graceMs: 500,
     reapMs: 2000,
     outputPath: ctx.outputPath,
@@ -66,7 +69,7 @@ test('a process that ignores SIGTERM still ends the run: BLOCKED, never a hang',
   const blocked = await codex.run({
     role: 'implementer', prompt: 'x', workspace: ctx.workspace,
     outputPath: ctx.outputPath, transcriptPath: ctx.transcriptPath, metaPath: ctx.metaPath,
-    timeoutMs: 300, graceMs: 500, reapMs: 2000,
+    timeoutMs: 1500, graceMs: 500, reapMs: 2000,
   });
   assert.equal(blocked.blocked.code, 'agent_timeout');
 });

@@ -11,7 +11,7 @@ import { Store } from '../state/store.mjs';
 import { assertRole } from '../adapters/resolver.mjs';
 import { assertValid, SchemaError } from './schema.mjs';
 import { canonical, copyTree, ensureDir, readJson, rmrf, sha256, writeJsonAtomic } from './fsx.mjs';
-import { changedFiles, cloneAt, initRepo, revParse } from './git.mjs';
+import { changedFiles, cloneAt, commitAll, initRepo, revParse } from './git.mjs';
 import { applyArtifactTo, buildArtifact, verifyArtifactFiles } from '../artifacts/store.mjs';
 import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } from '../policies/policy.mjs';
 import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
@@ -545,10 +545,6 @@ async function runImplementer({ store, root, state }) {
     ...scanEscape(wsRoot, [implementerDir, reviewerDir]),
     ...checkResult(task, { ...state, iteration }, modelResult, changed),
   ];
-  const headCommit = revParse(implementerDir, 'HEAD');
-  if (modelResult.resultCommit !== headCommit) {
-    violations.push({ code: 'RESULT_COMMIT_MISMATCH', detail: `declared ${modelResult.resultCommit}, actual ${headCommit}` });
-  }
   if (violations.length) {
     appendLog(logFile, { phase: 'policy', violations });
     return store.markBlocked(task.taskId, {
@@ -557,6 +553,24 @@ async function runImplementer({ store, root, state }) {
       patch: { ...evidence, violations },
     });
   }
+
+  /* fix7d: коммит — доверенный шаг движка, а не команда агента. Allowlist
+     задачи содержит только тестовые команды, поэтому исполнитель физически
+     не может закоммитить сам, а промпт требовал `git add -A && git commit`
+     и цикл падал на authority_violation. commitAll идемпотентен: если агент
+     всё же закоммитил сам, HEAD не меняется. Объявленный моделью
+     resultCommit заменяется фактическим HEAD: до коммита агент его не знает. */
+  let headCommit;
+  try {
+    headCommit = commitAll(implementerDir, `agentcoin: ${task.taskId} iteration ${iteration} implementer result`);
+  } catch (err) {
+    appendLog(logFile, { phase: 'trusted_commit', error: String(err.message || err) });
+    return store.markBlocked(task.taskId, {
+      action: 'trusted_commit', actor: 'orchestrator', code: 'commit_failed',
+      detail: `cannot commit the implementer workspace: ${String(err.message || err)}`,
+    });
+  }
+  modelResult.resultCommit = headCommit;
 
   if (state.result && state.result.resultCommit === modelResult.resultCommit) {
     return store.markBlocked(task.taskId, {

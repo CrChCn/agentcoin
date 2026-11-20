@@ -110,6 +110,25 @@ if (mode === 'sleep') {
     knownLimitations: ['harness double without commit'],
     status: 'submitted',
   });
+} else if (mode === 'no-commit') {
+  /* fix7d: агент оставляет дерево незакоммиченным — коммит обязан сделать
+     движок, а объявленный resultCommit — плейсхолдер (base commit). */
+  fs.mkdirSync(path.join(cwd, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(cwd, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'src', 'pricing.mjs'), 'export const FREE_SHIPPING_THRESHOLD_CENTS = 5000;\n\nexport function qualifiesForFreeShipping(totalCents) {\n  return totalCents >= FREE_SHIPPING_THRESHOLD_CENTS;\n}\n');
+  fs.writeFileSync(path.join(cwd, 'tests', 'implementer.test.mjs'), 'import test from "node:test";\nimport assert from "node:assert/strict";\nimport { qualifiesForFreeShipping } from "../src/pricing.mjs";\ntest("free shipping", () => assert.equal(qualifiesForFreeShipping(6000), true));\n');
+  emit({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test tests/implementer.test.mjs', exit_code: 0 } });
+  finish({
+    taskId: process.env.FAKE_TASK || 'lesson-01',
+    iteration: Number(process.env.FAKE_ITERATION || 1),
+    baseCommit: process.env.FAKE_BASE_COMMIT,
+    resultCommit: process.env.FAKE_BASE_COMMIT,
+    changedFiles: ['src/pricing.mjs', 'tests/implementer.test.mjs'],
+    commandsRun: ['node --test tests/implementer.test.mjs'],
+    tests: [{ command: 'node --test tests/implementer.test.mjs', exitCode: 0, ok: true }],
+    knownLimitations: ['the agent left its tree uncommitted on purpose'],
+    status: 'submitted',
+  });
 } else if (mode === 'symlink-escape') {
   /* Разрешённый путь, который на деле ведёт наружу. */
   const target = process.env.FAKE_CODEX_TARGET;

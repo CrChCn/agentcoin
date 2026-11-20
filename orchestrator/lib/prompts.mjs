@@ -28,7 +28,7 @@ export function implementerPrompt({ task, iteration, baseCommit, findings, works
 - Do not touch production, deployment configuration, secrets, network services or money.
 - Do not run shell commands other than the allowed test commands listed below.
 - Do not modify tests/acceptance.test.mjs or any reviewer test: the acceptance suite is the contract.
-- Commit your change in this repository (git add -A && git commit) and report the resulting 40-hex HEAD.`,
+- Do not run git. The orchestrator commits your working tree itself after validating the result; set resultCommit to the base commit and it will be replaced by the real HEAD.`,
     '',
     `Allowed commands: ${task.commandsAllowed.join(' | ')}`,
     '',

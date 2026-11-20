@@ -66,6 +66,29 @@ const BROKER_READY_TIMEOUT_MS = 30000;
 /* Копия auth.json/config.toml в одноразовый каталог: настоящий ~/.codex
    остаётся нетронутым, а внутрь Codex-sandbox попадает только то, что нужно
    CLI. Для инструментов модели этот каталог не смонтирован вообще. */
+/* Codex ротирует refresh-token в том CODEX_HOME, где он работает. Если
+   удалить временный дом молча, каноническая сессия останется со старым
+   токеном, и следующий запуск получит «refresh token already used». Поэтому
+   обновлённый auth.json возвращается на место до удаления. */
+const codexHomeOrigins = new Map();
+
+export function syncRotatedAuth(dir) {
+  if (!dir) return { ok: false, code: 'no_dir', detail: 'no temporary CODEX_HOME' };
+  const origin = codexHomeOrigins.get(path.resolve(dir));
+  if (!origin) return { ok: false, code: 'no_origin', detail: 'the temporary CODEX_HOME was not created by prepareCodexHome' };
+  const copy = path.join(dir, 'auth.json');
+  if (!fs.existsSync(copy) || !fs.existsSync(origin)) return { ok: false, code: 'missing', detail: 'auth.json is gone' };
+  const copyText = fs.readFileSync(copy, 'utf8');
+  const originText = fs.readFileSync(origin, 'utf8');
+  if (copyText === originText) return { ok: true, updated: false };
+  if (fs.statSync(copy).mtimeMs <= fs.statSync(origin).mtimeMs) return { ok: true, updated: false };
+  const tmp = `${origin}.${process.pid}.sync.tmp`;
+  fs.writeFileSync(tmp, copyText, { mode: 0o600 });
+  try { fs.chmodSync(tmp, 0o600); } catch { /* Windows/ACL */ }
+  fs.renameSync(tmp, origin);
+  return { ok: true, updated: true };
+}
+
 export function prepareCodexHome({ source, dest } = {}) {
   const from = source || process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
   if (!fs.existsSync(from)) {
@@ -88,6 +111,7 @@ export function prepareCodexHome({ source, dest } = {}) {
     const sourceFile = path.join(from, name);
     if (fs.existsSync(sourceFile)) fs.copyFileSync(sourceFile, path.join(target, name));
   }
+  codexHomeOrigins.set(path.resolve(target), authFile);
   return { ok: true, dir: target };
 }
 
@@ -113,7 +137,11 @@ export function removeAgentPath(dir, { backend = null } = {}) {
   }
 }
 
-export const discardCodexHome = (dir) => removeAgentPath(dir);
+export const discardCodexHome = (dir) => {
+  try { syncRotatedAuth(dir); } catch { /* удаление важнее синхронизации */ }
+  codexHomeOrigins.delete(path.resolve(String(dir)));
+  return removeAgentPath(dir);
+};
 
 function createIpcDir(backend) {
   if (backend === 'wsl-bwrap') {
@@ -522,6 +550,10 @@ export function buildAgentPlan({
       }
       const removed = [];
       const failed = [];
+      /* До удаления вернуть ротированный токен в каноническую сессию. */
+      if (credentialsDir) {
+        try { syncRotatedAuth(credentialsDir); } catch { /* удаление важнее */ }
+      }
       const targets = [
         { label: 'broker-socket', dir: path.posix.join(ipcUnix, 'broker.sock') },
         { label: 'ipc', dir: ipcUnix },

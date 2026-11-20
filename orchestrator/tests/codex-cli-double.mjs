@@ -116,7 +116,14 @@ if (mode === 'sleep') {
   fs.mkdirSync(path.join(cwd, 'src'), { recursive: true });
   fs.mkdirSync(path.join(cwd, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(cwd, 'src', 'pricing.mjs'), 'export const FREE_SHIPPING_THRESHOLD_CENTS = 5000;\n\nexport function qualifiesForFreeShipping(totalCents) {\n  return totalCents >= FREE_SHIPPING_THRESHOLD_CENTS;\n}\n');
-  fs.writeFileSync(path.join(cwd, 'tests', 'implementer.test.mjs'), 'import test from "node:test";\nimport assert from "node:assert/strict";\nimport { qualifiesForFreeShipping } from "../src/pricing.mjs";\ntest("free shipping", () => assert.equal(qualifiesForFreeShipping(6000), true));\n');
+  /* Содержимое теста не должно выглядеть статическим импортом для
+     package-closure: путь собирается из частей. */
+  const relativePricing = ['..', 'src', 'pricing.mjs'].join('/');
+  fs.writeFileSync(path.join(cwd, 'tests', 'implementer.test.mjs'), `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { qualifiesForFreeShipping } from '${relativePricing}';
+test('free shipping', () => assert.equal(qualifiesForFreeShipping(6000), true));
+`);
   emit({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test tests/implementer.test.mjs', exit_code: 0 } });
   finish({
     taskId: process.env.FAKE_TASK || 'lesson-01',

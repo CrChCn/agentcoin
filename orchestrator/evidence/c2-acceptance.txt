@@ -4,8 +4,12 @@ PASS  install-dry-run: exit 0; nothing installed
 PASS  install: exit 0; no stderr
 
 == 1. immutable code
-PASS  code-read-only: release=opt/agentcoin-orchestrator/releases/20261120T181504Z; writable files=0; append blocked=true
-PASS  code-outside-data: code opt/agentcoin-orchestrator/releases/20261120T181504Z is separate from data
+PASS  code-read-only: release=opt/agentcoin-orchestrator/releases/20261120T195749Z; writable files=0; append blocked=true
+PASS  code-outside-data: code opt/agentcoin-orchestrator/releases/20261120T195749Z is separate from data
+
+== 1b. install manifest records the real service user and data owner
+PASS  manifest-service-user: install-manifest-20261120T195749Z.json: serviceUser=agt-orchestrator deployUser=agt-deployer
+PASS  manifest-matches-data-owner: manifest dataOwner=mark, stat agentcoin-orchestrator=mark, mode=rehearsal
 
 == 2. data and control ownership
 PASS  control-dir-not-service-writable: mode 755, owner uid 1000
@@ -45,7 +49,8 @@ PASS  api-public-fields: no paths, usernames or pids in the public body
 PASS  deployer-disabled: exit 3
 
 == 12. rollback and uninstall keep the data
-PASS  rollback-restores-previous-release: release1=20261120T181504Z release2=20261120T181512Z after=20261120T181504Z
+PASS  manifest-service-user-override: SERVICE_USER=agt-custom -> serviceUser=agt-custom, deployUser=agt-deployer
+PASS  rollback-restores-previous-release: release1=20261120T195749Z release2=20261120T195800Z after=20261120T195749Z
 PASS  uninstall-keeps-data: uninstall exit 0; data marker=true; code removed=true
 
 == 13. pinned runtime refuses temporary paths
@@ -55,5 +60,5 @@ PASS  runtime-refuses-temporary-root: codex-pin exit 65: refusing: /tmp/c2-accep
 PENDING  real-systemd-units: systemctl is-active / reboot: run service/C2.md on the ops-host
 PENDING  reboot-recovery: queue, checkpoint and STOP after reboot: ops-host checklist
 
-== summary: 24 pass, 0 fail, 2 pending
+== summary: 27 pass, 0 fail, 2 pending
 evidence: /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/evidence/c2-acceptance.json

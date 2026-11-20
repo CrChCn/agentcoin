@@ -96,6 +96,21 @@ record('code-read-only', writableCount === 0 && appendBlocked === (process.platf
   `release=${path.relative(ROOT, release)}; writable files=${writableCount}; append blocked=${appendBlocked}`);
 record('code-outside-data', !release.startsWith(DATA + path.sep) && !release.startsWith(LOGS + path.sep), `code ${path.relative(ROOT, release)} is separate from data`);
 
+step('1b. install manifest records the real service user and data owner');
+const inventoryDir = path.join(DATA, 'inventory');
+const latestManifest = () => {
+  const file = fs.readdirSync(inventoryDir).filter((name) => name.startsWith('install-manifest-')).sort().at(-1);
+  return { file, data: JSON.parse(fs.readFileSync(path.join(inventoryDir, file), 'utf8')) };
+};
+const firstManifest = latestManifest();
+/* Rehearsal не создаёт сервисного пользователя: serviceUser берётся из
+   SERVICE_USER, а dataOwner — с диска, и оба сверяются здесь явно. */
+const dataOwner = spawnSync('stat', ['-c', '%U', DATA], { encoding: 'utf8' }).stdout.trim();
+record('manifest-service-user', firstManifest.data.serviceUser === 'agt-orchestrator' && firstManifest.data.deployUser === 'agt-deployer',
+  `${firstManifest.file}: serviceUser=${firstManifest.data.serviceUser} deployUser=${firstManifest.data.deployUser}`);
+record('manifest-matches-data-owner', firstManifest.data.dataOwner === dataOwner && firstManifest.data.mode === 'rehearsal',
+  `manifest dataOwner=${firstManifest.data.dataOwner}, stat ${path.basename(DATA)}=${dataOwner}, mode=${firstManifest.data.mode}`);
+
 step('2. data and control ownership');
 const cstat = fs.statSync(CONTROL);
 const cmode = (cstat.mode & 0o777).toString(8);
@@ -231,8 +246,14 @@ record('deployer-disabled', deployer.status === 3 && /DEPLOYMENT_NOT_ENABLED/.te
 step('12. rollback and uninstall keep the data');
 const releaseOne = fs.realpathSync(CURRENT);
 await new Promise((resolve) => setTimeout(resolve, 1100));
-const install2 = bash(['service/install.sh', `--prefix=${ROOT}`]);
+const install2 = bash(['service/install.sh', `--prefix=${ROOT}`], { env: { ...process.env, SERVICE_USER: 'agt-custom' } });
 const releaseTwo = fs.realpathSync(CURRENT);
+/* Переопределение SERVICE_USER обязано попасть в манифест, а не остаться
+   'agt-orchestrator' из старого чтения process.env. */
+const overrideManifest = latestManifest();
+record('manifest-service-user-override', install2.status === 0
+  && overrideManifest.data.serviceUser === 'agt-custom' && overrideManifest.data.deployUser === 'agt-deployer',
+  `SERVICE_USER=agt-custom -> serviceUser=${overrideManifest.data.serviceUser}, deployUser=${overrideManifest.data.deployUser}`);
 const rollback = bash(['service/install.sh', `--prefix=${ROOT}`, '--rollback']);
 const releaseAfterRollback = fs.realpathSync(CURRENT);
 record('rollback-restores-previous-release', install2.status === 0 && releaseOne !== releaseTwo && releaseAfterRollback === releaseOne,

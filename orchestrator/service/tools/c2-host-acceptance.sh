@@ -151,9 +151,13 @@ plan_action() { # json file
 MANIFEST="$(ls -1t "$DATA_ROOT"/inventory/install-manifest-*.json 2>/dev/null | head -n1 || true)"
 MANIFEST_USER=""
 MANIFEST_DEPLOY_USER=""
+MANIFEST_DATA_OWNER=""
+MANIFEST_MODE=""
 if [[ -n "$MANIFEST" ]]; then
   MANIFEST_USER="$(json_get "$MANIFEST" serviceUser)"
   MANIFEST_DEPLOY_USER="$(json_get "$MANIFEST" deployUser)"
+  MANIFEST_DATA_OWNER="$(json_get "$MANIFEST" dataOwner)"
+  MANIFEST_MODE="$(json_get "$MANIFEST" mode)"
 fi
 UNIT_USER="$(systemctl show -p User --value agt-orchestrator.service 2>/dev/null | tr -d '[:space:]')"
 if [[ -z "$SERVICE_USER" ]]; then
@@ -187,10 +191,13 @@ checks_core() {
   fi
 
   section "2. service account recorded by install.sh"
-  if [[ -n "$MANIFEST_USER" && "$MANIFEST_USER" == "$SERVICE_USER" ]]; then
-    record manifest-service-user PASS "manifest=$(basename "${MANIFEST:-none}") serviceUser=$MANIFEST_USER"
+  local data_owner_now
+  data_owner_now="$(stat -c '%U' "$DATA_ROOT" 2>/dev/null || echo '?')"
+  if [[ -n "$MANIFEST_USER" && "$MANIFEST_MODE" == "host" && "$MANIFEST_USER" == "$SERVICE_USER" \
+        && "$MANIFEST_DATA_OWNER" == "$data_owner_now" && "$SERVICE_USER" == "$data_owner_now" ]]; then
+    record manifest-service-user PASS "manifest=$(basename "${MANIFEST:-none}") serviceUser=$MANIFEST_USER dataOwner=$MANIFEST_DATA_OWNER matches disk ($data_owner_now)"
   else
-    record manifest-service-user FAIL "manifest serviceUser='${MANIFEST_USER:-missing}' resolved=$SERVICE_USER"
+    record manifest-service-user FAIL "manifest serviceUser='${MANIFEST_USER:-missing}' dataOwner='${MANIFEST_DATA_OWNER:-missing}' mode='${MANIFEST_MODE:-missing}'; disk owner=$data_owner_now, resolved=$SERVICE_USER"
   fi
   if [[ -n "$MANIFEST_DEPLOY_USER" && "$MANIFEST_DEPLOY_USER" != "root" ]]; then
     record manifest-deploy-user PASS "deployUser=$MANIFEST_DEPLOY_USER"

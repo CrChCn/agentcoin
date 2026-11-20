@@ -17,7 +17,8 @@
 #
 # Гарантии: manifest SHA256, неизменяемый release, предыдущая версия сохраняется,
 # очередь не перезаписывается, отказ при чужом владельце, STOP-каталог не
-# доступен сервису на запись. Не делает: деплой сайта, Caddy, сеть, кошельки.
+# доступен сервису на запись, манифест сверяется с фактическим владельцем
+# данных (расхождение — отказ 83). Не делает: деплой сайта, Caddy, сеть, кошельки.
 
 set -euo pipefail
 
@@ -199,6 +200,9 @@ run "install -d -m 0750 '$LOG_BASE'"
 if [[ "$DRY" -ne 1 ]]; then own_data "$LOG_BASE"; fi
 run "install -d -m 0755 '$CONTROL_DIR'"
 if [[ -z "$PREFIX" && "$DRY" -ne 1 ]]; then run "chown root:root '$CONTROL_DIR'"; fi
+# Корень данных тоже принадлежит сервисному пользователю: иначе манифест и
+# фактический владелец на диске расходятся уже на существующем каталоге.
+if [[ -z "$PREFIX" ]]; then run "chown '$SERVICE_USER:$SERVICE_USER' '$OPS_ROOT'"; fi
 
 # --- код: неизменяемый release + current -----------------------------------
 say "== code release (root-owned, read-only, previous release kept)"
@@ -262,6 +266,10 @@ for unit in agt-orchestrator.service agt-orchestrator-api.service \
     say "  [dry-run] render $unit -> $UNIT_DST/$unit"
   else
     sed -e "s#/opt/agentcoin-orchestrator#${CODE_BASE}#g" \
+        -e "s#^User=agt-orchestrator\$#User=${SERVICE_USER}#" \
+        -e "s#^Group=agt-orchestrator\$#Group=${SERVICE_USER}#" \
+        -e "s#^User=agt-deployer\$#User=${DEPLOY_USER}#" \
+        -e "s#^Group=agt-deployer\$#Group=${DEPLOY_USER}#" \
         -e "s#/var/lib/agentcoin-orchestrator#${DATA_BASE}#g" \
         -e "s#/var/log/agentcoin-orchestrator#${LOG_BASE}#g" \
         -e "s#/etc/agentcoin#${ENV_BASE}#g" \
@@ -283,14 +291,18 @@ if [[ "$DRY" -ne 1 ]]; then
   say "== manifest"
   install -d -m 0750 "$OPS_ROOT/inventory"
   MANIFEST="$OPS_ROOT/inventory/install-manifest-$TS.json"
-  node - "$RELEASE" "$UNIT_DST" "$MANIFEST" "$TS" "$CURRENT" "$OPS_ROOT" "$LOG_BASE" "$SERVICE_USER" "$DEPLOY_USER" <<'NODE'
+  INSTALL_KIND="host"
+  if [[ -n "$PREFIX" ]]; then INSTALL_KIND="rehearsal"; fi
+  DATA_OWNER="$(stat -c '%U' "$OPS_ROOT")"
+  CONTROL_OWNER="$(stat -c '%U:%G' "$CONTROL_DIR")"
+  node - "$RELEASE" "$UNIT_DST" "$MANIFEST" "$TS" "$CURRENT" "$OPS_ROOT" "$LOG_BASE" "$SERVICE_USER" "$DEPLOY_USER" "$INSTALL_KIND" "$DATA_OWNER" "$CONTROL_OWNER" <<'NODE'
 const { execSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 /* Пользователи передаются аргументами. Переменные install.sh не экспортированы,
    поэтому чтение process.env.SERVICE_USER молча подставляло 'agt-orchestrator'
    и записывало в манифест владельца, которого в системе может не быть. */
-const [release, unitDir, out, ts, current, dataRoot, logRoot, serviceUser, deployUser] = process.argv.slice(2);
+const [release, unitDir, out, ts, current, dataRoot, logRoot, serviceUser, deployUser, mode, dataOwner, controlOwner] = process.argv.slice(2);
 if (!serviceUser || !deployUser) {
   console.error('refusing to write a manifest without serviceUser/deployUser');
   process.exit(1);
@@ -313,11 +325,40 @@ const unitFiles = units.filter((unit) => fs.existsSync(path.join(unitDir, unit))
   sha256: execSync(`sha256sum "${path.join(unitDir, unit)}"`).toString().split(' ')[0],
 }));
 fs.writeFileSync(out, JSON.stringify({
-  installedAt: ts, release, current: fs.readlinkSync(current), dataRoot, logRoot, serviceUser, deployUser,
+  installedAt: ts, mode, release, current: fs.readlinkSync(current), dataRoot, logRoot,
+  serviceUser, deployUser, dataOwner, controlOwner,
   codeFiles: files.length, units: unitFiles, files,
 }, null, 2) + '\n');
 console.log(`  ${files.length} code files + ${unitFiles.length} units recorded in ${out}`);
 NODE
+
+  # Манифест обязан совпадать с диском: serviceUser — фактический владелец
+  # данных. Иначе установка сообщала бы об успехе с неверной записью.
+  manifest_field() {
+    node -e 'const fs=require("node:fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(m[process.argv[2]] ?? ""));' "$MANIFEST" "$1"
+  }
+  M_USER="$(manifest_field serviceUser)"
+  M_KIND="$(manifest_field mode)"
+  M_DATA_OWNER="$(manifest_field dataOwner)"
+  say "  manifest: mode=$M_KIND serviceUser=$M_USER dataOwner=$M_DATA_OWNER (диск: $DATA_OWNER; control: $CONTROL_OWNER)"
+  if [[ "$M_USER" != "$SERVICE_USER" ]]; then
+    echo "FATAL: manifest serviceUser '$M_USER' != SERVICE_USER '$SERVICE_USER'" >&2
+    exit 83
+  fi
+  if [[ "$M_DATA_OWNER" != "$DATA_OWNER" ]]; then
+    echo "FATAL: manifest dataOwner '$M_DATA_OWNER' != owner of $OPS_ROOT '$DATA_OWNER'" >&2
+    exit 83
+  fi
+  if [[ "$M_KIND" == "host" && "$M_USER" != "$DATA_OWNER" ]]; then
+    echo "FATAL: service user '$M_USER' does not own $OPS_ROOT (owner '$DATA_OWNER')" >&2
+    exit 83
+  fi
+  if [[ "$M_KIND" == "rehearsal" ]]; then
+    say "  rehearsal: data owner is the invoking user; no service account was created"
+  fi
+else
+  say "== manifest (dry-run)"
+  say "  [dry-run] would record serviceUser=$SERVICE_USER deployUser=$DEPLOY_USER dataOwner=$(stat -c '%U' "$OPS_ROOT" 2>/dev/null || echo '?')"
 fi
 
 # --- очередь не изменилась -------------------------------------------------

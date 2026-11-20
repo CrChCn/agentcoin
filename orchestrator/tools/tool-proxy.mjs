@@ -1,110 +1,131 @@
 #!/usr/bin/env node
-/* Tool proxy (Stage A fix4). Монтируется внутрь sandbox как `/orch/bin/bash`
-   и `/orch/bin/sh`: любая shell-команда, которую Codex запускает по PATH,
-   попадает сюда, а не в системный shell.
+/* Tool proxy — клиент broker'а (Stage A fix5).
 
-   Что делает прокси:
-   1. разбирает аргументы как `bash -lc "<command>"`;
-   2. применяет allowlist (lib/toolpolicy.mjs) и отклоняет запрещённое
-      технически — exit 126, без запуска;
-   3. пишет журнал каждой попытки в /orch/log/tool-calls.jsonl (наружу, в
-      каталог журналов оркестратора);
-   4. запускает разрешённую команду в ДОПОЛНИТЕЛЬНЫХ mount+network
-      namespace: сеть пустая, /run/credentials и /home замаскированы tmpfs,
-      поэтому даже разрешённая команда не видит auth-хранилище Codex.
+   Этот файл больше не исполняет команды и ничего не маскирует: он только
+   передаёт разобранный argv в broker по unix-сокету и возвращает его
+   результат. Исполнение происходит в ДРУГОМ namespace (tools/tool-broker.mjs):
+   без сети, без /run/credentials, без CODEX_HOME.
 
-   Если создать эти namespace нельзя (нет CAP_SYS_ADMIN, нет unshare) —
-   команда не выполняется: ISOLATED_TOOL_NET_UNAVAILABLE. Fail-closed. */
+   Монтируется как `/orch/bin/bash`, `/orch/bin/sh` и как `/bin/bash`,
+   `/bin/sh`, `/usr/bin/bash`, `/usr/bin/sh` внутри namespace Codex. Поэтому
+   абсолютный путь не обходит прокси: настоящих shell'ов в namespace нет
+   вообще, а всё остальное (`/usr/bin/env`, `/usr/bin/node`) отсутствует.
+
+   Fail-closed: нет сокета или broker отказал — команда не выполняется,
+   возвращается ISOLATED_TOOL_CHANNEL_UNAVAILABLE (exit 126). Прежние
+   `mount ... || true` удалены вместе с самим маскированием: маскирование
+   теперь делает bwrap, и его ошибка завершает запуск. */
 
 import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import net from 'node:net';
 
-import { decideToolPolicy } from '../lib/toolpolicy.mjs';
-
-const POLICY_FILE = '/orch/policy.json';
-const LOG_DIR = '/orch/log';
-const LOG_FILE = `${LOG_DIR}/tool-calls.jsonl`;
-const UNSHARE = '/usr/bin/unshare';
-const SAFE_PATH = '/usr/local/bin:/usr/bin:/bin';
-
-function readPolicy() {
-  try {
-    return JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8'));
-  } catch {
-    /* Нет политики — значит нет и разрешения: пустой allowlist. */
-    return { enforce: true, allow: [], missing: true };
-  }
-}
-
-function appendLog(entry) {
-  try {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
-    fs.appendFileSync(LOG_FILE, `${JSON.stringify(entry)}\n`);
-  } catch {
-    /* журнал — доказательство, а не условие выполнения: его отсутствие не
-       должно превращаться в разрешение */
-  }
-}
+const SOCKET = '/orch/ipc/broker.sock';
+const REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_RESPONSE = 8 * 1024 * 1024;
 
 /* `bash -lc "cmd"`, `bash -c cmd`, `bash -l -c cmd`, `bash script.sh`. */
 export function parseShellArgs(argv) {
   const args = Array.isArray(argv) ? argv.slice() : [];
   for (let i = 0; i < args.length; i++) {
     const token = args[i];
-    if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(token)) return { command: args[i + 1] ?? '', args };
-    if (token === '-c') return { command: args[i + 1] ?? '', args };
+    if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(token)) return { mode: 'command', command: args[i + 1] ?? '', args };
+    if (token === '-c') return { mode: 'command', command: args[i + 1] ?? '', args };
     if (token.startsWith('-')) continue;
-    return { command: args.slice(i).join(' '), args };
+    return { mode: 'script', script: token, args: args.slice(i + 1), argv: args };
   }
-  return { command: '', args };
+  return { mode: 'empty', command: '', args };
 }
 
-function toolEnv() {
-  return {
-    PATH: SAFE_PATH,
-    HOME: '/home/sandbox',
-    TMPDIR: '/tmp',
-    TMP: '/tmp',
-    LANG: 'C.UTF-8',
-    NO_COLOR: '1',
-    FORCE_COLOR: '0',
-  };
+function unavailable(detail) {
+  process.stderr.write(`policy: ISOLATED_TOOL_CHANNEL_UNAVAILABLE: ${detail}\n`);
+  process.exitCode = 126;
 }
 
-const MASK_SCRIPT = [
-  'mount -t tmpfs -o size=64k,mode=700 tmpfs /run/credentials 2>/dev/null || true',
-  'mount -t tmpfs -o size=64k,mode=700 tmpfs /home 2>/dev/null || true',
-  'exec /bin/sh -c "$1"',
-].join('; ');
+function readScript(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    process.stderr.write(`policy: TOOL_COMMAND_NOT_ALLOWED: cannot read script ${file}: ${err.code || err.message}\n`);
+    process.exitCode = 126;
+    return null;
+  }
+}
+
+export function requestFor(argv) {
+  const parsed = parseShellArgs(argv);
+  if (parsed.mode === 'command') return { command: parsed.command };
+  if (parsed.mode === 'script') {
+    const source = readScript(parsed.script);
+    if (source === null) return null;
+    return { command: source };
+  }
+  return { command: '' };
+}
 
 function main() {
-  const { command, args } = parseShellArgs(process.argv.slice(2));
-  const policy = readPolicy();
-  const decision = decideToolPolicy(command, policy);
-  const at = new Date().toISOString();
-  if (!decision.allow) {
-    appendLog({ at, command, argv: args, allow: false, code: decision.code, reason: decision.reason || null });
-    process.stderr.write(`policy: ${decision.code}: ${decision.reason || 'command denied'}\n`);
-    return 126;
-  }
-  const cwd = process.cwd();
-  const result = spawnSync(UNSHARE, ['--mount', '--net', '--', '/bin/sh', '-c', MASK_SCRIPT, 'orch-tool', command], {
-    stdio: 'inherit',
-    env: toolEnv(),
-    cwd,
-    timeout: 600000,
+  const request = requestFor(process.argv.slice(2));
+  if (!request) return 126;
+  const id = `${process.pid}-${Date.now()}`;
+  const socket = net.connect(SOCKET);
+  let buffer = '';
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    socket.destroy();
+    unavailable(`broker did not answer within ${REQUEST_TIMEOUT_MS} ms`);
+  }, REQUEST_TIMEOUT_MS);
+
+  const finish = (response) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    socket.destroy();
+    if (response.stdout) process.stdout.write(String(response.stdout));
+    if (response.stderr) process.stderr.write(String(response.stderr));
+    process.exitCode = typeof response.exitCode === 'number' ? response.exitCode : 126;
+  };
+
+  socket.setEncoding('utf8');
+  socket.on('connect', () => {
+    socket.write(`${JSON.stringify({ id, cwd: process.cwd(), command: request.command })}\n`);
   });
-  if (result.error) {
-    appendLog({ at, command, allow: false, code: 'ISOLATED_TOOL_NET_UNAVAILABLE', reason: String(result.error.message || result.error) });
-    process.stderr.write(`policy: ISOLATED_TOOL_NET_UNAVAILABLE: ${String(result.error.message || result.error)}\n`);
-    return 126;
-  }
-  appendLog({ at, command, allow: true, exitCode: result.status, cwd });
-  return typeof result.status === 'number' ? result.status : 126;
+  socket.on('data', (chunk) => {
+    buffer += chunk;
+    if (buffer.length > MAX_RESPONSE) {
+      finish({ exitCode: 126, stderr: 'policy: ISOLATED_TOOL_CHANNEL_UNAVAILABLE: response too large\n' });
+      return;
+    }
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.trim().startsWith('{')) continue;
+      try {
+        finish(JSON.parse(line));
+      } catch {
+        finish({ exitCode: 126, stderr: 'policy: ISOLATED_TOOL_CHANNEL_UNAVAILABLE: malformed broker response\n' });
+      }
+      return;
+    }
+  });
+  socket.on('error', (err) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    unavailable(`${SOCKET}: ${err.code || err.message}`);
+  });
+  socket.on('close', () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    unavailable('broker closed the channel without a result');
+  });
+  return null;
 }
 
-if (process.argv[1] && /tool-proxy\.mjs$|\/orch\/bin\/(bash|sh)$/.test(process.argv[1])) {
-  process.exitCode = main();
-} else {
-  process.exitCode = main();
-}
+/* Стенд запускает файл напрямую (`node tools/tool-proxy.mjs`), но в sandbox он
+   импортируется из stub-файла (`/bin/bash`, `/bin/sh`, `/usr/bin/bash`).
+   Юнит-тесты импортируют модуль ради чистых функций и не должны запускать
+   клиент: main() срабатывает только для этих двух способов запуска. */
+const invoked = String(process.argv[1] || '');
+if (/tool-proxy\.mjs$/.test(invoked) || /(^|\/)(usr\/)?(bin|sbin)\/(bash|sh)$/.test(invoked)) main();

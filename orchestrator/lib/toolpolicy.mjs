@@ -40,6 +40,24 @@ const SEGMENT_SPLIT = /&&|\|\||;|\n|\|/;
 
 const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 
+/* Абсолютный путь обходит любой PATH-хук: `/bin/bash`, `/usr/bin/node`,
+   `/run/credentials/codex/auth.json`. Инструменты работают в cwd workspace,
+   поэтому абсолютные пути, `~` и выход через `..` запрещены целиком, а не по
+   списку известных мест. */
+export const TOOL_PATH_DENIED = 'TOOL_PATH_DENIED';
+
+function pathViolation(tokens) {
+  for (const token of tokens) {
+    if (!token || token.startsWith('-')) continue;
+    if (token.startsWith('/')) return `absolute path is not allowed in tool commands: ${token}`;
+    if (token.startsWith('~')) return `home-relative path is not allowed in tool commands: ${token}`;
+    if (token === '..' || token.startsWith('../') || token.includes('/../') || token.endsWith('/..')) {
+      return `parent-directory escape is not allowed in tool commands: ${token}`;
+    }
+  }
+  return null;
+}
+
 function decideSegment(segment, policy) {
   const raw = normalize(segment);
   if (!raw) return { allow: false, code: 'EMPTY_COMMAND', reason: 'empty command' };
@@ -50,6 +68,8 @@ function decideSegment(segment, policy) {
     return { allow: false, code: 'TOOL_SUBSTITUTION_DENIED', reason: 'command substitution and redirection are not allowed', segment: raw };
   }
   const tokens = raw.split(' ');
+  const escape = pathViolation(tokens);
+  if (escape) return { allow: false, code: TOOL_PATH_DENIED, reason: escape, segment: raw };
   const first = tokens[0];
   if (DENIED_FIRST.includes(first)) {
     return { allow: false, code: 'TOOL_COMMAND_DENIED', reason: `${first} is denied by policy`, segment: raw };

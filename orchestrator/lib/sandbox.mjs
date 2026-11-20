@@ -375,6 +375,49 @@ export function smokeTest({ backend = WIN ? 'wsl-bwrap' : 'bwrap', sandbox = { a
   }
 }
 
+/* ---------- пути и каталоги backend'а ---------- */
+
+/* Каталоги, где живут исполняемые файлы. В namespace Codex они заменяются
+   tmpfs целиком: PATH-подмена больше не является границей, настоящих shell'ов
+   и интерпретаторов там нет. */
+export const MASK_DIRS = Object.freeze(['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/local/bin', '/usr/local/sbin']);
+
+const maskCache = new Map();
+
+export function backendMaskDirs(backend = WIN ? 'wsl-bwrap' : 'bwrap') {
+  if (maskCache.has(backend)) return maskCache.get(backend);
+  const script = `for d in ${MASK_DIRS.join(' ')}; do [ -d "$d" ] && echo "$d"; done`;
+  const result = backend === 'wsl-bwrap'
+    ? spawnSync('wsl.exe', ['-e', 'bash', '-lc', script], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'], env: toolEnv(), shell: false })
+    : spawnSync('bash', ['-lc', script], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'], env: toolEnv(), shell: false });
+  const dirs = String(result.stdout || '').split(/\s+/).map((line) => line.trim()).filter((line) => MASK_DIRS.includes(line));
+  const list = dirs.length ? dirs : MASK_DIRS.slice(0, 4);
+  maskCache.set(backend, list);
+  return list;
+}
+
+/* Реальный node внутри backend'а: Codex CLI запускается им из
+   /orch/rt/node, а каталоги /usr/bin в его namespace уже замаскированы. */
+export function backendNode(backend = WIN ? 'wsl-bwrap' : 'bwrap') {
+  if (backend !== 'wsl-bwrap') return process.execPath;
+  const result = spawnSync('wsl.exe', ['-e', 'bash', '-lc', 'command -v node'], {
+    encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'], env: toolEnv(), shell: false,
+  });
+  return result.status === 0 ? (String(result.stdout || '').trim() || null) : null;
+}
+
+export function backendFileExists(backend, file) {
+  if (backend !== 'wsl-bwrap') return fs.existsSync(file);
+  const result = spawnSync('wsl.exe', ['-e', 'test', '-f', file], { timeout: 10000, stdio: 'ignore', env: toolEnv(), shell: false });
+  return result.status === 0;
+}
+
+export function backendDirExists(backend, dir) {
+  if (backend !== 'wsl-bwrap') return fs.existsSync(dir);
+  const result = spawnSync('wsl.exe', ['-e', 'test', '-d', dir], { timeout: 10000, stdio: 'ignore', env: toolEnv(), shell: false });
+  return result.status === 0;
+}
+
 /* Определение backend один раз на процесс. Возвращает либо smoke-tested
    backend, либо явную причину отказа — молчаливого fallback на spawnSync нет. */
 export function detectSandbox({ refresh = false } = {}) {

@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-/* Hostile clean-room (Stage A fix4): доказательство того, что изолирован
-   РЕАЛЬНЫЙ путь агента, а не только вспомогательный runner.
+/* Hostile clean-room (Stage A fix5): проверка РЕАЛЬНОГО пути, а не стенда,
+   который сам выбирает защищённую ветку.
 
    Фаза 1 — тестовый runner: враждебный Node-процесс запускается через
    sandboxRun (как команды задачи) и обязан получить технический отказ.
 
-   Фаза 2 — цепочка агента: тот же sandbox-план, что и у настоящего Codex
-   (bwrap → worker → /orch/bin/bash как tool proxy), с подставным worker'ом.
-   Проверяются оба канала: сам worker (fs/env) и инструменты модели (tool
-   proxy: нет сети, нет /run/credentials, нет записи вне workspace).
+   Фаза 2 — матрица атак в ТОМ ЖЕ namespace и с ТЕМ ЖЕ планом, что у Codex:
+   bwrap (masked /bin,/usr/bin, /orch/bin, credentials) → broker в отдельном
+   namespace без сети и credentials. Каждая атака называет абсолютный путь
+   явно (`/bin/bash`, `/bin/sh`, `/usr/bin/env`, `/usr/bin/node`) и исполняется
+   harness'ом; результат берётся из кода выхода, а не из текста модели.
 
-   Если backend не прошёл smoke-run, проверка не притворяется зелёной:
-   возвращается ISOLATED_RUNNER_UNAVAILABLE и код выхода 3. */
+   Уровень 3 эта проверка не открывает: она не запускает настоящий Codex.
+   Evidence уровня 3 пишет только tools/agent-hostile-check.mjs --real. */
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -22,6 +23,9 @@ import { fileURLToPath } from 'node:url';
 import { detectSandbox, sandboxRun, toWslPath, ISOLATED_RUNNER_UNAVAILABLE } from '../lib/sandbox.mjs';
 import { buildAgentPlan, readToolJournal } from '../lib/agentsandbox.mjs';
 import { findSecrets, secretPairs } from '../lib/secrets.mjs';
+import {
+  ALLOW_ATTACKS, ATTACK_IDS, DENY_ATTACKS, attackSpecs, probeFiles, runAttackMatrix,
+} from '../lib/attackmatrix.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -52,24 +56,9 @@ export const ATTACKS = Object.freeze([
   'write-sibling',
 ]);
 
-export const AGENT_ATTACKS = Object.freeze([
-  'worker-read-outside',
-  'worker-read-ssh-key',
-  'worker-env-secret',
-  'worker-write-sibling',
-  'tool-read-outside',
-  'tool-read-ssh-key',
-  'tool-read-codex-auth',
-  'tool-env-secret',
-  'tool-curl',
-  'tool-write-sibling',
-  'tool-net-public',
-  'tool-net-localhost',
-  'tool-read-workspace',
-  'tool-ls',
-]);
-
-const AGENT_ALLOWED = new Set(['tool-read-workspace', 'tool-ls']);
+/* Матрица фазы 2 — единый список из lib/attackmatrix.mjs. */
+export const AGENT_ATTACKS = ATTACK_IDS;
+export { DENY_ATTACKS, ALLOW_ATTACKS };
 
 function buildFixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-hostile-'));
@@ -140,7 +129,7 @@ function runnerPhase(sandbox, say) {
   const leaked = ATTACKS.filter((name) => byName.get(name) && byName.get(name).denied !== true);
   const ok = result.exitCode === 0 && missing.length === 0 && leaked.length === 0;
 
-  say('phase 1 — test runner (sandboxRun, 12 attacks):');
+  say('phase 1 — test runner (sandboxRun, 15 attacks):');
   for (const name of ATTACKS) {
     const item = byName.get(name);
     say(`  ${item && item.denied ? 'DENIED ' : 'FAILED '} ${name.padEnd(24)} ${item ? item.detail : 'no result'}`);
@@ -152,24 +141,22 @@ function runnerPhase(sandbox, say) {
   return { ok, attacks, missing, leaked };
 }
 
-/* Фаза 2: цепочка агента внутри того же плана, что и настоящий Codex. */
-function agentPhase(sandbox, say) {
+/* Фаза 2: обязательная матрица в namespace Codex + broker в отдельном
+   namespace. Ни одна атака не выбирает «безопасный» путь: все они называют
+   абсолютные адреса, которыми прежняя версия обходила прокси. */
+async function agentPhase(sandbox, say) {
   const fixture = buildFixture();
   const uni = (p) => (sandbox.backend === 'wsl-bwrap' ? toWslPath(p) : p);
-  fs.copyFileSync(path.join(ROOT, 'tests', 'hostile', 'agent-standin.mjs'), path.join(fixture.ws, 'agent-standin.mjs'));
-  fs.writeFileSync(path.join(fixture.ws, 'allowed.txt'), 'ALLOWED-WORKSPACE-VALUE\n');
+  fs.writeFileSync(path.join(fixture.ws, 'allowed.txt'), 'ALLOWED-WORKSPACE-READ\n');
+  for (const [rel, source] of probeFiles()) {
+    const file = path.join(fixture.ws, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, source);
+  }
 
   const credentials = path.join(fixture.base, 'credentials', 'codex');
   fs.mkdirSync(credentials, { recursive: true });
   fs.writeFileSync(path.join(credentials, 'auth.json'), JSON.stringify({ token: 'CODEX-AUTH-CANARY-VALUE' }));
-
-  const configPath = path.join(fixture.ws, 'agent-config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    outsideFile: uni(fixture.outsideFile),
-    sshKey: uni(fixture.sshKey),
-    codexAuth: '/run/credentials/codex/auth.json',
-    siblingWrite: uni(path.join(fixture.outside, 'pwn.txt')),
-  }, null, 2));
 
   const logDir = path.join(fixture.base, 'tool-log');
   const plan = buildAgentPlan({
@@ -180,62 +167,69 @@ function agentPhase(sandbox, say) {
     task: { commandsAllowed: [] },
   });
   if (!plan.ok) {
-    say(`phase 2 — agent chain: BLOCKED ${plan.code}: ${plan.detail}`);
+    say(`phase 2 — attack matrix: BLOCKED ${plan.code}: ${plan.detail}`);
     fs.rmSync(fixture.base, { recursive: true, force: true });
     return { ok: false, blocked: plan };
   }
-  const launch = plan.wrap(['node', 'agent-standin.mjs']);
-  if (!launch.ok) {
-    say(`phase 2 — agent chain: BLOCKED ${launch.code}: ${launch.detail}`);
+  const started = await plan.startBroker();
+  if (!started.ok) {
+    say(`phase 2 — attack matrix: BLOCKED ${started.code}: ${started.detail}`);
+    plan.cleanup();
     fs.rmSync(fixture.base, { recursive: true, force: true });
-    return { ok: false, blocked: launch };
+    return { ok: false, blocked: started };
   }
 
-  const result = withCanaries(() => spawnSync(launch.cmd, launch.args, {
-    encoding: 'utf8',
-    timeout: 120000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: launch.env,
-    maxBuffer: 16 * 1024 * 1024,
-  }));
-  const attacks = parseJsonLines(result.stdout);
-  const byName = new Map(attacks.map((item) => [item.attack, item]));
-  const missing = AGENT_ATTACKS.filter((name) => !byName.has(name));
-  const wrong = AGENT_ATTACKS.filter((name) => {
-    const item = byName.get(name);
-    if (!item) return false;
-    return AGENT_ALLOWED.has(name) ? item.denied !== false : item.denied !== true;
-  });
-  const journal = readToolJournal(path.join(logDir, 'tool-calls.jsonl'));
+  const specs = attackSpecs({ outside: uni(fixture.outsideFile), sshKey: uni(fixture.sshKey) });
+  const run = (spec) => {
+    const launch = plan.wrap(spec.argv);
+    if (!launch.ok) return { exitCode: 126, stderr: `policy: ${launch.code}: ${launch.detail}` };
+    const result = withCanaries(() => spawnSync(launch.cmd, launch.args, {
+      encoding: 'utf8',
+      timeout: 180000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: launch.env,
+      cwd: fixture.ws,
+      maxBuffer: 16 * 1024 * 1024,
+    }));
+    return {
+      exitCode: typeof result.status === 'number' ? result.status : -1,
+      stdout: result.stdout || '',
+      stderr: result.stderr || (result.error ? String(result.error.message || result.error) : ''),
+      signal: result.signal || null,
+    };
+  };
+
+  const matrix = runAttackMatrix({ specs, run });
+  await plan.flushBroker();
+  const journal = [...plan.brokerEntries];
   const journalDenied = journal.filter((entry) => entry.allow === false);
-  const ok = result.status === 0 && missing.length === 0 && wrong.length === 0 && journalDenied.length > 0;
+  const ok = matrix.ok && journal.length > 0 && journalDenied.length > 0;
 
-  say('phase 2 — agent chain (bwrap → worker → tool proxy, 14 attacks):');
-  for (const name of AGENT_ATTACKS) {
-    const item = byName.get(name);
-    const good = item && (AGENT_ALLOWED.has(name) ? item.denied === false : item.denied === true);
-    const label = good ? (AGENT_ALLOWED.has(name) ? 'ALLOWED' : 'DENIED ') : 'FAILED ';
-    say(`  ${label} ${name.padEnd(24)} ${item ? item.detail : 'no result'}`);
+  say(`phase 2 — attack matrix in the Codex namespace + broker (${AGENT_ATTACKS.length} attacks):`);
+  for (const item of matrix.results) {
+    const good = item.expect === 'allow' ? item.ok : item.denied;
+    const label = item.expect === 'allow' ? (good ? 'ALLOWED' : 'FAILED ') : (good ? 'DENIED ' : 'FAILED ');
+    say(`  ${label} ${item.id.padEnd(26)} exit=${item.technical.exitCode} code=${item.technical.code || 'none'} ${item.technical.detail}`);
   }
-  if (missing.length) say(`  missing results: ${missing.join(', ')}`);
-  if (wrong.length) say(`  unexpected outcomes: ${wrong.join(', ')}`);
-  say(`  tool proxy journal: ${journal.length} calls, ${journalDenied.length} denied`);
-  if (!journalDenied.length) say('  the tool proxy recorded no denials: policy was not enforced');
-  say(`  exitCode: ${result.status}`);
-  const stderr = String(result.stderr || '').trim();
-  if (stderr) say(`  stderr: ${stderr.slice(0, 400)}`);
+  if (matrix.failures.length) say(`  failures: ${matrix.failures.join('; ')}`);
+  say(`  broker journal: ${journal.length} calls, ${journalDenied.length} denied`);
+  if (!journalDenied.length) say('  the broker recorded no denials: policy was not enforced');
 
+  await plan.drainBroker();
+  plan.cleanup();
   fs.rmSync(fixture.base, { recursive: true, force: true });
-  return { ok, attacks, missing, wrong, journal, journalDenied };
+  return { ok, results: matrix.results, failures: matrix.failures, journal, journalDenied };
 }
 
 /* Имена временных каталогов не должны попадать в доказательство: иначе файл
    меняется от запуска к запуску и SHA256SUMS архива перестаёт сходиться. */
 export function normalizeEvidence(text) {
-  return String(text).replace(/[^\s"]*orch-hostile-[A-Za-z0-9]+/g, '<fixture>');
+  return String(text)
+    .replace(/[^\s"]*orch-hostile-[A-Za-z0-9]+/g, '<fixture>')
+    .replace(/[^\s"]*orch-ipc\.[A-Za-z0-9]+/g, '<ipc>');
 }
 
-export function runHostileCheck({ sandbox = detectSandbox(), log, agentPhaseEnabled = true } = {}) {
+export async function runHostileCheck({ sandbox = detectSandbox(), log, agentPhaseEnabled = true } = {}) {
   const lines = [];
   const say = (line) => {
     lines.push(line);
@@ -247,7 +241,7 @@ export function runHostileCheck({ sandbox = detectSandbox(), log, agentPhaseEnab
     return { ok: false, code: ISOLATED_RUNNER_UNAVAILABLE, exitCode: 3, attacks: [], log: lines.join('\n') };
   }
   const runner = runnerPhase(sandbox, say);
-  const agent = agentPhaseEnabled ? agentPhase(sandbox, say) : { ok: true, attacks: [] };
+  const agent = agentPhaseEnabled ? await agentPhase(sandbox, say) : { ok: true, results: [] };
 
   const pairs = secretPairs({ ...process.env, ...CANARIES });
   const leaks = findSecrets(lines.join('\n'), pairs);
@@ -263,7 +257,7 @@ export function runHostileCheck({ sandbox = detectSandbox(), log, agentPhaseEnab
     code: ok ? null : 'HOSTILE_CHECK_FAILED',
     exitCode: ok ? 0 : 1,
     backend: sandbox.backend,
-    attacks: [...runner.attacks, ...(agent.attacks || [])],
+    attacks: [...runner.attacks, ...(agent.results || [])],
     runner,
     agent,
     leaks,
@@ -272,7 +266,7 @@ export function runHostileCheck({ sandbox = detectSandbox(), log, agentPhaseEnab
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  const outcome = runHostileCheck({ log: (line) => console.log(line) });
+  const outcome = await runHostileCheck({ log: (line) => console.log(line) });
   /* По умолчанию доказательство печатается, но не пишется: распакованный архив
      можно проверять, не меняя его файлов (SHA256SUMS остаётся верным).
      Флаг нужен только сборщику архива. */

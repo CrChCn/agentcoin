@@ -75,7 +75,7 @@ function preflight({ root, taskFile }) {
   if (adapters[0].id === adapters[1].id) blockers.push({ code: 'SELF_REVIEW', detail: 'implementer and reviewer must be different adapters' });
   /* Три уровня, и только третий открывает автономный запуск:
      1) backend installed; 2) backend smoke-tested; 3) real adapter end-to-end. */
-  const evidence = isolationEvidence();
+  const evidence = isolationEvidence(undefined, { backend: sandbox.backend });
   const levels = {
     installed: sandbox.levels ? sandbox.levels.installed === true : false,
     smokeTested: sandbox.levels ? sandbox.levels.smokeTested === true : false,
@@ -112,8 +112,20 @@ function preflight({ root, taskFile }) {
       installedBackend: sandbox.installedBackend || null,
       detail: sandbox.detail,
       levels,
-      evidence: evidence.ok ? { file: evidence.file, threadId: evidence.threadId, at: evidence.at, attacks: evidence.attacks } : null,
-      note: 'only levels.adapterEndToEnd=true permits an autonomous agent run',
+      evidence: evidence.ok
+        ? {
+          file: evidence.file,
+          threadId: evidence.threadId,
+          at: evidence.at,
+          attacks: evidence.attacks,
+          denied: evidence.denied,
+          allowed: evidence.allowed,
+          commit: evidence.commit,
+          keyId: evidence.keyId,
+          host: evidence.host ? evidence.host.fingerprint : null,
+        }
+        : null,
+      note: 'only levels.adapterEndToEnd=true permits an autonomous agent run; evidence must be signed with the machine key, bound to a nonce, this host and this build',
     },
     budgets: {
       maxIterations: task.maxIterations,

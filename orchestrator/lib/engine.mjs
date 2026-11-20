@@ -18,6 +18,7 @@ import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir }
 import { acquireLock } from './lock.mjs';
 import { detectSandbox, sandboxRun } from './sandbox.mjs';
 import { buildAgentPlan, isolationEvidence, prepareCodexHome, readToolJournal } from './agentsandbox.mjs';
+import { codexEntrypoint } from './evidence.mjs';
 import { isDeclaredDouble } from '../adapters/codex-cli.mjs';
 import { runnerEnv } from './envpolicy.mjs';
 import { redactText, secretPairs } from './secrets.mjs';
@@ -240,7 +241,7 @@ export function isolationGate(adapter, sandbox = detectSandbox(), evidence = nul
     };
   }
   if (adapter.requiresSandbox === false) return null;
-  const proof = evidence || isolationEvidence();
+  const proof = evidence || isolationEvidence(undefined, { backend: sandbox && sandbox.backend });
   if (!proof.ok) {
     return {
       action: 'isolation_check',
@@ -259,7 +260,7 @@ export function codexPlanFor(adapter, { sandbox, workspace, logDir, task }) {
   if (isDeclaredDouble()) return { ok: true, plan: null };
   const home = prepareCodexHome();
   if (!home.ok) return { ok: false, blocked: home };
-  const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir });
+  const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir, codexEntry: codexEntrypoint() });
   if (!plan.ok) return { ok: false, blocked: plan };
   return { ok: true, plan };
 }

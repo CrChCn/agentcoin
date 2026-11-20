@@ -1,9 +1,9 @@
 Agentcoin orchestrator — clean-room verification
-archive: agentcoin-orchestrator-stage-a-fix4-20261119.zip
-files in archive: 79
+archive: agentcoin-orchestrator-stage-a-fix5-20261120.zip
+files in archive: 83
 extractor: unzip
 workspace root: <CLEANROOM>
-$ unzip -q agentcoin-orchestrator-stage-a-fix4-20261119.zip -d unpacked
+$ unzip -q agentcoin-orchestrator-stage-a-fix5-20261120.zip -d unpacked
 exit 0
 --- stdout ---
 
@@ -15,7 +15,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:7756) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:17928) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -35,10 +35,20 @@ exit 0
 ✔ api key mode is detected and therefore blocked (<ms>)
 ✔ no backend means ISOLATED_RUNNER_UNAVAILABLE, not a silent local run (<ms>)
 ✔ explicit extra values survive the allowlist (<ms>)
+✔ the forged level-3 JSON the auditor wrote is rejected (<ms>)
+✔ a complete but unsigned evidence file is rejected (<ms>)
+✔ a properly signed, machine-bound evidence file is accepted (<ms>)
+✔ unknown, missing and repeated attack ids are rejected (<ms>)
+✔ an attack that was not technically blocked is rejected (<ms>)
+✔ another host, build or Codex binary invalidates the evidence (<ms>)
+✔ a stale nonce, a reused nonce and a tampered signature are rejected (<ms>)
+✔ a leaked auth.json value fails the evidence even when everything else is valid (<ms>)
+✔ auth.json values are scanned in memory and only hashes are returned (<ms>)
+✔ the build fingerprint is computed from this tree (<ms>)
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:7276) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:4232) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -52,7 +62,7 @@ exit 0
 ✔ a broken backend is rejected even though bwrap is installed (<ms>)
 ✔ no smoke-tested backend blocks a real agent before anything runs (<ms>)
 ✔ a smoke-tested backend without end-to-end evidence still blocks real agents (<ms>)
-✔ level-3 evidence must come from the real adapter thread (<ms>)
+✔ level-3 evidence cannot be manufactured by hand (<ms>)
 ✔ the agent plan refuses to build without a smoke-tested backend (<ms>)
 ✔ the real command runner executes an allowed command inside the sandbox (<ms>)
 ✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
@@ -79,15 +89,16 @@ exit 0
 ✔ the tool channel cannot reach the network or the host (<ms>)
 ✔ command substitution, pipes into denied programs and redirection are denied (<ms>)
 ✔ an empty or audit-only policy never silently allows a denied program (<ms>)
+✔ absolute paths, home-relative paths and parent escapes are denied (<ms>)
 ✔ a task command cannot smuggle a second command (<ms>)
-ℹ tests 63
+ℹ tests 74
 ℹ suites 0
-ℹ pass 54
+ℹ pass 65
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 9
 ℹ todo 0
-ℹ duration_ms 178683.422
+ℹ duration_ms 172532.7033
 --- stderr ---
 
 
@@ -211,7 +222,7 @@ exit 0
   ]
 }
 --- stderr ---
-(node:9188) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:12740) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 
 $ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
@@ -221,7 +232,7 @@ exit 3
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-b0y7PZ\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-3Eye0k\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
@@ -233,7 +244,7 @@ exit 3
       "adapterEndToEnd": false
     },
     "evidence": null,
-    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run"
+    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run; evidence must be signed with the machine key, bound to a nonce, this host and this build"
   },
   "budgets": {
     "maxIterations": 3,
@@ -302,7 +313,7 @@ exit 3
     },
     {
       "code": "agent_isolation_unproven",
-      "detail": "no end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
+      "detail": "no machine-bound end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
     }
   ],
   "nextCommand": "agent_unauthenticated"
@@ -344,11 +355,14 @@ fixtures/task-src/tests/acceptance.test.mjs: OK
 fixtures/tasks/lesson-01-escalation.json: OK
 fixtures/tasks/lesson-01.json: OK
 lib/agentsandbox.mjs: OK
+lib/attackmatrix.mjs: OK
 lib/cleanroom.mjs: OK
 lib/engine.mjs: OK
 lib/envpolicy.mjs: OK
+lib/evidence.mjs: OK
 lib/fsx.mjs: OK
 lib/git.mjs: OK
+lib/journal.mjs: OK
 lib/lock.mjs: OK
 lib/package.mjs: OK
 lib/prompts.mjs: OK
@@ -370,8 +384,8 @@ tests/codex-cli-double.mjs: OK
 tests/contracts.test.mjs: OK
 tests/e2e.test.mjs: OK
 tests/env-policy.test.mjs: OK
+tests/evidence.test.mjs: OK
 tests/helpers.mjs: OK
-tests/hostile/agent-standin.mjs: OK
 tests/hostile/attacks.mjs: OK
 tests/lock-holder.mjs: OK
 tests/lock.test.mjs: OK
@@ -389,12 +403,13 @@ tools/clean-check.mjs: OK
 tools/environment-matrix.mjs: OK
 tools/hostile-check.mjs: OK
 tools/pack.mjs: OK
+tools/tool-broker.mjs: OK
 tools/tool-proxy.mjs: OK
 FILELIST.txt: OK
 --- stderr ---
 
 summary:
-  tests: exit 0, pass 54, fail 0
+  tests: exit 0, pass 65, fail 0
   capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
   preflight: exit 3, blockers agent_isolation_unproven,agent_unauthenticated
   sha256sum: exit 0

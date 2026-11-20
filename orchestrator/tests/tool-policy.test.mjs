@@ -25,7 +25,7 @@ test('the tool channel cannot reach the network or the host', () => {
   ]) {
     const decision = decideToolPolicy(command, policy);
     assert.equal(decision.allow, false, `${command} must be denied`);
-    assert.match(decision.code, /TOOL_COMMAND/);
+    assert.match(decision.code, /TOOL_(COMMAND|PATH)/);
   }
 });
 
@@ -40,6 +40,24 @@ test('an empty or audit-only policy never silently allows a denied program', () 
   assert.equal(decideToolPolicy('', policy).allow, false);
   assert.equal(decideToolPolicy('curl http://x', {}).allow, false);
   assert.equal(decideToolPolicy('curl http://x', { enforce: false }).allow, true);
+});
+
+test('absolute paths, home-relative paths and parent escapes are denied', () => {
+  /* Это обходы, которые fix4 пропускал: путь важнее имени программы. */
+  for (const command of [
+    'cat /bin/bash',
+    'cat /run/credentials/codex/auth.json',
+    'node /usr/bin/env',
+    'cat ~/.ssh/id_rsa',
+    'cat ../outside/canary.txt',
+    'node probes/../../etc/passwd',
+  ]) {
+    const decision = decideToolPolicy(command, policy);
+    assert.equal(decision.allow, false, `${command} must be denied`);
+    assert.equal(decision.code, 'TOOL_PATH_DENIED', `${command} must be denied as a path escape`);
+  }
+  assert.equal(decideToolPolicy('cat ./allowed.txt', policy).allow, true);
+  assert.equal(decideToolPolicy('node probes/net.mjs 1.1.1.1 443', policy).allow, true);
 });
 
 test('a task command cannot smuggle a second command', () => {

@@ -29,7 +29,7 @@ const MACHINE_EVIDENCE = new Set(['evidence/agent-isolation.json', 'evidence/age
    скрипт копируется в стенд по пути, а не импортируется. */
 const REQUIRED_DATA = [
   'README.md', '.gitignore', 'state/.gitkeep', 'logs/.gitkeep', 'artifacts/.gitkeep',
-  'tests/hostile/attacks.mjs', 'tests/hostile/agent-standin.mjs',
+  'tests/hostile/attacks.mjs',
 ];
 
 export function walkTree(root = ORCH_ROOT) {

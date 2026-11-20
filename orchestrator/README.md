@@ -4,7 +4,7 @@
 исправление → приёмка, с hash-журналом, восстановлением после остановки и
 типизированными действиями.
 
-> **Статус: Stage A fix4 — smoke-tested backend и Codex внутри sandbox.**
+> **Статус: Stage A fix5 — broker-канал инструментов и machine-bound уровень 3.**
 > Настоящий агент не запускается ни одним unit-тестом: в тестовом процессе
 > адаптер возвращает `REAL_AGENT_DISABLED_IN_TEST` даже при установленном,
 > авторизованном Codex и ключе в окружении. Реальный двухагентный цикл ещё не
@@ -146,58 +146,88 @@ DATABASE_URL, CONNECTION_STRING, AWS_/AZURE_/GCP_/GOOGLE_/SSH_/GITHUB_/GITLAB_/N
 curl/PowerShell/shell, docker.sock, SSH-агент, symlink наружу, запись рядом с
 workspace. Отчёт: `evidence/hostile-check.txt`.
 
-## 0.6 Изоляция реального контура (fix4)
+## 0.6 Изоляция реального контура (fix5)
 
-fix3 построил песочницу для тестового runner'а, но настоящий Codex шёл мимо
-неё: `detectSandbox()` проверял только наличие `bwrap`, `isolationGate()`
-смотрел на флаг, а адаптер вызывал `spawn()` на хосте. Переданный
-`runCommand` не использовался вовсе. fix4 закрывает эти три дефекта.
+fix4 верно убрал прямой `spawn` Codex на хосте, но границей считал подмену
+`PATH`/`bash`/`sh`. Это не граница: внутри namespace оставались настоящие
+`/bin/bash`, `/bin/sh`, `/usr/bin/env` и `/usr/bin/node`, поэтому абсолютный
+путь обходил прокси и получал одновременно сеть и `/run/credentials/codex`.
+Плюс уровень 3 принимался по полям JSON, то есть подделывался вручную.
+fix5 меняет и механизм, и доказательство.
 
-**1. Backend проверяется запуском, а не наличием.** `detectSandbox()` делает
-smoke-run с теми же параметрами, что и боевой runner (`--unshare-all`,
-workspace rw, ro-root, tmpfs `/home`, `--clearenv`, Node permission model) и
-проверяет 14 фактов: чтение/запись внутри workspace работают; чтение/запись
-вне его, spawn дочернего процесса, сеть, docker.sock, SSH-агент и
-унаследованное окружение — запрещены. Любой провал (например `bwrap: setting
-up uid map: Read-only file system`) даёт `ISOLATED_RUNNER_UNAVAILABLE`,
-`preflight` — `BLOCKED` и код выхода `3`. Наличие бинарника ничего не
-открывает.
+**1. Подмена PATH больше не заявлена границей.** В namespace Codex каталоги
+`/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/usr/local/bin`, `/usr/local/sbin`
+заменяются `tmpfs` целиком. В них остаются только клиенты broker'а (`bash`,
+`sh`), а `PATH=/orch/bin`. Настоящих shell'ов и интерпретаторов там нет:
+`/bin/bash`, `/bin/sh`, `/usr/bin/env`, `/usr/bin/node` не существуют
+технически, а не «не находятся по PATH». Node для самого Codex живёт по
+отдельному адресу `/orch/rt/node` (bind, read-only).
 
-**2. Codex запускается внутри sandbox.** `lib/agentsandbox.mjs` строит план:
-bwrap → `codex exec` → `/orch/bin/bash` = tool proxy. У Codex есть только
-workspace rw, read-only системные каталоги, пустой `HOME` и одноразовый
-`CODEX_HOME` в `/run/credentials` (копия `auth.json`/`config.toml`). Прямой
-`spawn` Codex на хосте удалён: без плана адаптер возвращает `BLOCKED`, а не
-запускает модель.
+**2. Инструменты исполняет отдельный broker.** `tools/tool-broker.mjs`
+запускается своим bwrap-процессом: `--unshare-all`, без `/run/credentials`,
+без `CODEX_HOME`, без provider-сети, rw только workspace. Клиент
+`tools/tool-proxy.mjs` (он же `/bin/bash`) передаёт команду по unix-сокету
+`/orch/ipc/broker.sock`; broker применяет allowlist и исполняет её у себя.
+Даже если команда разрешена, она не видит ни сети (включая loopback), ни
+credential-каталог Codex.
 
-**3. Два разных канала.** Канал к провайдеру: bwrap с `--share-net`, только
-у самого Codex. Канал инструментов модели: каждая shell-команда идёт через
-`tools/tool-proxy.mjs` (смонтирован как `bash`/`sh`), который применяет
-allowlist (`lib/toolpolicy.mjs`: команды задачи, read-only утилиты, git;
-curl/wget/ssh/docker/npm/apt/подстановки запрещены), пишет журнал в
-`logs/<task>/tools/tool-calls.jsonl` и запускает команду в дополнительных
-mount+network namespace: сеть пуста (включая loopback), `/run/credentials` и
-`/home` замаскированы tmpfs. Нет `unshare`/capability → команда не
-выполняется (`ISOLATED_TOOL_NET_UNAVAILABLE`).
+**3. Абсолютные обходы закрыты и проверяются.** Матрица
+`lib/attackmatrix.mjs` — фиксированный список из 18 обязательных проверок:
+`/bin/bash`, `/bin/sh`, `/usr/bin/env bash`, прямой `/usr/bin/node`,
+`node` + `probes/net.mjs`, чтение `/run/credentials/codex/auth.json`, чтение
+вне workspace, `~/.ssh/id_rsa`, `DATABASE_URL`, публичная сеть, localhost,
+`curl`, запись рядом с workspace, а также три разрешённые операции (чтение
+workspace, отсутствие credentials и сети в broker-namespace). Атаки исполняет
+harness внутри того же плана, что и Codex; вердикт берётся из кода выхода и
+кода ошибки, а не из ответа модели. Allowlist дополнительно запрещает
+абсолютные пути, `~` и `..` (`TOOL_PATH_DENIED`).
 
-**4. Hostile-проверка проверяет тот же контур.** `node tools/hostile-check.mjs`
-теперь две фазы: тестовый runner (15 атак) и цепочка агента в том же плане,
-что и настоящий Codex, с подставным worker'ом (14 атак по обоим каналам,
-включая `cat /run/credentials/codex/auth.json` и сеть из инструмента).
-`verdict: PASS` возможен только при smoke-tested backend.
+**4. Маскирование fail-closed.** Из прокси удалены `mount ... || true`:
+маскирование делает bwrap, и любая ошибка mount завершает запуск. Broker при
+старте сам проверяет, что `/run/credentials` отсутствует и сеть недоступна
+(реальный `connect`); если проверка не проходит — `BROKER_CREDENTIALS_VISIBLE`
+или `ISOLATED_TOOL_NET_UNAVAILABLE`, сокет не открывается, команды не
+исполняются.
 
-**5. Три уровня вместо одного флага.** `preflight.isolation.levels`:
-`installed` → `smokeTested` → `adapterEndToEnd`. Только третий разрешает
-автономный запуск: его пишет `node tools/agent-hostile-check.mjs --real`
-(реальный поток Codex, `evidence/agent-isolation.json`). Без него preflight
-отдаёт `agent_isolation_unproven`. Стенд с подставным worker'ом уровень 3 не
-открывает и честно сообщает об этом.
+**5. Уровень 3 привязан к машине и сборке.** `evidence/agent-isolation.json`
+принимается только если он:
 
-Ограничения, которые не спрятаны: настоящий прогон уровня 3 на этой машине
-не выполнялся (нет входа Codex, `codex login` не запускался), а на Windows
-реальный Codex должен быть установлен **внутри WSL** — путь вида
-`C:\...\codex.js` в sandbox не существует, и такой запуск отклоняется
-(`AGENT_BINARY_NOT_IN_SANDBOX`).
+- подписан HMAC-SHA256 ключом `~/.agentcoin/evidence-hmac.key`, который
+  лежит вне workspace агента и создаётся один раз;
+- содержит nonce из реестра `~/.agentcoin/nonces.json`, не старше 24 часов и
+  привязанный к хэшу ровно этого файла (повторное использование отклоняется);
+- совпадает с текущим host fingerprint (hostname, платформа, ядро, CPU);
+- совпадает с текущей сборкой: commit, SHA256 `bwrap`, Codex entrypoint и его
+  версия, хэши policy/proxy/broker/attack matrix/orchestrator;
+- содержит ровно по одному результату каждого обязательного attack ID, без
+  неизвестных, пропущенных и повторных; каждая запрещённая атака — `denied`
+  с ненулевым кодом выхода и кодом отказа, каждая разрешённая — `exit 0`;
+- содержит непрерывную хэш-цепочку журнала broker'а (head сверяется);
+- не содержит найденных утечек из временной копии `auth.json`.
+
+Preflight отклоняет ручной JSON, неизвестный/пропущенный/повторный attack ID,
+другой хэш кода или Codex, другой host fingerprint, устаревший nonce и
+отсутствие проверяемой подписи — во всех случаях `agent_isolation_unproven`.
+Регрессионный тест `tests/evidence.test.mjs` фиксирует именно тот файл,
+который fix4 принимал за уровень 3.
+
+**6. Утечки ищутся по значениям, а не по именам.** `--real` читает значения
+из временной копии `auth.json`, ищет их в transcript, журнале и prompt и
+сохраняет в evidence только SHA256 найденного (сам токен не пишется ни в
+журнал, ни в отчёт).
+
+**7. Что именно доказывает `--real`.** Сначала harness прогоняет матрицу
+атак, затем запускает настоящий `codex exec` в том же плане и требует хотя бы
+одну разрешённую операцию с `exit 0` в журнале broker'а, наличие `thread_id`
+и отсутствие записи вне workspace. Текст ответа модели не используется как
+доказательство.
+
+Ограничения, которые не спрятаны: на этой машине уровень 3 не доказан —
+вход Codex не выполнялся (`codex login` не запускался), поэтому
+`adapterEndToEnd=false` и preflight остаётся `BLOCKED` с кодом выхода `3`.
+`node tools/hostile-check.mjs` (фазы runner + матрица) проходит, но уровня 3
+не открывает. Реальный `--real` на Windows требует Codex, установленного
+внутри WSL: путь вида `C:\...\codex.js` в sandbox не существует.
 
 ---
 

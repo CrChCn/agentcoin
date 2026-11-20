@@ -348,7 +348,9 @@ export function execWithEvents({
   if (isDeclaredDouble()) {
     spawnPlan = { ok: true, cmd: bin.cmd, args: argv, env: agentEnv(), backend: 'test-double' };
   } else if (launch && launch.ok) {
-    spawnPlan = launch.wrap(argv);
+    /* agent:true — единственное место, где host node/Windows-пути заменяются
+       на sandbox-адреса. Атаки harness'а проходят через wrap() без замены. */
+    spawnPlan = launch.wrap(argv, { agent: true });
   } else {
     spawnPlan = {
       ok: false,
@@ -375,7 +377,33 @@ export function execWithEvents({
     });
   }
 
-  return new Promise((resolve) => {
+  /* Broker запускается ДО Codex и обязан подтвердить готовность: без него
+     инструменты модели не имеют канала исполнения, а значит и запускать
+     агента незачем. */
+  const brokerStart = async () => {
+    if (isDeclaredDouble() || !launch || typeof launch.startBroker !== 'function') return null;
+    const broker = await launch.startBroker();
+    return broker.ok ? null : {
+      ok: false,
+      blocked: { code: broker.code || 'ISOLATED_TOOL_CHANNEL_UNAVAILABLE', detail: broker.detail || 'tool broker is not ready' },
+      events: [],
+      exitCode: null,
+      timedOut: false,
+      cancelled: false,
+      sessionId: null,
+      usage: null,
+      rawUsage: null,
+      lastMessage: null,
+      stderr: '',
+      transcriptPath: transcriptPath || null,
+      argv: [],
+      toolCalls: [],
+    };
+  };
+
+  return brokerStart().then((blocked) => {
+    if (blocked) return blocked;
+    return new Promise((resolve) => {
     const child = spawn(spawnPlan.cmd, spawnPlan.args, {
       cwd: workspace,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -433,7 +461,12 @@ export function execWithEvents({
         if (safe !== raw) fs.writeFileSync(outputPath, safe);
         lastMessage = safe;
       }
-      const toolCalls = launch && launch.journalPath ? readToolJournal(launch.journalPath) : [];
+      const toolCalls = launch
+        ? [...(launch.brokerEntries || []), ...readToolJournal(launch.journalPath)]
+          .filter((entry, index, all) => all.findIndex((item) => item && item.hash === entry.hash) === index)
+        : [];
+      /* Журнал уже прочитан; broker больше не нужен и не должен пережить сессию. */
+      if (launch && typeof launch.stopBroker === 'function') launch.stopBroker();
       if (metaPath) {
         fs.mkdirSync(path.dirname(metaPath), { recursive: true });
         const payload = redactValue({
@@ -516,6 +549,7 @@ export function execWithEvents({
     } catch {
       /* закрытый stdin — не повод зависнуть */
     }
+    });
   });
 }
 

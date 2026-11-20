@@ -45,24 +45,21 @@ test('a smoke-tested backend without end-to-end evidence still blocks real agent
   assert.equal(isolationGate({ simulated: false, requiresSandbox: false }, sandboxOk, { ok: false }), null);
 });
 
-test('level-3 evidence must come from the real adapter thread', () => {
+test('level-3 evidence cannot be manufactured by hand', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-evidence-'));
   const missing = isolationEvidence(path.join(dir, 'none.json'));
   assert.equal(missing.ok, false);
   assert.equal(missing.code, 'agent_isolation_unproven');
 
-  const fakeThread = path.join(dir, 'fake.json');
-  fs.writeFileSync(fakeThread, JSON.stringify({
-    ok: true, adapter: 'codex-cli', backend: 'bwrap', at: new Date().toISOString(), threadId: 'short', attacks: [{ denied: true }],
+  /* Ровно тот файл, который fix4 принимал за уровень 3. */
+  const forged = path.join(dir, 'forged.json');
+  fs.writeFileSync(forged, JSON.stringify({
+    ok: true, adapter: 'codex-cli', backend: 'bwrap', threadId: 'forged_thread_123456',
+    attacks: [{ attack: 'made-up', denied: true }],
   }));
-  assert.equal(isolationEvidence(fakeThread).ok, false);
-
-  const valid = path.join(dir, 'valid.json');
-  fs.writeFileSync(valid, JSON.stringify({
-    ok: true, adapter: 'codex-cli', backend: 'bwrap', at: new Date().toISOString(),
-    threadId: 'thread_0123456789abcdef', attacks: [{ attack: 'tool-command', denied: true }],
-  }));
-  assert.equal(isolationEvidence(valid).ok, true);
+  const verdict = isolationEvidence(forged);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, 'agent_isolation_unproven');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

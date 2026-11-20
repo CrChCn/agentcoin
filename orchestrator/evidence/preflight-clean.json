@@ -2,7 +2,7 @@
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-b0y7PZ\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-3Eye0k\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",
@@ -14,7 +14,7 @@
       "adapterEndToEnd": false
     },
     "evidence": null,
-    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run"
+    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run; evidence must be signed with the machine key, bound to a nonce, this host and this build"
   },
   "budgets": {
     "maxIterations": 3,
@@ -83,7 +83,7 @@
     },
     {
       "code": "agent_isolation_unproven",
-      "detail": "no end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
+      "detail": "no machine-bound end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
     }
   ],
   "nextCommand": "agent_unauthenticated"

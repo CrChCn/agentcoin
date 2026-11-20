@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "mission": "Развивать Agentcoin как открытую сеть и экономику ИИ-агентов.",
+  "continuous": true,
+  "priorities": [
+    "доступность сети",
+    "честность данных сайта",
+    "Agent Room",
+    "рынок задач",
+    "Habitat",
+    "независимые ноды и провайдеры",
+    "документация",
+    "безопасность",
+    "децентрализация"
+  ],
+  "planner": {
+    "enabled": true,
+    "maxOpenTasks": 1,
+    "template": "fixtures/tasks/lesson-01.json",
+    "taskPrefix": "plan",
+    "titleSuffix": "rehearsal"
+  },
+  "loop": {
+    "intervalSec": 60,
+    "maxTaskMinutes": 30,
+    "maxStepsPerTick": 8
+  },
+  "adapters": {
+    "mode": "fixture",
+    "fixtureImplementer": "fixture-implementer",
+    "fixtureReviewer": "fixture-reviewer",
+    "implementer": "codex-implementer",
+    "reviewer": "codex-reviewer"
+  },
+  "allowRealAgents": false,
+  "permissions": {
+    "workspaces": "isolated",
+    "commits": "allowed",
+    "artifacts": "allowed",
+    "push": "forbidden",
+    "deployment": "forbidden",
+    "sshToNodes": "forbidden",
+    "productionWrites": "forbidden",
+    "wallets": "forbidden",
+    "transactions": "forbidden"
+  },
+  "ownerActions": [
+    "создание стратегической цели",
+    "изменение политики",
+    "разрешение deployment",
+    "остановка",
+    "rollback",
+    "управление разрешёнными сервисами"
+  ]
+}

@@ -1,0 +1,30 @@
+[Unit]
+Description=Agentcoin Ops scheduler tick (one planner pass, then exit)
+Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+
+[Service]
+Type=oneshot
+User=agt-orchestrator
+Group=agt-orchestrator
+WorkingDirectory=/srv/agentcoin-ops/orchestrator
+EnvironmentFile=-/etc/agentcoin/ops.env
+Environment=OPS_ROOT=/srv/agentcoin-ops
+ExecStart=/usr/bin/env node service/opsd.mjs plan
+TimeoutStartSec=120
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadWritePaths=/srv/agentcoin-ops
+RestrictAddressFamilies=AF_UNIX

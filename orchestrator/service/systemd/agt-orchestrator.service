@@ -1,0 +1,46 @@
+[Unit]
+Description=Agentcoin Ops orchestrator (autonomous engineering loop, no production access)
+Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+After=network-online.target
+Wants=network-online.target
+# Второй экземпляр запрещён: он получил бы тот же OPS_ROOT и тот же журнал.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=agt-orchestrator
+Group=agt-orchestrator
+WorkingDirectory=/srv/agentcoin-ops/orchestrator
+EnvironmentFile=-/etc/agentcoin/ops.env
+Environment=OPS_ROOT=/srv/agentcoin-ops
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env node service/opsd.mjs loop
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+# Сервис доигрывает текущий шаг движка, поэтому остановка не мгновенная.
+TimeoutStopSec=180
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadWritePaths=/srv/agentcoin-ops
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Node нуждается в JIT: MemoryDenyWriteExecute здесь намеренно не включён.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

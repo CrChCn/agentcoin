@@ -1,0 +1,11 @@
+[Unit]
+Description=Agentcoin Ops scheduler: keep the queue fed while the mission runs
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=agt-orchestrator-scheduler.service
+
+[Install]
+WantedBy=timers.target

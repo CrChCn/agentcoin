@@ -1,0 +1,168 @@
+== workspace
+== process 1
+  pid1=151173 reached state=READY
+  killed with SIGKILL; exit=137
+== after crash
+  queue: plan-20261120-164641:leased:attempts=0
+  leftover locks: plan-20261120-164641
+  lock plan-20261120-164641 owned by pid 151173
+== process 2
+  pid2=151259 done_items=2
+  graceful exit=0
+== state
+{
+  "root": "/tmp/c1-proof2",
+  "mission": {
+    "text": "Развивать Agentcoin как открытую сеть и экономику ИИ-агентов.",
+    "continuous": true,
+    "priorities": [
+      "доступность сети",
+      "честность данных сайта",
+      "Agent Room",
+      "рынок задач",
+      "Habitat",
+      "независимые ноды и провайдеры",
+      "документация",
+      "безопасность",
+      "децентрализация"
+    ],
+    "adapters": {
+      "mode": "fixture",
+      "fixtureImplementer": "fixture-implementer",
+      "fixtureReviewer": "fixture-reviewer",
+      "implementer": "codex-implementer",
+      "reviewer": "codex-reviewer"
+    },
+    "allowRealAgents": false
+  },
+  "heartbeat": {
+    "pid": 151259,
+    "host": "LAPTOP-IH54QPIF",
+    "at": "2026-11-20T16:46:59.619Z",
+    "state": "stopped-by-signal",
+    "adapters": {
+      "mode": "fixture",
+      "fixtureImplementer": "fixture-implementer",
+      "fixtureReviewer": "fixture-reviewer",
+      "implementer": "codex-implementer",
+      "reviewer": "codex-reviewer"
+    },
+    "taskId": "plan-20261120-164651",
+    "taskState": "ACCEPTED",
+    "iteration": 2,
+    "released": [
+      "plan-20261120-164641"
+    ],
+    "steps": 3,
+    "stop": null,
+    "nextTickInSec": 5,
+    "queue": {
+      "pending": 0,
+      "leased": 0,
+      "done": 2,
+      "failed": 0,
+      "blocked": 0,
+      "total": 2
+    },
+    "lastTask": "plan-20261120-164651",
+    "lastState": "ACCEPTED",
+    "signal": "SIGTERM",
+    "ticks": 4
+  },
+  "heartbeatAgeSec": 1,
+  "checkpoint": {
+    "at": "2026-11-20T16:46:58.190Z",
+    "taskId": "plan-20261120-164651",
+    "state": "ACCEPTED",
+    "iteration": 2,
+    "seq": 10
+  },
+  "queue": {
+    "pending": 0,
+    "leased": 0,
+    "done": 2,
+    "failed": 0,
+    "blocked": 0,
+    "total": 2
+  },
+  "stopRequested": false,
+  "lastWatchdog": null,
+  "gate": {
+    "requested": false,
+    "ok": false,
+    "detail": "mission.adapters.mode is not real"
+  },
+  "memory": {
+    "facts": {
+      "lastAcceptedTask": "plan-20261120-164651",
+      "lastAcceptedCommit": "59469262f16fdebe557696131c4d3364d2ba0c38",
+      "lastAcceptedAt": "2026-11-20T16:46:58.115Z"
+    },
+    "decisions": 2,
+    "lessons": 4
+  }
+}
+== watchdog
+{
+  "at": "2026-11-20T16:47:01.289Z",
+  "verdict": "alive",
+  "heartbeatAgeSec": 2,
+  "staleAfterSec": 900,
+  "orchestratorPid": 151259,
+  "leases": [],
+  "problems": [],
+  "action": "none"
+}
+== queue journal
+{"seq":3,"at":"2026-11-20T16:46:44.185Z","host":"LAPTOP-IH54QPIF","event":"lease.expired","taskId":"plan-20261120-164641","detail":{"taskId":"plan-20261120-164641","lease":{"runId":"LAPTOP-IH54QPIF-151173","pid":151173,"host":"LAPTOP-IH54QPIF","at":"2026-11-20T16:46:41.820Z"},"attempts":0}}
+{"seq":4,"at":"2026-11-20T16:46:44.195Z","host":"LAPTOP-IH54QPIF","event":"lock.reconciled","taskId":"plan-20261120-164641","detail":{"deadPid":151173,"operationId":"3dd07205-ac9b-4671-baa4-cacd86916d7d"}}
+{"seq":5,"at":"2026-11-20T16:46:44.200Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"plan-20261120-164641","detail":{"runId":"LAPTOP-IH54QPIF-151259","pid":151259,"attempt":0}}
+{"seq":6,"at":"2026-11-20T16:46:46.686Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"plan-20261120-164641","detail":{"reason":"partial: IMPLEMENTING (step limit)"}}
+{"seq":7,"at":"2026-11-20T16:46:48.190Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"plan-20261120-164641","detail":{"runId":"LAPTOP-IH54QPIF-151259","pid":151259,"attempt":0}}
+{"seq":8,"at":"2026-11-20T16:46:50.324Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"plan-20261120-164641","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
+{"seq":9,"at":"2026-11-20T16:46:51.842Z","host":"LAPTOP-IH54QPIF","event":"queue.enqueued","taskId":"plan-20261120-164651","detail":{"origin":"planner","priority":50}}
+{"seq":10,"at":"2026-11-20T16:46:51.843Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"plan-20261120-164651","detail":{"runId":"LAPTOP-IH54QPIF-151259","pid":151259,"attempt":0}}
+{"seq":11,"at":"2026-11-20T16:46:51.848Z","host":"LAPTOP-IH54QPIF","event":"task.initialised","taskId":"plan-20261120-164651","detail":{"adapters":{"implementer":"fixture-implementer","reviewer":"fixture-reviewer","real":false}}}
+{"seq":12,"at":"2026-11-20T16:46:54.318Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"plan-20261120-164651","detail":{"reason":"partial: CHANGES_REQUESTED (step limit)"}}
+{"seq":13,"at":"2026-11-20T16:46:55.822Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"plan-20261120-164651","detail":{"runId":"LAPTOP-IH54QPIF-151259","pid":151259,"attempt":0}}
+{"seq":14,"at":"2026-11-20T16:46:58.114Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"plan-20261120-164651","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
+== task journal shape
+  plan-20261120-164641: events=10 created=1 states=CREATED->READY->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->CHANGES_REQUESTED->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->ACCEPTED
+    result commit=59469262f16fdebe557696131c4d3364d2ba0c38 artifact=ce62e094cf0f200d
+  plan-20261120-164651: events=10 created=1 states=CREATED->READY->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->CHANGES_REQUESTED->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->ACCEPTED
+    result commit=59469262f16fdebe557696131c4d3364d2ba0c38 artifact=5e6797d3e331291d
+== memory facts
+{
+  "lastAcceptedTask": "plan-20261120-164651",
+  "lastAcceptedCommit": "59469262f16fdebe557696131c4d3364d2ba0c38",
+  "lastAcceptedAt": "2026-11-20T16:46:58.115Z"
+}
+lessons: 4
+== service log tail
+    },
+    "steps": 3,
+    "released": [],
+    "reconciled": []
+  }
+}
+== ops api (read-only)
+{
+  "ok": true,
+  "readonly": true,
+  "generatedAt": "2026-11-20T16:47:02.663Z",
+  "host": "LAPTOP-IH54QPIF",
+  "orchestrator": {
+    "state": "stopped-by-signal",
+    "pid": 151259,
+    "heartbeatAt": "2026-11-20T16:46:59.619Z",
+    "heartbeatAgeSec": 3,
+    "stale": false
+  },
+  "checkpoint": {
+    "at": "2026-11-20T16:46:58.190Z",
+    "taskId": "plan-20261120-164651",
+    "state": "ACCEPTED",
+ 
+GET /ops/queue -> 200
+POST /ops/queue -> 405 (read-only)
+== done

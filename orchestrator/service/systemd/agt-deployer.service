@@ -1,0 +1,26 @@
+[Unit]
+Description=Agentcoin Ops deployer (disabled in C1: no publication until staging exists)
+Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+# Включается только владельцем: presence-файл и отдельный этап deployer.
+ConditionPathExists=/etc/agentcoin/deploy-enabled
+
+[Service]
+Type=oneshot
+User=agt-deployer
+Group=agt-deployer
+WorkingDirectory=/srv/agentcoin-ops/orchestrator
+EnvironmentFile=-/etc/agentcoin/ops.env
+Environment=OPS_ROOT=/srv/agentcoin-ops
+# Сейчас команда штатно завершается кодом 3 и записывает отказ в журнал.
+ExecStart=/usr/bin/env node service/deployer.mjs
+TimeoutStartSec=600
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadOnlyPaths=/srv/agentcoin-ops
+RestrictAddressFamilies=AF_UNIX

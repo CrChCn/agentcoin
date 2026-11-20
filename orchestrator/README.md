@@ -649,3 +649,30 @@ node orchestrator.mjs verify --task lesson-01 --artifact <zip>
 - Нет публикации/деплоя и нет коммитов в репозиторий проекта.
 - Этап A не принят владельцем: сначала проверяется архив, затем один реальный
   цикл на безопасной фикстуре.
+
+---
+
+## 10. Этап C1 — always-on сервис
+
+Движок этапа A остался прежним; поверх него добавлен сервисный слой
+`service/` — очередь, непрерывная миссия, planner, память проекта, systemd,
+read-only Ops API и публичный статус. Подробности, раскладка каталогов,
+границы прав и команды — в `service/README.md`.
+
+Коротко:
+
+- `service/opsd.mjs` — единая точка входа: `loop`, `plan`, `tick`, `api`,
+  `watchdog`, `status`, `queue`, `memory`, `stop`, `resume`;
+- `service/store.mjs` — атомарная очередь, lease с pid, память и heartbeat;
+- `service/planner.mjs` — следующая конечная задача из миссии или backlog
+  владельца, без редактирования контракта;
+- `service/runner.mjs` — восстановление после падения (lease + lock), шаги
+  движка, бюджеты, graceful shutdown по SIGTERM;
+- `service/api.mjs` + `service/public/ops.html` — только чтение;
+- `service/systemd/*` — 7 юнитов, проверены `systemd-analyze verify`;
+- `service/tools/c1-restart-proof.sh` — доказательство: SIGKILL на середине
+  задания, затем продолжение до ACCEPTED и следующее задание из planner.
+
+Доказательства: `evidence/c1-restart-proof.txt`, `evidence/c1-service-tests.txt`,
+`evidence/c1-systemd-verify.txt`. Публикация, staging и настоящие агенты на
+этом этапе выключены.

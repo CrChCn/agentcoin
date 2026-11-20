@@ -38,6 +38,21 @@ const print = (value) => console.log(JSON.stringify(value, null, 2));
 const rootOf = (opts) => path.resolve(opts.root || DEFAULT_ROOT);
 const TERMINAL_STATES = new Set(['ACCEPTED', 'BLOCKED', 'FAILED', 'CANCELLED']);
 
+/* Следующее действие человека, а не код блокера. Порядок важен: сначала
+   ставится инструмент, потом вход, потом доказательство изоляции. */
+function nextCommandFor(blockers, { taskFile, root }) {
+  const codes = new Set(blockers.map((b) => b.code));
+  if (codes.has('agent_unavailable')) return 'install the agent CLI on this host (npm i -g @openai/codex), then re-run preflight';
+  if (codes.has('agent_unauthenticated')) return 'codex login';
+  if (codes.has('api_key_mode_blocked')) return 'unset CODEX_API_KEY/OPENAI_API_KEY and use codex login instead';
+  if (codes.has('isolated_runner_unavailable')) return 'install bubblewrap on Linux (or enable WSL2 on Windows), then re-run preflight';
+  if (codes.has('agent_isolation_unproven')) return 'node tools/agent-hostile-check.mjs --real';
+  if (codes.has('SCHEMA_MISSING')) return 'restore the contracts/ directory from the repository';
+  if (codes.has('ROOT_NOT_FRESH')) return `choose a new --root, for example ${path.join(path.dirname(path.resolve(root)), 'runs-01')}`;
+  if (codes.has('SELF_REVIEW')) return 'assign different adapters to implementer and reviewer';
+  return `node orchestrator.mjs real --task ${path.resolve(taskFile)} --root ${path.resolve(root)} --confirm-real-agents <taskId>`;
+}
+
 /* Проверка точки запуска: CLI, вход, контракты, бюджеты, свежий root.
    Ничего не запускает и не меняет состояние. */
 function preflight({ root, taskFile }) {
@@ -138,9 +153,7 @@ function preflight({ root, taskFile }) {
     adapters,
     schemas,
     blockers,
-    nextCommand: blockers.length
-      ? (blockers.every((b) => b.code === 'agent_unauthenticated') ? 'codex login' : blockers[0].code)
-      : `node orchestrator.mjs real --task ${path.resolve(taskFile)} --root ${path.resolve(root)}`,
+    nextCommand: nextCommandFor(blockers, { taskFile, root }),
   };
 }
 

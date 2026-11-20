@@ -1,0 +1,34 @@
+[Unit]
+Description=Agentcoin Ops watchdog (detects stalls, never kills)
+Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+
+[Service]
+Type=oneshot
+User=agt-orchestrator
+Group=agt-orchestrator
+WorkingDirectory=/srv/agentcoin-ops/orchestrator
+EnvironmentFile=-/etc/agentcoin/ops.env
+Environment=OPS_ROOT=/srv/agentcoin-ops
+Environment=OPS_STALE_AFTER_SEC=900
+# Код 2 означает «нужно внимание владельца»: юнит падает, таймер продолжает
+# тикать, а вердикт остаётся в state/watchdog.json.
+ExecStart=/usr/bin/env node service/opsd.mjs watchdog
+SuccessExitStatus=0
+TimeoutStartSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadWritePaths=/srv/agentcoin-ops
+RestrictAddressFamilies=AF_UNIX

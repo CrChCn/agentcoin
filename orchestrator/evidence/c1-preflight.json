@@ -1,0 +1,84 @@
+{
+  "status": "BLOCKED",
+  "ready": false,
+  "taskId": "lesson-01",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\pf-c1",
+  "isolation": {
+    "available": true,
+    "backend": "wsl-bwrap",
+    "installedBackend": "wsl-bwrap",
+    "detail": "wsl-bwrap passed the isolation smoke test",
+    "levels": {
+      "installed": true,
+      "smokeTested": true,
+      "adapterEndToEnd": false
+    },
+    "evidence": null,
+    "note": "only levels.adapterEndToEnd=true permits an autonomous agent run; evidence must be signed with the machine key, bound to a nonce, this host and this build"
+  },
+  "budgets": {
+    "maxIterations": 3,
+    "maxRuntimePerAgentMinutes": 20,
+    "maxTotalRuntimeMinutes": 60,
+    "maxTotalTokens": 200000,
+    "monetaryLimit": null,
+    "note": "CLI does not expose a hard monetary limit; the orchestrator counts recorded tokens and stops new iterations by local policy."
+  },
+  "adapters": [
+    {
+      "role": "implementer",
+      "id": "codex-implementer",
+      "simulated": false,
+      "available": false,
+      "programmatic": true,
+      "authenticated": false,
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-implementer",
+      "provider": "codex"
+    },
+    {
+      "role": "reviewer",
+      "id": "codex-reviewer",
+      "simulated": false,
+      "available": false,
+      "programmatic": true,
+      "authenticated": false,
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
+      "evidence": "https://developers.openai.com/codex/noninteractive",
+      "adapter": "codex-reviewer",
+      "provider": "codex"
+    }
+  ],
+  "schemas": [
+    {
+      "file": "contracts/implementer-result.schema.json",
+      "present": true
+    },
+    {
+      "file": "contracts/review-result.schema.json",
+      "present": true
+    }
+  ],
+  "blockers": [
+    {
+      "role": "implementer",
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
+    },
+    {
+      "role": "reviewer",
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
+    },
+    {
+      "code": "agent_isolation_unproven",
+      "detail": "no machine-bound end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
+    }
+  ],
+  "nextCommand": "install the agent CLI on this host (npm i -g @openai/codex), then re-run preflight"
+}

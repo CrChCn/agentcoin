@@ -139,7 +139,7 @@ body>*{position:relative;z-index:1}
   <div class="card"><div class="glow"></div><div class="num" id="cTreasury">—</div><div class="lbl">казна подтверждённого фонда · AGT</div><div class="lbl" id="cTreasuryMeta" style="text-transform:none;letter-spacing:0;overflow-wrap:anywhere">адрес фонда и баланс ещё не проверены</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cCloudFund">—</div><div class="lbl">облачный учётный фонд · модель CloudLedger, не средства казны</div><div class="lbl" id="cloudFreshness" style="text-transform:none;letter-spacing:0">снимок учёта ещё не загружен</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cNodes">—</div><div class="lbl">отвечающих нод (состав независимых операторов неизвестен)</div></div>
-  <div class="card"><div class="glow"></div><div class="num" id="cCloudGB">—</div><div class="lbl">виртуальные GB по облачному учёту · не физическое хранение</div><div class="lbl" id="cCompr" style="text-transform:none;letter-spacing:0;color:var(--blue)">оценка сжатия: — (не доказательство)</div><div class="lbl" id="cStorage" style="text-transform:none;letter-spacing:0">размер файла цепи Hetzner: —</div></div>
+  <div class="card"><div class="glow"></div><div class="num" id="cCloudGB">—</div><div class="lbl">cloudGB · учётная модель CloudLedger, не физическое хранение</div><div class="lbl" id="cCompr" style="text-transform:none;letter-spacing:0;color:var(--blue)">теоретический compressionRatio: ×233,3 (из констант модели, не измерение архива)</div><div class="lbl" id="cStorage" style="text-transform:none;letter-spacing:0">файл цепи production: снимок 19.11.2026 — ≈45,2 MB · не live-значение</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cDifficulty">—</div><div class="lbl">сложность сети</div><div class="lbl" id="cRetarget" style="text-transform:none;letter-spacing:0">ретаргет: —</div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cReward">—</div><div class="lbl">награда за блок</div><div class="lbl" id="cEpochRate" style="text-transform:none;letter-spacing:0;color:var(--buffer,none)"></div></div>
   <div class="card"><div class="glow"></div><div class="num" id="cTax">—</div><div class="lbl">паспортов с налоговой декларацией</div><div class="lbl" id="cTaxMeta" style="text-transform:none;letter-spacing:0">налоговые данные не проверены</div></div>
@@ -771,7 +771,7 @@ function unavailable(id, message) { set(id, message || 'Данные API нед�
 function clearPanels(message) {
   ['netPill', 'marq', 'pieLegend', 'mbRow', 'mbBook', 'mapTip', 'econBox', 'shieldBox', 'cloudBox', 'jobsStats', 'mbLock', 'achBox', 'eraBox', 'passportFreshness', 'balancesSummary'].forEach(function (id) { unavailable(id, message); });
   ['cBlocks', 'cSupply', 'cPassports', 'cJobs', 'cTreasury', 'cCloudFund', 'cNodes', 'cCloudGB', 'cDifficulty', 'cReward', 'cQueue', 'cTax', 'eGen', 'eAge'].forEach(function (id) { set(id, 'API недоступен'); });
-  ['cTreasuryMeta', 'cloudFreshness', 'cStorage', 'cTaxMeta', 'cQueueProcesses', 'cOnDuty'].forEach(function (id) { set(id, 'источник сейчас недоступен'); });
+  ['cTreasuryMeta', 'cloudFreshness', 'cTaxMeta', 'cQueueProcesses', 'cOnDuty'].forEach(function (id) { set(id, 'источник сейчас недоступен'); });
   ['mbTb', 'nodesTb', 'txTb', 'govTb', 'jobsTb', 'econTb', 'balancesTb'].forEach(function (id) { document.getElementById(id).innerHTML = '<tr><td colspan="6" class="dimt">' + esc(message) + '</td></tr>'; });
   ['chartH', 'chartPie'].forEach(function (id) { document.getElementById(id).innerHTML = ''; });
   var canvas = document.getElementById('chartD'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
@@ -994,17 +994,30 @@ function shieldRender(life, attacks) {
     '<div class="dimt" style="font-size:12px">События не доказывают атаку или личность отправителя. Адрес в запросе может быть чужим; эскроу — служебный адрес, а не отдельный агент. Повторные записи могут относиться к одному событию.</div>' +
     (rows ? '<table style="margin-top:8px"><thead><tr><th>Тип записи</th><th>Указанный адрес</th><th>Сообщение журнала (не проверенное доказательство)</th></tr></thead><tbody>' + rows + '</tbody></table>' : '');
 }
+var CHAIN_SNAPSHOT = { label: '≈45,2 MB', at: '2026-11-19T09:44Z', height: 50065 };
+function chainSizeShort(cs) {
+  var a = cs && cs.actualStorage;
+  if (a && a.chainFileBytes != null) return 'файл цепи production: ' + fmt((a.chainFileBytes / 1048576).toFixed(2)) + ' MiB · измерено ' + (a.measuredAt || 'время не указано') + ' · не live-значение';
+  return 'файл цепи production: снимок 19.11.2026 — ' + CHAIN_SNAPSHOT.label + ' (h ' + fmt(CHAIN_SNAPSHOT.height) + ') · не live-значение';
+}
+function chainSizeLine(cs) {
+  var a = cs && cs.actualStorage;
+  var head = '<div class="dimt" style="font-size:12px">';
+  if (a && a.chainFileBytes != null) return head + 'Фактический файл цепи production: ' + fmt((a.chainFileBytes / 1048576).toFixed(2)) + ' MiB · измерено ' + esc(a.measuredAt || 'время не указано') + (a.filesystem ? ' · диск: ' + fmt((a.filesystem.usedBytes / 1073741824).toFixed(2)) + ' / ' + fmt((a.filesystem.capacityBytes / 1073741824).toFixed(2)) + ' GiB занято / всего' : '') + '.</div>';
+  return head + 'Фактический файл цепи production: снимок 19.11.2026 — ' + CHAIN_SNAPSHOT.label + ' (h ' + fmt(CHAIN_SNAPSHOT.height) + ', read-only аудит). Свежего серверного измерения в API нет; цепь растёт, поэтому это не актуальный размер.</div>';
+}
 function cloudRender(cs) {
   if (!cs) { document.getElementById('cloudBox').innerHTML = '<span class="dimt">нет данных</span>'; return; }
   var ep = (cs.compression || {});
   document.getElementById('cloudBox').innerHTML =
     '<div class="row" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">' +
-    '<div><b>' + fmt(cs.cloudGB) + '</b> <span class="dimt">виртуальных GB по учёту</span></div>' +
+    '<div><b>' + fmt(cs.cloudGB) + '</b> <span class="dimt">cloudGB · учётная модель CloudLedger</span></div>' +
     '<div><b>' + fmt(cs.epochsClosed) + '</b> <span class="dimt">эпох закрыто</span></div>' +
-    '<div><b class="blue">' + (Number.isFinite(Number(ep.ratioNow)) ? '×' + Number(ep.ratioNow).toFixed(0) : '—') + '</b> <span class="dimt">сжатие архива</span></div>' +
+    '<div><b class="blue">' + (Number.isFinite(Number(ep.ratioNow)) ? '×' + Number(ep.ratioNow).toFixed(1).replace('.', ',') : '—') + '</b> <span class="dimt">теоретический compressionRatio (из констант)</span></div>' +
     '<div><b>' + fmt(cs.ledgerLines) + '</b> <span class="dimt">строк в реестре</span></div></div>' +
-    '<div class="dimt" style="font-size:12px">снимок ' + esc(cs.snapshotAt || 'время неизвестно') + ' · блок источника ' + esc(cs.snapshotBlocks) + '. Архив ' + fmt(Math.round((ep.archiveBytesNow || 0) / 1024)) + ' KB и коэффициент — расчёт CloudLedger, не проверка физического облачного хранения.</div>' +
-    '<div class="dimt" style="font-size:12px">Файл цепи Hetzner: ' + (cs.actualStorage && cs.actualStorage.chainFileBytes != null ? fmt((cs.actualStorage.chainFileBytes / 1048576).toFixed(2)) + ' MiB' : 'размер недоступен') + '; файловая система: ' + (cs.actualStorage && cs.actualStorage.filesystem ? fmt((cs.actualStorage.filesystem.usedBytes / 1073741824).toFixed(2)) + ' / ' + fmt((cs.actualStorage.filesystem.capacityBytes / 1073741824).toFixed(2)) + ' GiB занято / всего' : 'метрика диска недоступна') + ' · измерено ' + esc(cs.actualStorage && cs.actualStorage.measuredAt || 'неизвестно') + '.</div>';
+    '<div class="dimt" style="font-size:12px">снимок ' + esc(cs.snapshotAt || cs.snapshot_time || 'время неизвестно') + ' · блок источника ' + esc(cs.snapshotBlocks != null ? cs.snapshotBlocks : '—') + ' · источник: /cloud/stats (нода-эмитент). Архив ' + fmt(Math.round((ep.archiveBytesNow || 0) / 1024)) + ' KB и коэффициент — расчёт CloudLedger, не проверка физического облачного хранения.</div>' +
+    '<div class="dimt" style="font-size:12px">Три показателя не складываются: cloudGB — учётная модель, compressionRatio — теоретический коэффициент из констант модели, размер файла цепи — фактический файл.</div>' +
+    chainSizeLine(cs);
 }
 function econRender(info, cache, cloud, treasury, blocksArr) {
   var total = info.totalSupplyCirculating;
@@ -1169,7 +1182,7 @@ async function tick() {
   // данные ноды-эмитента; резервный шлюз честно отдаёт 0. Читаем публичный URL
   // эмитента напрямую (как витрина /nodes); при недоступности остаётся значение
   // шлюза, источник подписывается честно — данные не подменяются.
-  var issuerMark = { pass: 'Источник: резервный шлюз (снимок; местный реестр пуст)', cloud: 'Источник: резервный шлюз (снимок; фонд не ведётся)', tax: 'Источник: резервный шлюз (снимок)' };
+  var issuerMark = { pass: 'Источник: резервный шлюз (снимок; местный реестр пуст)', cloud: 'Источник: /cloud/stats (нода-эмитент, учёт CloudLedger)', tax: 'Источник: резервный шлюз (снимок)' };
   // Источники эмитента — только с сервера (/peers/meta), только публичные.
   // Прямые узлы перебираются по очереди; same-origin шлюз пропускается
   // (он отдаёт снимок, а не живой реестр). Сломанный узел выпадает сам.
@@ -1294,11 +1307,11 @@ async function tick() {
     var cloudMatch = (cloud.stale === false || cloudLag === 0) && cloudSnap != null && cloud.currentBlocks != null && Number(cloud.snapshotBlocks) === Number(cloud.currentBlocks);
     var cloudMsg = cloud.stale === true ? 'отстаёт на ' + fmtExact(cloudLag) + ' блоков' : (cloudMatch ? 'совпадает с текущей цепью (блоки снимка и цепи равны)' : 'совпадение с текущей цепью не проверено');
     set('cloudFreshness', 'снимок ' + (cloud.snapshotAt || cloud.snapshot_time || 'без даты') + ' · источник: блок ' + fmtExact(cloud.snapshotBlocks) + ' · цепь: блок ' + fmtExact(cloud.currentBlocks != null ? cloud.currentBlocks : (life ? life.blocks : null)) + ' · ' + cloudMsg + ' · переопрос эмитента раз в 60 с · ' + issuerMark.cloud);
-    set('cStorage', cloud.actualStorage && cloud.actualStorage.chainFileBytes != null ? fmt((cloud.actualStorage.chainFileBytes / 1048576).toFixed(2)) + ' MiB chain.json · ' + (cloud.actualStorage.filesystem ? fmt((cloud.actualStorage.filesystem.usedBytes / 1073741824).toFixed(2)) + ' / ' + fmt((cloud.actualStorage.filesystem.capacityBytes / 1073741824).toFixed(2)) + ' GiB диска занято / всего' : 'использование диска недоступно') : 'файл цепи не измерен');
+    set('cStorage', chainSizeShort(cloud));
     var cp = cloud.compression || {};
-    document.getElementById('cCompr').textContent = 'коэффициент модели: ×' + (Number.isFinite(Number(cp.ratioNow)) ? Number(cp.ratioNow).toFixed(0) : '—') + ' (не физическое хранение)';
+    document.getElementById('cCompr').textContent = 'теоретический compressionRatio: ×' + (Number.isFinite(Number(cp.ratioNow)) ? Number(cp.ratioNow).toFixed(1).replace('.', ',') : '—') + ' (из констант модели; не измерен по архиву)';
     try { cloudRender(cloud); } catch (e) { unavailable('cloudBox', 'Данные источника имеют неподдерживаемый формат (/cloud/stats, код: bad-shape)'); apiErrors.set('/cloud/stats', 'bad-shape'); }
-  } else { unavailable('cloudBox'); ['cCloudFund', 'cCloudGB', 'cCompr', 'cStorage', 'cloudFreshness'].forEach(function (id) { set(id, 'источник недоступен'); }); }
+  } else { unavailable('cloudBox'); ['cCloudFund', 'cCloudGB', 'cloudFreshness'].forEach(function (id) { set(id, 'источник недоступен'); }); }
   if (tax) {
     set('cTax', fmtExact(tax.governed));
     var collectedTax = Object.values(tax.collected || {}).reduce(function (sum, item) { return sum + Number(item.agt || 0); }, 0);

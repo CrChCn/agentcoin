@@ -58,22 +58,37 @@ function pathViolation(tokens) {
   return null;
 }
 
+/* Порядок проверок зафиксирован (fix6):
+   1) синтаксис (пустая команда);
+   2) substitution/redirection (`$(...)`, backticks, `${...}`, `<`, `>`);
+   3) пути (абсолютные, `~`, `..`);
+   4) запрещённые команды;
+   5) точное совпадение с task allowlist.
+
+   fix5 проверял allowlist первым и по префиксу, поэтому
+   `node --test $(touch injected)` считался «командой задачи». Разрешение по
+   префиксу не возвращается: только полное совпадение нормализованной строки. */
 function decideSegment(segment, policy) {
   const raw = normalize(segment);
   if (!raw) return { allow: false, code: 'EMPTY_COMMAND', reason: 'empty command' };
-  if (policy.allow && policy.allow.some((entry) => raw === entry || raw.startsWith(`${entry} `))) {
-    return { allow: true, rule: 'task-command', segment: raw };
-  }
+
   if (SUBSTITUTION.test(raw)) {
     return { allow: false, code: 'TOOL_SUBSTITUTION_DENIED', reason: 'command substitution and redirection are not allowed', segment: raw };
   }
+
   const tokens = raw.split(' ');
   const escape = pathViolation(tokens);
   if (escape) return { allow: false, code: TOOL_PATH_DENIED, reason: escape, segment: raw };
+
   const first = tokens[0];
   if (DENIED_FIRST.includes(first)) {
     return { allow: false, code: 'TOOL_COMMAND_DENIED', reason: `${first} is denied by policy`, segment: raw };
   }
+
+  if (policy.allow && policy.allow.some((entry) => raw === entry)) {
+    return { allow: true, rule: 'task-command', segment: raw };
+  }
+
   if (first === 'git') {
     return SAFE_GIT.includes(tokens[1])
       ? { allow: true, rule: 'git', segment: raw }

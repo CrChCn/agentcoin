@@ -9,7 +9,7 @@ import { ORCH_ROOT } from '../lib/package.mjs';
 
 import { isolationEvidence, buildEvidence } from '../lib/agentsandbox.mjs';
 import {
-  authSecrets, currentBuildFingerprint, findSecretLeaks, issueNonce, loadKey, signEvidence,
+  authSecrets, currentBuildFingerprint, findSecretLeaks, inspectStoreFile, issueNonce, loadKey, runtimeManifest, signEvidence,
 } from '../lib/evidence.mjs';
 import { ALLOW_ATTACKS, DENY_ATTACKS } from '../lib/attackmatrix.mjs';
 
@@ -22,23 +22,29 @@ const base = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-evidence-test-'));
 const env = { ...process.env, ORCH_EVIDENCE_HOME: base };
 const HOME_FP = 'e'.repeat(64);
 
+const manifest = {
+  root: 'orchestrator',
+  dirs: ['lib', 'adapters', 'tools', 'contracts', 'policies'],
+  files: [
+    { path: 'adapters/codex-cli.mjs', bytes: 100, sha256: '1'.repeat(64) },
+    { path: 'lib/engine.mjs', bytes: 200, sha256: '2'.repeat(64) },
+  ],
+  count: 2,
+  rootHash: 'a'.repeat(64),
+  missing: [],
+  ok: true,
+};
+
 const build = {
   commit: 'a'.repeat(40),
   dirty: false,
   dirtyFiles: 0,
   bwrap: { available: true, version: 'bubblewrap 0.9.0', sha256: 'b'.repeat(64) },
   codex: { available: true, sha256: 'c'.repeat(64), version: 'codex-cli 0.50.0' },
-  files: {
-    policy: '1'.repeat(64),
-    broker: '2'.repeat(64),
-    proxy: '3'.repeat(64),
-    sandbox: '4'.repeat(64),
-    agentsandbox: '5'.repeat(64),
-    matrix: '6'.repeat(64),
-    evidence: '7'.repeat(64),
-    orchestrator: '8'.repeat(64),
-  },
+  manifest,
 };
+
+const CLEANUP = { ok: true, removed: ['broker-socket', 'ipc', 'scratch', 'codex-home'], failed: [], authCopyRemoved: true };
 
 const results = () => [
   ...DENY_ATTACKS.map((id) => ({
@@ -67,6 +73,7 @@ function writeEvidence(name, mutate = (item) => item, afterSign = (item) => item
     results: results(),
     journalEntries: journalEntries(),
     leaks: { scanned: [{ name: 'tokens.access_token', sha256: '9'.repeat(64) }], found: [] },
+    cleanup: CLEANUP,
   });
   const key = loadKey({ create: true, env });
   assert.equal(key.ok, true);
@@ -151,10 +158,10 @@ test('another host, build or Codex binary invalidates the evidence', () => {
   assert.equal(otherHost.ok, false);
   assert.match(otherHost.detail, /host fingerprint/);
 
-  const otherBuild = { ...build, files: { ...build.files, policy: '0'.repeat(64) } };
+  const otherBuild = { ...build, manifest: { ...manifest, rootHash: '0'.repeat(64) } };
   const otherPolicy = isolationEvidence(file, { backend: 'bwrap', env, build: otherBuild, host: HOME_FP });
   assert.equal(otherPolicy.ok, false);
-  assert.match(otherPolicy.detail, /hashes do not match/);
+  assert.match(otherPolicy.detail, /runtime manifest/);
 
   const otherBwrap = { ...build, bwrap: { ...build.bwrap, sha256: '0'.repeat(64) } };
   const otherBinary = isolationEvidence(file, { backend: 'bwrap', env, build: otherBwrap, host: HOME_FP });
@@ -180,6 +187,7 @@ test('a stale nonce, a reused nonce and a tampered signature are rejected', () =
     results: results(),
     journalEntries: journalEntries(),
     leaks: { scanned: [{ name: 'tokens.access_token', sha256: '9'.repeat(64) }], found: [] },
+    cleanup: CLEANUP,
   });
   const key = loadKey({ create: true, env });
   const signed = signEvidence(composed, { key: key.key });
@@ -222,13 +230,136 @@ test('auth.json values are scanned in memory and only hashes are returned', () =
   assert.equal(JSON.stringify(leaks).includes(token), false);
 });
 
-test('the build fingerprint is computed from this tree', () => {
+test('the build fingerprint covers the whole runtime closure', () => {
   const current = currentBuildFingerprint({ backend: 'bwrap' });
+  const entry = current.manifest.files.find((item) => item.path === 'lib/toolpolicy.mjs');
   const policy = crypto.createHash('sha256')
     .update(fs.readFileSync(path.join(ORCH_ROOT, 'lib', 'toolpolicy.mjs')))
     .digest('hex');
-  assert.equal(current.files.policy, policy);
-  assert.equal(typeof current.codex.available, 'boolean');
+  assert.equal(entry.sha256, policy);
+  for (const file of [
+    'adapters/codex-cli.mjs', 'lib/engine.mjs', 'lib/envpolicy.mjs', 'lib/prompts.mjs',
+    'lib/schema.mjs', 'lib/toolpolicy.mjs', 'lib/agentsandbox.mjs', 'lib/evidence.mjs',
+    'tools/tool-proxy.mjs', 'tools/tool-broker.mjs', 'orchestrator.mjs',
+  ]) {
+    assert.equal(current.manifest.files.some((item) => item.path === file), true, `${file} must be in the runtime manifest`);
+  }
+  assert.match(current.manifest.rootHash, /^[a-f0-9]{64}$/);
+  assert.equal(current.manifest.ok, true);
+});
+
+/* Один изменённый байт любого runtime-файла меняет rootHash: иначе старый
+   уровень 3 пережил бы правку адаптера или engine. */
+test('changing one byte of a runtime file invalidates the manifest', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-manifest-'));
+  for (const dir of ['lib', 'adapters', 'tools', 'contracts', 'policies']) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+  }
+  fs.writeFileSync(path.join(root, 'lib', 'engine.mjs'), 'export const x = 1;\n');
+  fs.writeFileSync(path.join(root, 'adapters', 'codex-cli.mjs'), 'export const y = 1;\n');
+  fs.writeFileSync(path.join(root, 'tools', 'tool-proxy.mjs'), 'export const z = 1;\n');
+  fs.writeFileSync(path.join(root, 'orchestrator.mjs'), '// entry\n');
+  fs.writeFileSync(path.join(root, 'package.json'), '{}\n');
+
+  const before = runtimeManifest(root);
+  assert.equal(before.ok, true);
+  fs.appendFileSync(path.join(root, 'adapters', 'codex-cli.mjs'), ' ');
+  const after = runtimeManifest(root);
+  assert.notEqual(after.rootHash, before.rootHash);
+  assert.equal(after.count, before.count);
+
+  /* Подписанное evidence с прежним manifest больше не принимается. */
+  const file = writeEvidence('manifest.json', (item) => ({ ...item, build: { ...item.build, manifest: before } }));
+  const verdict = isolationEvidence(file, { backend: 'bwrap', env, build: { ...build, manifest: after }, host: HOME_FP });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.detail, /runtime manifest/);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+/* Аудитор подписал evidence с dirty:false/dirtyFiles:0, а дерево было
+   грязным. fix5 это пропускал: verifier сравнивал только commit. */
+test('evidence from a dirty tree is rejected even with a matching commit', () => {
+  const file = writeEvidence('dirty-evidence.json');
+  const dirtyTree = { ...build, dirty: true, dirtyFiles: 99 };
+  const verdict = isolationEvidence(file, { backend: 'bwrap', env, build: dirtyTree, host: HOME_FP });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.detail, /working tree is dirty/);
+
+  const dirtyEvidence = writeEvidence('dirty-build.json', (item) => ({ ...item, build: { ...item.build, dirty: true, dirtyFiles: 3 } }));
+  const authored = isolationEvidence(dirtyEvidence, { backend: 'bwrap', env, build, host: HOME_FP });
+  assert.equal(authored.ok, false);
+  assert.match(authored.detail, /dirty working tree/);
+});
+
+/* Распакованный ZIP без .git: commit:null не считается привязкой, решает
+   подписанный manifest digest. */
+test('a tree without git is bound by the manifest digest, not by commit:null', () => {
+  const noGit = { ...build, commit: null, dirty: null, dirtyFiles: null };
+  const nonce = issueNonce({ env });
+  const composed = buildEvidence({
+    nonce: nonce.nonce,
+    backend: 'bwrap',
+    threadId: 'thread_0123456789abcdef',
+    exitCode: 0,
+    build: noGit,
+    host: { fingerprint: HOME_FP },
+    results: results(),
+    journalEntries: journalEntries(),
+    leaks: { scanned: [{ name: 'tokens.access_token', sha256: '9'.repeat(64) }], found: [] },
+    cleanup: CLEANUP,
+  });
+  const key = loadKey({ create: true, env });
+  const signed = signEvidence(composed, { key: key.key });
+  const file = path.join(base, 'no-git.json');
+  fs.writeFileSync(file, JSON.stringify(signed.evidence));
+
+  assert.equal(isolationEvidence(file, { backend: 'bwrap', env, build: noGit, host: HOME_FP }).ok, true);
+  const otherManifest = { ...noGit, manifest: { ...manifest, rootHash: '0'.repeat(64) } };
+  const changed = isolationEvidence(file, { backend: 'bwrap', env, build: otherManifest, host: HOME_FP });
+  assert.equal(changed.ok, false);
+  assert.match(changed.detail, /runtime manifest/);
+  /* commit:null на одной стороне и реальный commit на другой — не привязка. */
+  const mixed = isolationEvidence(file, { backend: 'bwrap', env, build, host: HOME_FP });
+  assert.equal(mixed.ok, false);
+  assert.match(mixed.detail, /git binding/);
+});
+
+/* Копия auth.json должна быть удалена, и harness обязан это засвидетельствовать. */
+test('evidence without proof of auth.json removal is rejected', () => {
+  const missing = writeEvidence('no-cleanup.json', (item) => { const { cleanup, ...rest } = item; return rest; });
+  const verdict = verify(missing);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.detail, /CODEX_HOME/);
+
+  const leaked = writeEvidence('cleanup-failed.json', (item) => ({
+    ...item,
+    cleanup: { ok: false, removed: [], failed: [{ label: 'codex-home', detail: 'EPERM' }], authCopyRemoved: false },
+  }));
+  assert.equal(verify(leaked).ok, false);
+});
+
+/* fix6, п.9: ключ и реестр — обычные файлы, не symlink, режим 0600. */
+test('a symlinked or world-readable key store is refused', { skip: process.platform === 'win32' ? 'POSIX ownership/mode checks' : false }, () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-key-store-'));
+  const keyEnv = { ...process.env, ORCH_EVIDENCE_HOME: home };
+  const real = path.join(home, 'real.key');
+  fs.writeFileSync(real, `${Buffer.alloc(32, 7).toString('base64')}\n`, { mode: 0o600 });
+  const link = path.join(home, 'evidence-hmac.key');
+  fs.symlinkSync(real, link);
+  const symlinked = loadKey({ env: keyEnv });
+  assert.equal(symlinked.ok, false);
+  assert.equal(symlinked.code, 'EVIDENCE_KEY_UNSAFE');
+
+  fs.unlinkSync(link);
+  fs.writeFileSync(link, `${Buffer.alloc(32, 7).toString('base64')}\n`, { mode: 0o600 });
+  fs.chmodSync(link, 0o644);
+  assert.equal(inspectStoreFile(link).ok, false);
+  const readable = loadKey({ env: keyEnv });
+  assert.equal(readable.ok, false);
+  assert.match(readable.detail, /mode 644/);
+
+  fs.rmSync(home, { recursive: true, force: true });
 });
 
 test.after(() => {

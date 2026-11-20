@@ -24,7 +24,7 @@ import { detectSandbox, sandboxRun, toWslPath, ISOLATED_RUNNER_UNAVAILABLE } fro
 import { buildAgentPlan, readToolJournal } from '../lib/agentsandbox.mjs';
 import { findSecrets, secretPairs } from '../lib/secrets.mjs';
 import {
-  ALLOW_ATTACKS, ATTACK_IDS, DENY_ATTACKS, attackSpecs, probeFiles, runAttackMatrix,
+  ALLOW_ATTACKS, ATTACK_IDS, DENY_ATTACKS, SCRIPT_CANARY, attackSpecs, probeFiles, runAttackMatrix,
 } from '../lib/attackmatrix.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -77,7 +77,18 @@ function buildFixture() {
   fs.writeFileSync(codexAuth, JSON.stringify({ token: 'CODEX-AUTH-CANARY-VALUE' }));
   const script = path.join(ws, 'offender.mjs');
   fs.copyFileSync(path.join(ROOT, 'tests', 'hostile', 'attacks.mjs'), script);
-  return { base, ws, outside, home, outsideFile, sshKey, codexAuth, script };
+  /* fix6: внешний shell-скрипт и symlink на него внутри workspace —
+     два способа заставить прокси прочитать файл до broker'а. */
+  const outsideScript = path.join(outside, 'script.sh');
+  fs.writeFileSync(outsideScript, `echo ${SCRIPT_CANARY}\n`);
+  fs.mkdirSync(path.join(ws, 'probes'), { recursive: true });
+  const symlinkScript = path.join(ws, 'probes', 'outside-link.sh');
+  try {
+    fs.symlinkSync(outsideScript, symlinkScript);
+  } catch {
+    /* Windows без права symlink: script-mode всё равно проверяется */
+  }
+  return { base, ws, outside, home, outsideFile, sshKey, codexAuth, script, outsideScript, symlinkScript };
 }
 
 function withCanaries(fn) {
@@ -171,54 +182,68 @@ async function agentPhase(sandbox, say) {
     fs.rmSync(fixture.base, { recursive: true, force: true });
     return { ok: false, blocked: plan };
   }
-  const started = await plan.startBroker();
-  if (!started.ok) {
-    say(`phase 2 — attack matrix: BLOCKED ${started.code}: ${started.detail}`);
+
+  /* Временное состояние (включая копию auth.json) удаляется при любом
+     исходе: успех, BLOCKED, исключение. */
+  try {
+    const started = await plan.startBroker();
+    if (!started.ok) {
+      say(`phase 2 — attack matrix: BLOCKED ${started.code}: ${started.detail}`);
+      return { ok: false, blocked: started };
+    }
+
+    const specs = attackSpecs({
+      outside: uni(fixture.outsideFile),
+      sshKey: uni(fixture.sshKey),
+      authJson: '/run/credentials/codex/auth.json',
+      outsideScript: '../outside-script.sh',
+      symlinkScript: './probes/outside-link.sh',
+    });
+    const run = (spec) => {
+      const launch = plan.wrap(spec.argv);
+      if (!launch.ok) return { exitCode: 126, stderr: `policy: ${launch.code}: ${launch.detail}` };
+      const result = withCanaries(() => spawnSync(launch.cmd, launch.args, {
+        encoding: 'utf8',
+        timeout: 180000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: launch.env,
+        cwd: fixture.ws,
+        maxBuffer: 16 * 1024 * 1024,
+      }));
+      return {
+        exitCode: typeof result.status === 'number' ? result.status : -1,
+        stdout: result.stdout || '',
+        stderr: result.stderr || (result.error ? String(result.error.message || result.error) : ''),
+        signal: result.signal || null,
+      };
+    };
+
+    const matrix = runAttackMatrix({ specs, run, capture: true });
+    await plan.flushBroker();
+    const journal = [...plan.brokerEntries];
+    const journalDenied = journal.filter((entry) => entry.allow === false);
+    const matrixText = Object.values(matrix.outputs).map((item) => `${item.stdout}\n${item.stderr}`).join('\n');
+    const canaryLeaked = matrixText.includes(SCRIPT_CANARY)
+      || journal.map((entry) => String(entry.command || '')).join('\n').includes(SCRIPT_CANARY);
+    const ok = matrix.ok && journal.length > 0 && journalDenied.length > 0 && !canaryLeaked;
+
+    say(`phase 2 — attack matrix in the Codex namespace + broker (${AGENT_ATTACKS.length} attacks):`);
+    for (const item of matrix.results) {
+      const good = item.expect === 'allow' ? item.ok : item.denied;
+      const label = item.expect === 'allow' ? (good ? 'ALLOWED' : 'FAILED ') : (good ? 'DENIED ' : 'FAILED ');
+      say(`  ${label} ${item.id.padEnd(26)} exit=${item.technical.exitCode} code=${item.technical.code || 'none'} ${item.technical.detail}`);
+    }
+    if (matrix.failures.length) say(`  failures: ${matrix.failures.join('; ')}`);
+    if (canaryLeaked) say('  the outside script canary appeared in an answer or in the journal');
+    say(`  broker journal: ${journal.length} calls, ${journalDenied.length} denied`);
+    if (!journalDenied.length) say('  the broker recorded no denials: policy was not enforced');
+
+    await plan.drainBroker();
+    return { ok, results: matrix.results, failures: matrix.failures, journal, journalDenied };
+  } finally {
     plan.cleanup();
     fs.rmSync(fixture.base, { recursive: true, force: true });
-    return { ok: false, blocked: started };
   }
-
-  const specs = attackSpecs({ outside: uni(fixture.outsideFile), sshKey: uni(fixture.sshKey) });
-  const run = (spec) => {
-    const launch = plan.wrap(spec.argv);
-    if (!launch.ok) return { exitCode: 126, stderr: `policy: ${launch.code}: ${launch.detail}` };
-    const result = withCanaries(() => spawnSync(launch.cmd, launch.args, {
-      encoding: 'utf8',
-      timeout: 180000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: launch.env,
-      cwd: fixture.ws,
-      maxBuffer: 16 * 1024 * 1024,
-    }));
-    return {
-      exitCode: typeof result.status === 'number' ? result.status : -1,
-      stdout: result.stdout || '',
-      stderr: result.stderr || (result.error ? String(result.error.message || result.error) : ''),
-      signal: result.signal || null,
-    };
-  };
-
-  const matrix = runAttackMatrix({ specs, run });
-  await plan.flushBroker();
-  const journal = [...plan.brokerEntries];
-  const journalDenied = journal.filter((entry) => entry.allow === false);
-  const ok = matrix.ok && journal.length > 0 && journalDenied.length > 0;
-
-  say(`phase 2 — attack matrix in the Codex namespace + broker (${AGENT_ATTACKS.length} attacks):`);
-  for (const item of matrix.results) {
-    const good = item.expect === 'allow' ? item.ok : item.denied;
-    const label = item.expect === 'allow' ? (good ? 'ALLOWED' : 'FAILED ') : (good ? 'DENIED ' : 'FAILED ');
-    say(`  ${label} ${item.id.padEnd(26)} exit=${item.technical.exitCode} code=${item.technical.code || 'none'} ${item.technical.detail}`);
-  }
-  if (matrix.failures.length) say(`  failures: ${matrix.failures.join('; ')}`);
-  say(`  broker journal: ${journal.length} calls, ${journalDenied.length} denied`);
-  if (!journalDenied.length) say('  the broker recorded no denials: policy was not enforced');
-
-  await plan.drainBroker();
-  plan.cleanup();
-  fs.rmSync(fixture.base, { recursive: true, force: true });
-  return { ok, results: matrix.results, failures: matrix.failures, journal, journalDenied };
 }
 
 /* Имена временных каталогов не должны попадать в доказательство: иначе файл

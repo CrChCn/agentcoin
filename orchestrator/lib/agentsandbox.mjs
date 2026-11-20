@@ -80,6 +80,7 @@ export function prepareCodexHome({ source, dest } = {}) {
   fs.copyFileSync(authFile, path.join(target, 'auth.json'));
   try {
     fs.chmodSync(path.join(target, 'auth.json'), 0o600);
+    fs.chmodSync(target, 0o700);
   } catch {
     /* Windows/ACL: режим не выставляется, каталог всё равно одноразовый */
   }
@@ -89,6 +90,30 @@ export function prepareCodexHome({ source, dest } = {}) {
   }
   return { ok: true, dir: target };
 }
+
+/* Единственная точка удаления временного состояния. fix5 удалял только
+   IPC-каталог, поэтому копия ChatGPT-сессии в /tmp/orch-codex-home-* оставалась
+   на диске. Идемпотентна: вызывается из finally, adapter.finish() и
+   process.on('exit'). */
+export function removeAgentPath(dir, { backend = null } = {}) {
+  if (!dir) return { ok: true, dir, removed: false };
+  try {
+    if (backend === 'wsl-bwrap') {
+      const result = spawnSync('wsl.exe', ['-e', 'rm', '-rf', '--', String(dir)], {
+        stdio: 'ignore', timeout: 30000, env: toolEnv(), shell: false,
+      });
+      if (result.status !== 0) return { ok: false, dir, detail: `wsl rm -rf exited ${result.status}` };
+      return { ok: true, dir, removed: true };
+    }
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    if (fs.existsSync(dir)) return { ok: false, dir, detail: 'path still exists after removal' };
+    return { ok: true, dir, removed: true };
+  } catch (err) {
+    return { ok: false, dir, detail: String(err.message || err) };
+  }
+}
+
+export const discardCodexHome = (dir) => removeAgentPath(dir);
 
 function createIpcDir(backend) {
   if (backend === 'wsl-bwrap') {
@@ -260,6 +285,8 @@ export function buildAgentPlan({
     ...extraEnv,
   };
 
+  const unixOf = (value) => (value && backend === 'wsl-bwrap' ? toBackendPath(value, backend) : value);
+
   const plan = {
     ok: true,
     backend,
@@ -267,9 +294,11 @@ export function buildAgentPlan({
     workspaceUnix,
     scratch,
     policyFile,
+    credentialsDir,
     ipcDir: ipc.dir,
     ipcUnix,
     nodePath,
+    cleaned: null,
     codexEntry,
     journalPath: path.join(logDir, 'tool-calls.jsonl'),
     brokerEntries: [],
@@ -440,16 +469,42 @@ export function buildAgentPlan({
       });
       return { ok: true, entries: plan.brokerEntries.length };
     },
+    /* Удаляет ВСЁ временное: broker socket, IPC-каталог, scratch (policy и
+       stub-клиенты), одноразовый CODEX_HOME с auth.json. Возвращает отчёт,
+       который попадает в evidence, поэтому «удалено» — проверяемый факт, а не
+       намерение. Повторный вызов возвращает тот же отчёт. */
     cleanup() {
+      if (plan.cleaned) return plan.cleaned;
       plan.stopBroker();
-      try {
-        if (backend === 'wsl-bwrap') spawnSync('wsl.exe', ['-e', 'rm', '-rf', ipcUnix], { stdio: 'ignore', env: toolEnv(), shell: false });
-        else fs.rmSync(ipcUnix, { recursive: true, force: true });
-      } catch {
-        /* временный каталог */
+      if (plan.exitCleanup) {
+        try { process.removeListener('exit', plan.exitCleanup); } catch { /* уже снят */ }
       }
+      const removed = [];
+      const failed = [];
+      const targets = [
+        { label: 'broker-socket', dir: path.posix.join(ipcUnix, 'broker.sock') },
+        { label: 'ipc', dir: ipcUnix },
+        { label: 'scratch', dir: unixOf(scratch) },
+        { label: 'codex-home', dir: unixOf(credentialsDir) },
+      ];
+      for (const target of targets) {
+        const result = removeAgentPath(target.dir, { backend });
+        if (!result.ok) failed.push({ label: target.label, detail: result.detail });
+        else if (result.removed) removed.push(target.label);
+      }
+      const authCopyRemoved = !credentialsDir || !fs.existsSync(credentialsDir);
+      plan.cleaned = { ok: failed.length === 0 && authCopyRemoved, removed, failed, authCopyRemoved };
+      return plan.cleaned;
     },
   };
+
+  /* Процесс может завершиться исключением или через process.exit(): 'exit'
+     срабатывает в обоих случаях, а удаление синхронное. Сигналы (SIGTERM)
+     обрабатывает harness, который владеет одноразовым CODEX_HOME. */
+  plan.exitCleanup = () => {
+    try { plan.cleanup(); } catch { /* процесс уже завершается */ }
+  };
+  process.once('exit', plan.exitCleanup);
   return plan;
 }
 
@@ -475,6 +530,25 @@ export function readToolJournal(file) {
 }
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/* Человекочитаемая разница manifest'ов: какие runtime-файлы изменены,
+   добавлены или удалены. Хэши в detail не печатаются целиком. */
+function manifestDiff(recorded, current) {
+  const toMap = (files) => new Map((Array.isArray(files) ? files : []).map((item) => [item.path, item.sha256]));
+  const before = toMap(recorded);
+  const after = toMap(current);
+  const changed = [];
+  for (const [file, hash] of before) {
+    if (!after.has(file)) changed.push(`${file} removed`);
+    else if (after.get(file) !== hash) changed.push(`${file} changed`);
+  }
+  for (const file of after.keys()) {
+    if (!before.has(file)) changed.push(`${file} added`);
+  }
+  if (!changed.length) return null;
+  const head = changed.slice(0, 4).join(', ');
+  return changed.length > 4 ? `${head}, +${changed.length - 4} more` : head;
+}
 
 /* Уровень 3. Любое расхождение — agent_isolation_unproven, а не «наверное
    этот файл настоящий». Ручной JSON без подписи, nonce и привязки к сборке
@@ -518,13 +592,54 @@ export function isolationEvidence(file = AGENT_EVIDENCE, {
 
   const current = build || currentBuildFingerprint({ backend: evidence.backend, env });
   if (!evidence.build) return fail('evidence has no build fingerprint');
-  if (evidence.build.commit !== current.commit) {
+
+  /* fix6: привязка — весь runtime manifest, а не восемь выбранных файлов.
+     Один изменённый байт в adapters/, engine, prompts, envpolicy или схеме
+     меняет rootHash. */
+  const manifest = evidence.build.manifest;
+  if (!manifest || typeof manifest.rootHash !== 'string' || !Array.isArray(manifest.files)) {
+    return fail('evidence has no runtime manifest: level 3 must be bound to the whole orchestrator runtime closure');
+  }
+  if (!current.manifest || typeof current.manifest.rootHash !== 'string') {
+    return fail('cannot compute the runtime manifest for this tree (a runtime file is missing)');
+  }
+
+  const evidenceHasGit = evidence.build.commit !== null && evidence.build.commit !== undefined;
+  const treeHasGit = current.commit !== null && current.commit !== undefined;
+  if (evidenceHasGit !== treeHasGit) {
+    return fail('evidence git binding does not match this tree (a commit exists on one side only)');
+  }
+  if (evidenceHasGit && evidence.build.commit !== current.commit) {
     return fail(`evidence was built from commit ${String(evidence.build.commit).slice(0, 12)}, current commit is ${String(current.commit).slice(0, 12)}`);
   }
+  if (evidenceHasGit) {
+    if (evidence.build.dirty !== false || evidence.build.dirtyFiles !== 0) {
+      return fail(`evidence was produced from a dirty working tree (${evidence.build.dirtyFiles} files); only a clean commit can open level 3`);
+    }
+    if (current.dirty !== false || current.dirtyFiles !== 0) {
+      return fail(`the working tree is dirty (${current.dirtyFiles} files); commit or stash the orchestrator changes before trusting level-3 evidence`);
+    }
+  } else if (evidence.build.dirty !== null && evidence.build.dirty !== undefined) {
+    return fail('evidence claims a git state for a tree without git history');
+  }
+
+  if (current.manifest.rootHash !== manifest.rootHash) {
+    const changed = manifestDiff(manifest.files, current.manifest.files);
+    return fail(`runtime manifest does not match this build${changed ? ` (${changed})` : ''}: one changed runtime file invalidates the evidence`);
+  }
+  if (manifest.count !== current.manifest.count) {
+    return fail(`runtime manifest lists ${manifest.count} files, current tree has ${current.manifest.count}`);
+  }
+
   if (!same(evidence.build.bwrap, current.bwrap)) return fail('evidence bwrap fingerprint does not match this machine');
   if (!same(evidence.build.codex, current.codex)) return fail('evidence Codex fingerprint does not match the installed CLI');
-  if (!same(evidence.build.files, current.files)) return fail('evidence policy/proxy/broker/orchestrator hashes do not match this build');
   if (!evidence.build.bwrap || !evidence.build.bwrap.sha256) return fail('evidence has no bwrap SHA256');
+
+  /* fix6: копия auth.json должна быть удалена, и harness обязан это
+     засвидетельствовать. */
+  if (!evidence.cleanup || evidence.cleanup.ok !== true || evidence.cleanup.authCopyRemoved !== true) {
+    return fail('evidence does not prove that the temporary CODEX_HOME with auth.json was removed');
+  }
 
   const attacks = Array.isArray(evidence.attacks) ? evidence.attacks : [];
   if (!attacks.length) return fail('evidence has no attack results');
@@ -592,7 +707,7 @@ export function isolationEvidence(file = AGENT_EVIDENCE, {
 
 /* Сборка evidence из результатов прогона: подпись, nonce, хэш-цепочка.
    Используется только tools/agent-hostile-check.mjs --real. */
-export function buildEvidence({ nonce, backend, threadId, exitCode, build, host, results, journalEntries, leaks }) {
+export function buildEvidence({ nonce, backend, threadId, exitCode, build, host, results, journalEntries, leaks, cleanup = null }) {
   let prev = GENESIS;
   const entries = (journalEntries || []).map((entry) => {
     const chained = chainEntry(entry, prev);
@@ -612,6 +727,7 @@ export function buildEvidence({ nonce, backend, threadId, exitCode, build, host,
     build,
     threadId,
     codex: { exitCode },
+    cleanup,
     attacks: results,
     journal: { entries, head: prev, length: entries.length },
     leaks,

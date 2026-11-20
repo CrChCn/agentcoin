@@ -27,7 +27,7 @@ import { ORCH_ROOT } from './package.mjs';
 import { toolEnv } from './envpolicy.mjs';
 import { canonical, GENESIS, chainEntry, sha256Text } from './journal.mjs';
 
-export const EVIDENCE_VERSION = 2;
+export const EVIDENCE_VERSION = 3;
 export const NONCE_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_EVIDENCE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const EVIDENCE_SIGNATURE_ALG = 'hmac-sha256';
@@ -50,56 +50,171 @@ export const nonceFile = (env = process.env) => path.join(evidenceHome(env), 'no
 
 export const keyIdOf = (key) => sha256(key).slice(0, 16);
 
+/* Доверенный файл состояния (ключ, реестр nonce): только обычный файл, не
+   symlink; владелец — текущий UID; режим 0600 на POSIX. Symlink отклоняется
+   даже если ведёт на собственный файл: подмена ссылки между проверкой и
+   чтением — это и есть атака. */
+export function inspectStoreFile(file) {
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (err) {
+    return { ok: false, code: 'missing', detail: `cannot stat ${file}: ${err.code || err.message}` };
+  }
+  if (stat.isSymbolicLink()) return { ok: false, code: 'symlink', detail: `${file} is a symlink; the evidence store must be a regular file` };
+  if (!stat.isFile()) return { ok: false, code: 'not_file', detail: `${file} is not a regular file` };
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    return { ok: false, code: 'owner', detail: `${file} is owned by uid ${stat.uid}, not by the current user ${process.getuid()}` };
+  }
+  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
+    return { ok: false, code: 'mode', detail: `${file} has mode ${(stat.mode & 0o777).toString(8)}; expected 600` };
+  }
+  return { ok: true, stat };
+}
+
 /* Ключ создаётся один раз на машину и никогда не попадает в репозиторий:
-   каталог лежит в домашнем каталоге пользователя, режим 0600. Если его нет и
-   создание запрещено (тест/preflight), доказательство не принимается. */
+   каталог лежит в домашнем каталоге пользователя, режим 0600. Создание
+   атомарное ('wx'), поэтому второй процесс не подменит ключ между проверкой и
+   записью. Если ключа нет и создание запрещено, доказательство не
+   принимается. */
 export function loadKey({ create = false, env = process.env } = {}) {
   const home = evidenceHome(env);
   const file = keyFile(env);
+  const unavailable = (err) => ({
+    ok: false,
+    code: 'EVIDENCE_KEY_UNAVAILABLE',
+    detail: `no usable evidence signing key at ${file}; level-3 evidence cannot be verified (${err.code || err.message})`,
+  });
+
+  let stat = null;
   try {
-    const raw = fs.readFileSync(file);
-    const key = Buffer.from(String(raw).trim(), 'base64');
-    if (key.length < 32) throw new Error('key material is too short');
-    return { ok: true, key, file, keyId: keyIdOf(key) };
+    stat = fs.lstatSync(file);
   } catch (err) {
-    if (!create) {
-      return {
-        ok: false,
-        code: 'EVIDENCE_KEY_UNAVAILABLE',
-        detail: `no evidence signing key at ${file}; level-3 evidence cannot be verified (${err.code || err.message})`,
-      };
+    stat = null;
+    if (!create) return unavailable(err);
+  }
+  if (stat) {
+    const safe = inspectStoreFile(file);
+    if (!safe.ok) {
+      return { ok: false, code: 'EVIDENCE_KEY_UNSAFE', detail: `evidence signing key is not a trusted store file: ${safe.detail}` };
+    }
+    try {
+      const raw = fs.readFileSync(file);
+      const key = Buffer.from(String(raw).trim(), 'base64');
+      if (key.length < 32) throw new Error('key material is too short');
+      return { ok: true, key, file, keyId: keyIdOf(key) };
+    } catch (err) {
+      if (!create) return unavailable(err);
     }
   }
+
   try {
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    if (fs.lstatSync(home).isSymbolicLink()) {
+      return { ok: false, code: 'EVIDENCE_KEY_UNSAFE', detail: `${home} is a symlink; the evidence home must be a real directory` };
+    }
     const key = crypto.randomBytes(32);
-    fs.writeFileSync(file, `${key.toString('base64')}\n`, { mode: 0o600 });
+    let fd;
+    try {
+      fd = fs.openSync(file, 'wx', 0o600);
+    } catch (err) {
+      if (err.code === 'EEXIST') return loadKey({ create: false, env });
+      throw err;
+    }
+    try {
+      fs.writeSync(fd, `${key.toString('base64')}\n`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     try {
       fs.chmodSync(file, 0o600);
     } catch {
       /* Windows ACL: каталог всё равно вне репозитория */
     }
+    const safe = inspectStoreFile(file);
+    if (!safe.ok) return { ok: false, code: 'EVIDENCE_KEY_UNSAFE', detail: safe.detail };
     return { ok: true, key, file, keyId: keyIdOf(key), created: true };
   } catch (err) {
     return { ok: false, code: 'EVIDENCE_KEY_UNAVAILABLE', detail: `cannot create ${file}: ${err.message || err}` };
   }
 }
 
-function readLedger(env) {
+function sleepSync(ms) {
   try {
-    const parsed = JSON.parse(fs.readFileSync(nonceFile(env), 'utf8'));
-    return Array.isArray(parsed) ? parsed : [];
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
   } catch {
-    return [];
+    /* среда без Atomics.wait: ждём без паузы, deadline всё равно ограничивает */
+  }
+}
+
+/* Блокировка реестра nonce: два одновременных preflight'а не должны потерять
+   запись или выдать один nonce дважды. Lock-файл создаётся атомарно ('wx');
+   зависший lock старше 10 секунд считается брошенным. */
+function withLedgerLock(env, fn) {
+  const file = `${nonceFile(env)}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + 5000;
+  let fd = null;
+  while (fd === null) {
+    try {
+      fd = fs.openSync(file, 'wx', 0o600);
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      let abandoned = false;
+      try {
+        abandoned = Date.now() - fs.statSync(file).mtimeMs > 10000;
+      } catch {
+        abandoned = false;
+      }
+      if (abandoned) {
+        try { fs.unlinkSync(file); } catch { /* уже снят */ }
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw Object.assign(new Error(`nonce ledger lock ${file} is held by another process`), { code: 'EVIDENCE_LEDGER_LOCKED' });
+      }
+      sleepSync(25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch { /* уже закрыт */ }
+    try { fs.unlinkSync(file); } catch { /* уже снят */ }
+  }
+}
+
+function readLedger(env) {
+  const file = nonceFile(env);
+  if (!fs.existsSync(file)) return { ok: true, entries: [] };
+  const safe = inspectStoreFile(file);
+  if (!safe.ok) return { ok: false, code: 'EVIDENCE_NONCE_STORE_UNSAFE', detail: `nonce ledger is not a trusted store file: ${safe.detail}` };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { ok: true, entries: Array.isArray(parsed) ? parsed : [] };
+  } catch (err) {
+    return { ok: false, code: 'EVIDENCE_NONCE_STORE_UNSAFE', detail: `cannot read ${file}: ${err.message || err}` };
   }
 }
 
 function writeLedger(entries, env) {
   const file = nonceFile(env);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(entries, null, 2)}\n`, { mode: 0o600 });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'wx', 0o600);
+  try {
+    fs.writeSync(fd, `${JSON.stringify(entries, null, 2)}\n`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmp, file);
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* Windows ACL: каталог всё равно вне репозитория */
+  }
 }
 
 /* Одноразовый nonce: выдаётся перед hostile-прогоном, живёт ограниченное
@@ -109,43 +224,55 @@ export function issueNonce({ env = process.env, ttlMs = NONCE_TTL_MS, now = Date
   const nonce = crypto.randomBytes(16).toString('hex');
   const issuedAt = new Date(now).toISOString();
   const expiresAt = new Date(now + ttlMs).toISOString();
-  const ledger = readLedger(env);
-  ledger.push({ nonce, issuedAt, expiresAt, evidenceSha256: null });
   try {
-    writeLedger(ledger, env);
+    return withLedgerLock(env, () => {
+      const ledger = readLedger(env);
+      if (!ledger.ok) return { ok: false, code: ledger.code, detail: ledger.detail };
+      const entries = ledger.entries.slice();
+      entries.push({ nonce, issuedAt, expiresAt, evidenceSha256: null });
+      writeLedger(entries, env);
+      return { ok: true, nonce, issuedAt, expiresAt };
+    });
   } catch (err) {
-    return { ok: false, code: 'EVIDENCE_NONCE_STORE_UNAVAILABLE', detail: `cannot record nonce in ${nonceFile(env)}: ${err.message || err}` };
+    return { ok: false, code: err.code || 'EVIDENCE_NONCE_STORE_UNAVAILABLE', detail: `cannot record nonce in ${nonceFile(env)}: ${err.message || err}` };
   }
-  return { ok: true, nonce, issuedAt, expiresAt };
 }
 
 export function consumeNonce(nonce, evidenceSha256, { env = process.env, now = Date.now() } = {}) {
   if (typeof nonce !== 'string' || nonce.length < 16) {
     return { ok: false, code: 'nonce_missing', detail: 'evidence has no valid nonce' };
   }
-  const ledger = readLedger(env);
-  const entry = ledger.find((item) => item && item.nonce === nonce);
-  if (!entry) {
-    return { ok: false, code: 'nonce_not_issued', detail: `nonce ${nonce.slice(0, 12)}… was not issued on this machine` };
+  try {
+    return withLedgerLock(env, () => {
+      const ledger = readLedger(env);
+      if (!ledger.ok) return { ok: false, code: ledger.code, detail: ledger.detail };
+      const entries = ledger.entries.slice();
+      const entry = entries.find((item) => item && item.nonce === nonce);
+      if (!entry) {
+        return { ok: false, code: 'nonce_not_issued', detail: `nonce ${nonce.slice(0, 12)}… was not issued on this machine` };
+      }
+      if (Date.parse(entry.expiresAt) < now) {
+        return { ok: false, code: 'nonce_expired', detail: `nonce ${nonce.slice(0, 12)}… expired at ${entry.expiresAt}` };
+      }
+      if (entry.evidenceSha256 && entry.evidenceSha256 !== evidenceSha256) {
+        return { ok: false, code: 'nonce_reused', detail: `nonce ${nonce.slice(0, 12)}… was already bound to another evidence file` };
+      }
+      if (!entry.evidenceSha256) {
+        entry.evidenceSha256 = evidenceSha256;
+        entry.usedAt = new Date(now).toISOString();
+        try {
+          writeLedger(entries, env);
+        } catch {
+          /* Реестр недоступен на запись: доказательство всё равно не принимаем,
+             потому что одноразовость перестаёт быть проверяемой. */
+          return { ok: false, code: 'nonce_store_unwritable', detail: `cannot mark nonce ${nonce.slice(0, 12)}… as used` };
+        }
+      }
+      return { ok: true, entry };
+    });
+  } catch (err) {
+    return { ok: false, code: err.code || 'EVIDENCE_NONCE_STORE_UNAVAILABLE', detail: `cannot update nonce ledger: ${err.message || err}` };
   }
-  if (Date.parse(entry.expiresAt) < now) {
-    return { ok: false, code: 'nonce_expired', detail: `nonce ${nonce.slice(0, 12)}… expired at ${entry.expiresAt}` };
-  }
-  if (entry.evidenceSha256 && entry.evidenceSha256 !== evidenceSha256) {
-    return { ok: false, code: 'nonce_reused', detail: `nonce ${nonce.slice(0, 12)}… was already bound to another evidence file` };
-  }
-  if (!entry.evidenceSha256) {
-    entry.evidenceSha256 = evidenceSha256;
-    entry.usedAt = new Date(now).toISOString();
-    try {
-      writeLedger(ledger, env);
-    } catch {
-      /* Реестр недоступен на запись: доказательство всё равно не принимаем,
-         потому что одноразовость перестаёт быть проверяемой. */
-      return { ok: false, code: 'nonce_store_unwritable', detail: `cannot mark nonce ${nonce.slice(0, 12)}… as used` };
-    }
-  }
-  return { ok: true, entry };
 }
 
 /* ---------- привязка к машине и сборке ---------- */
@@ -249,29 +376,87 @@ export function codexFingerprint(env = process.env) {
 }
 
 export function gitFingerprint(root = ORCH_ROOT) {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 8000, env: toolEnv() });
-  const status = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8', timeout: 8000, env: toolEnv() });
+  const options = { cwd: root, encoding: 'utf8', timeout: 8000, env: toolEnv() };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], options);
+  if (commit.status !== 0) {
+    /* Распакованный ZIP без .git: commit:null — это не «нет изменений», а
+       «нет истории». Привязкой тогда служит подписанный manifest digest, и
+       evidence принимается только при полном совпадении manifest. */
+    return { commit: null, dirty: null, dirtyFiles: null, scoped: '.' };
+  }
+  /* Статус ограничен каталогом пакета: посторонние изменения в соседних
+     проектах не должны ни открывать, ни закрывать уровень 3. */
+  const status = spawnSync('git', ['status', '--porcelain', '--', '.'], options);
   const dirtyFiles = status.status === 0
     ? String(status.stdout || '').split('\n').filter((line) => line.trim()).length
     : null;
   return {
-    commit: commit.status === 0 ? String(commit.stdout || '').trim() : null,
+    commit: String(commit.stdout || '').trim(),
     dirty: dirtyFiles === null ? null : dirtyFiles > 0,
     dirtyFiles,
+    scoped: '.',
   };
 }
 
-export function fileFingerprint(root = ORCH_ROOT) {
-  const rel = (file) => path.join(root, file);
+/* Каталоги и файлы, из которых состоит runtime оркестратора. Всё, что влияет
+   на запуск или на проверку запуска, обязано быть здесь: адаптеры, engine,
+   схемы (lib/schema.mjs), prompts, environment policy, прокси, broker, план
+   sandbox, matrix, evidence и контракты/политики задач. */
+export const MANIFEST_DIRS = Object.freeze(['lib', 'adapters', 'tools', 'contracts', 'policies']);
+export const MANIFEST_FILES = Object.freeze(['orchestrator.mjs']);
+/* Пакет не обязан иметь package.json, но если он есть, он тоже входит в
+   manifest: без него менялись бы режимы запуска. */
+export const OPTIONAL_MANIFEST_FILES = Object.freeze(['package.json']);
+
+/* Единый manifest root hash вместо восьми выбранных файлов (fix5): изменение
+   одного байта в любом runtime-файле меняет rootHash и инвалидирует evidence. */
+export function runtimeManifest(root = ORCH_ROOT) {
+  const files = [];
+  const missing = [];
+  const visit = (abs, rel) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(abs, { withFileTypes: true });
+    } catch (err) {
+      missing.push({ path: rel, detail: err.code || err.message });
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const childRel = `${rel}/${entry.name}`;
+      const childAbs = path.join(abs, entry.name);
+      if (entry.isDirectory()) {
+        visit(childAbs, childRel);
+      } else if (entry.isFile()) {
+        const data = fs.readFileSync(childAbs);
+        files.push({ path: childRel, bytes: data.length, sha256: sha256(data) });
+      }
+    }
+  };
+  for (const dir of MANIFEST_DIRS) visit(path.join(root, dir), dir);
+  for (const rel of MANIFEST_FILES) {
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs)) {
+      missing.push({ path: rel, detail: 'missing' });
+      continue;
+    }
+    const data = fs.readFileSync(abs);
+    files.push({ path: rel, bytes: data.length, sha256: sha256(data) });
+  }
+  for (const rel of OPTIONAL_MANIFEST_FILES) {
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs)) continue;
+    const data = fs.readFileSync(abs);
+    files.push({ path: rel, bytes: data.length, sha256: sha256(data) });
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
   return {
-    policy: sha256File(rel('lib/toolpolicy.mjs')),
-    broker: sha256File(rel('tools/tool-broker.mjs')),
-    proxy: sha256File(rel('tools/tool-proxy.mjs')),
-    sandbox: sha256File(rel('lib/sandbox.mjs')),
-    agentsandbox: sha256File(rel('lib/agentsandbox.mjs')),
-    matrix: sha256File(rel('lib/attackmatrix.mjs')),
-    evidence: sha256File(rel('lib/evidence.mjs')),
-    orchestrator: sha256File(rel('orchestrator.mjs')),
+    root: 'orchestrator',
+    dirs: [...MANIFEST_DIRS],
+    files,
+    count: files.length,
+    rootHash: sha256Text(canonical(files)),
+    missing,
+    ok: missing.length === 0 && files.length > 0,
   };
 }
 
@@ -280,7 +465,7 @@ export function currentBuildFingerprint({ backend = null, root = ORCH_ROOT, env 
     ...gitFingerprint(root),
     bwrap: bwrapFingerprint(backend || undefined),
     codex: codexFingerprint(env),
-    files: fileFingerprint(root),
+    manifest: runtimeManifest(root),
   };
 }
 

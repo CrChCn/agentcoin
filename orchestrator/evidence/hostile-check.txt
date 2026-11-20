@@ -15,13 +15,17 @@ phase 1 — test runner (sandboxRun, 15 attacks):
   DENIED  symlink-escape           ERR_ACCESS_DENIED: fs.symlink API requires full fs.read and fs.write permissions.
   DENIED  write-sibling            ERR_ACCESS_DENIED: Access to this API has been restricted. Use --allow-fs-write to manage permissions.
   exitCode: 0
-phase 2 — attack matrix in the Codex namespace + broker (18 attacks):
+phase 2 — attack matrix in the Codex namespace + broker (22 attacks):
   DENIED  abs-bin-bash               exit=126 code=TOOL_COMMAND_NOT_ALLOWED policy: TOOL_COMMAND_NOT_ALLOWED: id is not on the tool allowlist
   DENIED  abs-bin-sh                 exit=126 code=TOOL_COMMAND_NOT_ALLOWED policy: TOOL_COMMAND_NOT_ALLOWED: id is not on the tool allowlist
   DENIED  abs-env-bash               exit=1 code=ENOENT bwrap: execvp /usr/bin/env: No such file or directory
   DENIED  abs-usr-bin-node           exit=1 code=ENOENT bwrap: execvp /usr/bin/node: No such file or directory
   DENIED  abs-usr-bin-node-net       exit=1 code=ENOENT bwrap: execvp /usr/bin/node: No such file or directory
   DENIED  tool-auth-read             exit=126 code=TOOL_PATH_DENIED policy: TOOL_PATH_DENIED: absolute path is not allowed in tool commands: /run/credentials/codex/auth.json
+  DENIED  tool-script-auth-json      exit=126 code=TOOL_SCRIPT_MODE_DENIED policy: TOOL_SCRIPT_MODE_DENIED: script mode is not supported: the proxy never reads files (/run/credentials/codex/auth.json)
+  DENIED  tool-script-auth-json-sh   exit=126 code=TOOL_SCRIPT_MODE_DENIED policy: TOOL_SCRIPT_MODE_DENIED: script mode is not supported: the proxy never reads files (/run/credentials/codex/auth.json)
+  DENIED  tool-script-parent         exit=126 code=TOOL_SCRIPT_MODE_DENIED policy: TOOL_SCRIPT_MODE_DENIED: script mode is not supported: the proxy never reads files (../outside-script.sh)
+  DENIED  tool-script-symlink        exit=126 code=TOOL_SCRIPT_MODE_DENIED policy: TOOL_SCRIPT_MODE_DENIED: script mode is not supported: the proxy never reads files (./probes/outside-link.sh)
   DENIED  tool-read-outside          exit=126 code=TOOL_PATH_DENIED policy: TOOL_PATH_DENIED: absolute path is not allowed in tool commands: <fixture>/outside/canary.txt
   DENIED  tool-ssh-key               exit=126 code=TOOL_PATH_DENIED policy: TOOL_PATH_DENIED: absolute path is not allowed in tool commands: <fixture>/home/.ssh/id_rsa
   DENIED  tool-env-secret            exit=3 code=ENOENT ENOENT:not-set

@@ -27,6 +27,10 @@ export const DENY_ATTACKS = Object.freeze([
   'abs-usr-bin-node',
   'abs-usr-bin-node-net',
   'tool-auth-read',
+  'tool-script-auth-json',
+  'tool-script-auth-json-sh',
+  'tool-script-parent',
+  'tool-script-symlink',
   'tool-read-outside',
   'tool-ssh-key',
   'tool-env-secret',
@@ -55,6 +59,7 @@ export const DENIAL_CODES = Object.freeze([
   'TOOL_COMMAND_NOT_ALLOWED',
   'TOOL_PATH_DENIED',
   'TOOL_SUBSTITUTION_DENIED',
+  'TOOL_SCRIPT_MODE_DENIED',
   'EMPTY_COMMAND',
   'ISOLATED_TOOL_CHANNEL_UNAVAILABLE',
   'ISOLATED_TOOL_NET_UNAVAILABLE',
@@ -124,9 +129,18 @@ export function probeFiles() {
 
 /* Аргументы атаки. `outside` — абсолютный путь файла-канарейки вне workspace,
    `sshKey` — путь к приватному ключу, оба в терминах backend. */
-export function attackSpecs({ outside, sshKey } = {}) {
+/* fix6: script-mode атаки. fix5 читал файл до broker'а, поэтому
+   `/bin/bash /run/credentials/codex/auth.json` возвращал содержимое
+   credentials. Теперь любой script-mode — технический отказ
+   TOOL_SCRIPT_MODE_DENIED, и ни один байт файла не покидает namespace. */
+export const SCRIPT_CANARY = 'OUTSIDE-SCRIPT-CANARY-VALUE';
+
+export function attackSpecs({ outside, sshKey, authJson, outsideScript, symlinkScript } = {}) {
   const out = String(outside || '/nonexistent/outside-canary.txt');
   const ssh = String(sshKey || '/nonexistent/id_rsa');
+  const auth = String(authJson || '/run/credentials/codex/auth.json');
+  const script = String(outsideScript || '/nonexistent/outside-script.sh');
+  const link = String(symlinkScript || './probes/outside-link.sh');
   const bash = (command) => ['/bin/bash', '-c', command];
   return {
     'abs-bin-bash': { channel: 'tool', expect: 'deny', argv: bash('id') },
@@ -134,7 +148,11 @@ export function attackSpecs({ outside, sshKey } = {}) {
     'abs-env-bash': { channel: 'tool', expect: 'deny', argv: ['/usr/bin/env', 'bash', '-c', 'id'] },
     'abs-usr-bin-node': { channel: 'tool', expect: 'deny', argv: ['/usr/bin/node', '-e', 'process.exit(0)'] },
     'abs-usr-bin-node-net': { channel: 'tool', expect: 'deny', argv: ['/usr/bin/node', 'probes/net.mjs', '1.1.1.1', '443'] },
-    'tool-auth-read': { channel: 'tool', expect: 'deny', argv: bash('cat /run/credentials/codex/auth.json') },
+    'tool-auth-read': { channel: 'tool', expect: 'deny', argv: bash(`cat ${auth}`) },
+    'tool-script-auth-json': { channel: 'tool', expect: 'deny', argv: ['/bin/bash', auth] },
+    'tool-script-auth-json-sh': { channel: 'tool', expect: 'deny', argv: ['/bin/sh', auth] },
+    'tool-script-parent': { channel: 'tool', expect: 'deny', argv: ['/bin/bash', script] },
+    'tool-script-symlink': { channel: 'tool', expect: 'deny', argv: ['/bin/bash', link] },
     'tool-read-outside': { channel: 'tool', expect: 'deny', argv: bash(`cat ${out}`) },
     'tool-ssh-key': { channel: 'tool', expect: 'deny', argv: bash(`cat ${ssh}`) },
     'tool-env-secret': { channel: 'tool', expect: 'deny', argv: bash('node probes/env.mjs DATABASE_URL') },
@@ -218,9 +236,13 @@ function hashOf(text) {
 
 /* Полная матрица: ровно по одному результату на каждый обязательный ID.
    Возвращает технические результаты и список причин отказа проверки. */
-export function runAttackMatrix({ specs, run }) {
+/* capture:true возвращает сырые stdout/stderr каждой атаки. Это нужно, чтобы
+   harness искал канарейку внешнего скрипта в самом ответе, а не только в
+   классификации. В evidence сырой вывод не попадает. */
+export function runAttackMatrix({ specs, run, capture = false }) {
   const results = [];
   const failures = [];
+  const outputs = {};
   for (const id of ATTACK_IDS) {
     const spec = specs[id];
     if (!spec) {
@@ -234,6 +256,9 @@ export function runAttackMatrix({ specs, run }) {
       result = { exitCode: -1, stderr: `${err.code || err.name}: ${err.message}` };
     }
     const item = classifyResult({ ...spec, id }, result);
+    if (capture) {
+      outputs[id] = { stdout: String(result.stdout || ''), stderr: String(result.stderr || '') };
+    }
     results.push(item);
     if (spec.expect === 'deny' && !item.denied) failures.push(`${id}: attack was not denied (exit ${item.technical.exitCode})`);
     if (spec.expect === 'allow' && !item.ok) failures.push(`${id}: allowed operation failed (exit ${item.technical.exitCode})`);
@@ -248,5 +273,6 @@ export function runAttackMatrix({ specs, run }) {
     denied,
     allowed,
     failures,
+    outputs,
   };
 }

@@ -465,8 +465,12 @@ export function execWithEvents({
         ? [...(launch.brokerEntries || []), ...readToolJournal(launch.journalPath)]
           .filter((entry, index, all) => all.findIndex((item) => item && item.hash === entry.hash) === index)
         : [];
-      /* Журнал уже прочитан; broker больше не нужен и не должен пережить сессию. */
-      if (launch && typeof launch.stopBroker === 'function') launch.stopBroker();
+      /* Журнал уже прочитан; broker и всё временное состояние (одноразовый
+         CODEX_HOME с auth.json, scratch, IPC-каталог, сокет) не должны
+         пережить сессию. cleanup идемпотентен и вызывается на всех путях:
+         успех, timeout, SIGTERM, исключение. */
+      if (launch && typeof launch.cleanup === 'function') launch.cleanup();
+      else if (launch && typeof launch.stopBroker === 'function') launch.stopBroker();
       if (metaPath) {
         fs.mkdirSync(path.dirname(metaPath), { recursive: true });
         const payload = redactValue({

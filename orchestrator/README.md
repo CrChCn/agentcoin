@@ -4,7 +4,7 @@
 исправление → приёмка, с hash-журналом, восстановлением после остановки и
 типизированными действиями.
 
-> **Статус: Stage A fix5 — broker-канал инструментов и machine-bound уровень 3.**
+> **Статус: Stage A fix6 — безscript-mode прокси, полный runtime manifest, гарантированное удаление CODEX_HOME.**
 > Настоящий агент не запускается ни одним unit-тестом: в тестовом процессе
 > адаптер возвращает `REAL_AGENT_DISABLED_IN_TEST` даже при установленном,
 > авторизованном Codex и ключе в окружении. Реальный двухагентный цикл ещё не
@@ -172,7 +172,8 @@ fix5 меняет и механизм, и доказательство.
 credential-каталог Codex.
 
 **3. Абсолютные обходы закрыты и проверяются.** Матрица
-`lib/attackmatrix.mjs` — фиксированный список из 18 обязательных проверок:
+`lib/attackmatrix.mjs` — фиксированный список обязательных проверок (18 в fix5,
+22 в fix6 — четыре script-mode атаки добавлены в 0.7):
 `/bin/bash`, `/bin/sh`, `/usr/bin/env bash`, прямой `/usr/bin/node`,
 `node` + `probes/net.mjs`, чтение `/run/credentials/codex/auth.json`, чтение
 вне workspace, `~/.ssh/id_rsa`, `DATABASE_URL`, публичная сеть, localhost,
@@ -228,6 +229,59 @@ Preflight отклоняет ручной JSON, неизвестный/проп�
 `node tools/hostile-check.mjs` (фазы runner + матрица) проходит, но уровня 3
 не открывает. Реальный `--real` на Windows требует Codex, установленного
 внутри WSL: путь вида `C:\...\codex.js` в sandbox не существует.
+
+## 0.7 Исправления fix6
+
+Аудит fix5 нашёл три дефекта, каждый закрыт механизмом и регрессионным тестом.
+
+**1. Script-mode удалён из прокси.** fix5 в режиме `bash <file>` вызывал
+`fs.readFileSync(file)` внутри namespace Codex, где виден
+`/run/credentials/codex/auth.json`; `/bin/bash /run/credentials/codex/auth.json`
+возвращал содержимое credentials до политики broker'а. Теперь
+`tools/tool-proxy.mjs` принимает только `-c`/`-lc`, не импортирует `fs` и не
+читает ни один файл. `bash file`, `sh file`, `bash -- file`, `bash -s`
+завершаются техническим отказом `TOOL_SCRIPT_MODE_DENIED` (exit 126). Матрица
+дополнена четырьмя атаками: `/bin/bash /run/credentials/codex/auth.json`,
+`/bin/sh /run/credentials/codex/auth.json`, внешний `../outside-script.sh` и
+symlink из workspace наружу. Harness проверяет, что канарейка внешнего скрипта
+не появилась ни в ответе, ни в журнале broker'а.
+
+**2. Временное состояние удаляется всегда.** `plan.cleanup()` удаляет
+broker socket, IPC-каталог, scratch (policy и stub-клиенты) и одноразовый
+`CODEX_HOME` вместе с `auth.json`. Вызывается из `adapter.finish()` (успех,
+timeout, SIGTERM, отмена), из `finally` шага engine, из `finally` harness'а и
+из `process.on('exit')`; повторный вызов идемпотентен. `--real` передаёт отчёт
+об удалении в evidence (`cleanup.authCopyRemoved`), и preflight отклоняет
+доказательство без него. Тест `tests/fix6.test.mjs` проверяет отсутствие
+`orch-codex-home-*` после сценария.
+
+**3. Уровень 3 привязан ко всему runtime.** Вместо восьми выбранных файлов
+evidence содержит единый manifest (`lib/`, `adapters/`, `tools/`,
+`contracts/`, `policies/`, `orchestrator.mjs`) с `rootHash`. Изменение одного
+байта любого runtime-файла (включая `adapters/codex-cli.mjs`, `lib/engine.mjs`,
+`lib/envpolicy.mjs`, `lib/prompts.mjs`, схемы и harness'ы) меняет `rootHash` и
+инвалидирует evidence. Verifier требует `dirty === false` и `dirtyFiles === 0`
+на обеих сторонах; evidence, подписанный с `dirty:false` при грязном дереве,
+отклоняется. В распакованном ZIP без `.git` привязкой служит подписанный
+manifest digest, а `commit:null` сам по себе ничего не открывает.
+
+**4. Порядок политики зафиксирован.** `lib/toolpolicy.mjs` проверяет:
+синтаксис → substitution/redirection → пути → запрещённые команды → точное
+совпадение с allowlist задачи. Префиксного разрешения больше нет, поэтому
+`node --test $(touch injected)`, backticks, `/absolute/path` и `../outside`
+отклоняются до любых разрешений; точное совпадение с allowlist не отменяет
+запрет команды.
+
+**5. Хранилище ключа и nonce усилено.** Ключ и реестр nonce — только обычные
+файлы (symlink отклоняется), владелец — текущий UID, режим 0600 на POSIX;
+ключ создаётся атомарно через `open(..., 'wx')`; обновление реестра идёт под
+lock-файлом, поэтому конкурентные preflight'ы не теряют запись и не выдают
+один nonce дважды.
+
+**Ограничение остаётся тем же.** Уровень 3 в этой сборке не доказан:
+`codex login` не выполнялся, `agent-hostile-check --real` не запускался,
+`adapterEndToEnd=false`, preflight — `BLOCKED` с кодом `3`. До приёмки fix6
+запрещены `--real`, автономный цикл, Stage B и push.
 
 ---
 

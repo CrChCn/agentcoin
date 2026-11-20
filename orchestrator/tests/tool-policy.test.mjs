@@ -60,6 +60,37 @@ test('absolute paths, home-relative paths and parent escapes are denied', () => 
   assert.equal(decideToolPolicy('node probes/net.mjs 1.1.1.1 443', policy).allow, true);
 });
 
+/* fix6, п.7–8: синтаксические проверки и пути идут ДО allowlist, а allowlist
+   сопоставляется точно. fix5 разрешал по префиксу, поэтому
+   `node --test $(touch injected)` проходил как «команда задачи». */
+test('substitution and path escapes are denied before any allowlist match', () => {
+  assert.equal(decideToolPolicy('node --test $(touch injected)', policy).code, 'TOOL_SUBSTITUTION_DENIED');
+  assert.equal(decideToolPolicy('node --test `touch injected`', policy).code, 'TOOL_SUBSTITUTION_DENIED');
+  assert.equal(decideToolPolicy('node --test /absolute/path', policy).code, 'TOOL_PATH_DENIED');
+  assert.equal(decideToolPolicy('node --test ../outside', policy).code, 'TOOL_PATH_DENIED');
+  for (const command of [
+    'node --test $(touch injected)',
+    'node --test `touch injected`',
+    'node --test /absolute/path',
+    'node --test ../outside',
+  ]) {
+    assert.equal(decideToolPolicy(command, policy).allow, false, `${command} must be denied`);
+  }
+});
+
+test('the task allowlist matches exactly, not by prefix', () => {
+  const task = policyForTask({ commandsAllowed: ['mytool --check'] });
+  assert.equal(decideToolPolicy('mytool --check', task).allow, true);
+  const extended = decideToolPolicy('mytool --check --write', task);
+  assert.equal(extended.allow, false);
+  assert.equal(extended.code, 'TOOL_COMMAND_NOT_ALLOWED');
+  /* Даже точное совпадение с allowlist не отменяет запрет команды: порядок
+     «denied → allowlist» проверяется здесь, а не на префиксе. */
+  const denied = decideToolPolicy('curl http://1.1.1.1/', policyForTask({ commandsAllowed: ['curl http://1.1.1.1/'] }));
+  assert.equal(denied.allow, false);
+  assert.equal(denied.code, 'TOOL_COMMAND_DENIED');
+});
+
 test('a task command cannot smuggle a second command', () => {
   const decision = decideToolPolicy('node --test tests/pricing.test.mjs && curl http://1.1.1.1/', policy);
   assert.equal(decision.allow, false);

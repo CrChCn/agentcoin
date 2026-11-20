@@ -17,7 +17,7 @@ import { checkCommand, checkResult, deadlinePassed, parseCommand, scanEscape } f
 import { assertRegularFileWithin, assertSafeParents, findSymlinks, safeRootDir } from './safefs.mjs';
 import { acquireLock } from './lock.mjs';
 import { detectSandbox, sandboxRun } from './sandbox.mjs';
-import { buildAgentPlan, isolationEvidence, prepareCodexHome, readToolJournal } from './agentsandbox.mjs';
+import { buildAgentPlan, isolationEvidence, prepareCodexHome, readToolJournal, removeAgentPath } from './agentsandbox.mjs';
 import { codexEntrypoint } from './evidence.mjs';
 import { isDeclaredDouble } from '../adapters/codex-cli.mjs';
 import { runnerEnv } from './envpolicy.mjs';
@@ -261,7 +261,12 @@ export function codexPlanFor(adapter, { sandbox, workspace, logDir, task }) {
   const home = prepareCodexHome();
   if (!home.ok) return { ok: false, blocked: home };
   const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir, codexEntry: codexEntrypoint() });
-  if (!plan.ok) return { ok: false, blocked: plan };
+  if (!plan.ok) {
+    /* План не построен: одноразовый CODEX_HOME уже создан, его нельзя
+       оставлять на диске. */
+    removeAgentPath(home.dir);
+    return { ok: false, blocked: plan };
+  }
   return { ok: true, plan };
 }
 
@@ -452,6 +457,9 @@ async function runImplementer({ store, root, state }) {
     return store.markBlocked(task.taskId, {
       action: 'adapter_error', actor: state.implementer, code: 'adapter_error', detail: String(err.message || err),
     });
+  } finally {
+    /* Временный CODEX_HOME и IPC не должны переживать шаг ни при каком исходе. */
+    if (prepared.plan) prepared.plan.cleanup();
   }
   const elapsedMs = Date.now() - started;
   const evidence = accounting({ root, state, role: 'implementer', outcome, elapsedMs, iteration, kind: resumeId ? 'resume' : 'fresh' });
@@ -718,6 +726,8 @@ async function runReviewer({ store, root, state }) {
     return store.markBlocked(task.taskId, {
       action: 'adapter_error', actor: state.reviewer, code: 'adapter_error', detail: String(err.message || err),
     });
+  } finally {
+    if (prepared.plan) prepared.plan.cleanup();
   }
   const elapsedMs = Date.now() - started;
   const evidence = accounting({ root, state, role: 'reviewer', outcome, elapsedMs, iteration: state.iteration, kind: 'fresh' });

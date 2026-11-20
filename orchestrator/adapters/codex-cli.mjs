@@ -355,8 +355,10 @@ export function execWithEvents({
     spawnPlan = { ok: true, cmd: bin.cmd, args: argv, env: agentEnv(), backend: 'test-double' };
   } else if (launch && launch.ok) {
     /* agent:true — единственное место, где host node/Windows-пути заменяются
-       на sandbox-адреса. Атаки harness'а проходят через wrap() без замены. */
-    spawnPlan = launch.wrap(argv, { agent: true });
+       на sandbox-адреса. Атаки harness'а проходят через wrap() без замены.
+       argv[0] обязателен: для CODEX_BIN=*.js это интерпретатор, иначе bwrap
+       пытается execvp сам JS-файл и падает с ENOENT. */
+    spawnPlan = launch.wrap([bin.cmd, ...argv], { agent: true });
   } else {
     spawnPlan = {
       ok: false,

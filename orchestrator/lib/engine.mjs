@@ -255,12 +255,12 @@ export function isolationGate(adapter, sandbox = detectSandbox(), evidence = nul
 
 /* План изоляции для реального Codex-worker'а: sandbox + tool proxy +
    одноразовый CODEX_HOME. Без плана адаптер не запускает ни одного процесса. */
-export function codexPlanFor(adapter, { sandbox, workspace, logDir, task }) {
+export function codexPlanFor(adapter, { sandbox, workspace, logDir, task, rwDir = null }) {
   if (!adapter || adapter.requiresSandbox !== true) return { ok: true, plan: null };
   if (isDeclaredDouble()) return { ok: true, plan: null };
   const home = prepareCodexHome();
   if (!home.ok) return { ok: false, blocked: home };
-  const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir, codexEntry: codexEntrypoint() });
+  const plan = buildAgentPlan({ sandbox, workspace, logDir, task, credentialsDir: home.dir, codexEntry: codexEntrypoint(), rwDir });
   if (!plan.ok) {
     /* План не построен: одноразовый CODEX_HOME уже создан, его нельзя
        оставлять на диске. */
@@ -416,7 +416,9 @@ async function runImplementer({ store, root, state }) {
   const logStem = `implementer-${iteration}`;
   const transcriptPath = path.join(codexLogDir, `${logStem}.jsonl`);
   const promptPath = path.join(root, 'logs', task.taskId, 'prompts', `${logStem}.txt`);
-  const outputPath = path.join(root, 'logs', task.taskId, `${logStem}.result.json`);
+  const outbox = path.join(root, 'logs', task.taskId, 'outbox');
+  fs.mkdirSync(outbox, { recursive: true });
+  const outputPath = path.join(outbox, `${logStem}.result.json`);
   const metaPath = path.join(codexLogDir, `${logStem}.meta.json`);
   const resumeId = iteration > 1 ? ((state.sessions?.implementer || []).at(-1)?.threadId || null) : null;
   const budgetMs = remainingBudgetMs(state, task, 'implementer');
@@ -428,7 +430,7 @@ async function runImplementer({ store, root, state }) {
   const isolation = isolationGate(adapter, sandbox);
   if (isolation) return store.markBlocked(task.taskId, isolation);
   const prepared = codexPlanFor(adapter, {
-    sandbox, workspace: implementerDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `implementer-${iteration}`), task,
+    sandbox, workspace: implementerDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `implementer-${iteration}`), task, rwDir: outbox,
   });
   if (!prepared.ok) {
     return store.markBlocked(task.taskId, {
@@ -690,7 +692,9 @@ async function runReviewer({ store, root, state }) {
   const logStem = `reviewer-${state.iteration}`;
   const transcriptPath = path.join(codexLogDir, `${logStem}.jsonl`);
   const promptPath = path.join(root, 'logs', task.taskId, 'prompts', `${logStem}.txt`);
-  const outputPath = path.join(root, 'logs', task.taskId, `${logStem}.result.json`);
+  const outbox = path.join(root, 'logs', task.taskId, 'outbox');
+  fs.mkdirSync(outbox, { recursive: true });
+  const outputPath = path.join(outbox, `${logStem}.result.json`);
   const metaPath = path.join(codexLogDir, `${logStem}.meta.json`);
   const prompt = reviewerPrompt({
     task, baseCommit: state.baseCommit, resultCommit: state.result.resultCommit,
@@ -701,7 +705,7 @@ async function runReviewer({ store, root, state }) {
   const isolation = isolationGate(adapter, sandbox);
   if (isolation) return store.markBlocked(task.taskId, isolation);
   const prepared = codexPlanFor(adapter, {
-    sandbox, workspace: appliedDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `reviewer-${state.iteration}`), task,
+    sandbox, workspace: appliedDir, logDir: path.join(root, 'logs', task.taskId, 'tools', `reviewer-${state.iteration}`), task, rwDir: outbox,
   });
   if (!prepared.ok) {
     return store.markBlocked(task.taskId, {

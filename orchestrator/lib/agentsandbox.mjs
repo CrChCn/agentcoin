@@ -225,6 +225,7 @@ export function buildAgentPlan({
   task,
   credentialsDir = null,
   codexEntry = null,
+  rwDir = null,
   extraEnv = {},
   tmpRoot = null,
 } = {}) {
@@ -296,6 +297,21 @@ export function buildAgentPlan({
     staticMounts.push(['--ro-bind', toBackendPath(path.join(binDir, 'sh'), backend), `${dir}/sh`]);
   }
   if (credentialsDir) staticMounts.push(['--bind', toBackendPath(credentialsDir, backend), ISOLATED_CODEX_HOME]);
+  /* Единственный rw-каталог вне workspace: сюда Codex пишет
+     --output-last-message. Журнал инструментов и транскрипт остаются у хоста,
+     агенту они недоступны. */
+  if (rwDir) {
+    fs.mkdirSync(rwDir, { recursive: true });
+    const rwUnix = toBackendPath(rwDir, backend);
+    staticMounts.push(['--bind', rwUnix, rwUnix]);
+  }
+  /* Схемы результата передаются Codex как --output-schema; без монтирования
+     каталога контрактов CLI падает на первом же шаге. Только чтение. */
+  const contractsDir = path.join(ORCH_ROOT, 'contracts');
+  if (fs.existsSync(contractsDir)) {
+    const contractsUnix = toBackendPath(contractsDir, backend);
+    staticMounts.push(['--ro-bind', contractsUnix, contractsUnix]);
+  }
   staticMounts.push(...providerNetworkMounts(backend));
 
   const baseEnv = {

@@ -1,13 +1,13 @@
 == workspace
 == process 1
-  pid1=154039 reached state=READY
+  pid1=161539 reached state=READY
   killed with SIGKILL; exit=137
 == after crash
   queue: proof-a:leased:attempts=0
   leftover locks: proof-a
-  lock proof-a owned by pid 154039
+  lock proof-a owned by pid 161539
 == process 2
-  pid2=154141 done_items=2
+  pid2=161628 done_items=2
   graceful exit=0
 == state
 {
@@ -36,9 +36,9 @@
     "allowRealAgents": false
   },
   "heartbeat": {
-    "pid": 154141,
+    "pid": 161628,
     "host": "LAPTOP-IH54QPIF",
-    "at": "2026-11-20T17:22:04.137Z",
+    "at": "2026-11-20T18:15:38.977Z",
     "state": "stopped-by-signal",
     "adapters": {
       "mode": "fixture",
@@ -69,9 +69,9 @@
     "signal": "SIGTERM",
     "ticks": 4
   },
-  "heartbeatAgeSec": 1,
+  "heartbeatAgeSec": 2,
   "checkpoint": {
-    "at": "2026-11-20T17:22:02.832Z",
+    "at": "2026-11-20T18:15:37.797Z",
     "taskId": "proof-b",
     "state": "ACCEPTED",
     "iteration": 2,
@@ -86,6 +86,23 @@
     "total": 2
   },
   "stopRequested": false,
+  "stopFile": "/tmp/c1-proof3/control/STOP",
+  "operatorSignatureVerifiable": false,
+  "runtime": {
+    "pinned": true,
+    "version": "0.171.0",
+    "root": "/opt/agentcoin-ops/runtime/codex-0.171.0",
+    "permanentPath": true,
+    "manifest": null,
+    "files": 0,
+    "hashesOk": false,
+    "ownershipOk": false,
+    "modeOk": false,
+    "autoUpdate": false,
+    "binaryVersion": null,
+    "ok": false,
+    "detail": "runtime manifest is missing or empty: /opt/agentcoin-ops/runtime/codex-0.171.0/manifest.json"
+  },
   "lastWatchdog": null,
   "gate": {
     "requested": false,
@@ -96,7 +113,7 @@
     "facts": {
       "lastAcceptedTask": "proof-b",
       "lastAcceptedCommit": "59469262f16fdebe557696131c4d3364d2ba0c38",
-      "lastAcceptedAt": "2026-11-20T17:22:02.633Z"
+      "lastAcceptedAt": "2026-11-20T18:15:37.473Z"
     },
     "decisions": 2,
     "lessons": 2
@@ -104,28 +121,28 @@
 }
 == watchdog
 {
-  "at": "2026-11-20T17:22:06.119Z",
+  "at": "2026-11-20T18:15:41.992Z",
   "verdict": "alive",
-  "heartbeatAgeSec": 2,
+  "heartbeatAgeSec": 3,
   "staleAfterSec": 900,
-  "orchestratorPid": 154141,
+  "orchestratorPid": 161628,
   "leases": [],
   "problems": [],
   "action": "none"
 }
 == queue journal
-{"seq":4,"at":"2026-11-20T17:21:49.206Z","host":"LAPTOP-IH54QPIF","event":"lease.released_after_crash","taskId":"proof-a","detail":{"alive":false,"reason":"pid 154039 is gone","weak":false}}
-{"seq":5,"at":"2026-11-20T17:21:49.214Z","host":"LAPTOP-IH54QPIF","event":"lock.reconciled","taskId":"proof-a","detail":{"deadPid":154039,"operationId":"b2a9f8fe-293c-41f4-87d0-01bb17f7de82","reason":"pid 154039 is gone","weak":false,"bootId":"7179bda1-ced8-474a-ab95-f1f338887fdd","processStartTime":20653182}}
-{"seq":6,"at":"2026-11-20T17:21:49.217Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-a","detail":{"runId":"LAPTOP-IH54QPIF-154141","pid":154141,"attempt":0}}
-{"seq":7,"at":"2026-11-20T17:21:51.743Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"proof-a","detail":{"reason":"partial: IMPLEMENTING (step limit)"}}
-{"seq":8,"at":"2026-11-20T17:21:53.249Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-a","detail":{"runId":"LAPTOP-IH54QPIF-154141","pid":154141,"attempt":0}}
-{"seq":9,"at":"2026-11-20T17:21:55.539Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"proof-a","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
-{"seq":10,"at":"2026-11-20T17:21:57.050Z","host":"LAPTOP-IH54QPIF","event":"queue.enqueued","taskId":"proof-b","detail":{"origin":"owner-backlog","priority":1,"trigger":null}}
-{"seq":11,"at":"2026-11-20T17:21:57.052Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-b","detail":{"runId":"LAPTOP-IH54QPIF-154141","pid":154141,"attempt":0}}
-{"seq":12,"at":"2026-11-20T17:21:57.059Z","host":"LAPTOP-IH54QPIF","event":"task.initialised","taskId":"proof-b","detail":{"adapters":{"implementer":"fixture-implementer","reviewer":"fixture-reviewer","real":false}}}
-{"seq":13,"at":"2026-11-20T17:21:59.218Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"proof-b","detail":{"reason":"partial: CHANGES_REQUESTED (step limit)"}}
-{"seq":14,"at":"2026-11-20T17:22:00.721Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-b","detail":{"runId":"LAPTOP-IH54QPIF-154141","pid":154141,"attempt":0}}
-{"seq":15,"at":"2026-11-20T17:22:02.633Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"proof-b","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
+{"seq":4,"at":"2026-11-20T18:15:22.676Z","host":"LAPTOP-IH54QPIF","event":"lease.released_after_crash","taskId":"proof-a","detail":{"alive":false,"reason":"pid 161539 is gone","weak":false}}
+{"seq":5,"at":"2026-11-20T18:15:22.682Z","host":"LAPTOP-IH54QPIF","event":"lock.reconciled","taskId":"proof-a","detail":{"deadPid":161539,"operationId":"e4f72bee-f4ea-4d2f-96fc-b2fd6dd310dc","reason":"pid 161539 is gone","weak":false,"bootId":"7179bda1-ced8-474a-ab95-f1f338887fdd","processStartTime":20974466}}
+{"seq":6,"at":"2026-11-20T18:15:22.686Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-a","detail":{"runId":"LAPTOP-IH54QPIF-161628","pid":161628,"attempt":0}}
+{"seq":7,"at":"2026-11-20T18:15:25.321Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"proof-a","detail":{"reason":"partial: IMPLEMENTING (step limit)"}}
+{"seq":8,"at":"2026-11-20T18:15:26.828Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-a","detail":{"runId":"LAPTOP-IH54QPIF-161628","pid":161628,"attempt":0}}
+{"seq":9,"at":"2026-11-20T18:15:29.325Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"proof-a","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
+{"seq":10,"at":"2026-11-20T18:15:30.832Z","host":"LAPTOP-IH54QPIF","event":"queue.enqueued","taskId":"proof-b","detail":{"origin":"owner-backlog","priority":1,"trigger":null}}
+{"seq":11,"at":"2026-11-20T18:15:30.833Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-b","detail":{"runId":"LAPTOP-IH54QPIF-161628","pid":161628,"attempt":0}}
+{"seq":12,"at":"2026-11-20T18:15:30.843Z","host":"LAPTOP-IH54QPIF","event":"task.initialised","taskId":"proof-b","detail":{"adapters":{"implementer":"fixture-implementer","reviewer":"fixture-reviewer","real":false}}}
+{"seq":13,"at":"2026-11-20T18:15:33.231Z","host":"LAPTOP-IH54QPIF","event":"lease.released","taskId":"proof-b","detail":{"reason":"partial: CHANGES_REQUESTED (step limit)"}}
+{"seq":14,"at":"2026-11-20T18:15:34.913Z","host":"LAPTOP-IH54QPIF","event":"queue.claimed","taskId":"proof-b","detail":{"runId":"LAPTOP-IH54QPIF-161628","pid":161628,"attempt":0}}
+{"seq":15,"at":"2026-11-20T18:15:37.473Z","host":"LAPTOP-IH54QPIF","event":"queue.done","taskId":"proof-b","detail":{"state":"ACCEPTED","commit":"59469262f16fdebe557696131c4d3364d2ba0c38"}}
 == task journal shape
   proof-a: events=10 created=1 states=CREATED->READY->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->CHANGES_REQUESTED->IMPLEMENTING->ARTIFACT_SUBMITTED->REVIEWING->ACCEPTED
     result commit=59469262f16fdebe557696131c4d3364d2ba0c38 artifact=de11650d7078e27f
@@ -135,7 +152,7 @@
 {
   "lastAcceptedTask": "proof-b",
   "lastAcceptedCommit": "59469262f16fdebe557696131c4d3364d2ba0c38",
-  "lastAcceptedAt": "2026-11-20T17:22:02.633Z"
+  "lastAcceptedAt": "2026-11-20T18:15:37.473Z"
 }
 lessons: 2
 == service log tail
@@ -148,11 +165,11 @@ lessons: 2
 == ops api (read-only)
 {
   "service": "agentcoin-ops",
-  "generatedAt": "2026-11-20T17:22:07.583Z",
+  "generatedAt": "2026-11-20T18:15:46.682Z",
   "orchestrator": {
     "state": "stopped-by-signal",
     "stale": false,
-    "heartbeatAgeSec": 3,
+    "heartbeatAgeSec": 8,
     "continuous": true
   },
   "queue": {

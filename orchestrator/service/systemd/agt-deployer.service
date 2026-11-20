@@ -1,6 +1,6 @@
 [Unit]
-Description=Agentcoin Ops deployer (disabled in C1: no publication until staging exists)
-Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+Description=Agentcoin Ops deployer (disabled in C1/C2: no publication until staging exists)
+Documentation=file:/opt/agentcoin-orchestrator/current/orchestrator/service/README.md
 # Включается только владельцем: presence-файл и отдельный этап deployer.
 ConditionPathExists=/etc/agentcoin/deploy-enabled
 
@@ -8,11 +8,13 @@ ConditionPathExists=/etc/agentcoin/deploy-enabled
 Type=oneshot
 User=agt-deployer
 Group=agt-deployer
-WorkingDirectory=/srv/agentcoin-ops/orchestrator
+WorkingDirectory=/opt/agentcoin-orchestrator/current/orchestrator
 EnvironmentFile=-/etc/agentcoin/ops.env
-Environment=OPS_ROOT=/srv/agentcoin-ops
+Environment=OPS_ROOT=/var/lib/agentcoin-orchestrator
+Environment=OPS_LOG_DIR=/var/log/agentcoin-orchestrator
+Environment=OPS_CONTROL_DIR=/var/lib/agentcoin-orchestrator/control
 # Сейчас команда штатно завершается кодом 3 и записывает отказ в журнал.
-ExecStart=/usr/bin/env node service/deployer.mjs
+ExecStart=/usr/bin/env node /opt/agentcoin-orchestrator/current/orchestrator/service/deployer.mjs
 TimeoutStartSec=600
 
 NoNewPrivileges=yes
@@ -22,5 +24,7 @@ ProtectHome=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
-ReadOnlyPaths=/srv/agentcoin-ops
+ReadWritePaths=/var/log/agentcoin-orchestrator
+ReadOnlyPaths=/opt/agentcoin-orchestrator /var/lib/agentcoin-orchestrator
+# Только UNIX-сокеты: у деплойера нет причин открывать сеть.
 RestrictAddressFamilies=AF_UNIX

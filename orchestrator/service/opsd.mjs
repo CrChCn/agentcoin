@@ -12,6 +12,7 @@ import { loadMission, planNext } from './planner.mjs';
 import { loop, tick, realAgentsGate } from './runner.mjs';
 import { checkWatchdog } from './watchdog.mjs';
 import { startApi } from './api.mjs';
+import { runtimeOf, verifyRuntime } from './runtime.mjs';
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -49,8 +50,9 @@ function usage() {
     '  watchdog                   проверка зависания; код 2 при проблемах',
     '  queue [--add <taskFile>] [--list] [--limit N]',
     '  memory [--show] [--lesson <text>]',
-    '  stop [--reason text]       STOP-файл: цикл завершает текущий шаг и встаёт',
-    '  resume                     снять STOP-файл',
+    '  stop [--reason text]       STOP без подписи (оператор ставит подписанный: service/operator.mjs stop)',
+    '  resume                     запрещено сервису: service/operator.mjs resume',
+    '  runtime                    проверка pinned runtime (C3-гейт)',
   ].join('\n');
 }
 
@@ -71,6 +73,9 @@ async function main() {
       checkpoint: store.readCheckpoint(),
       queue: store.counts(),
       stopRequested: store.stopRequested(),
+      stopFile: store.paths.stopFile,
+      operatorSignatureVerifiable: fs.existsSync(store.paths.operatorPubFile),
+      runtime: verifyRuntime(runtimeOf(mission), { runBin: false }),
       lastWatchdog: store.readWatchdog(),
       gate: mission ? realAgentsGate(mission) : null,
       memory: (() => { const memory = store.memory(); return { facts: memory.facts, decisions: (memory.decisions || []).length, lessons: (memory.lessons || []).length }; })(),
@@ -154,19 +159,29 @@ async function main() {
 
   if (command === 'stop') {
     const store = new OpsStore(root);
+    /* Сервисный STOP без подписи. На ops-host каталог STOP принадлежит root,
+       поэтому у сервиса здесь будет STOP_NOT_WRITABLE: подписанный STOP
+       ставит оператор (service/operator.mjs stop). */
     const stopFile = store.requestStop(String(opts.reason || 'owner stop'));
-    const event = store.signedJournal('service.stop_signed', null, { reason: String(opts.reason || 'owner stop') });
-    const beat = store.heartbeat({ state: 'stopping', reason: 'owner stop' });
-    print({ stopFile, stopEvent: { seq: event.seq, keyId: event.keyId, sig: event.sig }, heartbeat: beat.state });
+    const beat = store.heartbeat({ state: 'stopping', reason: 'stop requested without operator signature' });
+    print({
+      stopFile, heartbeat: beat.state, signed: false,
+      note: 'unsiged STOP; the operator command writes the signed event: node service/operator.mjs stop',
+    });
     return 0;
   }
 
   if (command === 'resume') {
-    const store = new OpsStore(root);
-    store.clearStop();
-    const event = store.signedJournal('service.resume_signed', null, { by: 'owner' });
-    print({ stopRequested: store.stopRequested(), resumeEvent: { seq: event.seq, keyId: event.keyId, sig: event.sig } });
-    return 0;
+    console.error('RESUME_REQUIRES_OPERATOR: the service cannot lift STOP (no private key, no write access to the control directory)');
+    console.error(`  run as root: node service/operator.mjs resume --root ${root}`);
+    return 78;
+  }
+
+  if (command === 'runtime') {
+    const { mission } = loadMission(root, opts.mission || null);
+    const verdict = verifyRuntime(runtimeOf(mission));
+    print(verdict);
+    return verdict.ok ? 0 : 2;
   }
 
   console.error(usage());

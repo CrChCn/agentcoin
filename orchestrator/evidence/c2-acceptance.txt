@@ -1,0 +1,59 @@
+
+== install (rehearsal prefix, rootless)
+PASS  install-dry-run: exit 0; nothing installed
+PASS  install: exit 0; no stderr
+
+== 1. immutable code
+PASS  code-read-only: release=opt/agentcoin-orchestrator/releases/20261120T181504Z; writable files=0; append blocked=true
+PASS  code-outside-data: code opt/agentcoin-orchestrator/releases/20261120T181504Z is separate from data
+
+== 2. data and control ownership
+PASS  control-dir-not-service-writable: mode 755, owner uid 1000
+PASS  data-layout: queue/runs/artifacts/memory/state present
+
+== 3. units reference the new layout
+PASS  units-rendered: unit paths point at current/data/logs
+PASS  units-readonly-code: code only under ReadOnlyPaths
+PASS  units-verify: systemd-analyze exit 0
+
+== 4. planner stays IDLE
+PASS  idle-without-evidence: idle: no backlog and an empty registry: nothing proven to fix
+
+== 5. one task from registry evidence
+PASS  one-task-per-gap: first=enqueued generation=1 total=1 second=none
+
+== 6. symlink escape is refused
+PASS  symlink-escape: idle; skipped=REGISTRY_SYMLINK
+
+== 7. incident lifecycle: resolved then reoccurred
+PASS  incident-reoccurrence: state=RESOLVED; action=enqueued; generation=2
+
+== 8. operator-owned STOP and resume
+PASS  stop-blocks-work: plan=stopped tick=stopped
+PASS  service-cannot-resume: opsd resume exit 78
+PASS  operator-resume-signed: 2 signed events, all valid=true
+
+== 9. queue and checkpoint survive a process restart
+PASS  queue-survives-restart: status exit 0; queue hash stable=true; checkpoint=IDLE
+
+== 10. API listens on loopback only
+PASS  api-loopback-only: GET 200, POST 405, listeners=127.0.0.1:8798,[::1]:8798
+PASS  api-external-refused: connect to 172.23.12.162:8798 refused=true
+PASS  api-public-fields: no paths, usernames or pids in the public body
+
+== 11. deployer stays disabled
+PASS  deployer-disabled: exit 3
+
+== 12. rollback and uninstall keep the data
+PASS  rollback-restores-previous-release: release1=20261120T181504Z release2=20261120T181512Z after=20261120T181504Z
+PASS  uninstall-keeps-data: uninstall exit 0; data marker=true; code removed=true
+
+== 13. pinned runtime refuses temporary paths
+PASS  runtime-refuses-temporary-root: codex-pin exit 65: refusing: /tmp/c2-accept/runtime is temporary or user-owned; pinned runtime must survive reboot
+
+== not provable without a real ops-host
+PENDING  real-systemd-units: systemctl is-active / reboot: run service/C2.md on the ops-host
+PENDING  reboot-recovery: queue, checkpoint and STOP after reboot: ops-host checklist
+
+== summary: 24 pass, 0 fail, 2 pending
+evidence: /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/evidence/c2-acceptance.json

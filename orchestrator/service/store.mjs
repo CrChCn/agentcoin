@@ -18,6 +18,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 import { appendJsonl, ensureDir, readJson, readJsonl, writeJsonAtomic } from '../lib/fsx.mjs';
+import { loadOperatorPublicKey, verifyEntry } from '../lib/opsauth.mjs';
 import { pidAlive } from '../lib/lock.mjs';
 import { hostId as machineId, processStartTime, processVerdict, selfIdentity } from '../lib/procinfo.mjs';
 
@@ -31,15 +32,23 @@ export const STATUS = Object.freeze({
 
 const TERMINAL_ITEM = new Set([STATUS.DONE, STATUS.FAILED, STATUS.BLOCKED]);
 
+/* Раскладка C2: код неизменяем и лежит отдельно (см. install.sh и юниты),
+   данные — под OPS_ROOT, журналы — под OPS_LOG_DIR, а управляющий каталог
+   (STOP) принадлежит root: сервис читает STOP, но создать или удалить его
+   не может. */
 export function resolvePaths(root) {
   const base = path.resolve(root);
+  const controlDir = path.resolve(process.env.OPS_CONTROL_DIR || path.join(base, 'control'));
   return {
     base,
+    controlDir,
+    stopFile: path.join(controlDir, 'STOP'),
+    operatorPubFile: path.resolve(process.env.OPS_OPERATOR_PUB || path.join(base, 'state', 'operator.pub')),
+    incidentsFile: path.join(base, 'queue', 'incidents.json'),
     queueFile: path.join(base, 'queue', 'queue.json'),
     queueJournal: path.join(base, 'queue', 'journal.jsonl'),
     tasksDir: path.join(base, 'queue', 'tasks'),
     backlogDir: path.join(base, 'queue', 'backlog'),
-    stopFile: path.join(base, 'queue', 'STOP'),
     missionFile: path.join(base, 'queue', 'mission.json'),
     memoryFile: path.join(base, 'project-memory', 'memory.json'),
     lessonsFile: path.join(base, 'project-memory', 'lessons.jsonl'),
@@ -48,7 +57,7 @@ export function resolvePaths(root) {
     watchdogFile: path.join(base, 'state', 'watchdog.json'),
     runsDir: path.join(base, 'runs'),
     artifactsDir: path.join(base, 'artifacts'),
-    logsDir: path.join(base, 'logs'),
+    logsDir: path.resolve(process.env.OPS_LOG_DIR || path.join(base, 'logs')),
     workspacesDir: path.join(base, 'workspaces'),
   };
 }
@@ -237,18 +246,26 @@ export class OpsStore {
     return fs.existsSync(this.paths.stopFile);
   }
 
+  /* STOP создаёт оператор (service/operator.mjs) или watchdog, а не рабочий
+     цикл. Если каталог принадлежит root, у сервиса здесь будет EACCES — это
+     и есть требуемое поведение, а не ошибка. */
   requestStop(reason = 'owner stop') {
     if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
-    ensureDir(path.dirname(this.paths.stopFile));
-    fs.writeFileSync(this.paths.stopFile, `${nowIso()} ${reason}\n`);
+    try {
+      ensureDir(path.dirname(this.paths.stopFile));
+      fs.writeFileSync(this.paths.stopFile, `${nowIso()} ${reason}\n`, { flag: 'w' });
+    } catch (err) {
+      throw Object.assign(new Error(`cannot create STOP in ${path.dirname(this.paths.stopFile)}: ${err.code || err.message}`), { code: 'STOP_NOT_WRITABLE', cause: err });
+    }
     this.journal('service.stop_requested', null, { reason });
     return this.paths.stopFile;
   }
 
+  /* Снять STOP может только операторская команда: она удаляет файл и пишет
+     подписанное событие. У сервиса нет ни прав на файл, ни приватного ключа,
+     поэтому компрометация оркестратора не возобновляет работу. */
   clearStop() {
-    if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
-    fs.rmSync(this.paths.stopFile, { force: true });
-    this.journal('service.stop_cleared', null, null);
+    throw Object.assign(new Error('resume requires the operator command: node service/operator.mjs resume --root <root>'), { code: 'RESUME_REQUIRES_OPERATOR' });
   }
 
   /* ---------- heartbeat и checkpoint ---------- */
@@ -315,44 +332,38 @@ export class OpsStore {
     return readJsonl(this.paths.lessonsFile).slice(-limit);
   }
 
-  /* Событие без смены состояния: подпись (HMAC-SHA256 машины) приклеивается
-     к каноническому телу записи. Ключ хранится в state/machine.key (0600). */
-  signedJournal(event, taskId = null, detail = null) {
-    if (this.readOnly) return null;
+  /* Тело будущего события: seq/at/hostId назначает сервис, подпись — только
+     оператор. Сервис не умеет подписывать: у него нет приватного ключа. */
+  nextEntry(event, taskId = null, detail = null) {
     const queue = this.load();
-    const entry = {
-      seq: queue.seq, at: nowIso(), hostId: machineId(), event, taskId, detail,
-    };
-    const key = this.machineKey();
-    entry.keyId = key ? key.keyId : null;
-    entry.sig = key ? crypto.createHmac('sha256', key.secret).update(JSON.stringify(entry)).digest('hex') : null;
+    return { seq: queue.seq, at: nowIso(), hostId: machineId(), event, taskId, detail };
+  }
+
+  commitEntry(entry) {
+    if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
+    const queue = this.load();
     appendJsonl(this.paths.queueJournal, entry);
     queue.seq += 1;
     this.save(queue);
     return entry;
   }
 
-  machineKey() {
-    if (this._machineKey !== undefined) return this._machineKey;
-    const file = path.join(this.paths.base, 'state', 'machine.key');
-    if (this.readOnly) {
-      this._machineKey = fs.existsSync(file) ? { keyId: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16), secret: fs.readFileSync(file) } : null;
-      return this._machineKey;
-    }
-    ensureDir(path.dirname(file));
-    if (!fs.existsSync(file)) {
-      fs.writeFileSync(file, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-    }
-    const secret = fs.readFileSync(file);
-    this._machineKey = { keyId: crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16), secret };
-    return this._machineKey;
+  verifySignature(entry) {
+    const publicKey = loadOperatorPublicKey(this.paths.operatorPubFile);
+    return verifyEntry(entry, publicKey);
   }
 
-  verifySignature(entry) {
-    const key = this.machineKey();
-    if (!key || !entry || !entry.sig) return false;
-    const { sig, ...rest } = entry;
-    return crypto.createHmac('sha256', key.secret).update(JSON.stringify(rest)).digest('hex') === sig;
+  /* ---------- инциденты реестра (lifecycle повторного дефекта) ---------- */
+
+  incidents() {
+    const state = readJson(this.paths.incidentsFile, null);
+    if (!state || !Array.isArray(state.items)) return { version: 1, items: [] };
+    return state;
+  }
+
+  saveIncidents(state) {
+    if (this.readOnly) throw Object.assign(new Error('store is read-only'), { code: 'READ_ONLY' });
+    return writeJsonAtomic(this.paths.incidentsFile, { version: 1, items: state.items });
   }
 
   watchdogRecord(record) {

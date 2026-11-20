@@ -32,6 +32,16 @@
     "processIdleTimeoutSec": 300,
     "consecutiveFailureBreaker": 3
   },
+  "runtime": {
+    "codex": {
+      "version": "0.171.0",
+      "root": "/opt/agentcoin-ops/runtime/codex-0.171.0",
+      "manifest": "manifest.json",
+      "bin": "/opt/agentcoin-ops/runtime/codex-0.171.0/bin/codex",
+      "home": "/var/lib/agentcoin-orchestrator/codex-home",
+      "autoUpdate": false
+    }
+  },
   "adapters": {
     "mode": "fixture",
     "fixtureImplementer": "fixture-implementer",
@@ -48,6 +58,8 @@
     "deployment": "forbidden",
     "sshToNodes": "forbidden",
     "productionWrites": "forbidden",
+    "runtimeInstall": "root-owned-pinned-only",
+    "autoUpdate": "forbidden",
     "wallets": "forbidden",
     "transactions": "forbidden"
   },

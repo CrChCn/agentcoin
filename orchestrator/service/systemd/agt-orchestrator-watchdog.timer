@@ -1,10 +1,11 @@
 [Unit]
-Description=Agentcoin Ops watchdog: run every two minutes
+Description=Agentcoin Ops watchdog every five minutes
+Documentation=file:/opt/agentcoin-orchestrator/current/orchestrator/service/README.md
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=2min
-AccuracySec=20s
+OnUnitActiveSec=5min
+AccuracySec=30s
 Unit=agt-orchestrator-watchdog.service
 
 [Install]

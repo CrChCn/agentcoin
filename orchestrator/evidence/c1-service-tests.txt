@@ -1,19 +1,22 @@
-✔ queue: durable, no duplicate taskId, trigger stored (66.756672ms)
-✔ lease: carries hostId/bootId/processStartTime and survives PID reuse (21.593046ms)
-✔ planner: empty registry is IDLE, no template cloning (4.767923ms)
-✔ planner: proven gap becomes one task, then deduplication blocks a repeat (21.590699ms)
-✔ tick: runs the isolated cycle to ACCEPTED and records memory (4650.454324ms)
-✔ restart: a new process continues the journal, single creation, single done (3955.30107ms)
-✔ STOP: planner and loop stop, restart keeps STOP, resume signs an event (30.738381ms)
-✔ budget: hard overrun is detected and excludes ACCEPTED (653.145907ms)
-✔ public status: allowlisted, schema-valid, no paths/pids/usernames (12.957792ms)
-✔ api: read-only, allowlisted, no writes (280.527429ms)
-✔ watchdog and breaker report state instead of acting (15.987706ms)
-ℹ tests 11
+✔ queue: durable, no duplicate taskId, trigger stored (149.750849ms)
+✔ lease: carries hostId/bootId/processStartTime and survives PID reuse (40.569443ms)
+✔ planner: empty registry is IDLE, no template cloning (13.638768ms)
+✔ planner: proven gap becomes one task, then deduplication blocks a repeat (32.715685ms)
+✔ tick: runs the isolated cycle to ACCEPTED and records memory (5839.012082ms)
+✔ restart: a new process continues the journal, single creation, single done (4975.614113ms)
+✔ STOP: service only reads it, the operator signs stop/resume, restart keeps STOP (43.604547ms)
+✔ registry checks: symlink, traversal, absolute paths, size and non-regular files (7.995348ms)
+✔ incident lifecycle: RESOLVED then REOCCURRED opens a new generation (37.509191ms)
+✔ pinned runtime: temporary roots and a missing manifest are refused (233.168362ms)
+✔ budget: hard overrun is detected and excludes ACCEPTED (806.538348ms)
+✔ public status: allowlisted, schema-valid, no paths/pids/usernames (20.198462ms)
+✔ api: read-only, allowlisted, no writes (331.950838ms)
+✔ watchdog and breaker report state instead of acting (41.823588ms)
+ℹ tests 14
 ℹ suites 0
-ℹ pass 11
+ℹ pass 14
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 11064.352928
+ℹ duration_ms 15361.455977

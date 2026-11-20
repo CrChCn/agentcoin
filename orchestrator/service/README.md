@@ -8,6 +8,21 @@ C1.1 закрывает восемь дефектов C1: самоповторя
 недоказанный STOP, адреса API, публичные поля, hard budget, read-only источник
 и установку без dry-run/rollback.
 
+## C2: что добавлено перед установкой
+
+C2 ставит сервис на отдельный ops-host без агентов; для этого закрыты четыре
+предустановочных дефекта и добавлена раскладка immutable-code:
+
+| Требование C2 | Реализация | Доказательство |
+|---|---|---|
+| Symlink-выход из `repositoryRoot` | `service/checks.mjs`: lstat по каждому компоненту, запрет symlink, `realpath` внутри корня, лимит размера, только regular-файлы | тест `registry checks: symlink, traversal, ...`, `c2-acceptance` |
+| Повторный дефект после исправления | инциденты `queue/incidents.json`: OPEN → TASK_CREATED → RESOLVED → REOCCURRED, `generation += 1` и новый ключ | тест `incident lifecycle`, `c2-acceptance` |
+| Кто снимает STOP | Ed25519: приватный ключ только у root (`/etc/agentcoin/operator.key`), сервис проверяет публичным; `opsd resume` → код 78 | тест `STOP: ... operator signs`, `c1-stop-proof.txt` |
+| Код в writable-каталоге | `/opt/agentcoin-orchestrator/current` (root, read-only) + `/var/lib/...` данные + `/var/log/...` журналы; юниты пишут только в данные и журналы | `c2-acceptance.json` (`code-read-only`, `units-readonly-code`) |
+| Pinned runtime Codex | `service/tools/codex-pin.mjs` + `service/runtime.mjs`: постоянный путь, SHA256, root-owned, без автообновления; `/tmp` отвергается | тест `pinned runtime`, `c2-acceptance` |
+
+Полный runbook и чек-лист приёмки на хосте — `service/C2.md`.
+
 ## Что изменилось в C1.1
 
 | Дефект C1 | Как закрыт в C1.1 | Доказательство |
@@ -140,6 +155,8 @@ node service/opsd.mjs stop|resume
 | `evidence/c1-stop-proof.txt` | STOP до и после перезапуска, отсутствие side effects, подписанные stop/resume, `ss -ltnp` только loopback, отказ deployer |
 | `evidence/c1-real-crash-recovery.txt` | **BLOCKED**: настоящий Codex на этой машине недоступен (`agent_unavailable`, `adapterEndToEnd=false`); скрипт отказывается подменять доказательство дублёром |
 | `evidence/c1-install-dryrun.txt` | dry-run install/rollback/uninstall, повторный запуск, отказ при чужом владельце (79) и без root (77) |
+| `evidence/c2-acceptance.txt` / `.json` | 24 проверки C2: read-only код, IDLE, одна задача, symlink, инцидент, STOP/ключ, loopback API, deployer, rollback/uninstall, pinned runtime; 2 пункта `PENDING` (systemd/reboot на хосте) |
+| `evidence/c2-install-rehearsal.txt` | новая раскладка: dry-run, идемпотентность, prefix-установка, отказ rollback без release (80), group-writable STOP (82), без root (77), границы репетиции |
 | `evidence/c1-systemd-verify.txt` | `systemd-analyze verify` для 7 юнитов |
 
 `evidence/c1-real-crash-recovery.txt` — единственный незакрытый пункт C1.1:

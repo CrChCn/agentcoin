@@ -1,15 +1,18 @@
 #!/usr/bin/env node
-/* Planner C1.1: задача ставится только по доказанному расхождению.
+/* Planner C2: задача ставится только по доказанному расхождению, а повторный
+   дефект получает новое поколение инцидента.
 
    Порядок:
    1. STOP-файл → ничего не создаётся;
    2. в очереди есть незавершённое задание → ничего не создаётся;
    3. контракт владельца из queue/backlog/*.json → в очередь;
-   4. реестр проверок (queue/registry.json): если проверка доказывает
-      расхождение, а такой задачи ещё не было (deduplicationKey), создаётся
-      конечная задача с trigger {type, evidence, observedAt, deduplicationKey};
-   5. доказанного основания нет → IDLE. Шаблон больше не клонируется:
-      бесконечное повторение одной задачи под новыми taskId запрещено. */
+   4. реестр проверок (queue/registry.json): проверка доказывает расхождение →
+      инцидент OPEN → TASK_CREATED с trigger {type, evidence, observedAt,
+      deduplicationKey, incident {id, generation}};
+   5. проверка снова проходит → инцидент RESOLVED;
+   6. дефект вернулся после RESOLVED → REOCCURRED, generation += 1 и новый
+      ключ дедупликации, поэтому старый ключ не блокирует задачу навсегда;
+   7. доказанного основания нет → IDLE. Шаблон не клонируется. */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,6 +26,13 @@ import { evaluateCheck } from './checks.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const stamp = (date = new Date()) => date.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+
+export const INCIDENT = Object.freeze({
+  OPEN: 'OPEN',
+  TASK_CREATED: 'TASK_CREATED',
+  RESOLVED: 'RESOLVED',
+  REOCCURRED: 'REOCCURRED',
+});
 
 export function loadMission(root, explicitFile = null) {
   const candidates = [explicitFile, path.join(path.resolve(root), 'queue', 'mission.json'), path.join(HERE, 'mission.json')].filter(Boolean);
@@ -61,6 +71,13 @@ function repositoryRootOf(store, mission) {
 
 export { repositoryRootOf };
 
+/* Ключ поколения инцидента. Меняется только при новом поколении, поэтому
+   один и тот же дефект не ставится дважды, а вернувшийся после исправления —
+   ставится снова. */
+export function generationKey(id, generation) {
+  return sha256(canonical({ id, generation: Number(generation) || 1 }));
+}
+
 /* Все уже известные ключи дедупликации: очередь (включая завершённые) и память. */
 function knownDedupKeys(store) {
   const keys = new Set();
@@ -71,6 +88,11 @@ function knownDedupKeys(store) {
   for (const lesson of memory.lessons || []) if (lesson.dedupKey) keys.add(lesson.dedupKey);
   for (const decision of memory.decisions || []) if (decision.dedupKey) keys.add(decision.dedupKey);
   return keys;
+}
+
+function incidentIndex(store) {
+  const state = store.incidents();
+  return { state, byId: new Map((state.items || []).map((item) => [item.id, item])) };
 }
 
 /* Возвращает {action, taskId?, trigger?, evidence?, reason?}. */
@@ -117,32 +139,86 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
   }
 
   const known = knownDedupKeys(store);
+  const { state: incidentState, byId } = incidentIndex(store);
+  /* Новые инциденты создаются в byId; перед записью переносим их в состояние. */
+  const persistIncidents = () => { incidentState.items = [...byId.values()]; store.saveIncidents(incidentState); };
   const candidates = [];
   const evaluated = [];
+  let dirty = false;
+
   for (const entry of entries) {
     if (!entry.id || !entry.check || !entry.task) {
       evaluated.push({ id: entry.id || null, skipped: 'entry needs id, check and task' });
       continue;
     }
     const outcome = evaluateCheck(entry.check, { repositoryRoot: repoRoot });
-    if (outcome.ok) {
-      evaluated.push({ id: entry.id, ok: true });
+    if (outcome.skipped) {
+      evaluated.push({ id: entry.id, skipped: outcome.error });
       continue;
     }
-    const dedupKey = sha256(canonical({ id: entry.id, signature: outcome.signature }));
-    evaluated.push({ id: entry.id, ok: false, dedupKey });
-    if (known.has(dedupKey)) continue;
-    candidates.push({ entry, outcome, dedupKey });
+
+    let incident = byId.get(entry.id) || null;
+    const observedAt = now.toISOString();
+
+    if (outcome.ok) {
+      /* Проверка проходит: если инцидент был открыт, он закрыт исправлением. */
+      if (incident && incident.state !== INCIDENT.RESOLVED) {
+        incident.state = INCIDENT.RESOLVED;
+        incident.resolvedAt = observedAt;
+        dirty = true;
+      }
+      evaluated.push({ id: entry.id, ok: true, incident: incident ? { id: incident.id, state: incident.state, generation: incident.generation } : null });
+      continue;
+    }
+
+    if (!incident) {
+      incident = {
+        id: entry.id, generation: 1, state: INCIDENT.OPEN,
+        signature: outcome.signature, firstSeenAt: observedAt, lastSeenAt: observedAt,
+        taskIds: [],
+      };
+      byId.set(entry.id, incident);
+      dirty = true;
+    } else if (incident.state === INCIDENT.RESOLVED) {
+      /* Дефект вернулся после исправления: новое поколение, новый ключ. */
+      incident.generation = Number(incident.generation || 1) + 1;
+      incident.state = INCIDENT.REOCCURRED;
+      incident.reoccurredAt = observedAt;
+      incident.resolvedAt = null;
+      dirty = true;
+    }
+    incident.signature = outcome.signature;
+    incident.lastSeenAt = observedAt;
+
+    const dedupKey = generationKey(entry.id, incident.generation);
+    const alreadyQueued = items.some((item) => item.trigger && item.trigger.incident
+      && item.trigger.incident.id === entry.id && Number(item.trigger.incident.generation) === Number(incident.generation));
+    const handled = known.has(dedupKey) || alreadyQueued;
+    evaluated.push({ id: entry.id, ok: false, generation: incident.generation, state: incident.state, dedupKey, handled });
+    if (handled) {
+      if (incident.state === INCIDENT.REOCCURRED) {
+        incident.state = INCIDENT.TASK_CREATED;
+        dirty = true;
+      }
+      continue;
+    }
+    candidates.push({ entry, outcome, incident, dedupKey });
   }
 
   if (!candidates.length) {
+    if (dirty) persistIncidents();
     return { action: 'idle', reason: 'no unhandled proven gap', evaluated };
   }
 
   candidates.sort((a, b) => (Number(a.entry.priority || 100) - Number(b.entry.priority || 100)) || String(a.entry.id).localeCompare(String(b.entry.id)));
   const chosen = candidates[0];
   const slug = String(chosen.entry.id).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 40);
-  const taskId = `${planner.taskPrefix || 'gap'}-${slug}-${stamp(now)}`.slice(0, 63);
+  /* Один и тот же дефект может быть доказан дважды в одну секунду (например,
+     после возврата после RESOLVED), а taskId обязан быть уникальным. */
+  const baseId = `${planner.taskPrefix || 'gap'}-${slug}-${stamp(now)}`.slice(0, 60);
+  const taken = new Set(items.map((item) => item.taskId));
+  let taskId = baseId;
+  for (let suffix = 2; taken.has(taskId); suffix += 1) taskId = `${baseId}-${suffix}`.slice(0, 63);
   const taskFile = path.join(store.paths.tasksDir, `${taskId}.json`);
 
   const trigger = {
@@ -151,6 +227,7 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
     observedAt: now.toISOString(),
     deduplicationKey: chosen.dedupKey,
     registryId: chosen.entry.id,
+    incident: { id: chosen.entry.id, generation: chosen.incident.generation, state: INCIDENT.TASK_CREATED },
   };
   const task = {
     ...chosen.entry.task,
@@ -162,9 +239,21 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
   /* Контракт проверяется до постановки: безвалидное ТЗ не попадает в очередь. */
   loadTask(taskFile);
 
+  chosen.incident.state = INCIDENT.TASK_CREATED;
+  chosen.incident.dedupKey = chosen.dedupKey;
+  chosen.incident.taskIds = [...(chosen.incident.taskIds || []), taskId];
+  persistIncidents();
+
   store.enqueue({ taskId, title: task.title, priority: Number(chosen.entry.priority || 100), taskFile, origin: 'planner-evidence', trigger });
   store.remember({
-    decision: { kind: 'plan.evidence', taskId, registryId: chosen.entry.id, dedupKey: chosen.dedupKey, evidence: trigger.evidence },
+    decision: {
+      kind: 'plan.evidence', taskId, registryId: chosen.entry.id,
+      dedupKey: chosen.dedupKey, generation: chosen.incident.generation, evidence: trigger.evidence,
+    },
   });
-  return { action: 'enqueued', taskId, taskFile, origin: 'planner-evidence', trigger, evaluated };
+  return {
+    action: 'enqueued', taskId, taskFile, origin: 'planner-evidence', trigger,
+    incident: { id: chosen.incident.id, generation: chosen.incident.generation, state: chosen.incident.state },
+    evaluated,
+  };
 }

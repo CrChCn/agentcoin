@@ -1,10 +1,11 @@
 [Unit]
-Description=Agentcoin Ops scheduler: keep the queue fed while the mission runs
+Description=Agentcoin Ops scheduler tick every minute
+Documentation=file:/opt/agentcoin-orchestrator/current/orchestrator/service/README.md
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
+OnUnitActiveSec=1min
+AccuracySec=15s
 Unit=agt-orchestrator-scheduler.service
 
 [Install]

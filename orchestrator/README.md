@@ -681,7 +681,13 @@ read-only Ops API и публичный статус. Подробности, р
 - `service/tools/c1-real-crash-recovery.sh` — проход на настоящих Codex+bwrap;
   на этой машине **BLOCKED** (Codex не установлен), дублёр не подставляется.
 
+C2 добавляет раскладку immutable-code (`/opt/.../current` + `/var/lib/...` +
+`/var/log/...`), symlink-safe проверки реестра, поколения инцидентов, STOP под
+Ed25519-ключом оператора и pinned runtime Codex. Runbook и чек-лист приёмки на
+отдельном хосте — `service/C2.md`.
+
 Доказательства: `evidence/c1-restart-proof.txt`,
 `evidence/c1-stop-proof.txt`, `evidence/c1-service-tests.txt`,
-`evidence/c1-systemd-verify.txt`, `evidence/c1-real-crash-recovery.txt`.
+`evidence/c1-systemd-verify.txt`, `evidence/c1-real-crash-recovery.txt`,
+`evidence/c2-acceptance.txt` (24 pass, 2 pending — systemd/reboot на хосте).
 Публикация, staging, SSH к нодам и настоящие агенты на этом этапе выключены.

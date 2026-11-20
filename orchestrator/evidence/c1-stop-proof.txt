@@ -1,13 +1,19 @@
 == workspace
-== STOP
+== operator key
 {
-  "stopFile": "/tmp/c1-stop/queue/STOP",
-  "stopEvent": {
-    "seq": 1,
-    "keyId": "b70f9adcdcb4a651",
-    "sig": "5110bea629654c7acafcd434c6f0191ce2d0d8c30c61a88d91807fddc5bb1138"
-  },
-  "heartbeat": "stopping"
+  "created": true,
+  "privateKeyPath": "/tmp/c1-stop/operator.key",
+  "publicKeyPath": "/tmp/c1-stop/state/operator.pub",
+  "keyId": "1a9b340810252473"
+}
+== STOP (operator, signed)
+{
+  "stopFile": "/tmp/c1-stop/control/STOP",
+  "event": {
+    "seq": 0,
+    "keyId": "1a9b340810252473",
+    "alg": "ed25519"
+  }
 }
 == planner with STOP
 {
@@ -33,7 +39,12 @@
   backlog untouched: stop-01.json
 == restart sees the same STOP
   stopRequested in a new process: true
-  stop file: /tmp/c1-stop/queue/STOP
+  stop file: /tmp/c1-stop/control/STOP
+  control dir: /tmp/c1-stop/control
+== the service cannot resume
+RESUME_REQUIRES_OPERATOR: the service cannot lift STOP (no private key, no write access to the control directory)
+  run as root: node service/operator.mjs resume --root /tmp/c1-stop
+  opsd resume exit=78
 == deployer stays disabled
 {
   "status": "BLOCKED",
@@ -44,18 +55,40 @@
 }
   deployer exit code: 3
   unit guard present: ConditionPathExists
-== resume (signed event)
+== resume (operator, signed)
 {
   "stopRequested": false,
-  "resumeEvent": {
-    "seq": 4,
-    "keyId": "b70f9adcdcb4a651",
-    "sig": "bcfb88729c5f37aa1f7548130ecc5f3d202dbabfb229592d1228d99b65abd901"
+  "event": {
+    "seq": 2,
+    "keyId": "1a9b340810252473",
+    "alg": "ed25519"
   }
 }
-  stop event signed: true keyId: b70f9adcdcb4a651
-  resume event signed: true keyId: b70f9adcdcb4a651
+{
+  "signed": 2,
+  "events": [
+    {
+      "seq": 0,
+      "event": "service.stop_signed",
+      "keyId": "1a9b340810252473",
+      "alg": "ed25519",
+      "valid": true
+    },
+    {
+      "seq": 2,
+      "event": "service.resume_signed",
+      "keyId": "1a9b340810252473",
+      "alg": "ed25519",
+      "valid": true
+    }
+  ],
+  "allValid": true
+}
+== tampering and a foreign key are rejected
+  stop signed: true alg: ed25519 keyId: 1a9b340810252473
+  resume signed: true alg: ed25519
   tampered resume verifies: false
+  foreign key verifies: false
 == planner after resume
 {
   "action": "enqueued",
@@ -64,24 +97,8 @@
   "origin": "owner-backlog"
 }
 == api listens on loopback only
-LISTEN 0      511         127.0.0.1:8797       0.0.0.0:*    users:(("MainThread",pid=153977,fd=22))
-LISTEN 0      511             [::1]:8797          [::]:*    users:(("MainThread",pid=153977,fd=23))
+LISTEN 0      511         127.0.0.1:8797       0.0.0.0:*   
+LISTEN 0      511             [::1]:8797          [::]:*   
   GET /ops/status -> 200
   POST /ops/status -> 405 (read-only)
-{
-  "service": "agentcoin-ops",
-  "generatedAt": "2026-11-20T17:21:40.620Z",
-  "orchestrator": {
-    "state": "idle",
-    "stale": false,
-    "heartbeatAgeSec": 4,
-    "continuous": true
-  },
-  "queue": {
-    "pending": 1,
-    "leased": 0,
-    "done": 0,
-    "failed": 0,
-    "blocked": 0,
-    "total
 == done

@@ -1,6 +1,6 @@
 [Unit]
 Description=Agentcoin Ops orchestrator (autonomous engineering loop, no production access)
-Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+Documentation=file:/opt/agentcoin-orchestrator/current/orchestrator/service/README.md
 After=network-online.target
 Wants=network-online.target
 # Второй экземпляр запрещён: он получил бы тот же OPS_ROOT и тот же журнал.
@@ -11,11 +11,14 @@ StartLimitBurst=5
 Type=simple
 User=agt-orchestrator
 Group=agt-orchestrator
-WorkingDirectory=/srv/agentcoin-ops/orchestrator
+# Код неизменяем и принадлежит root; рабочий каталог — только для чтения.
+WorkingDirectory=/opt/agentcoin-orchestrator/current/orchestrator
 EnvironmentFile=-/etc/agentcoin/ops.env
-Environment=OPS_ROOT=/srv/agentcoin-ops
+Environment=OPS_ROOT=/var/lib/agentcoin-orchestrator
+Environment=OPS_LOG_DIR=/var/log/agentcoin-orchestrator
+Environment=OPS_CONTROL_DIR=/var/lib/agentcoin-orchestrator/control
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/env node service/opsd.mjs loop
+ExecStart=/usr/bin/env node /opt/agentcoin-orchestrator/current/orchestrator/service/opsd.mjs loop
 Restart=always
 RestartSec=10
 KillSignal=SIGTERM
@@ -36,7 +39,9 @@ LockPersonality=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
-ReadWritePaths=/srv/agentcoin-ops
+# Запись только в данные и журналы. Код и управляющий каталог STOP — read-only.
+ReadWritePaths=/var/lib/agentcoin-orchestrator /var/log/agentcoin-orchestrator
+ReadOnlyPaths=/opt/agentcoin-orchestrator
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # Node нуждается в JIT: MemoryDenyWriteExecute здесь намеренно не включён.
 SystemCallFilter=@system-service

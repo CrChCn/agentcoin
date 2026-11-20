@@ -16,6 +16,10 @@ import { tick, breakerState } from '../runner.mjs';
 import { createApi } from '../api.mjs';
 import { buildPublicStatus, auditPublicKeys } from '../publicview.mjs';
 import { checkWatchdog } from '../watchdog.mjs';
+import { evaluateCheck } from '../checks.mjs';
+import { initOperatorKey, loadOperatorPrivateKey, signEntry } from '../../lib/opsauth.mjs';
+import { verifyRuntime } from '../runtime.mjs';
+import { sha256File } from '../../lib/fsx.mjs';
 import { budgetBreakdown } from '../../lib/engine.mjs';
 import { validate } from '../../lib/schema.mjs';
 import { processVerdict, selfIdentity } from '../../lib/procinfo.mjs';
@@ -206,26 +210,171 @@ test('restart: a new process continues the journal, single creation, single done
   assert.ok(events.length > headBefore.seq + 1);
 });
 
-test('STOP: planner and loop stop, restart keeps STOP, resume signs an event', async () => {
+test('STOP: service only reads it, the operator signs stop/resume, restart keeps STOP', async () => {
   const root = tempRoot('stop');
   const store = seedBacklog(root, 'owner-03');
   const plan = planNext(store, mission());
   assert.equal(plan.action, 'enqueued');
 
-  store.requestStop('test stop');
-  assert.equal(planNext(store, mission()).action, 'stopped');
+  const operatorKey = path.join(root, 'operator.key');
+  const keys = initOperatorKey({ privateKeyPath: operatorKey, publicKeyPath: store.paths.operatorPubFile });
+  assert.equal(keys.created, true);
+  const operator = loadOperatorPrivateKey(operatorKey);
 
+  /* Оператор ставит STOP и подписывает событие своим ключом. */
+  fs.mkdirSync(store.paths.controlDir, { recursive: true });
+  fs.writeFileSync(store.paths.stopFile, 'operator stop\n');
+  const stopEvent = store.commitEntry(signEntry(store.nextEntry('service.stop_signed', null, { by: 'operator' }), operator));
+  assert.equal(store.verifySignature(stopEvent), true);
+
+  assert.equal(planNext(store, mission()).action, 'stopped');
   const outcome = await tick({ root, mission: mission() });
   assert.equal(outcome.action, 'stopped');
-  assert.equal(new OpsStore(root).stopRequested(), true, 'STOP file must survive a new store instance');
+  assert.equal(new OpsStore(root).stopRequested(), true, 'STOP must survive a new process/store');
   assert.equal(new OpsStore(root).get(plan.taskId).status, STATUS.PENDING, 'no lease is taken while stopped');
 
-  const resume = new OpsStore(root);
-  resume.clearStop();
-  const signed = resume.signedJournal('service.resume_signed', null, { by: 'owner' });
-  assert.match(signed.sig, /^[a-f0-9]{64}$/);
-  assert.equal(resume.verifySignature(signed), true);
-  assert.equal(resume.stopRequested(), false);
+  /* Сервис не умеет снимать STOP: у него нет ни прав на файл, ни ключа. */
+  assert.throws(() => new OpsStore(root).clearStop(), /operator command/);
+
+  const foreignKey = path.join(root, 'foreign.key');
+  initOperatorKey({ privateKeyPath: foreignKey, publicKeyPath: path.join(root, 'foreign.pub') });
+  const foreign = signEntry(store.nextEntry('service.resume_signed'), loadOperatorPrivateKey(foreignKey));
+  assert.equal(store.verifySignature(foreign), false, 'a foreign key must not resume the service');
+
+  const tampered = { ...signEntry(store.nextEntry('service.resume_signed'), operator), detail: { by: 'intruder' } };
+  assert.equal(store.verifySignature(tampered), false, 'tampering breaks the signature');
+
+  if (process.platform !== 'win32') {
+    fs.chmodSync(operatorKey, 0o644);
+    assert.throws(() => loadOperatorPrivateKey(operatorKey), /readable by group/);
+    fs.chmodSync(operatorKey, 0o600);
+  }
+
+  fs.rmSync(store.paths.stopFile);
+  const resumeEvent = store.commitEntry(signEntry(store.nextEntry('service.resume_signed', null, { by: 'operator' }), loadOperatorPrivateKey(operatorKey)));
+  assert.equal(store.verifySignature(resumeEvent), true);
+  assert.equal(store.stopRequested(), false);
+  assert.equal(planNext(store, mission()).action, 'none', 'the queued task is still there after resume');
+});
+
+test('registry checks: symlink, traversal, absolute paths, size and non-regular files', () => {
+  const root = tempRoot('checks');
+  const repo = path.join(root, 'repository');
+  fs.mkdirSync(path.join(repo, 'safe'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'safe', 'doc.md'), 'hello');
+  fs.writeFileSync(path.join(root, 'outside.txt'), 'secret');
+
+  const plain = evaluateCheck({ kind: 'file_includes', path: 'safe/doc.md', needle: 'hello' }, { repositoryRoot: repo });
+  assert.equal(plain.ok, true);
+  assert.equal(plain.evidence[0], 'safe/doc.md: contains "hello"');
+
+  const escape = evaluateCheck({ kind: 'file_exists', path: '../outside.txt' }, { repositoryRoot: repo });
+  assert.equal(escape.skipped, true);
+  assert.equal(escape.error, 'REGISTRY_ESCAPE');
+
+  const absolute = evaluateCheck({ kind: 'file_exists', path: path.join(root, 'outside.txt') }, { repositoryRoot: repo });
+  assert.equal(absolute.error, 'REGISTRY_UNSAFE_PATH');
+
+  const directory = evaluateCheck({ kind: 'file_exists', path: 'safe' }, { repositoryRoot: repo });
+  assert.equal(directory.error, 'REGISTRY_NOT_FILE');
+
+  fs.writeFileSync(path.join(repo, 'safe', 'big.md'), 'x'.repeat(5000));
+  const tooLarge = evaluateCheck({ kind: 'file_includes', path: 'safe/big.md', needle: 'x', maxReadBytes: 1024 }, { repositoryRoot: repo });
+  assert.equal(tooLarge.error, 'REGISTRY_TOO_LARGE');
+
+  /* Symlink наружу — главный выход из repositoryRoot. */
+  let linked = false;
+  try {
+    fs.symlinkSync(path.join(root, 'outside.txt'), path.join(repo, 'safe', 'link.md'));
+    linked = true;
+  } catch {
+    linked = false;
+  }
+  if (linked) {
+    const throughLink = evaluateCheck({ kind: 'file_includes', path: 'safe/link.md', needle: 'secret' }, { repositoryRoot: repo });
+    assert.equal(throughLink.skipped, true);
+    assert.equal(throughLink.error, 'REGISTRY_SYMLINK');
+
+    /* Symlink на каталог внутри репозитория тоже запрещён: компонент пути. */
+    fs.symlinkSync(path.join(repo, 'safe'), path.join(repo, 'alias'));
+    const viaDirAlias = evaluateCheck({ kind: 'file_exists', path: 'alias/doc.md' }, { repositoryRoot: repo });
+    assert.equal(viaDirAlias.error, 'REGISTRY_SYMLINK');
+  }
+});
+
+test('incident lifecycle: RESOLVED then REOCCURRED opens a new generation', () => {
+  const root = tempRoot('incident');
+  const repo = path.join(root, 'repository');
+  fs.mkdirSync(repo, { recursive: true });
+  const doc = path.join(repo, 'README.md');
+  fs.writeFileSync(doc, 'ok');
+
+  const task = JSON.parse(fs.readFileSync(TEMPLATE, 'utf8'));
+  delete task.taskId;
+  seedRegistry(root, [{
+    id: 'readme-claim', priority: 10, type: 'registry_gap',
+    check: { kind: 'file_includes', path: 'README.md', needle: 'required text' },
+    task,
+  }]);
+  const store = new OpsStore(root);
+  const opts = { repositoryRoot: repo };
+
+  const first = planNext(store, mission({ repositoryRoot: repo }), opts);
+  assert.equal(first.action, 'enqueued');
+  assert.equal(first.incident.generation, 1);
+  assert.equal(first.trigger.incident.state, 'TASK_CREATED');
+
+  store.complete(first.taskId, { state: 'ACCEPTED' });
+  assert.equal(planNext(new OpsStore(root), mission({ repositoryRoot: repo }), opts).action, 'idle', 'same generation is deduplicated');
+
+  fs.writeFileSync(doc, 'ok required text');
+  assert.equal(planNext(new OpsStore(root), mission({ repositoryRoot: repo }), opts).action, 'idle');
+  const resolved = new OpsStore(root).incidents().items.find((item) => item.id === 'readme-claim');
+  assert.equal(resolved.state, 'RESOLVED');
+
+  /* Дефект вернулся в том же наблюдаемом состоянии — старый ключ не должен
+     блокировать задачу навсегда. */
+  fs.writeFileSync(doc, 'ok');
+  const again = planNext(new OpsStore(root), mission({ repositoryRoot: repo }), opts);
+  assert.equal(again.action, 'enqueued');
+  assert.equal(again.incident.generation, 2);
+  assert.notEqual(again.trigger.deduplicationKey, first.trigger.deduplicationKey);
+  assert.notEqual(again.taskId, first.taskId);
+});
+
+test('pinned runtime: temporary roots and a missing manifest are refused', () => {
+  const inTmp = verifyRuntime({ version: '0.171.0', root: path.join(os.tmpdir(), 'codex-0.171.0') }, { runBin: false });
+  assert.equal(inTmp.permanentPath, false);
+  assert.equal(inTmp.ok, false);
+
+  const base = fs.mkdtempSync(path.join(ORCH, '.runtime-test-'));
+  try {
+    const bin = path.join(base, 'bin', 'codex');
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, ['#!/bin/sh', 'echo codex 0.171.0', ''].join('\n'));
+    const missing = verifyRuntime({ version: '0.171.0', root: base, manifest: 'manifest.json' }, { runBin: false });
+    assert.equal(missing.ok, false);
+    assert.match(missing.detail, /manifest is missing/);
+
+    if (process.platform !== 'win32') fs.chmodSync(bin, 0o444);
+    fs.writeFileSync(path.join(base, 'manifest.json'), JSON.stringify({
+      version: '0.171.0',
+      files: [{ path: 'bin/codex', sha256: sha256File(bin) }],
+    }));
+    const ok = verifyRuntime({ version: '0.171.0', root: base, manifest: 'manifest.json', autoUpdate: false }, { runBin: false });
+    assert.equal(ok.ok, true, ok.detail);
+    assert.equal(ok.autoUpdate, false, 'pinned runtime must not auto-update');
+
+    fs.writeFileSync(path.join(base, 'manifest.json'), JSON.stringify({
+      version: '0.171.0',
+      files: [{ path: 'bin/codex', sha256: 'f'.repeat(64) }],
+    }));
+    const badHash = verifyRuntime({ version: '0.171.0', root: base, manifest: 'manifest.json' }, { runBin: false });
+    assert.equal(badHash.ok, false);
+    assert.match(badHash.detail, /hash mismatch/);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test('budget: hard overrun is detected and excludes ACCEPTED', async () => {

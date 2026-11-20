@@ -1,0 +1,11 @@
+{
+  "note": "Pinned runtime для настоящих агентов. Заполняется на ops-host командой `node service/tools/codex-pin.mjs pin`. /tmp и домашние каталоги запрещены: после перезагрузки их может не быть.",
+  "codex": {
+    "version": "0.171.0",
+    "root": "/opt/agentcoin-ops/runtime/codex-0.171.0",
+    "manifest": "manifest.json",
+    "bin": "/opt/agentcoin-ops/runtime/codex-0.171.0/bin/codex",
+    "home": "/var/lib/agentcoin-orchestrator/codex-home",
+    "autoUpdate": false
+  }
+}

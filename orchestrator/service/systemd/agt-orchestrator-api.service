@@ -1,6 +1,6 @@
 [Unit]
 Description=Agentcoin Ops read-only API (loopback only)
-Documentation=file:/srv/agentcoin-ops/orchestrator/service/README.md
+Documentation=file:/opt/agentcoin-orchestrator/current/orchestrator/service/README.md
 After=network-online.target
 Wants=network-online.target
 
@@ -8,12 +8,14 @@ Wants=network-online.target
 Type=simple
 User=agt-orchestrator
 Group=agt-orchestrator
-WorkingDirectory=/srv/agentcoin-ops/orchestrator
+WorkingDirectory=/opt/agentcoin-orchestrator/current/orchestrator
 EnvironmentFile=-/etc/agentcoin/ops.env
-Environment=OPS_ROOT=/srv/agentcoin-ops
+Environment=OPS_ROOT=/var/lib/agentcoin-orchestrator
+Environment=OPS_LOG_DIR=/var/log/agentcoin-orchestrator
+Environment=OPS_CONTROL_DIR=/var/lib/agentcoin-orchestrator/control
 Environment=OPS_API_HOSTS=127.0.0.1,::1
 Environment=OPS_API_PORT=8799
-ExecStart=/usr/bin/env node service/opsd.mjs api
+ExecStart=/usr/bin/env node /opt/agentcoin-orchestrator/current/orchestrator/service/opsd.mjs api
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
@@ -33,8 +35,8 @@ LockPersonality=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
-# API ничего не пишет: доступен только на чтение файлов OPS_ROOT.
-ReadOnlyPaths=/srv/agentcoin-ops
+# API ничего не пишет: доступен только на чтение данных и кода.
+ReadOnlyPaths=/opt/agentcoin-orchestrator /var/lib/agentcoin-orchestrator /var/log/agentcoin-orchestrator
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # Наружу не слушает: только loopback, публикует Caddy.
 IPAddressAllow=localhost

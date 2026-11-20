@@ -1,0 +1,136 @@
+{
+  "at": "2026-11-20T18:15:18.681Z",
+  "root": "/tmp/c2-accept",
+  "results": [
+    {
+      "id": "install-dry-run",
+      "ok": true,
+      "detail": "exit 0; nothing installed"
+    },
+    {
+      "id": "install",
+      "ok": true,
+      "detail": "exit 0; no stderr"
+    },
+    {
+      "id": "code-read-only",
+      "ok": true,
+      "detail": "release=opt/agentcoin-orchestrator/releases/20261120T181504Z; writable files=0; append blocked=true"
+    },
+    {
+      "id": "code-outside-data",
+      "ok": true,
+      "detail": "code opt/agentcoin-orchestrator/releases/20261120T181504Z is separate from data"
+    },
+    {
+      "id": "control-dir-not-service-writable",
+      "ok": true,
+      "detail": "mode 755, owner uid 1000"
+    },
+    {
+      "id": "data-layout",
+      "ok": true,
+      "detail": "queue/runs/artifacts/memory/state present"
+    },
+    {
+      "id": "units-rendered",
+      "ok": true,
+      "detail": "unit paths point at current/data/logs"
+    },
+    {
+      "id": "units-readonly-code",
+      "ok": true,
+      "detail": "code only under ReadOnlyPaths"
+    },
+    {
+      "id": "units-verify",
+      "ok": true,
+      "detail": "systemd-analyze exit 0"
+    },
+    {
+      "id": "idle-without-evidence",
+      "ok": true,
+      "detail": "idle: no backlog and an empty registry: nothing proven to fix"
+    },
+    {
+      "id": "one-task-per-gap",
+      "ok": true,
+      "detail": "first=enqueued generation=1 total=1 second=none"
+    },
+    {
+      "id": "symlink-escape",
+      "ok": true,
+      "detail": "idle; skipped=REGISTRY_SYMLINK"
+    },
+    {
+      "id": "incident-reoccurrence",
+      "ok": true,
+      "detail": "state=RESOLVED; action=enqueued; generation=2"
+    },
+    {
+      "id": "stop-blocks-work",
+      "ok": true,
+      "detail": "plan=stopped tick=stopped"
+    },
+    {
+      "id": "service-cannot-resume",
+      "ok": true,
+      "detail": "opsd resume exit 78"
+    },
+    {
+      "id": "operator-resume-signed",
+      "ok": true,
+      "detail": "2 signed events, all valid=true"
+    },
+    {
+      "id": "queue-survives-restart",
+      "ok": true,
+      "detail": "status exit 0; queue hash stable=true; checkpoint=IDLE"
+    },
+    {
+      "id": "api-loopback-only",
+      "ok": true,
+      "detail": "GET 200, POST 405, listeners=127.0.0.1:8798,[::1]:8798"
+    },
+    {
+      "id": "api-external-refused",
+      "ok": true,
+      "detail": "connect to 172.23.12.162:8798 refused=true"
+    },
+    {
+      "id": "api-public-fields",
+      "ok": true,
+      "detail": "no paths, usernames or pids in the public body"
+    },
+    {
+      "id": "deployer-disabled",
+      "ok": true,
+      "detail": "exit 3"
+    },
+    {
+      "id": "rollback-restores-previous-release",
+      "ok": true,
+      "detail": "release1=20261120T181504Z release2=20261120T181512Z after=20261120T181504Z"
+    },
+    {
+      "id": "uninstall-keeps-data",
+      "ok": true,
+      "detail": "uninstall exit 0; data marker=true; code removed=true"
+    },
+    {
+      "id": "runtime-refuses-temporary-root",
+      "ok": true,
+      "detail": "codex-pin exit 65: refusing: /tmp/c2-accept/runtime is temporary or user-owned; pinned runtime must survive reboot"
+    },
+    {
+      "id": "real-systemd-units",
+      "ok": "pending",
+      "detail": "systemctl is-active / reboot: run service/C2.md on the ops-host"
+    },
+    {
+      "id": "reboot-recovery",
+      "ok": "pending",
+      "detail": "queue, checkpoint and STOP after reboot: ops-host checklist"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+== C2 layout: code /opt, data /var/lib, logs /var/log, control root-owned
+
+== dry-run (plan only)
+exit=0
+== mode: install | code: /tmp/c2-plan/opt/agentcoin-orchestrator | data: /tmp/c2-plan/var/lib/agentcoin-orchestrator | logs: /tmp/c2-plan/var/log/agentcoin-orchestrator | prefix rehearsal
+== users
+  [rehearsal] agt-orchestrator is not created
+  [rehearsal] agt-deployer is not created
+== layout (data and logs are writable, code is not)
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/repository'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/workspaces'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/runs'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/artifacts'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/project-memory'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/queue'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/queue/tasks'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/queue/backlog'
+  [dry-run] install -d -m 0750 '/tmp/c2-plan/var/lib/agentcoin-orchestrator/state'
+  ...
+Операторский ключ (один раз, от root):
+  sudo node /tmp/c2-plan/opt/agentcoin-orchestrator/current/orchestrator/service/operator.mjs init-key --root /tmp/c2-plan/var/lib/agentcoin-orchestrator
+  STOP ставит только оператор: sudo node /tmp/c2-plan/opt/agentcoin-orchestrator/current/orchestrator/service/operator.mjs stop --root /tmp/c2-plan/var/lib/agentcoin-orchestrator
+
+Откат:  sudo /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/service/install.sh --rollback
+Снятие: sudo /mnt/c/Users/Mark/Desktop/agentcoin/orchestrator/service/install.sh --uninstall
+
+Deployer остаётся выключенным: /tmp/c2-plan/etc/agentcoin/deploy-enabled не создаётся.
+
+== repeated dry-run is identical
+exit=0
+  plan identical apart from the timestamp
+
+== real rehearsal install with prefix (no systemctl, no root)
+exit=0
+  release: /tmp/c2-install/opt/agentcoin-orchestrator/releases/20261120T182015Z
+== mission and registry (existing files are never overwritten)
+  registry.json installed empty: planner stays IDLE until the owner registers a proven gap
+== STOP control dir: mark:mark 755
+
+== rollback without a previous release is refused
+  control dir /tmp/c2-one/var/lib/agentcoin-orchestrator/control mode 755 (service cannot write STOP)
+refusing: no previous release under /tmp/c2-one/opt/agentcoin-orchestrator/releases
+exit=80
+
+== foreign owner is refused
+== mode: install | code: /tmp/c2-foreign/opt/agentcoin-orchestrator | data: /tmp/c2-foreign/var/lib/agentcoin-orchestrator | logs: /tmp/c2-foreign/var/log/agentcoin-orchestrator | prefix rehearsal
+  owner of /tmp/c2-foreign/var/lib/agentcoin-orchestrator: mark (accepted)
+== users
+exit=141
+
+== group-writable control dir is refused
+== mode: install | code: /tmp/c2-ctl/opt/agentcoin-orchestrator | data: /tmp/c2-ctl/var/lib/agentcoin-orchestrator | logs: /tmp/c2-ctl/var/log/agentcoin-orchestrator | prefix rehearsal
+  owner of /tmp/c2-ctl/var/lib/agentcoin-orchestrator: mark (accepted)
+refusing: /tmp/c2-ctl/var/lib/agentcoin-orchestrator/control is writable by group/others (777); STOP must not be service-writable
+exit=82
+
+== install without root at the real paths is refused
+install.sh needs root (sudo) except for --dry-run and --prefix rehearsal
+exit=77
+
+== границы репетиции (честно)
+  --prefix запускается без root: владельцем считается текущий пользователь,
+  systemctl не вызывается, юниты только отрисовываются. Поэтому:
+    * отказ "чужой владелец" (код 79) для реального /var/lib/agentcoin-orchestrator
+      проверяется только на ops-host: локально нельзя создать каталог,
+      принадлежащий другому пользователю, без root;
+    * group-writable control-каталог отвергается и в репетиции (код 82) —
+      это проверено выше;
+    * "нет root на реальных путях" отвергается кодом 77 — проверено выше.

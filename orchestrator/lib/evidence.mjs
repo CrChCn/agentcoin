@@ -409,8 +409,9 @@ export const MANIFEST_DIRS = Object.freeze(['lib', 'adapters', 'tools', 'contrac
    применяет патч к рабочему дереву) лежат данные прогонов
    (state/<task>/state.json, artifacts/<task>/<iteration>/...). Данные меняются
    каждым запуском и сборку не описывают, поэтому из этих каталогов в manifest
-   входят только модули верхнего уровня. Раньше здесь не было ни одного файла,
-   и правка apply.mjs или store.mjs не меняла rootHash. */
+   входят только модули — рекурсивно, но по расширению, — а не данные. Раньше
+   здесь не было ни одного файла, и правка apply.mjs или store.mjs не меняла
+   rootHash. */
 export const MANIFEST_CODE_DIRS = Object.freeze(['state', 'artifacts']);
 export const MANIFEST_CODE_RE = /\.(mjs|cjs|js)$/i;
 export const MANIFEST_FILES = Object.freeze(['orchestrator.mjs']);
@@ -444,20 +445,25 @@ export function runtimeManifest(root = ORCH_ROOT) {
   };
   for (const dir of MANIFEST_DIRS) visit(path.join(root, dir), dir);
   for (const dir of MANIFEST_CODE_DIRS) {
-    const abs = path.join(root, dir);
-    let entries;
-    try {
-      entries = fs.readdirSync(abs, { withFileTypes: true });
-    } catch (err) {
-      missing.push({ path: dir, detail: err.code || err.message });
-      continue;
-    }
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isFile() || !MANIFEST_CODE_RE.test(entry.name)) continue;
-      const rel = `${dir}/${entry.name}`;
-      const data = fs.readFileSync(path.join(abs, entry.name));
-      files.push({ path: rel, bytes: data.length, sha256: sha256(data) });
-    }
+    const visitCode = (abs, rel) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(abs, { withFileTypes: true });
+      } catch (err) {
+        missing.push({ path: rel, detail: err.code || err.message });
+        return;
+      }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        const childRel = `${rel}/${entry.name}`;
+        const childAbs = path.join(abs, entry.name);
+        if (entry.isDirectory()) visitCode(childAbs, childRel);
+        else if (entry.isFile() && MANIFEST_CODE_RE.test(entry.name)) {
+          const data = fs.readFileSync(childAbs);
+          files.push({ path: childRel, bytes: data.length, sha256: sha256(data) });
+        }
+      }
+    };
+    visitCode(path.join(root, dir), dir);
   }
   for (const rel of MANIFEST_FILES) {
     const abs = path.join(root, rel);

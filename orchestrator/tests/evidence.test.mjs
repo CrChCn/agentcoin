@@ -299,7 +299,10 @@ test('state and artifacts modules are covered by the manifest, their data is not
   }
   fs.writeFileSync(path.join(root, 'orchestrator.mjs'), '// entry\n');
   fs.writeFileSync(path.join(root, 'state', 'store.mjs'), 'export const s = 1;\n');
-  fs.writeFileSync(path.join(root, 'artifacts', 'apply.mjs'), 'export const a = 1;\n');
+  fs.writeFileSync(path.join(root, 'artifacts', 'store.mjs'), 'export const a = 1;\n');
+  fs.writeFileSync(path.join(root, 'artifacts', 'apply.mjs'), 'export const b = 1;\n');
+  fs.mkdirSync(path.join(root, 'state', 'internal'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'state', 'internal', 'util.mjs'), 'export const u = 1;\n');
   fs.mkdirSync(path.join(root, 'state', 'lesson-01'));
   fs.writeFileSync(path.join(root, 'state', 'lesson-01', 'state.json'), '{"iteration":1}\n');
   fs.mkdirSync(path.join(root, 'artifacts', 'lesson-01', '1'), { recursive: true });
@@ -307,20 +310,29 @@ test('state and artifacts modules are covered by the manifest, their data is not
 
   const before = runtimeManifest(root);
   assert.equal(before.ok, true);
+  assert.equal(before.files.some((item) => item.path === 'state/internal/util.mjs'), true, 'nested module must be hashed');
 
   /* Данные прогона изменились — сборка та же. */
   fs.writeFileSync(path.join(root, 'state', 'lesson-01', 'state.json'), '{"iteration":2}\n');
   fs.writeFileSync(path.join(root, 'artifacts', 'lesson-01', '1', 'patch.diff'), '+two\n');
   assert.equal(runtimeManifest(root).rootHash, before.rootHash);
 
-  /* Изменился код применения патча — evidence обязан инвалидироваться. */
+  /* Изменился код в artifacts/ или state/ — evidence обязан инвалидироваться. */
   fs.appendFileSync(path.join(root, 'artifacts', 'apply.mjs'), ' ');
   const after = runtimeManifest(root);
   assert.notEqual(after.rootHash, before.rootHash);
   assert.equal(after.count, before.count);
 
+  fs.appendFileSync(path.join(root, 'artifacts', 'store.mjs'), ' ');
+  const afterArtifactStore = runtimeManifest(root);
+  assert.notEqual(afterArtifactStore.rootHash, after.rootHash);
+
   fs.writeFileSync(path.join(root, 'state', 'store.mjs'), 'export const s = 2;\n');
-  assert.notEqual(runtimeManifest(root).rootHash, after.rootHash);
+  const afterState = runtimeManifest(root);
+  assert.notEqual(afterState.rootHash, afterArtifactStore.rootHash);
+
+  fs.appendFileSync(path.join(root, 'state', 'internal', 'util.mjs'), ' ');
+  assert.notEqual(runtimeManifest(root).rootHash, afterState.rootHash);
 
   fs.rmSync(root, { recursive: true, force: true });
 });

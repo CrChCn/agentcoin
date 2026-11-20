@@ -689,5 +689,5 @@ Ed25519-ключом оператора и pinned runtime Codex. Runbook и че
 Доказательства: `evidence/c1-restart-proof.txt`,
 `evidence/c1-stop-proof.txt`, `evidence/c1-service-tests.txt`,
 `evidence/c1-systemd-verify.txt`, `evidence/c1-real-crash-recovery.txt`,
-`evidence/c2-acceptance.txt` (27 pass, 2 pending — systemd/reboot на хосте).
+`evidence/c2-acceptance.txt` (28 pass, 2 pending — systemd/reboot на хосте).
 Публикация, staging, SSH к нодам и настоящие агенты на этом этапе выключены.

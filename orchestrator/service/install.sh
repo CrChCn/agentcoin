@@ -42,7 +42,6 @@ for arg in "$@"; do
     --dry-run) DRY=1 ;;
     --enable) ENABLE=1 ;;
     --uninstall) MODE="uninstall" ;;
-    --rollback=*) MODE="rollback"; ROLLBACK_DIR="${arg#*=}" ;;
     --rollback) MODE="rollback" ;;
     --prefix=*) PREFIX="${arg#*=}" ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
@@ -57,6 +56,14 @@ if [[ -n "$PREFIX" ]]; then
   LOG_BASE="$PREFIX/var/log/agentcoin-orchestrator"
   UNIT_BASE="$PREFIX/etc/systemd/system"
   ENV_BASE="$PREFIX/etc/agentcoin"
+fi
+
+# --prefix — репетиция раскладки, а не установка на хост: systemctl там не
+# вызывается, поэтому --enable в ней не может быть выполнен, и молча его
+# игнорировать нельзя.
+if [[ -n "$PREFIX" && "$ENABLE" -eq 1 ]]; then
+  echo "--enable runs systemctl on the host; it is not available with --prefix rehearsal" >&2
+  exit 64
 fi
 
 CODE_ROOT="$CODE_BASE"
@@ -100,6 +107,25 @@ own_data() { if [[ -n "$PREFIX" ]]; then :; else eval "chown -R '$SERVICE_USER:$
 own_code() { if [[ -n "$PREFIX" ]]; then :; else eval "chown -R root:root '$1'"; fi; }
 
 say "== mode: $MODE | code: $CODE_ROOT | data: $OPS_ROOT | logs: $LOG_BASE${PREFIX:+ | prefix rehearsal}"
+if [[ -n "$PREFIX" ]]; then
+  say "  rehearsal boundaries: no useradd, no chown, no systemctl; manifest mode=rehearsal"
+else
+  say "  host boundaries: users, ownership and systemd units are managed here"
+fi
+
+# STOP-каталог не должен стать доступным сервису на запись ни до, ни после
+# установки, поэтому один запрет используется дважды.
+control_dir_guard() { # $1 — метка отказа («refusing» или «FATAL»)
+  [[ -d "$CONTROL_DIR" ]] || return 0
+  local mode owner
+  mode="$(stat -c '%a' "$CONTROL_DIR")"
+  owner="$(stat -c '%U:%G' "$CONTROL_DIR")"
+  if [[ "$mode" =~ [2367]$ ]]; then
+    echo "$1: $CONTROL_DIR is writable by group/others ($mode); STOP must not be service-writable" >&2
+    exit 82
+  fi
+  say "  control dir $CONTROL_DIR $owner $mode (service cannot write STOP)"
+}
 
 # --- проверки владельца данных и управляющего каталога ---------------------
 if [[ -d "$OPS_ROOT" ]]; then
@@ -110,14 +136,7 @@ if [[ -d "$OPS_ROOT" ]]; then
   fi
   say "  owner of $OPS_ROOT: $OWNER (accepted)"
 fi
-if [[ -d "$CONTROL_DIR" ]]; then
-  CMODE="$(stat -c '%a' "$CONTROL_DIR")"
-  if [[ "$CMODE" =~ [2367]$ ]]; then
-    echo "refusing: $CONTROL_DIR is writable by group/others ($CMODE); STOP must not be service-writable" >&2
-    exit 82
-  fi
-  say "  control dir $CONTROL_DIR mode $CMODE (service cannot write STOP)"
-fi
+control_dir_guard refusing
 
 QUEUE_SUM_BEFORE=""
 if [[ -f "$QUEUE_FILE" && "$DRY" -ne 1 ]]; then
@@ -149,19 +168,13 @@ fi
 
 # --- rollback --------------------------------------------------------------
 if [[ "$MODE" == "rollback" ]]; then
-  if [[ -z "$ROLLBACK_DIR" ]]; then
-    mapfile -t CANDIDATES < <(ls -1d "$RELEASES"/*/ 2>/dev/null | sed 's#/$##' | sort)
-    CURRENT_TARGET="$(readlink -f "$CURRENT" 2>/dev/null || true)"
-    for dir in "${CANDIDATES[@]}"; do
-      if [[ "$dir" != "$CURRENT_TARGET" ]]; then ROLLBACK_DIR="$dir"; fi
-    done
-    if [[ -z "$ROLLBACK_DIR" ]]; then
-      echo "refusing: no previous release under $RELEASES" >&2
-      exit 80
-    fi
-  fi
-  if [[ ! -d "$ROLLBACK_DIR/orchestrator" ]]; then
-    echo "refusing: $ROLLBACK_DIR/orchestrator not found" >&2
+  mapfile -t CANDIDATES < <(ls -1d "$RELEASES"/*/ 2>/dev/null | sed 's#/$##' | sort)
+  CURRENT_TARGET="$(readlink -f "$CURRENT" 2>/dev/null || true)"
+  for dir in "${CANDIDATES[@]}"; do
+    if [[ "$dir" != "$CURRENT_TARGET" ]]; then ROLLBACK_DIR="$dir"; fi
+  done
+  if [[ -z "$ROLLBACK_DIR" || ! -d "$ROLLBACK_DIR/orchestrator" ]]; then
+    echo "refusing: no previous release under $RELEASES" >&2
     exit 80
   fi
   say "== rollback to $ROLLBACK_DIR"
@@ -169,11 +182,9 @@ if [[ "$MODE" == "rollback" ]]; then
   run "mv -Tf '$CURRENT.new' '$CURRENT'"
   if [[ -z "$PREFIX" ]]; then
     run "systemctl restart agt-orchestrator.service agt-orchestrator-api.service || true"
-    say "  previous tree kept at $CURRENT.previous"
   else
     say "  [rehearsal] symlink points at the previous release; systemctl not called"
   fi
-  run "ln -sfn '$ROLLBACK_DIR' '$CURRENT.previous'" || true
   exit 0
 fi
 
@@ -373,13 +384,8 @@ fi
 
 # --- STOP не должен быть доступен сервису ---------------------------------
 if [[ "$DRY" -ne 1 ]]; then
-  CSTAT="$(stat -c '%U:%G %a' "$CONTROL_DIR")"
-  say "== STOP control dir: $CSTAT"
-  CMODE="$(stat -c '%a' "$CONTROL_DIR")"
-  if [[ "$CMODE" =~ [2367]$ ]]; then
-    echo "FATAL: $CONTROL_DIR became writable by group/others" >&2
-    exit 82
-  fi
+  say "== STOP control dir"
+  control_dir_guard FATAL
 fi
 
 if [[ "$ENABLE" -eq 1 && "$DRY" -ne 1 && -z "$PREFIX" ]]; then

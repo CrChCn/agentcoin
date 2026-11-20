@@ -27,7 +27,7 @@ import { evaluateCheck } from './checks.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const stamp = (date = new Date()) => date.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
 
-export const INCIDENT = Object.freeze({
+const INCIDENT = Object.freeze({
   OPEN: 'OPEN',
   TASK_CREATED: 'TASK_CREATED',
   RESOLVED: 'RESOLVED',
@@ -41,16 +41,6 @@ export function loadMission(root, explicitFile = null) {
     if (mission) return { mission, file };
   }
   throw Object.assign(new Error('mission.json not found'), { code: 'MISSION_MISSING' });
-}
-
-/* Задание владельца: контракт берётся как есть, меняется только идентичность.
-   Планировщик не редактирует требования — иначе он стал бы автором ТЗ. */
-export function taskFromTemplate({ templateFile, taskFile, taskId, titleSuffix = '' }) {
-  const task = readJson(templateFile, null);
-  if (!task) throw Object.assign(new Error(`template not found: ${templateFile}`), { code: 'TEMPLATE_MISSING' });
-  const clone = { ...task, taskId, title: titleSuffix ? `${task.title} — ${titleSuffix}` : task.title };
-  writeJsonAtomic(taskFile, clone);
-  return path.resolve(taskFile);
 }
 
 /* Реестр ищется сначала в OPS_ROOT (владелец может править его без
@@ -69,12 +59,10 @@ function repositoryRootOf(store, mission) {
   return path.isAbsolute(configured) ? configured : path.resolve(store.paths.base, configured);
 }
 
-export { repositoryRootOf };
-
 /* Ключ поколения инцидента. Меняется только при новом поколении, поэтому
    один и тот же дефект не ставится дважды, а вернувшийся после исправления —
    ставится снова. */
-export function generationKey(id, generation) {
+function generationKey(id, generation) {
   return sha256(canonical({ id, generation: Number(generation) || 1 }));
 }
 
@@ -190,18 +178,13 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
     incident.signature = outcome.signature;
     incident.lastSeenAt = observedAt;
 
+    /* knownDedupKeys уже собирает trigger.deduplicationKey всех заданий очереди,
+       включая завершённые, поэтому отдельная проверка «уже в очереди» была бы
+       вторым ответом на тот же вопрос. */
     const dedupKey = generationKey(entry.id, incident.generation);
-    const alreadyQueued = items.some((item) => item.trigger && item.trigger.incident
-      && item.trigger.incident.id === entry.id && Number(item.trigger.incident.generation) === Number(incident.generation));
-    const handled = known.has(dedupKey) || alreadyQueued;
+    const handled = known.has(dedupKey);
     evaluated.push({ id: entry.id, ok: false, generation: incident.generation, state: incident.state, dedupKey, handled });
-    if (handled) {
-      if (incident.state === INCIDENT.REOCCURRED) {
-        incident.state = INCIDENT.TASK_CREATED;
-        dirty = true;
-      }
-      continue;
-    }
+    if (handled) continue;
     candidates.push({ entry, outcome, incident, dedupKey });
   }
 
@@ -232,7 +215,7 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
   const task = {
     ...chosen.entry.task,
     taskId,
-    title: chosen.entry.task.title ? `${chosen.entry.task.title}` : taskId,
+    title: chosen.entry.task.title || taskId,
     trigger,
   };
   writeJsonAtomic(taskFile, task);

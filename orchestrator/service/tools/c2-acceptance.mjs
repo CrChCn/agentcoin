@@ -75,6 +75,9 @@ const dry = bash(['service/install.sh', `--prefix=${ROOT}`, '--dry-run']);
 const install = bash(['service/install.sh', `--prefix=${ROOT}`]);
 record('install-dry-run', dry.status === 0 && /dry-run/.test(dry.stdout), `exit ${dry.status}; nothing installed`);
 record('install', install.status === 0, `exit ${install.status}; ${(install.stderr || '').trim().split('\n')[0] || 'no stderr'}`);
+/* Репетиция не должна уметь включить систему: --enable остаётся хостовым шагом. */
+const enableInRehearsal = bash(['service/install.sh', `--prefix=${ROOT}`, '--enable']);
+record('rehearsal-refuses-enable', enableInRehearsal.status === 64, `--prefix --enable exit ${enableInRehearsal.status}`);
 if (install.status !== 0) {
   console.error(install.stdout, install.stderr);
   console.log(JSON.stringify({ results }, null, 2));

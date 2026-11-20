@@ -34,7 +34,7 @@ C2 ставит сервис на отдельный ops-host без агент�
 | Публичный JSON = внутренний объект | `contracts/public-status.schema.json` + allowlist-сборщик `service/publicview.mjs` | тесты схемы и утечек |
 | Перерасход 290 851 при лимите 200 000 → ACCEPTED | hard budget (`maxTotalTokens`, `maxTotalRuntimeMinutes`) исключает ACCEPTED, событие `budget.overrun`; soft-порог пишет `budget.soft_exceeded` | тест `budget: hard overrun ... excludes ACCEPTED` |
 | Источник репозитория не ограничен | `sourceRequirements` в mission, проверка `source.writable`, `enforceReadOnly` | `service/runner.mjs: sourceAccess` |
-| install.sh без отката | `--dry-run`, повторный запуск, `inventory/install-manifest-<ts>.json` с SHA256, backup кода, `--rollback=<dir>`, `--uninstall`, отказ при чужом владельце и изменении `queue.json` | `bash -n`, `--dry-run` в доказательстве |
+| install.sh без отката | `--dry-run`, повторный запуск, `inventory/install-manifest-<ts>.json` с SHA256 и владельцем данных, неизменяемый release, `--rollback` на предыдущий release, `--uninstall`, отказ при чужом владельце (79), доступном STOP (82), расхождении манифеста (83) и изменении `queue.json` | `bash -n`, `--dry-run` в доказательстве |
 
 ## Планировщик: только доказанное расхождение
 
@@ -122,7 +122,7 @@ allowlist-ом (`service/publicview.mjs`), а не вырезанием поле
 ./service/install.sh --dry-run                  # план, ничего не меняется
 sudo ./service/install.sh                       # файлы, юниты, manifest, backup
 sudo ./service/install.sh --enable              # + enable/start
-sudo ./service/install.sh --rollback=/srv/agentcoin-ops/backups/install-<ts>
+sudo ./service/install.sh --rollback            # предыдущий release
 sudo ./service/install.sh --uninstall           # код и юниты, данные остаются
 ```
 
@@ -155,7 +155,7 @@ node service/opsd.mjs stop|resume           # отказ 78: STOP и resume ст
 | `evidence/c1-stop-proof.txt` | STOP до и после перезапуска, отсутствие side effects, подписанные stop/resume, `ss -ltnp` только loopback, отказ deployer |
 | `evidence/c1-real-crash-recovery.txt` | **BLOCKED**: настоящий Codex на этой машине недоступен (`agent_unavailable`, `adapterEndToEnd=false`); скрипт отказывается подменять доказательство дублёром |
 | `evidence/c1-install-dryrun.txt` | dry-run install/rollback/uninstall, повторный запуск, отказ при чужом владельце (79) и без root (77) |
-| `evidence/c2-acceptance.txt` / `.json` | 27 проверок C2 (включая манифест против владельца данных): read-only код, IDLE, одна задача, symlink, инцидент, STOP/ключ, loopback API, deployer, rollback/uninstall, pinned runtime; 2 пункта `PENDING` (systemd/reboot на хосте) |
+| `evidence/c2-acceptance.txt` / `.json` | 28 проверок C2 (включая манифест против владельца данных и границу репетиции): read-only код, IDLE, одна задача, symlink, инцидент, STOP/ключ, loopback API, deployer, rollback/uninstall, pinned runtime; 2 пункта `PENDING` (systemd/reboot на хосте) |
 | `evidence/c2-host-acceptance.txt` / `.json` | приёмка на реальном ops-host (`service/tools/c2-host-acceptance.sh`): юниты, loopback API, IDLE, одна задача по registry evidence, STOP/queue/checkpoint после reboot, rollback/uninstall; PASS только за выполненную проверку, остальное SKIP/PENDING |
 | `evidence/c2-install-rehearsal.txt` | новая раскладка: dry-run, идемпотентность, prefix-установка, отказ rollback без release (80), group-writable STOP (82), без root (77), границы репетиции |
 | `evidence/c1-systemd-verify.txt` | `systemd-analyze verify` для 7 юнитов |

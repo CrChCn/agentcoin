@@ -14,8 +14,6 @@ import path from 'node:path';
 
 import { readJson, sha256File } from '../lib/fsx.mjs';
 
-const fail = (code, message) => Object.assign(new Error(message), { code });
-
 /* Разрешённые места установки: pinned runtime обязан быть вне /tmp и вне
    домашних каталогов, иначе «постоянная установка» снова окажется временной. */
 export function isPermanentRoot(dir) {
@@ -28,7 +26,7 @@ export function isPermanentRoot(dir) {
   return true;
 }
 
-export function manifestPathOf(pin) {
+function manifestPathOf(pin) {
   return path.join(path.resolve(pin.root), pin.manifest || 'manifest.json');
 }
 
@@ -122,11 +120,3 @@ export function runtimeOf(mission) {
   return (mission && mission.runtime && mission.runtime.codex) || null;
 }
 
-export function assertRuntimeForRealAgents(mission) {
-  const pin = runtimeOf(mission);
-  const verdict = verifyRuntime(pin);
-  if (!verdict.ok) {
-    throw fail('RUNTIME_NOT_PINNED', `real agents require a pinned runtime: ${verdict.detail}`);
-  }
-  return verdict;
-}

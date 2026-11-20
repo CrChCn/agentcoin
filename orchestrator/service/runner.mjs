@@ -51,7 +51,7 @@ export function realAgentsGate(mission) {
 
 /* Снятие lock мёртвого владельца: только своё задание, только мёртвый pid,
    только целый журнал. Возвращает список снятых блокировок. */
-export function reconcileDeadLocks(store, queueItems) {
+function reconcileDeadLocks(store, queueItems) {
   const reconciled = [];
   for (const item of queueItems) {
     const status = lockStatus(store.paths.base, item.taskId);

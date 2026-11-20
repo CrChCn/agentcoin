@@ -34,15 +34,15 @@ function splitRelative(rel) {
 
 /* Возвращает {exists, path, rel, size} или бросает REGISTRY_*.
    exists=false означает «файла нет» — это законный результат проверки. */
-export function resolveContained(repositoryRoot, rel, { maxBytes = DEFAULT_MAX_READ } = {}) {
+function resolveContained(repositoryRoot, rel, { maxBytes = DEFAULT_MAX_READ } = {}) {
   const parts = splitRelative(rel);
   const rootReal = fs.realpathSync(path.resolve(repositoryRoot));
   const limit = Math.min(Number(maxBytes) || DEFAULT_MAX_READ, HARD_MAX_READ);
 
   let current = rootReal;
+  let stat = null;
   for (let i = 0; i < parts.length; i++) {
     current = path.join(current, parts[i]);
-    let stat;
     try {
       stat = fs.lstatSync(current);
     } catch (err) {
@@ -60,7 +60,6 @@ export function resolveContained(repositoryRoot, rel, { maxBytes = DEFAULT_MAX_R
     }
   }
 
-  const stat = fs.lstatSync(current);
   if (!stat.isFile()) throw fail('REGISTRY_NOT_FILE', 'registry target is not a regular file');
   if (stat.size > limit) throw fail('REGISTRY_TOO_LARGE', `file is ${stat.size} bytes, limit ${limit}`);
 
@@ -73,7 +72,7 @@ export function resolveContained(repositoryRoot, rel, { maxBytes = DEFAULT_MAX_R
   return { exists: true, path: real, rel: parts.join('/'), size: stat.size };
 }
 
-export function readContained(repositoryRoot, rel, opts = {}) {
+function readContained(repositoryRoot, rel, opts = {}) {
   const resolved = resolveContained(repositoryRoot, rel, opts);
   if (!resolved.exists) return resolved;
   return { ...resolved, text: fs.readFileSync(resolved.path, 'utf8') };
@@ -84,6 +83,16 @@ function jsonField(value, dotted) {
 }
 
 const skipSignature = (kind, error) => sha256(canonical({ kind, error }));
+
+/* Файла нет — это законный отрицательный результат проверки, а не ошибка
+   чтения: задача ставится по доказанному расхождению. */
+function missingFile({ kind, target, expected, evidence, signature }) {
+  return {
+    ok: false, kind, expected, observed: 'file missing',
+    evidence: [`${target.rel}: file missing, ${evidence}`],
+    signature,
+  };
+}
 
 /* result: {ok, kind, observed, expected, evidence[], signature, error?} */
 export function evaluateCheck(check, { repositoryRoot }) {
@@ -103,11 +112,10 @@ export function evaluateCheck(check, { repositoryRoot }) {
     if (kind === 'file_includes' || kind === 'file_excludes') {
       const target = readContained(repositoryRoot, check.path, { maxBytes });
       if (!target.exists) {
-        return {
-          ok: false, kind, expected: check.needle, observed: 'file missing',
-          evidence: [`${target.rel}: file missing, expected text "${check.needle}"`],
+        return missingFile({
+          kind, target, expected: check.needle, evidence: `expected text "${check.needle}"`,
           signature: sha256(canonical({ kind, path: check.path, needle: check.needle, state: 'missing' })),
-        };
+        });
       }
       const has = target.text.includes(check.needle);
       const ok = kind === 'file_includes' ? has : !has;
@@ -122,12 +130,11 @@ export function evaluateCheck(check, { repositoryRoot }) {
     if (kind === 'json_field_equals') {
       const target = readContained(repositoryRoot, check.path, { maxBytes });
       if (!target.exists) {
-        return {
-          ok: false, kind, expected: `field ${check.field} equals ${JSON.stringify(check.value)}`,
-          observed: 'file missing',
-          evidence: [`${target.rel}: file missing, cannot read ${check.field}`],
+        return missingFile({
+          kind, target, expected: `field ${check.field} equals ${JSON.stringify(check.value)}`,
+          evidence: `cannot read ${check.field}`,
           signature: sha256(canonical({ kind, path: check.path, field: check.field, state: 'missing' })),
-        };
+        });
       }
       const data = JSON.parse(target.text);
       const actual = jsonField(data, check.field);

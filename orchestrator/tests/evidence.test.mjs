@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ORCH_ROOT } from '../lib/package.mjs';
+import { ORCH_ROOT, closure, runtimeEntrypoints } from '../lib/package.mjs';
 
 import { isolationEvidence, buildEvidence } from '../lib/agentsandbox.mjs';
 import {
@@ -252,9 +252,11 @@ test('the build fingerprint covers the whole runtime closure', () => {
    уровень 3 пережил бы правку адаптера или engine. */
 test('changing one byte of a runtime file invalidates the manifest', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-manifest-'));
-  for (const dir of ['lib', 'adapters', 'tools', 'contracts', 'policies']) {
+  for (const dir of ['lib', 'adapters', 'tools', 'contracts', 'policies', 'state', 'artifacts']) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
+  fs.writeFileSync(path.join(root, 'state', 'store.mjs'), 'export const s = 1;\n');
+  fs.writeFileSync(path.join(root, 'artifacts', 'apply.mjs'), 'export const a = 1;\n');
   fs.writeFileSync(path.join(root, 'lib', 'engine.mjs'), 'export const x = 1;\n');
   fs.writeFileSync(path.join(root, 'adapters', 'codex-cli.mjs'), 'export const y = 1;\n');
   fs.writeFileSync(path.join(root, 'tools', 'tool-proxy.mjs'), 'export const z = 1;\n');
@@ -275,6 +277,63 @@ test('changing one byte of a runtime file invalidates the manifest', () => {
   assert.match(verdict.detail, /runtime manifest/);
 
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+/* fix7: state/store.mjs, artifacts/store.mjs и artifacts/apply.mjs исполняются
+   в runtime (apply.mjs применяет патч к рабочему дереву), но лежали вне
+   manifest — правка этого кода не меняла rootHash. Теперь модули обоих
+   контейнеров входят в manifest, а данные прогонов в нём не участвуют:
+   иначе evidence становился бы недействительным после каждого запуска. */
+test('state and artifacts modules are covered by the manifest, their data is not', () => {
+  const current = currentBuildFingerprint({ backend: 'bwrap' });
+  const paths = new Set(current.manifest.files.map((item) => item.path));
+  for (const file of ['state/store.mjs', 'artifacts/store.mjs', 'artifacts/apply.mjs']) {
+    assert.equal(paths.has(file), true, `${file} must be in the runtime manifest`);
+  }
+  assert.equal(current.manifest.files.some((item) => item.path.startsWith('state/lesson-01/')), false);
+  assert.equal(current.manifest.files.some((item) => /\.json$/.test(item.path) && item.path.startsWith('state/')), false);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-manifest-data-'));
+  for (const dir of ['lib', 'adapters', 'tools', 'contracts', 'policies', 'state', 'artifacts']) {
+    fs.mkdirSync(path.join(root, dir), { recursive: true });
+  }
+  fs.writeFileSync(path.join(root, 'orchestrator.mjs'), '// entry\n');
+  fs.writeFileSync(path.join(root, 'state', 'store.mjs'), 'export const s = 1;\n');
+  fs.writeFileSync(path.join(root, 'artifacts', 'apply.mjs'), 'export const a = 1;\n');
+  fs.mkdirSync(path.join(root, 'state', 'lesson-01'));
+  fs.writeFileSync(path.join(root, 'state', 'lesson-01', 'state.json'), '{"iteration":1}\n');
+  fs.mkdirSync(path.join(root, 'artifacts', 'lesson-01', '1'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'artifacts', 'lesson-01', '1', 'patch.diff'), '+one\n');
+
+  const before = runtimeManifest(root);
+  assert.equal(before.ok, true);
+
+  /* Данные прогона изменились — сборка та же. */
+  fs.writeFileSync(path.join(root, 'state', 'lesson-01', 'state.json'), '{"iteration":2}\n');
+  fs.writeFileSync(path.join(root, 'artifacts', 'lesson-01', '1', 'patch.diff'), '+two\n');
+  assert.equal(runtimeManifest(root).rootHash, before.rootHash);
+
+  /* Изменился код применения патча — evidence обязан инвалидироваться. */
+  fs.appendFileSync(path.join(root, 'artifacts', 'apply.mjs'), ' ');
+  const after = runtimeManifest(root);
+  assert.notEqual(after.rootHash, before.rootHash);
+  assert.equal(after.count, before.count);
+
+  fs.writeFileSync(path.join(root, 'state', 'store.mjs'), 'export const s = 2;\n');
+  assert.notEqual(runtimeManifest(root).rootHash, after.rootHash);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+/* Общий предохранитель от повторения дефекта: каждый модуль, достижимый из
+   runtime entrypoint'ов, обязан быть в manifest. Новый каталог с кодом не
+   сможет снова выпасть из привязки незамеченным. */
+test('every module reachable from a runtime entrypoint is in the manifest', () => {
+  const graph = closure(runtimeEntrypoints());
+  assert.deepEqual(graph.missing, []);
+  const paths = new Set(currentBuildFingerprint({ backend: 'bwrap' }).manifest.files.map((item) => item.path));
+  const escaped = graph.files.filter((rel) => !paths.has(rel));
+  assert.deepEqual(escaped, [], `runtime modules outside the manifest:\n${escaped.join('\n')}`);
 });
 
 /* Аудитор подписал evidence с dirty:false/dirtyFiles:0, а дерево было

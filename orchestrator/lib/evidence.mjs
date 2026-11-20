@@ -27,7 +27,7 @@ import { ORCH_ROOT } from './package.mjs';
 import { toolEnv } from './envpolicy.mjs';
 import { canonical, GENESIS, chainEntry, sha256Text } from './journal.mjs';
 
-export const EVIDENCE_VERSION = 3;
+export const EVIDENCE_VERSION = 4;
 export const NONCE_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_EVIDENCE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const EVIDENCE_SIGNATURE_ALG = 'hmac-sha256';
@@ -401,8 +401,18 @@ export function gitFingerprint(root = ORCH_ROOT) {
 /* Каталоги и файлы, из которых состоит runtime оркестратора. Всё, что влияет
    на запуск или на проверку запуска, обязано быть здесь: адаптеры, engine,
    схемы (lib/schema.mjs), prompts, environment policy, прокси, broker, план
-   sandbox, matrix, evidence и контракты/политики задач. */
+   sandbox, matrix, evidence, хранилища состояния/артефактов и
+   контракты/политики задач. */
 export const MANIFEST_DIRS = Object.freeze(['lib', 'adapters', 'tools', 'contracts', 'policies']);
+/* fix7: state/ и artifacts/ — контейнеры. В них рядом с кодом
+   (state/store.mjs, artifacts/store.mjs, artifacts/apply.mjs, который
+   применяет патч к рабочему дереву) лежат данные прогонов
+   (state/<task>/state.json, artifacts/<task>/<iteration>/...). Данные меняются
+   каждым запуском и сборку не описывают, поэтому из этих каталогов в manifest
+   входят только модули верхнего уровня. Раньше здесь не было ни одного файла,
+   и правка apply.mjs или store.mjs не меняла rootHash. */
+export const MANIFEST_CODE_DIRS = Object.freeze(['state', 'artifacts']);
+export const MANIFEST_CODE_RE = /\.(mjs|cjs|js)$/i;
 export const MANIFEST_FILES = Object.freeze(['orchestrator.mjs']);
 /* Пакет не обязан иметь package.json, но если он есть, он тоже входит в
    manifest: без него менялись бы режимы запуска. */
@@ -433,6 +443,22 @@ export function runtimeManifest(root = ORCH_ROOT) {
     }
   };
   for (const dir of MANIFEST_DIRS) visit(path.join(root, dir), dir);
+  for (const dir of MANIFEST_CODE_DIRS) {
+    const abs = path.join(root, dir);
+    let entries;
+    try {
+      entries = fs.readdirSync(abs, { withFileTypes: true });
+    } catch (err) {
+      missing.push({ path: dir, detail: err.code || err.message });
+      continue;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isFile() || !MANIFEST_CODE_RE.test(entry.name)) continue;
+      const rel = `${dir}/${entry.name}`;
+      const data = fs.readFileSync(path.join(abs, entry.name));
+      files.push({ path: rel, bytes: data.length, sha256: sha256(data) });
+    }
+  }
   for (const rel of MANIFEST_FILES) {
     const abs = path.join(root, rel);
     if (!fs.existsSync(abs)) {
@@ -451,7 +477,7 @@ export function runtimeManifest(root = ORCH_ROOT) {
   files.sort((a, b) => a.path.localeCompare(b.path));
   return {
     root: 'orchestrator',
-    dirs: [...MANIFEST_DIRS],
+    dirs: [...MANIFEST_DIRS, ...MANIFEST_CODE_DIRS],
     files,
     count: files.length,
     rootHash: sha256Text(canonical(files)),

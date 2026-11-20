@@ -4,7 +4,7 @@
 исправление → приёмка, с hash-журналом, восстановлением после остановки и
 типизированными действиями.
 
-> **Статус: Stage A fix6 — безscript-mode прокси, полный runtime manifest, гарантированное удаление CODEX_HOME.**
+> **Статус: Stage A fix7 — весь исполняемый код в runtime manifest, включая `state/` и `artifacts/`.**
 > Настоящий агент не запускается ни одним unit-тестом: в тестовом процессе
 > адаптер возвращает `REAL_AGENT_DISABLED_IN_TEST` даже при установленном,
 > авторизованном Codex и ключе в окружении. Реальный двухагентный цикл ещё не
@@ -257,7 +257,8 @@ timeout, SIGTERM, отмена), из `finally` шага engine, из `finally` 
 
 **3. Уровень 3 привязан ко всему runtime.** Вместо восьми выбранных файлов
 evidence содержит единый manifest (`lib/`, `adapters/`, `tools/`,
-`contracts/`, `policies/`, `orchestrator.mjs`) с `rootHash`. Изменение одного
+`contracts/`, `policies/`, `orchestrator.mjs`) с `rootHash`. Список каталогов
+оказался неполным — `state/` и `artifacts/` добавлены в 0.8. Изменение одного
 байта любого runtime-файла (включая `adapters/codex-cli.mjs`, `lib/engine.mjs`,
 `lib/envpolicy.mjs`, `lib/prompts.mjs`, схемы и harness'ы) меняет `rootHash` и
 инвалидирует evidence. Verifier требует `dirty === false` и `dirtyFiles === 0`
@@ -280,8 +281,32 @@ lock-файлом, поэтому конкурентные preflight'ы не т�
 
 **Ограничение остаётся тем же.** Уровень 3 в этой сборке не доказан:
 `codex login` не выполнялся, `agent-hostile-check --real` не запускался,
-`adapterEndToEnd=false`, preflight — `BLOCKED` с кодом `3`. До приёмки fix6
+`adapterEndToEnd=false`, preflight — `BLOCKED` с кодом `3`. До приёмки fix7
 запрещены `--real`, автономный цикл, Stage B и push.
+
+## 0.8 Исправление fix7
+
+Аудит fix6 нашёл дыру в самой привязке: manifest обходил только `lib/`,
+`adapters/`, `tools/`, `contracts/`, `policies/` и `orchestrator.mjs`, а
+`state/store.mjs`, `artifacts/store.mjs` и `artifacts/apply.mjs` — исполняемый
+runtime-код (apply.mjs применяет патч к рабочему дереву) — оставались вне
+хэша. Правка этого кода не меняла `rootHash`, и подписанное evidence
+продолжало приниматься.
+
+Теперь `runtimeManifest` берёт из `state/` и `artifacts/` модули верхнего
+уровня (`.mjs`/`.cjs`/`.js`) и не берёт данные прогонов: `state/<task>/state.json`
+и `artifacts/<task>/<iteration>/...` меняются каждым запуском, и их включение
+делало бы evidence недействительным сразу после собственного прогона.
+Данные по-прежнему защищены SHA256 в state и журнале, но не входят в
+fingerprint сборки. `EVIDENCE_VERSION` поднят до 4, поэтому evidence,
+подписанное по старому (неполному) manifest, отклоняется как несовместимое.
+
+Регрессии: `tests/evidence.test.mjs` проверяет, что три модуля входят в
+manifest, что изменение `state/lesson-01/state.json` или файла артефакта не
+меняет `rootHash`, что один байт в `artifacts/apply.mjs` его меняет и что
+любой модуль, достижимый из runtime entrypoint'ов через граф импортов,
+присутствует в manifest. Последняя проверка не даёт новому каталогу с кодом
+снова выпасть из привязки незамеченным.
 
 ---
 

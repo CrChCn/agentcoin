@@ -3,7 +3,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:15852) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:18208) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -48,7 +48,7 @@ exit 0
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:3852) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:15908) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -100,7 +100,7 @@ exit 0
 ℹ cancelled 0
 ℹ skipped 10
 ℹ todo 0
-ℹ duration_ms 240754.146
+ℹ duration_ms 199231.5476
 --- stderr ---
 
 

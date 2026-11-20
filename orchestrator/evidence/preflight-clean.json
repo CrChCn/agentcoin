@@ -2,7 +2,7 @@
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-8HFpLO\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-8qw2OB\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
     "available": true,
     "backend": "wsl-bwrap",

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const siteOrigin = 'https://agentcoin.work';
 const tree = JSON.parse(readFileSync(new URL('../site/tree.json', import.meta.url), 'utf8'));
 const excludedDirs = new Set([
@@ -10,15 +13,17 @@ const excludedDirs = new Set([
   'release', 'node_modules', '.next',
 ]);
 
-function* siteFiles(dir) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory() && !excludedDirs.has(entry.name)) {
-      yield* siteFiles(path);
-    } else if (entry.isFile() && /\.(?:html|[cm]?js|jsx|ts|tsx|webmanifest)$/.test(entry.name)) {
-      yield path;
-    }
-  }
+// Tracked sources only: the index is the source of truth, so build output left on
+// disk (web/out, web/node_modules_dead*) never reaches the scan, and git hands us
+// '/'-separated paths on every platform.
+function siteFiles(dir) {
+  return execFileSync('git', ['-C', repoRoot, 'ls-files', '-z', '--', dir], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .split('\0')
+    .filter(path => /\.(?:html|[cm]?js|jsx|ts|tsx|webmanifest)$/.test(path))
+    .filter(path => !path.split('/').slice(0, -1).some(segment => excludedDirs.has(segment)));
 }
 
 function attribute(tag, name) {
@@ -70,7 +75,7 @@ test('site links, forms, navigation, and the machine tree avoid legacy home rout
 
   for (const dir of ['site', 'web']) {
     for (const path of siteFiles(dir)) {
-      const source = readFileSync(path, 'utf8');
+      const source = readFileSync(join(repoRoot, path), 'utf8');
       const base = siteOrigin + '/' + (dir === 'site' ? path.slice('site/'.length) : '');
 
       for (const match of source.matchAll(/(?:\s|\.)(?:href|action|formaction)\s*=\s*(?:\{\s*)?(?:"([^"]*)"|'([^']*)'|([^\s>"'{][^\s>]*))/gi)) {

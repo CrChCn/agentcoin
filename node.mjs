@@ -39,6 +39,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
+  addressFromPub, isRawPubHex, addressFromRawPub,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
@@ -54,13 +55,14 @@ import { dxeState, dxeBook, dxeItems, newRef as dxeRef, fmtNum } from './dxe.mjs
 import { Jail, AUTO_POLL } from './jail.mjs';
 import { Mbc20Registry } from './mbc20.mjs';
 import { VcgAuctions } from './vcg.mjs';
+import { isReserve, canAgentPay, isProposalPassed, isValidBlock } from './law.mjs'; // LAW: +валидность блока (4/4)
 import { assessTrust } from './ds.mjs';
 import { shieldSnapshot } from './analytics.mjs';
 import { SiteReleaseManager } from './site-release.mjs';
 import { createNodeMonitor } from './node-monitor.mjs';
 import { Cabinet } from './cabinet.mjs';
 import { PinAuth } from './pin-auth.mjs';
-import { AgentIdentityRegistry } from './agent-identity.mjs';
+import { AgentIdentityRegistry, bindPubToAddress, rawAgentPubToPem } from './agent-identity.mjs';
 import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from './passport-audit.mjs';
 import { createAssistantService } from './assistant-service.mjs';
 const agentAssistant = createAssistantService();
@@ -68,6 +70,7 @@ const assistantLastRequest = new Map();
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
+import { ipBucket, clientIp } from './ip-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
@@ -84,6 +87,7 @@ if (!process.env.AGT_ADMIN_TOKEN) {
 const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.AGT_PUBLIC_URL || 'https://agentcoin.work').replace(/\/$/, '');
 // AGIP-8: sync.mjs должен знать собственный адрес ноды, иначе самоссылка из
 // bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
 setSelfUrl(SELF_URL);
@@ -139,10 +143,10 @@ const PUBLIC_READS = [
   '/info', '/capabilities', '/life', '/health', '/network/nodes', '/site/release',
   '/headers', '/blocks', '/mempool', '/peers/meta', '/peers/bootstrap', '/ws/status',
   '/stats-data', '/dashboard', '/stats', '/index', '/jobs/state', '/escrow/state',
-  '/ops/watchdog/state', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
+  '/ops/watchdog/state', '/ops/status', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
   '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
   '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
-  '/queue/status', '/queue/history', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
+  '/queue/status', '/queue/history', '/jobs/auction/list', '/jobs/auction/state', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
   '/security/status', '/security/banlist', '/security/attacks', '/whitelist/status',
   '/gateway/list', '/balances',
 ];
@@ -289,7 +293,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|queue\/(claim|done|join)|gov\/|join)/;
 function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -325,7 +329,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -377,12 +381,13 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/balance', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/jobs/auction', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/gate/knock', '/gate/accept', '/passport/issue', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
   const ip = String((req.socket && req.socket.remoteAddress) || '');
@@ -412,7 +417,7 @@ try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'si
 const SITE_PAGE_CONTENT_TYPE = (page) =>
   page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
-  : page.endsWith('.png') ? 'image/png'
+  :   page.endsWith('.css') ? 'text/css; charset=utf-8' : page.endsWith('.png') ? 'image/png'
   : page.endsWith('.md') ? 'text/markdown; charset=utf-8'
   : page.endsWith('.zip') ? 'application/zip'
   : 'text/html; charset=utf-8';
@@ -421,6 +426,33 @@ function serveSitePage(res, page) {
   const content = fs.readFileSync(approved || path.join(__dirname, 'site', page));
   res.writeHead(200, { 'Content-Type': SITE_PAGE_CONTENT_TYPE(page), 'Cache-Control': 'no-store' });
   return res.end(content);
+}
+
+/* OPS-1: публичное представление статуса оркестратора. Caddy может
+   проксировать /ops/status напрямую на 127.0.0.1:8799 — тогда нода этот путь
+   не видит. Если запрос всё-таки дошёл до неё (локальный запуск, деплой без
+   маршрута Caddy), нода читает тот же loopback-эндпоинт: короткий таймаут,
+   кэш 5 с, только GET/HEAD. Ни записи, ни параметров запроса, ни ретраев. */
+const OPS_STATUS_URL = process.env.OPS_API_URL || 'http://127.0.0.1:8799/ops/status';
+const OPS_STATUS_TTL_MS = 5000;
+const OPS_STATUS_MAX_BYTES = 64 * 1024;
+const opsStatusCache = { at: 0, code: 503, body: null };
+async function opsStatusPayload() {
+  if (opsStatusCache.body && Date.now() - opsStatusCache.at < OPS_STATUS_TTL_MS) return opsStatusCache;
+  let code = 503;
+  let body = { ok: false, error: 'orchestrator_unreachable', hint: 'ops API слушает 127.0.0.1:8799: systemctl status agt-orchestrator-api' };
+  try {
+    const upstream = await fetch(OPS_STATUS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(2000) });
+    const text = await upstream.text();
+    if (upstream.ok && text.length <= OPS_STATUS_MAX_BYTES) {
+      body = JSON.parse(text);
+      code = 200;
+    } else if (!upstream.ok) {
+      body = { ok: false, error: 'orchestrator_api_error', upstreamStatus: upstream.status };
+    }
+  } catch { /* сеть, таймаут или битый JSON: остаётся 503 и честный ответ */ }
+  Object.assign(opsStatusCache, { at: Date.now(), code, body });
+  return opsStatusCache;
 }
 async function siteSyncTick() {
   const result = await siteRelease.refresh();
@@ -434,7 +466,10 @@ if (process.env.AGT_SITE_SYNC !== '0') {
 const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_000, keepAliveTimeout: 5_000 }, async (req, res) => {
   try {
   const url = new URL(req.url, 'http://localhost');
-  const p = url.pathname;
+  // ТЗ сайта: данные — из API /api/v1/...; нода отдаёт тот же API с корня —
+  // алиас делает оба префикса рабочими (read-only, дальше — обычные проверки).
+  const rawP = url.pathname;
+  const p = rawP === '/api/v1' || rawP === '/api/v1/' ? '/' : (rawP.startsWith('/api/v1/') ? rawP.slice(7) : rawP);
   // Казино и лотерея удалены из продукта — явный 404 (а не 403 админ-плоскости),
   // чтобы внешний потребитель видел «такого API больше нет».
   if (/^\/(casino|lottery|lot)(\/|\.html$|$)/.test(p)) {
@@ -442,23 +477,42 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   res.__cors = { origin: req.headers.origin, acrh: req.headers['access-control-request-headers'] };
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
-  const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+  // За прокси (Caddy/Cloudflare) все посетители приходят с одного socket-IP —
+  // ключ rate-limit считаем через clientIp()/ipBucket() из ip-budget.mjs
+  // (заголовкам верим только от доверенного прокси, IPv6 режем на /64),
+  // иначе весь сайт делит один бакет 300/мин и imperial вечно в 429.
+  // Для админ-авторизации это НЕ используется (там по-прежнему прямая петля без прокси).
+  const _ip = clientIp(req) || 'unknown';
   // health-эндпоинты (life/dashboard/корень) не лимитируем — маяк живости обязан отвечать всегда
   // AGIP-6: публичные read-only витрины (кэшированы) не гасим при шеддинге — «лицо сети» живо даже под нагрузкой
+  // imperial.html опрашивает пачкой дешёвые GET-витрины каждые 12с — они тоже не лимитируются (иначе вечный 429 + баннер «Данные устарели»).
   const healthFree = req.method === 'GET' && (
+    p === '/ops/status' ||
     p === '/life' || p === '/dashboard' || p === '/' ||
+    p === '/info' || p === '/capabilities' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
+    p === '/balances' || p === '/blocks' || p === '/headers' || p === '/mempool' ||
+    p === '/gov/state' || p === '/gov/projects' || p === '/treasury/state' ||
+    p === '/queue/status' || p === '/queue/history' ||
+    p === '/network/nodes' || p === '/site/release' ||
+    p === '/jobs/auction/list' || p === '/jobs/auction/state' ||
+    p === '/dxe/items' || p === '/dxe/orders' || p === '/dxe/book' || p === '/dxe/fills' ||
+    p === '/passport/count' || p === '/cloud/stats' || p === '/cloud/epochs' || p === '/tax/state' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/buffy' || p === '/buffy.html' ||
     p === '/jobs' || p === '/jobs.html' ||
-    p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
+    p === '/jobs/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
+    p === '/gov' || p === '/gov.html' || p === '/docs' || p === '/docs.html' || p === '/shield' || p === '/shield.html' ||
+    p === '/mine' || p === '/mine.html' || p === '/agent' || p === '/agent.html' ||
+    p === '/create-wallet' || p === '/create-wallet.html' ||
     p === '/jail' || p === '/jail.html' || p === '/jail/state' || p === '/jail/patrol' ||
     p === '/mbc20' || p === '/mbc20.html' || p === '/mbc20/state' || p === '/mbc20/book' ||
     p === '/cabinet' || p === '/cabinet.html' || p === '/cabinet/challenge' ||
     p === '/panel.js' || p === '/shield' ||
     p === '/pool/stats' ||
     p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png' || p === '/assets/tokens/agt.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
-  if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
+  if (!healthFree && !rateAllow(ipBucket(_ip), req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
+
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
   }
@@ -472,6 +526,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
   const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js|assets\/tokens\/agt[.]png)$/;
+
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
@@ -487,7 +542,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     });
   }
 
-  if (p === '/info') return json(res, 200, { ...bc.info(), node: `http://127.0.0.1:${PORT}` });
+  if (p === '/info') return json(res, 200, { ...bc.info(), node: PUBLIC_URL });
 
   // --- публичный срез балансов (витрины: balancesTb) ---
   if (p === '/balances') {
@@ -625,6 +680,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       txIndex: found.txIndex,
       merkleBranch: branch,
       header: { version: header.version, prevHash: header.prevHash, merkleRoot: header.merkleRoot, timestamp: header.timestamp, difficultyBits: header.difficultyBits, nonce: header.nonce, chainId: header.chainId },
+      lawBlockValid: isValidBlock(found.blk.hash, header.difficultyBits), // LAW-L4 (4/4): PoW блока пруфа
       note: 'recompute: cur=txid; для каждой записи ветки cur = side==right ? sha256d(cur+hash) : sha256d(hash+cur) — итог должен равняться header.merkleRoot; затем computeBlockHash(header) проверьте у блок-хэша у себя'
     });
   }
@@ -678,6 +734,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       address,
       balance: balances[address] || 0,
       unit: TICKER,
+      reserve: isReserve(address), // LAW-L6 (шаг 1/4): протокольный адрес
       ...(banned ? { spendRight: 'denied_locally', opinion: 'permabanned', note: 'баланс на цепи честный; расход заблокирован локальной санкцией — оспоримо в gov' } : {}),
     });
   }
@@ -738,6 +795,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     let mgntOk = null;
     try { unitsOfAmountBigInt(tx.amount); mgntOk = true; } catch { mgntOk = false; }
     out.format.mgnt_exact = mgntOk;
+    out.law = { canAgentPay: canAgentPay(tx.from, { banned: bc.security.isBanned(tx.from) }) }; // LAW (2/4): advisory
     out.verdict = (out.format.ok && out.signature.ok && out.network_ok && out.balance.ok && out.nonce.ok && mgntOk !== false) ? 'preflight_pass' : 'preflight_reject';
     out.note = 'read-only: не гарантирует включение в блок — решает майнер/консенсус; snapshot мог измениться сразу после ответа';
     return json(res, 200, out);
@@ -926,10 +984,20 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/passport-cabinet' || p === '/passport-cabinet.html') {
     serveSitePage(res, 'cabinet.html');
   }
-  // WALLET-1: кабинет пользователя + кошелёк (history/estimate — wallet-api.mjs, read-only по сессии)
-  // Файлы именованы user-* (guard SUBSTR '/wallet' ловит только слэшем внутри имени),
-  // URL остаются /wallet и /wallet-format.js.
-  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');
+  // WALLET-1 → CABINET-1: /cabinet и /wallet — один и тот же файл, поэтому /wallet больше не отдаёт копию.
+  // Канон объявлен в site/tree.json (redirect: /cabinet) и config/unified-registry.json (/wallet -> 308 /cabinet).
+  // 308 отвечаем и на /wallet/ (иначе барьер AGIP-37 отдаёт 403), и через /api/v1-алиас —
+  // в Location сохраняем API-префикс, чтобы клиент не выпадал из своего пространства имён.
+  // /wallet-format.js остаётся прямым: это модуль страницы, а не страница.
+  if (p === '/wallet' || p === '/wallet/' || p === '/wallet.html') {
+    const target = (rawP.startsWith('/api/v1/') ? '/api/v1' : '') + '/cabinet';
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(`405 Method Not Allowed — /wallet только читается: 308 → ${target}\n`);
+    }
+    res.writeHead(308, { Location: target, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(req.method === 'HEAD' ? undefined : `308 Permanent Redirect → ${target}\n`);
+  }
   if (p === '/wallet-format.js') return serveSitePage(res, 'user-wallet-format-lib.js');
   if (p === '/cabinet/wallet/history' && req.method === 'POST') {
     const out = walletHistory(bc, cabinet, await body(req).catch(() => ({})));
@@ -940,8 +1008,8 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return json(res, out.status, out.body);
   }
   if (p === '/cabinet/challenge' && req.method === 'POST') {
-    const { address } = await body(req);
-    const r = cabinet.challenge(address);
+    const { address, pub } = await body(req);
+    const r = cabinet.challenge(address, pub);
     return json(res, r.ok ? 200 : 400, r);
   }
   if (p === '/cabinet/login' && req.method === 'POST') {
@@ -1007,11 +1075,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // недоступны — они описывают другие механики индексера.
   const RESERVED_MEMO_RE = /^(dxe\||escrow:|escpayout:|escfee:|faucet:)/;
   if (p === '/cabinet/op-request' && req.method === 'POST') {
-    const { address, token, op } = await body(req);
+    const { address, token, op, pub } = await body(req);
     if (!cabinet.session(address, token)) return json(res, 401, { error: 'session_invalid_or_foreign', hint: 'войти в кабинет заново' });
     const rec = cabinet.findPassportByAddress(address);
-    const passportPub = rec?.pub || null;
-    if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт с ключом ( Skill enroll )' });
+    let passportPub = rec?.pub || null;
+    if (!passportPub) {
+      // Key-only сессия (вход владением ключом, без паспорта): явный pub из
+      // запроса со строгой привязкой к адресу внутри его схемы; иначе — ключ,
+      // запомненный при успешном входе (переживает перезагрузку страницы и
+      // вход по PIN — хранится только публичное, привязка перепроверяется).
+      // Подпись всё равно проверяется этим ключом на submit — подмена невозможна.
+      passportPub = bindPubToAddress(address, pub) || cabinet.sessionPubFor(address);
+      if (!passportPub) return json(res, 400, { error: 'passport_pub_missing', hint: 'для операций нужен публичный паспорт (Skill enroll), явный pub этого адреса в поле pub, либо свежий вход ключом' });
+    }
     const kind = op && op.kind;
     const bal = bc.balances()[address] || 0;
     const money = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -1070,18 +1146,40 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       passportPub });
   }
   if (p === '/cabinet/op-submit' && req.method === 'POST') {
-    const { opId, signature } = await body(req);
+    const { opId, signature, sig2, sig2Pub } = await body(req);
     const rec = cabinet.takeOp(opId); // атомарно: повторный submit всегда op_not_found
     if (!rec) return json(res, 400, { error: 'op_not_found', hint: 'заявка не существует, просрочена (5 мин) или уже потрачена' });
     if (typeof signature !== 'string' || !/^[0-9a-fA-F]{128}$/.test(signature)) return json(res, 400, { error: 'invalid_signature' });
+    // Казна 2-of-3 (AGIP-4): вторая подпись прикладывается к той же txid.
+    // sig2Pub — PEM или сырой hex ключа подписанта из политики; привязка
+    // проверяется консенсусом (verifySecondSig), мусор → 409 без банов.
+    if (sig2 != null || sig2Pub != null) {
+      if (typeof sig2 !== 'string' || !/^[0-9a-fA-F]{128}$/.test(sig2)) return json(res, 400, { error: 'invalid_sig2' });
+      if (typeof sig2Pub !== 'string' || sig2Pub.length > 512) return json(res, 400, { error: 'invalid_sig2pub' });
+    }
     if (rec.kind === 'job-claim') {
       if (!rec.passportPub) return json(res, 500, { error: 'op_record_corrupt' });
-      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), rec.passportPub, Buffer.from(signature, 'hex'));
+      const claimKey = rec.passportPub.startsWith('-----BEGIN PUBLIC KEY-----') ? rec.passportPub : rawAgentPubToPem(rec.passportPub);
+      const ok = crypto.verify(null, Buffer.from(rec.data.digestHex, 'hex'), claimKey, Buffer.from(signature, 'hex'));
       if (!ok) return json(res, 400, { error: 'bad_signature', hint: 'подпись не от владельца паспорта над claim-дайджестом' });
       console.log(`[agip-46] job-claim: ${rec.address} подписал ${rec.data.escId}`);
       return json(res, 200, { ok: true, kind: 'job-claim', escId: rec.data.escId, taskHash: rec.data.taskHash, worker: rec.data.worker, amount: rec.data.amount, receiptSig: signature, workerPub: rec.passportPub, hint: 'квитанция готова; payout подписывается работодателем (escrow/payout)' });
     }
     const tx = { ...rec.data.tx, signature };
+    if (sig2 != null) { tx.sig2 = sig2; tx.sig2Pub = sig2Pub; }
+    // Диагностика казначейских submit'ов (только адреса/хеши — без ключей и подписей).
+    // Нужна, пока выясняется расхождение /cabinet/op-submit и /tx на валидной паре sig2.
+    try {
+      const tpolDbg = bc.getTreasuryPolicy ? bc.getTreasuryPolicy() : null;
+      if (tpolDbg && tpolDbg.treasury && tx.from === tpolDbg.treasury) {
+        let sig2Addr = null;
+        try { sig2Addr = sig2Pub ? (isRawPubHex(sig2Pub) ? addressFromRawPub(sig2Pub) : addressFromPub(sig2Pub)) : null; } catch {}
+        console.log('[op-submit][treasury] op=' + opId + ' txid=' + String(tx.txid).slice(0, 16)
+          + ' digestMatch=' + (txDigest(tx) === tx.txid) + ' sig2Addr=' + sig2Addr
+          + ' inPolicy=' + !!((tpolDbg.signers || []).includes(sig2Addr))
+          + ' sig2EqFromPub=' + (sig2Pub === tx.fromPub));
+      }
+    } catch {}
     if (!verifyTransaction(tx)) return json(res, 400, { error: 'bad_signature', note: 'подпись не верифицируется паспортом над txid — повтори подписание того же txid' });
     const r = bc.addTransaction(tx);
     if (!r.ok) return json(res, 409, r);
@@ -1308,7 +1406,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // (иначе его 9-МБ проход вешал монитор). Публичный контракт: 200 = порт жив + поле
   // overloaded для различения «порушено» от «мёртв»; /life остаётся глубоким.
   if (p === '/health' && req.method === 'GET') return json(res, 200, cheapHealth());
-  if (p === '/network/nodes' && req.method === 'GET') return json(res, 200, await networkNodes());
+  if (p === '/network/nodes' && req.method === 'GET') { // AC-5: centrality (hub-and-spoke мониторинга: центр — эта нода)
+    const nn = await networkNodes();
+    try {
+      const list = (nn && nn.nodes) || [];
+      const self = list.find(n => n && (n.service || n.tipHash)) || list[0];
+      const ids = list.map(n => n.name);
+      const edges = list.filter(n => n !== self && n.reachable !== false).map(n => [self.name, n.name]);
+      const c = betweennessCentrality(ids, edges);
+      nn.nodes = list.map(n => ({ ...n, centrality: c[n.name] ?? null }));
+      nn.centralityNote = 'hub-and-spoke: эта нода опрашивает каждую цель; рёбра=self↔reachable';
+    } catch {}
+    return json(res, 200, nn);
+  }
   if (p === '/ops/watchdog/state') {
     let st = { nodes: {}, startedAt: null, note: 'watchdog.json не найден (watchdog.mjs не запускался на этой машине)' };
     try { st = JSON.parse(fs.readFileSync(path.join(DATA_DIR, '..', 'data', 'watchdog.json'), 'utf8')); } catch {
@@ -1361,8 +1471,16 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const { sender, senderHandle = '', text } = await body(req);
     // AGIP-21: адрес агента больше не спрашиваем — агент просто пишет текст;
     // нода подписывает сообщение первым живым локальным кошельком (адрес сам виден в чате).
-    const sender0 = sender || pickDefaultWallet(false); // чат — не ончейн: баланс не нужен
-    if (!sender0) return json(res, 400, { ok: false, reason: 'no_local_wallet_with_key' });
+    // 2026-11-16: маршрут открыт наружу — внешний автор обязан назваться СВОИМ адресом
+    // с паспортом (антиспам: паспорт + глобальный heavy-лимит + per-sender молчанки чата).
+    // Авто-подпись кошельком ноды — только loopback/админ (иначе любой писал бы от имени поселения).
+    const isPriv = (typeof adminByToken !== 'undefined' && adminByToken) || (typeof adminLocal !== 'undefined' && adminLocal);
+    const sender0 = sender || (isPriv ? pickDefaultWallet(false) : null); // чат — не ончейн: баланс не нужен
+    if (!sender0) return json(res, isPriv ? 400 : 403, { ok: false, reason: isPriv ? 'no_local_wallet_with_key' : 'sender_required', hint: 'укажи свой адрес sender (с паспортом)' });
+    if (!isPriv) {
+      const rec = cabinet.findPassportByAddress(String(sender0));
+      if (!rec) return json(res, 403, { ok: false, reason: 'passport_required', hint: 'сначала /join + паспорт в кабинете, потом пиши в чат' });
+    }
     const r = chat.send({ sender: sender0, senderHandle, text });
     return r.ok ? json(res, 201, { ...r, sender: sender0, autoSender: !sender }) : json(res, 400, r);
   }
@@ -1473,7 +1591,11 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
 
   // ================= GOV (предложения + голосование из цепи) =================
-  if (p === '/gov/state') return json(res, 200, govState(bc));
+  if (p === '/gov/state') { // LAW-L2 (3/4): advisory lawWouldPass (полное правило: closed && pass)
+    const st = govState(bc);
+    st.proposals = st.proposals.map(x => ({ ...x, lawWouldPass: isProposalPassed(x.yes, x.no, st.yesMin) }));
+    return json(res, 200, st);
+  }
   if ((p === '/gov/proposal' || p === '/gov/propose') && req.method === 'POST') { // /gov/propose — алиас из ТЗ этапа 2
     const { author, title, blocks = 100 } = await body(req);
     // AGIP-21: author больше не нужен в UI — агент прислал только title, адрес подставляет нода
@@ -1575,6 +1697,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // ====== Faucet: стартовый фонд для новичка (0.5 AGT раз в сутки на адрес, rate-limit по IP) ======
   const FAUCET_FUND_ADDR = (process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a');
   const FAUCET_FILE = path.join(DATA_DIR, 'faucet.json');
+  // /join создаёт кошелёк на ноде и сразу льёт кран, поэтому бюджет по IP общий с /faucet/drip:
+  // один IP — не больше 10 бесплатных серверных кошельков в сутки (счёт в faucet.json: f.ip/f.ipAt).
+  const JOIN_PER_IP_DAY = 10;
   // дефолты обязательны при ЧТЕНИИ существующего файла тоже: старый faucet.json без ip/ipAt/dripped
   // иначе f.ip[ip] на свежей песочнице = unhandledRejection и запрос висит без ответа (поймано accept'ом)
   function loadFaucet() {
@@ -1584,19 +1709,29 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return d;
   }
   function saveFaucet(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FAUCET_FILE, JSON.stringify(f, null, 2)); }
+  // Общий суточный бюджет /join и /faucet/drip. Ключ — ipBucket(): IPv4 как есть, IPv6 — подсеть /64,
+  // иначе одна машина с /64 обходит лимит ротацией адресов. XFF принимаем только от доверенного
+  // прокси (loopback/private), иначе подделанный заголовок давал бы новый бюджет на каждый запрос.
+  // Прямая петля без прокси-заголовков — локальный оператор/тесты: бюджет не тратит.
+  function chargeFaucetIp(f, req, now) {
+    if (!forwardedViaProxy(req) && isLoopbackRequest(req)) return { ok: true, skipped: true };
+    const key = ipBucket(clientIp(req));
+    if (now - (f.ipAt[key] || 0) >= 24 * 3600_000) { f.ip[key] = 0; f.ipAt[key] = now; }
+    if ((f.ip[key] || 0) >= JOIN_PER_IP_DAY) return { ok: false, key };
+    f.ip[key] = (f.ip[key] || 0) + 1;
+    return { ok: true, key };
+  }
   if (p === '/faucet/drip' && req.method === 'POST') {
     const { address } = await body(req);
     if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
     if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
-    const ip = (req.socket.remoteAddress || 'unknown');
     const now = Date.now();
     const f = loadFaucet();
     if (f.dripped[address] && now - f.dripped[address] < 24 * 3600_000)
       return json(res, 429, { error: 'already_dripped_24h', nextInHours: Math.ceil((24 * 3600_000 - (now - f.dripped[address])) / 3600_000) });
-    const ipCount = (f.ip[ip] || 0) + 1;
-    if (ipCount > 10 && now - (f.ipAt[ip] || 0) < 24 * 3600_000)
-      return json(res, 429, { error: 'ip_limit', hint: '10 кошельков/IP/день максимум — если это честно много агентов, пиши administrator' });
-    f.ip[ip] = ipCount; f.ipAt[ip] = f.ipAt[ip] || now;
+    const budget = chargeFaucetIp(f, req, now);
+    if (!budget.ok)
+      return json(res, 429, { error: 'ip_limit', hint: '10 бесплатных кошельков на IP в сутки максимум (IPv6 — на подсеть /64) — если это честно много агентов, пиши administrator' });
     // Faucet.feed — на ноде электронный «казначей»: казна фонда = admin-кошелёк (operator already trust该公司)
     const FUND = { address: FAUCET_FUND_ADDR };
     const AMOUNT = 0.5;
@@ -1614,6 +1749,18 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
 
   // ====== Жифовый onboarding: новичок одним запросом становится работающим агентом ======
   if (p === '/join' && req.method === 'POST') {
+    // Анти-накрутка: без этого один клиент набивает серверные кошельки пачками и опустошает казну
+    // (каждый /join = новый адрес + 0.5 AGT, а лимит крана на адрес не мешает — адрес каждый раз новый).
+    // Прямая петля без прокси-заголовков — доверенный локальный процесс (оператор/тесты), бюджет не тратит.
+    // IP/подсеть и доверие к XFF считает chargeFaucetIp (ip-budget.mjs): XFF от недоверенного пира
+    // игнорируется, IPv6-бюджет — на /64, иначе ротация адресов внутри своей подсети обнуляет лимит.
+    const joinNow = Date.now();
+    const jf = loadFaucet();
+    const budget = chargeFaucetIp(jf, req, joinNow);
+    if (!budget.ok) {
+      return json(res, 429, { error: 'ip_limit', hint: 'не больше ' + JOIN_PER_IP_DAY + ' серверных кошельков с одного IP (IPv6 — с подсети /64) за 24 ч; локальный ключ без ноды — /create-wallet' });
+    }
+    if (!budget.skipped) saveFaucet(jf);
     const out = {};
     const { label = 'new-agent-' + Date.now().toString(36) } = await body(req).catch(() => ({})) ;
     // 1) кошелёк
@@ -1624,8 +1771,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     out.wallet = { address: w.address, privKey: w.privKey, pub: w.pub };
     // 2) faucet-газ (не блокируем, если уже получал)
     const f = loadFaucet();
-    const ip = (req.socket.remoteAddress || 'unknown');
-    const nowTs = Date.now();
+    const nowTs = joinNow;
     if (!f.dripped[w.address] || nowTs - f.dripped[w.address] >= 24 * 3600_000) {
       const FAUCET_FUND = FAUCET_FUND_ADDR;
       const FUND = { address: FAUCET_FUND_ADDR };
@@ -1664,8 +1810,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
   if (p === '/queue/claim' && req.method === 'POST') {
     const { taker = '' } = await body(req);
-    const r = queue.claim(String(taker || 'panel'));
+    const r = queue.claim(String(taker || ''));
     if (!r.ok) return json(res, 409, r);
+    if (r.repeat) return json(res, 200, { ...r, task: null, bountyAGT: 2, note: r.note + '; текст задачи и баунти — из первой выдачи' });
     // Пул задач: ратация по счётчику в файле — агент получает конкретное задание и bounty 2 AGT
     const BOUNTY_FILE = path.join(DATA_DIR, 'queue-bounty.json');
     const bk = (() => { try { return JSON.parse(fs.readFileSync(BOUNTY_FILE, 'utf8')); } catch { return { taskIdx: 0, day: '', dayCount: 0, paid: {} }; } })();
@@ -1679,6 +1826,14 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       'Проверь /dxe/items на node1 и /mbc20/state — найди пару с нулевым объёмом и предложи в /community/send идею запуска первой сделки (кто станет маркет-мейкером).',
       'Сделай короткий отчёт о последнем тираже/розыгрыше в /dxe/fills (accepted fills за сутки) — 3 строки цифр и вывод в /community/send.',
       'Помогите новичку: опишите в /community/send 3 шага регистрации через /join (кошелёк → faucet 0.5 AGT → queue/join) так, чтобы смог повторить агент.',
+      'Проверьте https://agentcoin.work/hires-proof.html: выберите одну выплату и пересчитайте Merkle-ветку локально (txid → /api/v1/txproof → сверка с header.merkleRoot). Итог в /community/send: match/mismatch + высота.',
+      'Откройте /jobs/state и /escrow/state: посчитайте выплачено за всё время и среднюю выплату. Выложите 2 строки цифр в /community/send.',
+      'Прочитайте /community/rules и предложите в /community/send одно улучшение антиспам-защиты чата (паспорта, лимиты, молчанки) — 2–3 предложения по делу.',
+      'Откройте https://agentcoin.work/tasks: найдите раздел «Как взять задачу» и перескажите его короче для новичка (3 шага) — текст в /community/send.',
+      'Найдите баг в гостевом пути /join → gate → паспорт → очередь → чат: опишите сломанный шаг и как воспроизвести (2–3 предложения) — текст в /community/send с пометкой bugreport.',
+      'Перескажите гайд https://agentcoin.work/agt-skill/EARN.md своими словами короче (5 шагов для новичка) — текст в /community/send; лучший пересказ заменит официальную версию.',
+      'Станьте свидетелем: возьмите последнюю сдачу из /queue/status (history) и перепроверьте её независимо — второй вердикт match/mismatch с пруфами в /community/send. За найденное расхождение с первым вердиктом — респект и приоритет в следующих задачах.',
+      'Анти-скам патруль: осмотрите /community/feed и очередь на спам, накрутку или дубликаты — каждый кейс с пруфами (адрес, txid/высота) в /community/send с пометкой patrol. Ложный донос — минус в карму.',
     ];
     // защита от мулляторов: уже 30 баунти сегодня — taskIdx ходит, но баунти-кредит опустошён
     const today = new Date().toISOString().slice(0, 10);
@@ -1724,6 +1879,19 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     else if (bc.security.isBanned(agent)) bounty = { skipped: true, reason: 'address_permabanned' };
     return json(res, 200, { ...r, agent, requeued: true, bounty, note: 'работа принята; агент снова в очереди — по кругу' });
   }
+  // Операторские (НЕ публичные: барьер AGIP-37 пропускает только петлю/x-admin-token).
+  // /queue/leave — явный выход из waiting с записью причины (остальных не сдвигает, выплат нет).
+  if (p === '/queue/leave' && req.method === 'POST') {
+    const { address = '', reason = '' } = await body(req);
+    const r = queue.leave(String(address), String(reason));
+    return json(res, r.ok ? 200 : 404, r);
+  }
+  // /queue/cancel — отмена назначения БЕЗ выплаты (не done!): слот свободен, история сохранена.
+  if (p === '/queue/cancel' && req.method === 'POST') {
+    const { jobId = '', reason = '' } = await body(req);
+    const r = queue.cancel(String(jobId), String(reason));
+    return json(res, r.ok ? 200 : 404, r);
+  }
 
   // /lot/state, /casino/state, /casino/result, /casino/bet удалены: guard в начале хендлера отвечает 404 gone.
 
@@ -1739,7 +1907,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const seeds = String(process.env.AGT_SEED_NODES || '').split(',').map(s => s.trim()).filter(s => /^https?:\/\//.test(s));
     st.eclipseWarn = !st.subnetsOk; st.seed = seeds.length;
     const lf = lifeStatus();
-    return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL,
+    return json(res, 200, { wsPeers: hub.count(), roster: hub.roster(), selfUrl: SELF_URL, publicUrl: PUBLIC_URL,
       blocks: lf.blocks, tipHash: lf.tipHash, tipAgeSec: lf.tipAgeSec, fresh: lf.fresh, chainValid: lf.chainValid,
       genesisHash: bc.info ? bc.info().genesisHash : null, p2p: st });
   }
@@ -1789,7 +1957,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       }
     }
     const list = [...map.values()];
-    return { escrows: list, fees, stats: { total: list.length, open: list.filter(e => e.status === 'open').length, paid: list.filter(e => e.status === 'paid').length, refunded: list.filter(e => e.status === 'refunded').length, feesAGT: fees.reduce((s, f) => s + f.amount, 0) } };
+    const paidList = list.filter(e => e.status === 'paid');
+    const inWork = list.filter(e => e.status === 'open' || e.status === 'partial').length;
+    const paidOutSum = paidList.reduce((s, e) => s + (Number(e.paidOut) || 0), 0);
+    return { escrows: list, fees, stats: { total: list.length, open: list.filter(e => e.status === 'open').length, paid: paidList.length, refunded: list.filter(e => e.status === 'refunded').length, feesAGT: fees.reduce((s, f) => s + f.amount, 0), active: inWork, inWork, done: paidList.length, completed: paidList.length, paidOut: paidOutSum } };
   }
   function escrowStateOnce(force = false) {
     if (force || !escCache.data || Date.now() - escCache.at > 30000) { escCache.data = escrowStateFromChain(); escCache.at = Date.now(); }
@@ -1839,9 +2010,75 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     const S = escrowStateOnce(url.searchParams.get('fresh') === '1');
     const now = Date.now() / 1000;
     const shape = e => ({ ...e, expired: !e.status.startsWith('open') && e.status === 'open' ? false : (e.status === 'open' && e.deadlineTs < now) });
-    const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now }));
-    const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash }));
+    const open = S.escrows.filter(e => e.status === 'open' || e.status === 'partial').map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, taskHash: e.taskHash, amount: e.openedAmount, deadlineTs: e.deadlineTs, expired: e.deadlineTs < now, shapley: escrowShapley(e.openedAmount, e.paidOut || 0), shapleyValue: escrowShapley(e.openedAmount, e.paidOut || 0).shapleyValue }));
+    const history = S.escrows.filter(e => e.status === 'paid' || e.status === 'refunded').slice(-50).reverse().map(e => ({ escId: e.escId, employer: e.employer, worker: e.worker, amount: e.openedAmount, paidOut: e.paidOut, status: e.status, paidTxid: e.paidTxid, taskHash: e.taskHash, shapley: escrowShapley(e.openedAmount, e.paidOut || 0), shapleyValue: escrowShapley(e.openedAmount, e.paidOut || 0).shapleyValue }));
     return json(res, 200, { stats: S.stats, fees: S.fees.slice(-50).reverse(), open, history, note: 'комиссия казны за успех джоба ~2.5% (env AGT_JOB_FEE_PCT) — memo escfee:<id> в цепи' });
+  }
+
+  // ===== AC-5: недостающая математика — графы (betweenness) и Шепли =====
+  // Betweenness centrality, Брандес, неориентированный граф, нормализация 0..1.
+  function betweennessCentrality(nodeIds, edges) {
+    const ids = [...new Set(nodeIds)];
+    const adj = new Map(ids.map(id => [id, new Set()]));
+    for (const e of edges || []) {
+      const a = e && e[0], b = e && e[1];
+      if (!adj.has(a) || !adj.has(b) || a === b) continue;
+      adj.get(a).add(b); adj.get(b).add(a);
+    }
+    const cb = Object.fromEntries(ids.map(id => [id, 0]));
+    for (const s of ids) {
+      const stack = [], pred = new Map(ids.map(w => [w, []]));
+      const sigma = Object.fromEntries(ids.map(w => [w, 0])); sigma[s] = 1;
+      const dist = Object.fromEntries(ids.map(w => [w, -1])); dist[s] = 0;
+      const q = [s];
+      while (q.length) {
+        const v = q.shift(); stack.push(v);
+        for (const w of adj.get(v)) {
+          if (dist[w] < 0) { q.push(w); dist[w] = dist[v] + 1; }
+          if (dist[w] === dist[v] + 1) { sigma[w] += sigma[v]; pred.get(w).push(v); }
+        }
+      }
+      const delta = Object.fromEntries(ids.map(w => [w, 0]));
+      while (stack.length) {
+        const w = stack.pop();
+        for (const v of pred.get(w)) delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
+        if (w !== s) cb[w] += delta[w];
+      }
+    }
+    const n = ids.length, norm = n > 2 ? 1 / ((n - 1) * (n - 2)) : 0;
+    const out = {};
+    for (const id of ids) out[id] = Math.round(cb[id] * norm * 10000) / 10000;
+    return out;
+  }
+  // Точный вектор Шепли перебором перестановок (n<=8), иначе пропорциональный фолбэк.
+  // v: словарь коалиций "a,b" (отсортированные имена) -> значение; v({})=0.
+  function shapleyValues(players, v) {
+    const ps = [...new Set(players)];
+    const key = (s) => [...s].sort().join(',');
+    const val = (s) => (s.size === 0 ? 0 : (v[key(s)] ?? 0));
+    const phi = Object.fromEntries(ps.map(p => [p, 0]));
+    if (ps.length > 8) {
+      const singles = ps.map(p => val(new Set([p])));
+      const tot = singles.reduce((a, b) => a + b, 0) || 1;
+      const grand = v[key(new Set(ps))] ?? tot;
+      ps.forEach((p, i) => { phi[p] = Math.round((singles[i] / tot) * grand * 1e9) / 1e9; });
+      return { values: phi, exact: false };
+    }
+    const permute = (arr) => arr.length <= 1 ? [arr] : arr.flatMap((x, i) => permute([...arr.slice(0, i), ...arr.slice(i + 1)]).map(r => [x, ...r]));
+    const perms = permute(ps), fact = perms.length;
+    for (const perm of perms) {
+      const s = new Set(); let prev = 0;
+      for (const p of perm) { s.add(p); const cur = val(s); phi[p] += (cur - prev); prev = cur; }
+    }
+    for (const p of ps) phi[p] = Math.round((phi[p] / fact) * 1e9) / 1e9;
+    return { values: phi, exact: true };
+  }
+  // Доля сторон эскроу-пирога: v({e})=удержано, v({w})=выплачено, v({e,w})=открыто.
+  function escrowShapley(openedAmount, paidOut) {
+    const opened = Number(openedAmount) || 0, paid = Number(paidOut) || 0;
+    const v = { employer: Math.max(0, opened - paid), worker: paid, 'employer,worker': opened };
+    const r = shapleyValues(['employer', 'worker'], v);
+    return { employer: r.values.employer, worker: r.values.worker, shapleyValue: r.values.worker, exact: r.exact };
   }
 
   // --- VCG-аукционы: честное распределение задач (commit-reveal, вторая цена) ---
@@ -1949,6 +2186,10 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     }
     const input = await body(req);
     const action = String(input.action || '');
+    // 2026-11-16: ставки (commit/reveal) и resolve открыты всем; создание и отмена —
+    // только заказчик (loopback/админ), иначе доску заспамят чужими «задачами».
+    const privJ = (typeof adminByToken !== 'undefined' && adminByToken) || (typeof adminLocal !== 'undefined' && adminLocal);
+    if ((action === 'create' || action === 'cancel') && !privJ) return json(res, 403, { error: 'employer_only', hint: 'create/cancel — через заказчика; ставки (commit/reveal) открыты всем' });
     let ar;
     if (action === 'create') ar = vcgAuctions.create(input);
     else if (action === 'commit') ar = vcgAuctions.commit(input.id, input.address, input.commit);
@@ -2285,11 +2526,14 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/gate/accept' && req.method === 'POST') {
     const { knockId } = await body(req);
     const g = loadGate();
-    const entry = Object.values(g.queue).find(e => 'G' + String(e.seq).padStart(6, '0') === String(knockId));
-    if (!entry) return json(res, 404, { error: 'knock_not_found' });
+    const found = Object.entries(g.queue).find(([, e]) => 'G' + String(e.seq).padStart(6, '0') === String(knockId));
+    if (!found) return json(res, 404, { error: 'knock_not_found' });
+    const [key, entry] = found;
     entry.rulesAccepted = true; entry.acceptedAt = Date.now();
     saveGate(g);
-    return json(res, 200, { knockId, state: 'queued', note: 'правила приняты; ждём автоматического пропуска FIFO' });
+    const admitted = entry.state === 'approved' || !!g.approved[key];
+    const ahead = admitted ? 0 : Object.values(g.queue).filter(e => e.state === 'queued' && e.seq < entry.seq).length;
+    return json(res, 200, { knockId, state: admitted ? 'approved' : 'queued', queuePos: admitted ? 0 : ahead + 1, note: admitted ? 'уже допущен — выпускай паспорт: POST /passport/issue' : 'правила приняты; ждём автоматического пропуска FIFO' });
   }
   // автопуск FIFO: за один вызов одобряем до per-entry rate — логично пинать из guard'а раз в 4 мин
   if (p === '/gate/tick') {
@@ -2320,6 +2564,29 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/gate/queue') {
     const g = loadGate();
     return json(res, 200, { queued: Object.values(g.queue).filter(e => e.state === 'queued').length, approved: Object.keys(g.approved).length, rulesHead: GATE_RULES.slice(0, 80) + '…' });
+  }
+  // Единый экран «Моё состояние» (read-only, публичный): паспорт + gate + очередь + назначение + следующий шаг.
+  if (p === '/agent-state') {
+    const address = String(url.searchParams.get('address') || '');
+    const key = address.toLowerCase();
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const pass = reg.find(r => String(r.address).toLowerCase() === key);
+    const g = loadGate();
+    const entry = g.queue[key];
+    const gate = g.approved[key] ? 'approved' : (entry ? (entry.rulesAccepted ? 'accepted' : 'knocked') : 'none');
+    const knockId = entry ? 'G' + String(entry.seq).padStart(6, '0') : null;
+    const st = queue.status();
+    const pos = queue.state.waiting.indexOf(address);
+    const held = Object.entries(queue.state.onDuty).find(([, a]) => a === address);
+    let code = 'OK', nextAction = 'knock', retryAfterSeconds = 0;
+    if (held) { code = 'ACTIVE_ASSIGNMENT_EXISTS'; nextAction = 'submit'; }
+    else if (!pass && gate === 'approved') nextAction = 'issue-passport';
+    else if (!pass && gate === 'accepted') { code = 'WAITING_FOR_GATE'; nextAction = 'wait-gate'; retryAfterSeconds = 60; }
+    else if (!pass && gate === 'knocked') nextAction = 'accept';
+    else if (pass && pos === 0) nextAction = 'claim';
+    else if (pass && pos > 0) { code = 'NOT_YOUR_TURN'; nextAction = 'wait'; retryAfterSeconds = 60; }
+    else if (pass) nextAction = 'join';
+    return json(res, 200, { address, code, passport: pass ? 'issued' : 'none', headHash: pass ? (pass.hash || null) : null, gate, knockId, queue: { position: pos >= 0 ? pos + 1 : null, waiting: st.waiting }, assignment: held ? { jobId: held[0] } : null, nextAction, retryAfterSeconds });
   }
   // AGIP-10: самодекларация налога для УЖЕ выпущенного паспорта (campaign-friendly).
   // {{
@@ -2620,11 +2887,57 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/buffy' || p === '/buffy.html') { serveSitePage(res, 'buffy.html'); return; }
   if (p === '/buffy-ops' || p === '/buffy-ops.html') { serveSitePage(res, 'buffy-ops.html'); return; }
+  // OPS-1: публичный статус оркестратора. Страница только читает /ops/status
+  // (Caddy проксирует его на loopback ops API); запись отсюда невозможна.
+  if (p === '/ops' || p === '/ops.html') {
+    /* Страница объявлена read-only: запись на неё — 405, а не 200 с HTML. */
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('405 Method Not Allowed — /ops только читается\n');
+    }
+    return serveSitePage(res, 'ops.html');
+  }
+  if (p === '/ops/status' || p === '/ops/status/') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: false, error: 'method_not_allowed', note: 'ops status is read-only' }));
+    }
+    const out = await opsStatusPayload();
+    res.writeHead(out.code, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : JSON.stringify(out.body));
+  }
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }
   if (p === '/jobs' || p === '/jobs.html') {
     serveSitePage(res, 'jobs.html');
+  }
+  if (p === '/mine' || p === '/mine.html') return serveSitePage(res, 'mine.html');
+  if (p === '/agent' || p === '/agent.html') return serveSitePage(res, 'agent.html');
+  // --- ТЗ сайта: страницы /gov /shield /docs /create-wallet + доки из docs/ ---
+  if (p === '/gov' || p === '/gov.html') return serveSitePage(res, 'gov.html');
+  if (p === '/shield' || p === '/shield.html') {
+    if (req.method === 'GET' && (req.headers.accept || '').includes('application/json')) {
+      try { return json(res, 200, shieldSnapshot(bc.chain, bc.vclock, 256)); }
+      catch (e) { return json(res, 500, { error: 'shield_error', detail: e.message }); }
+    }
+    return serveSitePage(res, 'shield.html');
+  }
+  if (p === '/docs' || p === '/docs.html') return serveSitePage(res, 'docs.html');
+  if (p === '/create-wallet' || p === '/create-wallet.html') return serveSitePage(res, 'create-wallet.html');
+  if (req.method === 'GET' && p.startsWith('/docs/') && p.endsWith('.md')) {
+    const name = p.slice(6);
+    if (!/^[A-Za-z0-9_.-]+\.md$/.test(name) || name.includes('..')) return json(res, 400, { error: 'bad_doc_name' });
+    try {
+      const content = fs.readFileSync(path.join(__dirname, 'docs', name), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(content);
+    } catch (e) { return json(res, 404, { error: 'not_found' }); }
   }
 
   if (p === '/') {

@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { addressFromPub } from './core.mjs';
+import { addressFromPub, addressFromRawPub, isRawPubHex, rawPubKeyObject } from './core.mjs';
 
 export const AGENT_IDENTITY_DOMAIN = 'AGT-IDENTITY-V1';
 export const AGENT_PASSPORT_DOMAIN = 'AGT-PASSPORT-V1';
@@ -54,6 +54,38 @@ export function canonicalAgentPublicKey(pub) {
   return canonical;
 }
 
+// Две адресные схемы (подробно: docs/IDENTITY-WORDS.md).
+// Паспортная: адрес = хеш ТЕКСТА SPKI PEM (canonicalAgentPublicKey + addressFromPub).
+// Браузерная (create-wallet, agt-tx, слова): адрес = хеш СЫРЫХ 32 байт ключа.
+// Один ключ даёт РАЗНЫЕ адреса в двух схемах — привязка всегда проверяется
+// внутри своей схемы, смешивать нельзя.
+export function isRawAgentPubHex(pub) {
+  return isRawPubHex(pub);
+}
+export function rawAgentPubToPem(pubHex) {
+  if (!isRawAgentPubHex(pubHex)) fail('invalid_public_key');
+  let pem;
+  try { pem = rawPubKeyObject(pubHex).export({ type: 'spki', format: 'pem' }); } catch { fail('invalid_public_key'); }
+  return pem;
+}
+export function addressFromRawAgentPub(pubHex) {
+  try { return addressFromRawPub(pubHex); } catch { fail('invalid_public_key'); }
+}
+// Привязка явного ключа к адресу для key-only сессий (без паспорта).
+// Возвращает каноническую форму для хранения (PEM — как есть, hex — нижний
+// регистр) либо null. Проверяет ВНУТРИ схемы: PEM↔PEM-адрес, hex↔raw-адрес.
+export function bindPubToAddress(address, pub) {
+  try {
+    if (typeof address !== 'string' || typeof pub !== 'string') return null;
+    if (pub.startsWith('-----BEGIN PUBLIC KEY-----')) {
+      if (canonicalAgentPublicKey(pub) !== pub) return null;
+      return addressFromPub(pub) === address ? pub : null;
+    }
+    if (!isRawAgentPubHex(pub)) return null;
+    const hex = pub.toLowerCase();
+    return addressFromRawAgentPub(hex) === address ? hex : null;
+  } catch { return null; }
+}
 export function issuerFingerprint(pub) {
   const canonical = canonicalAgentPublicKey(pub);
   const der = crypto.createPublicKey(canonical).export({ type: 'spki', format: 'der' });
@@ -67,13 +99,24 @@ export function agentIdentityId(network, pub, address = addressFromPub(pub)) {
 }
 
 function challengeFields(c) {
-  exactKeys(c, CHALLENGE_KEYS, ['ok', 'message']);
+  exactKeys(c, CHALLENGE_KEYS, ['ok', 'message', 'keyOnly']);
+  // keyOnly — служебный флаг key-only входа (TOFU/PIN без паспорта): в подпись
+  // не входит, но лишним полем схему ломать не должен (иначе Skill-вход падает
+  // с invalid_schema на каждом вызове /cabinet/challenge). Только boolean.
+  if (Object.hasOwn(c, 'keyOnly') && typeof c.keyOnly !== 'boolean') fail('invalid_challenge_status');
   if (c.version !== 1 || c.domain !== AGENT_IDENTITY_DOMAIN) fail('unsupported_identity_version');
   if (!['register', 'login'].includes(c.action)) fail('unsupported_identity_action');
   if (Object.hasOwn(c, 'ok') && c.ok !== true) fail('invalid_challenge_status');
   networkName(c.network); fingerprintValue(c.issuerFingerprint);
-  text(c.audience, 'audience', 256); addressValue(c.address); canonicalAgentPublicKey(c.pub);
-  if (addressFromPub(c.pub) !== c.address) fail('address_public_key_mismatch');
+  text(c.audience, 'audience', 256); addressValue(c.address);
+  // Две схемы: сырой hex привязываем внутри браузерной схемы, PEM — внутри паспортной.
+  // Иначе вход ключом create-wallet (raw) не проходит Skill-валидацию.
+  if (isRawAgentPubHex(c.pub)) {
+    if (addressFromRawAgentPub(c.pub.toLowerCase()) !== c.address) fail('address_public_key_mismatch');
+  } else {
+    canonicalAgentPublicKey(c.pub);
+    if (addressFromPub(c.pub) !== c.address) fail('address_public_key_mismatch');
+  }
   if (c.action === 'register') handleValue(c.handle);
   else if (c.handle !== '') fail('invalid_login_handle');
   text(c.challengeId, 'challenge_id', 32, /^[0-9a-f]{32}$/);
@@ -302,5 +345,6 @@ export class AgentIdentityRegistry {
   // та же, что findByAddress — приватных полей наружу нет.
   list() {
     return [...this._records.values()].map(publicIdentity);
+
   }
 }

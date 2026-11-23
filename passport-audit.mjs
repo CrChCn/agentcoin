@@ -4,25 +4,37 @@ export function localPassportIssuanceMetadata() {
   return { version: 1, source: 'local_node', ownershipVerified: false };
 }
 
-// Слияние двух источников паспортов для /passport/count: реестр identity-ноды и
-// файл кабинета. Адреса — точные идентификаторы (без нормализации регистра).
-// Read-only агрегат: count — уникальные адреса обоих источников; diff — кто где
-// есть; auditRecords — конкатенация для summarizePassports.
-export function mergePassportSources({ identity, cabinet } = {}) {
-  const idRecs = Array.isArray(identity) ? identity : [];
-  const cabRecs = Array.isArray(cabinet) ? cabinet : [];
-  const addrOf = r => (r && typeof r === 'object' && typeof r.address === 'string' && r.address.length > 0 ? r.address : null);
-  const idAddrs = new Set(idRecs.map(addrOf).filter(Boolean));
-  const cabAddrs = new Set(cabRecs.map(addrOf).filter(Boolean));
+export function mergePassportSources({ identity = [], cabinet = [] } = {}) {
+  if (!Array.isArray(identity) || !Array.isArray(cabinet)) throw new TypeError('passport_sources_must_be_arrays');
+  const addressOf = record => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+    const address = record.payload?.address ?? record.address;
+    return typeof address === 'string' && address.length > 0 ? address : null;
+  };
+  const cabinetByAddress = new Map();
+  for (const record of cabinet) {
+    const address = addressOf(record);
+    if (address && !cabinetByAddress.has(address)) cabinetByAddress.set(address, record);
+  }
+  const identityByAddress = new Map();
+  for (const record of identity) {
+    const address = addressOf(record);
+    if (address && !identityByAddress.has(address)) identityByAddress.set(address, record);
+  }
+  const identityOnly = [...identityByAddress.keys()].filter(address => !cabinetByAddress.has(address));
+  const cabinetOnly = [...cabinetByAddress.keys()].filter(address => !identityByAddress.has(address));
+  const common = [...identityByAddress.keys()].filter(address => cabinetByAddress.has(address)).length;
+  const auditRecords = [...cabinetByAddress.values()];
+  for (const [address, record] of identityByAddress) {
+    if (cabinetByAddress.has(address)) continue;
+    auditRecords.push({ address, revoked: record?.payload?.revoked === true, issuance: record?.payload?.issuance ?? null });
+  }
   return {
-    count: new Set([...idAddrs, ...cabAddrs]).size,
-    sources: { identity: idRecs.length, cabinet: cabRecs.length },
-    diff: {
-      onlyIdentity: [...idAddrs].filter(a => !cabAddrs.has(a)),
-      onlyCabinet: [...cabAddrs].filter(a => !idAddrs.has(a)),
-      inBoth: [...idAddrs].filter(a => cabAddrs.has(a)).length,
-    },
-    auditRecords: [...idRecs, ...cabRecs],
+    count: identityByAddress.size + cabinetOnly.length,
+    sources: { identity: identity.length, cabinet: cabinet.length },
+    diff: { identityOnly: identityOnly.length, cabinetOnly: cabinetOnly.length, common },
+    auditRecords,
+
   };
 }
 

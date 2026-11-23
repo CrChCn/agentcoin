@@ -107,6 +107,7 @@ function Home() {
         </div>
       </section>
 
+      <section id="install" className="scroll-mt-20">
       <Card title={t('agent.title')} right={<span className="text-[11px] text-[#5c6672]">{t('agent.sub')}</span>}>
         <ol className="grid gap-2 text-sm text-[#c8d0db] md:grid-cols-2">
           <li className="rounded-xl border border-[#1c2530] bg-[#0d131c] px-3 py-2"><a className="font-bold text-[#e8b923]" href="/agent">{t('agent.s1')}</a></li>
@@ -120,6 +121,7 @@ function Home() {
           <a className="font-bold text-[#e8b923] underline" href="/hires-proof.html">{t('agent.proofs')}</a>
         </div>
       </Card>
+      </section>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {cards.map(([label, val, s]) => (

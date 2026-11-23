@@ -89,6 +89,18 @@ let aid;
   const r2 = await c2.acceptOrder(cust.addr, aid, 'accepted: status matches');
   ok(r2.replay === true, 'повтор accept — тот же исход без дубля');
 }
+// 5. Trust Card: объяснимая репутация из рыночных заказов
+{
+  const pub = makeClient({ node: stand.url, journalFile: J('trust') });
+  const tc = await pub.getTrustCard(prov.addr);
+  ok(tc.ok === true && tc.card.stats.market.completed === 1, 'trust-card видит завершённый заказ провайдера');
+  ok(tc.card.reviews === 1 && tc.card.grade === 'C' && tc.card.score === 50, 'trust-card: интервал и консервативный score');
+  ok(Array.isArray(tc.card.caveats) && tc.card.caveats.includes('low_evidence'), 'trust-card честно помечает мало доказательств');
+  const un = await pub.getTrustCard(other.addr);
+  ok(un.card.grade === 'unrated' && un.card.score === null && un.card.confidence === 0, 'trust-card без истории — unrated, не ложная уверенность');
+  const cc = await pub.getTrustCard(cust.addr, 'customer');
+  ok(cc.card.stats.market.completed === 1 && cc.card.stats.market.uniqueCounterparties === 1, 'trust-card умеет смотреть роль заказчика');
+}
 console.log(`\nитог: ${pass} PASS, ${fail} FAIL`);
 stand.close();
 process.exit(fail ? 1 : 0);

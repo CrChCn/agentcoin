@@ -485,6 +485,10 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
   // ---- Проход 3: тестовый расчёт TEST-AGT (стенд; не эскроу, не mainnet) ----
   const faucet = async (addr, amountAtomic) => (await post('/settlements/faucet', { address: addr, amountAtomic })).data;
   const testBalance = async (addr) => (await get(`/settlements/balances?address=${encodeURIComponent(addr)}`)).data;
+  const getTrustCard = async (address, role = 'provider') => {
+    const q = new URLSearchParams({ address: String(address), role: String(role) });
+    return (await get('/trust-card?' + q.toString())).data;
+  };
   const getSettlement = async (assignmentId, requester) => {
     let suffix = '';
     if (requester) suffix = (await readProof(requester, 'settlement', assignmentId)) || ('?requester=' + encodeURIComponent(requester));
@@ -504,7 +508,7 @@ export function makeClient({ node, address, walletFile, journalFile, allowLegacy
     return (await get(`/moderation/history${suffix}`)).data;
   };
 
-  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, delegateOrder, reviewOrder, disputeOrder, resolveDispute, registerResource, listResources, getResource, leaseResource, consumeResource, closeLease, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
+  return { base, status, myTask, payments, join, claim, submit, capabilities, searchOffers, publishOffer, createOrder, submitArtifact, acceptOrder, delegateOrder, reviewOrder, disputeOrder, resolveDispute, registerResource, listResources, getResource, leaseResource, consumeResource, closeLease, getOrder, getEvents, createMonitor, createSubscription, tickMonitor, monitorHistory, pauseMonitor, cancelMonitor, faucet, testBalance, getTrustCard, getSettlement, createSettlement, sendSettlement, confirmSettlement, disputeSettlement, cancelSettlement, opsMetrics, complain, decide, modHistory, _journalFile: jFile };
 }
 
 export function shortAddr(a) { return String(a || '').slice(0, 10) + '…'; }

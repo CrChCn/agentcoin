@@ -8,6 +8,7 @@ import path from 'node:path';
 import { AgentQueue } from '../../queue.mjs';
 import { verifyActionSig } from '../../queue-auth.mjs';
 import { validateServiceOffer, validateAssignment, validateArtifact, verifyArtifactHash, validateSubscription, hashOf } from './schemas.mjs';
+import { trustCard } from '../../ds.mjs';
 import crypto from 'node:crypto';
 
 const GENESIS = 'stand-genesis-001';
@@ -237,6 +238,44 @@ export async function createStand(tmp) {
         const e = offers[mo[1]];
         if (!e) return send(404, { error: 'offer_not_found' });
         return send(200, { offerId: mo[1], versions: e.versions });
+      }
+      // ---- Trust Card: explainable marketplace reputation for agents ----
+      if (u.pathname === '/trust-card' && req.method === 'GET') {
+        const address = String(u.searchParams.get('address') || '');
+        const role = String(u.searchParams.get('role') || 'provider');
+        if (!address) return send(400, { error: 'address_required' });
+        if (role !== 'provider' && role !== 'customer') return send(400, { error: 'bad_role', hint: 'role: provider|customer' });
+        const list = Object.values(orders)
+          .filter((o) => (role === 'provider' ? o.assignment.provider : o.assignment.customer) === address)
+          .sort((a, b) => Number(b.assignment.createdAt || 0) - Number(a.assignment.createdAt || 0));
+        const completed = list.filter((o) => o.assignment.state === 'accepted').length;
+        const rejected = list.filter((o) => o.assignment.state === 'rejected').length;
+        const disputed = list.filter((o) => o.assignment.state === 'disputed').length;
+        const canceled = list.filter((o) => o.assignment.state === 'canceled').length;
+        const open = list.filter((o) => o.assignment.state === 'open').length;
+        const volumeAtomic = list.filter((o) => o.assignment.state === 'accepted')
+          .reduce((sum, o) => sum + Number(o.assignment.priceAtomic || 0), 0);
+        const counterparties = new Set(list.map((o) => (role === 'provider' ? o.assignment.customer : o.assignment.provider)));
+        const market = { completed, rejected, disputed, canceled, open, volumeAtomic, uniqueCounterparties: counterparties.size };
+        const card = trustCard({ address, market });
+        const evidenceHash = crypto.createHash('sha256')
+          .update(JSON.stringify({ address, role, market, recent: list.slice(0, 10).map((o) => [o.assignment.assignmentId, o.assignment.state, o.assignment.priceAtomic]) }))
+          .digest('hex');
+        return send(200, {
+          ok: true,
+          address,
+          role,
+          card: { ...card, evidenceHash },
+          recent: list.slice(0, 10).map((o) => ({
+            assignmentId: o.assignment.assignmentId,
+            offerId: o.assignment.offerId,
+            state: o.assignment.state,
+            priceAtomic: o.assignment.priceAtomic,
+            createdAt: o.assignment.createdAt,
+            disputed: Boolean(o.assignment.disputeId)
+          })),
+          note: 'market evidence only; escrow/strikes are combined by the node /trust endpoint'
+        });
       }
       if (u.pathname === '/catalog/publish' && req.method === 'POST') {
         const v = verifyActionSig({ address: b.address, fromPub: b.fromPub, signature: b.signature, action: 'publish', body: b.body || {}, nonce: b.nonce, expiry: b.expiry, chain: 'AGENTCOIN' });

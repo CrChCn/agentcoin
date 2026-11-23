@@ -2,15 +2,15 @@
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-8qw2OB\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-YKaaaL\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
-    "available": true,
-    "backend": "wsl-bwrap",
+    "available": false,
+    "backend": null,
     "installedBackend": "wsl-bwrap",
-    "detail": "wsl-bwrap passed the isolation smoke test",
+    "detail": "backend wsl-bwrap cannot run the smoke test: no output",
     "levels": {
       "installed": true,
-      "smokeTested": true,
+      "smokeTested": false,
       "adapterEndToEnd": false
     },
     "evidence": null,
@@ -29,15 +29,12 @@
       "role": "implementer",
       "id": "codex-implementer",
       "simulated": false,
-      "available": true,
+      "available": false,
       "programmatic": true,
       "authenticated": false,
-      "authKind": "none",
-      "blocked": null,
-      "version": "codex-cli 0.170.0",
-      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
-      "reason": "codex CLI установлен, но вход не выполнен",
-      "requiresHuman": "codex login",
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
       "evidence": "https://developers.openai.com/codex/noninteractive",
       "adapter": "codex-implementer",
       "provider": "codex"
@@ -46,15 +43,12 @@
       "role": "reviewer",
       "id": "codex-reviewer",
       "simulated": false,
-      "available": true,
+      "available": false,
       "programmatic": true,
       "authenticated": false,
-      "authKind": "none",
-      "blocked": null,
-      "version": "codex-cli 0.170.0",
-      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
-      "reason": "codex CLI установлен, но вход не выполнен",
-      "requiresHuman": "codex login",
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
       "evidence": "https://developers.openai.com/codex/noninteractive",
       "adapter": "codex-reviewer",
       "provider": "codex"
@@ -73,18 +67,18 @@
   "blockers": [
     {
       "role": "implementer",
-      "code": "agent_unauthenticated",
-      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
     },
     {
       "role": "reviewer",
-      "code": "agent_unauthenticated",
-      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
     },
     {
-      "code": "agent_isolation_unproven",
-      "detail": "no machine-bound end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
+      "code": "isolated_runner_unavailable",
+      "detail": "real agents require a smoke-tested OS isolation backend (bubblewrap on Linux, WSL2 on Windows): backend wsl-bwrap cannot run the smoke test: no output"
     }
   ],
-  "nextCommand": "agent_unauthenticated"
+  "nextCommand": "install the agent CLI on this host (npm i -g @openai/codex), then re-run preflight"
 }

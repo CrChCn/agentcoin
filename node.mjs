@@ -140,7 +140,7 @@ const PUBLIC_READS = [
   '/info', '/capabilities', '/life', '/health', '/network/nodes', '/site/release',
   '/headers', '/blocks', '/mempool', '/peers/meta', '/peers/bootstrap', '/ws/status',
   '/stats-data', '/dashboard', '/stats', '/index', '/jobs/state', '/escrow/state',
-  '/ops/watchdog/state', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
+  '/ops/watchdog/state', '/ops/status', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
   '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
   '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
   '/queue/status', '/queue/history', '/jobs/auction/list', '/jobs/auction/state', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
@@ -290,7 +290,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT_ALL = 300;      // все запросы, IP/мин
 const RATE_LIMIT_HEAVY = 60;     // дорогие POST (mine/tx/wallet…), IP/мин
 const RATE_MAP_MAX = 10_000;
-const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|queue\/(claim|done|join)|gov\/)/;
+const rateHits = new Map();  const HEAVY_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|tx\/sign|wallet\/create|identity\/|cabinet\/|escrow\/|data\/|passport\/|handle\/register|community\/send|dxe\/(order|fill|cancel)|jobs\/(auction|zkclaim)|queue\/(claim|done|join)|gov\/|join)/;
 function rateAllow(ip, heavy, direct = true) {
   const now = Date.now();
   // loopback = локальные доверенные процессы ноды/майнеры/guard — без лимита (но глубже /
@@ -378,7 +378,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -413,7 +413,7 @@ try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'si
 const SITE_PAGE_CONTENT_TYPE = (page) =>
   page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
-  : page.endsWith('.png') ? 'image/png'
+  :   page.endsWith('.css') ? 'text/css; charset=utf-8' : page.endsWith('.png') ? 'image/png'
   : page.endsWith('.md') ? 'text/markdown; charset=utf-8'
   : page.endsWith('.zip') ? 'application/zip'
   : 'text/html; charset=utf-8';
@@ -422,6 +422,33 @@ function serveSitePage(res, page) {
   const content = fs.readFileSync(approved || path.join(__dirname, 'site', page));
   res.writeHead(200, { 'Content-Type': SITE_PAGE_CONTENT_TYPE(page), 'Cache-Control': 'no-store' });
   return res.end(content);
+}
+
+/* OPS-1: публичное представление статуса оркестратора. Caddy может
+   проксировать /ops/status напрямую на 127.0.0.1:8799 — тогда нода этот путь
+   не видит. Если запрос всё-таки дошёл до неё (локальный запуск, деплой без
+   маршрута Caddy), нода читает тот же loopback-эндпоинт: короткий таймаут,
+   кэш 5 с, только GET/HEAD. Ни записи, ни параметров запроса, ни ретраев. */
+const OPS_STATUS_URL = process.env.OPS_API_URL || 'http://127.0.0.1:8799/ops/status';
+const OPS_STATUS_TTL_MS = 5000;
+const OPS_STATUS_MAX_BYTES = 64 * 1024;
+const opsStatusCache = { at: 0, code: 503, body: null };
+async function opsStatusPayload() {
+  if (opsStatusCache.body && Date.now() - opsStatusCache.at < OPS_STATUS_TTL_MS) return opsStatusCache;
+  let code = 503;
+  let body = { ok: false, error: 'orchestrator_unreachable', hint: 'ops API слушает 127.0.0.1:8799: systemctl status agt-orchestrator-api' };
+  try {
+    const upstream = await fetch(OPS_STATUS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(2000) });
+    const text = await upstream.text();
+    if (upstream.ok && text.length <= OPS_STATUS_MAX_BYTES) {
+      body = JSON.parse(text);
+      code = 200;
+    } else if (!upstream.ok) {
+      body = { ok: false, error: 'orchestrator_api_error', upstreamStatus: upstream.status };
+    }
+  } catch { /* сеть, таймаут или битый JSON: остаётся 503 и честный ответ */ }
+  Object.assign(opsStatusCache, { at: Date.now(), code, body });
+  return opsStatusCache;
 }
 async function siteSyncTick() {
   const result = await siteRelease.refresh();
@@ -456,6 +483,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-6: публичные read-only витрины (кэшированы) не гасим при шеддинге — «лицо сети» живо даже под нагрузкой
   // imperial.html опрашивает пачкой дешёвые GET-витрины каждые 12с — они тоже не лимитируются (иначе вечный 429 + баннер «Данные устарели»).
   const healthFree = req.method === 'GET' && (
+    p === '/ops/status' ||
     p === '/life' || p === '/dashboard' || p === '/' ||
     p === '/info' || p === '/capabilities' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
@@ -468,7 +496,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/passport/count' || p === '/cloud/stats' || p === '/cloud/epochs' || p === '/tax/state' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/buffy' || p === '/buffy.html' ||
     p === '/jobs' || p === '/jobs.html' ||
-    p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
+    p === '/jobs/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
     p === '/terminal' || p === '/terminal.html' || p === '/chat' || p === '/chat.html' ||
     p === '/gov' || p === '/gov.html' || p === '/docs' || p === '/docs.html' || p === '/shield' || p === '/shield.html' ||
     p === '/mine' || p === '/mine.html' || p === '/agent' || p === '/agent.html' ||
@@ -950,10 +978,20 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/passport-cabinet' || p === '/passport-cabinet.html') {
     serveSitePage(res, 'cabinet.html');
   }
-  // WALLET-1: кабинет пользователя + кошелёк (history/estimate — wallet-api.mjs, read-only по сессии)
-  // Файлы именованы user-* (guard SUBSTR '/wallet' ловит только слэшем внутри имени),
-  // URL остаются /wallet и /wallet-format.js.
-  if (p === '/wallet' || p === '/wallet.html') return serveSitePage(res, 'user-wallet-page.html');
+  // WALLET-1 → CABINET-1: /cabinet и /wallet — один и тот же файл, поэтому /wallet больше не отдаёт копию.
+  // Канон объявлен в site/tree.json (redirect: /cabinet) и config/unified-registry.json (/wallet -> 308 /cabinet).
+  // 308 отвечаем и на /wallet/ (иначе барьер AGIP-37 отдаёт 403), и через /api/v1-алиас —
+  // в Location сохраняем API-префикс, чтобы клиент не выпадал из своего пространства имён.
+  // /wallet-format.js остаётся прямым: это модуль страницы, а не страница.
+  if (p === '/wallet' || p === '/wallet/' || p === '/wallet.html') {
+    const target = (rawP.startsWith('/api/v1/') ? '/api/v1' : '') + '/cabinet';
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(`405 Method Not Allowed — /wallet только читается: 308 → ${target}\n`);
+    }
+    res.writeHead(308, { Location: target, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(req.method === 'HEAD' ? undefined : `308 Permanent Redirect → ${target}\n`);
+  }
   if (p === '/wallet-format.js') return serveSitePage(res, 'user-wallet-format-lib.js');
   if (p === '/cabinet/wallet/history' && req.method === 'POST') {
     const out = walletHistory(bc, cabinet, await body(req).catch(() => ({})));
@@ -1629,6 +1667,9 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // ====== Faucet: стартовый фонд для новичка (0.5 AGT раз в сутки на адрес, rate-limit по IP) ======
   const FAUCET_FUND_ADDR = (process.env.AGT_FAUCET_FUND || 'AGT11a01a612a422dff68f7558eefbd9ab3a991439a');
   const FAUCET_FILE = path.join(DATA_DIR, 'faucet.json');
+  // /join создаёт кошелёк на ноде и сразу льёт кран, поэтому бюджет по IP общий с /faucet/drip:
+  // один IP — не больше 10 бесплатных серверных кошельков в сутки (счёт в faucet.json: f.ip/f.ipAt).
+  const JOIN_PER_IP_DAY = 10;
   // дефолты обязательны при ЧТЕНИИ существующего файла тоже: старый faucet.json без ip/ipAt/dripped
   // иначе f.ip[ip] на свежей песочнице = unhandledRejection и запрос висит без ответа (поймано accept'ом)
   function loadFaucet() {
@@ -1638,19 +1679,29 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     return d;
   }
   function saveFaucet(f) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FAUCET_FILE, JSON.stringify(f, null, 2)); }
+  // Общий суточный бюджет /join и /faucet/drip. Ключ — ipBucket(): IPv4 как есть, IPv6 — подсеть /64,
+  // иначе одна машина с /64 обходит лимит ротацией адресов. XFF принимаем только от доверенного
+  // прокси (loopback/private), иначе подделанный заголовок давал бы новый бюджет на каждый запрос.
+  // Прямая петля без прокси-заголовков — локальный оператор/тесты: бюджет не тратит.
+  function chargeFaucetIp(f, req, now) {
+    if (!forwardedViaProxy(req) && isLoopbackRequest(req)) return { ok: true, skipped: true };
+    const key = ipBucket(clientIp(req));
+    if (now - (f.ipAt[key] || 0) >= 24 * 3600_000) { f.ip[key] = 0; f.ipAt[key] = now; }
+    if ((f.ip[key] || 0) >= JOIN_PER_IP_DAY) return { ok: false, key };
+    f.ip[key] = (f.ip[key] || 0) + 1;
+    return { ok: true, key };
+  }
   if (p === '/faucet/drip' && req.method === 'POST') {
     const { address } = await body(req);
     if (!/^AGT[A-Za-z0-9]+$/.test(String(address || ''))) return json(res, 400, { error: 'bad_address' });
     if (bc.security.isBanned(address)) return json(res, 403, { error: 'address_permabanned' });
-    const ip = (req.socket.remoteAddress || 'unknown');
     const now = Date.now();
     const f = loadFaucet();
     if (f.dripped[address] && now - f.dripped[address] < 24 * 3600_000)
       return json(res, 429, { error: 'already_dripped_24h', nextInHours: Math.ceil((24 * 3600_000 - (now - f.dripped[address])) / 3600_000) });
-    const ipCount = (f.ip[ip] || 0) + 1;
-    if (ipCount > 10 && now - (f.ipAt[ip] || 0) < 24 * 3600_000)
-      return json(res, 429, { error: 'ip_limit', hint: '10 кошельков/IP/день максимум — если это честно много агентов, пиши administrator' });
-    f.ip[ip] = ipCount; f.ipAt[ip] = f.ipAt[ip] || now;
+    const budget = chargeFaucetIp(f, req, now);
+    if (!budget.ok)
+      return json(res, 429, { error: 'ip_limit', hint: '10 бесплатных кошельков на IP в сутки максимум (IPv6 — на подсеть /64) — если это честно много агентов, пиши administrator' });
     // Faucet.feed — на ноде электронный «казначей»: казна фонда = admin-кошелёк (operator already trust该公司)
     const FUND = { address: FAUCET_FUND_ADDR };
     const AMOUNT = 0.5;
@@ -1668,6 +1719,18 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
 
   // ====== Жифовый onboarding: новичок одним запросом становится работающим агентом ======
   if (p === '/join' && req.method === 'POST') {
+    // Анти-накрутка: без этого один клиент набивает серверные кошельки пачками и опустошает казну
+    // (каждый /join = новый адрес + 0.5 AGT, а лимит крана на адрес не мешает — адрес каждый раз новый).
+    // Прямая петля без прокси-заголовков — доверенный локальный процесс (оператор/тесты), бюджет не тратит.
+    // IP/подсеть и доверие к XFF считает chargeFaucetIp (ip-budget.mjs): XFF от недоверенного пира
+    // игнорируется, IPv6-бюджет — на /64, иначе ротация адресов внутри своей подсети обнуляет лимит.
+    const joinNow = Date.now();
+    const jf = loadFaucet();
+    const budget = chargeFaucetIp(jf, req, joinNow);
+    if (!budget.ok) {
+      return json(res, 429, { error: 'ip_limit', hint: 'не больше ' + JOIN_PER_IP_DAY + ' серверных кошельков с одного IP (IPv6 — с подсети /64) за 24 ч; локальный ключ без ноды — /create-wallet' });
+    }
+    if (!budget.skipped) saveFaucet(jf);
     const out = {};
     const { label = 'new-agent-' + Date.now().toString(36) } = await body(req).catch(() => ({})) ;
     // 1) кошелёк
@@ -1678,8 +1741,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     out.wallet = { address: w.address, privKey: w.privKey, pub: w.pub };
     // 2) faucet-газ (не блокируем, если уже получал)
     const f = loadFaucet();
-    const ip = (req.socket.remoteAddress || 'unknown');
-    const nowTs = Date.now();
+    const nowTs = joinNow;
     if (!f.dripped[w.address] || nowTs - f.dripped[w.address] >= 24 * 3600_000) {
       const FAUCET_FUND = FAUCET_FUND_ADDR;
       const FUND = { address: FAUCET_FUND_ADDR };
@@ -2795,6 +2857,30 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
   if (p === '/cab-auth.js' && req.method === 'GET') return serveSitePage(res, 'cab-auth.js');
   if (p === '/buffy' || p === '/buffy.html') { serveSitePage(res, 'buffy.html'); return; }
   if (p === '/buffy-ops' || p === '/buffy-ops.html') { serveSitePage(res, 'buffy-ops.html'); return; }
+  // OPS-1: публичный статус оркестратора. Страница только читает /ops/status
+  // (Caddy проксирует его на loopback ops API); запись отсюда невозможна.
+  if (p === '/ops' || p === '/ops.html') {
+    /* Страница объявлена read-only: запись на неё — 405, а не 200 с HTML. */
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('405 Method Not Allowed — /ops только читается\n');
+    }
+    return serveSitePage(res, 'ops.html');
+  }
+  if (p === '/ops/status' || p === '/ops/status/') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: false, error: 'method_not_allowed', note: 'ops status is read-only' }));
+    }
+    const out = await opsStatusPayload();
+    res.writeHead(out.code, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : JSON.stringify(out.body));
+  }
   if (p === '/imperial' || p === '/imperial.html') {
     serveSitePage(res, 'imperial.html');
   }

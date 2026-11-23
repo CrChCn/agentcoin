@@ -28,7 +28,7 @@ const ALARM_STATE = path.join(ROOT, 'data-agents', 'steward-state.json');
 function loadNodeTargets() {
   const rows = process.env.AGT_MONITOR_TARGETS_FILE
     ? JSON.parse(fs.readFileSync(process.env.AGT_MONITOR_TARGETS_FILE, 'utf8'))
-    : [{ name: 'own-node', url: process.env.AGT_API || 'http://127.0.0.1:9335' }];
+    : [{ name: 'own-node', url: process.env.AGT_API || 'https://agentcoin.work' }];
   if (!Array.isArray(rows) || rows.length < 1 || rows.length > 16) throw new Error('AGT_MONITOR_TARGETS_FILE: нужен список 1..16 нод');
   return rows.map(row => {
     if (!row || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 64 || typeof row.url !== 'string') throw new Error('target: нужны name и url');

@@ -9,9 +9,9 @@
 | Слой | Файл | Назначение |
 |---|---|---|
 | Backend read-only API | [wallet-api.mjs](../wallet-api.mjs) | история tx пользователя (по сессии), смета комиссий, height-gated классификация treasury |
-| Маршруты ноды | [node.mjs](../node.mjs) | `POST /cabinet/wallet/history`, `POST /cabinet/wallet/estimate` (в PUB_TX_ROUTES), страницы `/wallet`, `/wallet-format.js` |
+| Маршруты ноды | [node.mjs](../node.mjs) | `POST /cabinet/wallet/history`, `POST /cabinet/wallet/estimate` (в PUB_TX_ROUTES), страница `/cabinet` (канон), `/wallet` → **308 `/cabinet`**, `/wallet-format.js` |
 | Клиентский формат | [site/wallet-format.js](../site/wallet-format.js) | контракт `agentcoin.wallet.intent.v1/signed.v1` (идентичен кабинетскому) + единицы AGT/mAGT/mGNT + **самодостаточный QR-энкодер** (byte mode, ECC L, v1–10, BCH(15,5) + RS, без внешних зависимостей) |
-| Страница кабинета | [site/wallet.html](../site/wallet.html) | Обзор (баланс в 3 единицах, переключатель), Отправить (маршрут + смета + op-request→op-submit), Получить (QR + счёт JSON для «Алисы»), История (пагинация, категории, treasury-note), Контакты (localStorage, шаблоны Алиса/Боб), Комиссии и казна |
+| Страница кабинета | [site/user-wallet-page.html](../site/user-wallet-page.html) | Обзор (баланс в 3 единицах, переключатель), Отправить (маршрут + смета + op-request→op-submit), Получить (QR + счёт JSON для «Алисы»), История (пагинация, категории, treasury-note), Контакты (localStorage, шаблоны Алиса/Боб), Комиссии и казна |
 | Тесты | [test/wallet-page.mjs](../test/wallet-page.mjs) | 7/7 pass: height-gating классификатора, QR-алгебра (BCH/RS), страница публична, без пароль-полей, login по паспорту, смета честная (network fee = 0), полный send-флоу через op-request/op-submit, приватность истории (401 чужим) |
 
 ## Height-gating treasury (главное исправление из ТЗ)
@@ -35,7 +35,8 @@
   Честность: **базовая комиссия сети = 0** (fee-none, как Nano); шлюз показывает свой feeBps
   (математика идентична `core.executeMultiHop`); налог по паспорту печатается как
   «НЕ удерживается при P2P» (AGIP-10 не переопределяем).
-- Страницы: `GET /wallet` (→ wallet.html), `GET /wallet-format.js`.
+- Страницы: `GET /cabinet` (→ user-wallet-page.html; `/wallet` и `/wallet.html` → **308 /cabinet**,
+  в т.ч. `/api/v1/wallet` → `/api/v1/cabinet`), `GET /wallet-format.js`.
 
 Подписание и отправка денег идут через СУЩЕСТВУЮЩИЙ AGIP-46 поток: `/cabinet/op-request` →
 локальная подпись txid → `/cabinet/op-submit`. Новых денег/подписей нода не берёт; страницы

@@ -104,6 +104,10 @@ else
 fi
 
 own_data() { if [[ -n "$PREFIX" ]]; then :; else eval "chown -R '$SERVICE_USER:$SERVICE_USER' '$1'"; fi; }
+# Семя (mission/registry) принадлежит root, а не сервису: иначе сервис сможет
+# переписать себе мандат — добавить инвариант с падающей проверкой и получить
+# задачу на его «исправление». Сервису достаточно чтения через группу.
+own_seed() { if [[ -n "$PREFIX" ]]; then :; else eval "chown 'root:$SERVICE_USER' '$1'"; fi; }
 own_code() { if [[ -n "$PREFIX" ]]; then :; else eval "chown -R root:root '$1'"; fi; }
 
 say "== mode: $MODE | code: $CODE_ROOT | data: $OPS_ROOT | logs: $LOG_BASE${PREFIX:+ | prefix rehearsal}"
@@ -247,14 +251,15 @@ fi
 say "== mission and registry (existing files are never overwritten)"
 if [[ ! -f "$OPS_ROOT/queue/mission.json" ]]; then
   run "install -m 0640 '$SRC_DIR/service/mission.json' '$OPS_ROOT/queue/mission.json'"
-  [[ "$DRY" -ne 1 ]] && own_data "$OPS_ROOT/queue/mission.json"
+  [[ "$DRY" -ne 1 ]] && own_seed "$OPS_ROOT/queue/mission.json"
+  say "  mission.json installed root:$SERVICE_USER (service reads only)"
 else
   say "  mission.json kept"
 fi
 if [[ ! -f "$OPS_ROOT/queue/registry.json" ]]; then
   run "install -m 0640 '$SRC_DIR/service/registry.json' '$OPS_ROOT/queue/registry.json'"
-  [[ "$DRY" -ne 1 ]] && own_data "$OPS_ROOT/queue/registry.json"
-  say "  registry.json installed empty: planner stays IDLE until the owner registers a proven gap"
+  [[ "$DRY" -ne 1 ]] && own_seed "$OPS_ROOT/queue/registry.json"
+  say "  registry.json installed root:$SERVICE_USER: planner acts only on proven gaps (node service/opsd.mjs seed)"
 else
   say "  registry.json kept"
 fi

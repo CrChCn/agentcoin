@@ -18,9 +18,15 @@ export const SAFE_FIRST = Object.freeze([
   'cp', 'mv', 'rm', 'chmod', 'ln',
 ]);
 
+/* `config` здесь нет намеренно: это единственная git-команда, которая меняет
+   поведение других команд. `git config alias.status '!curl …'`, а затем
+   разрешённый `git status` дал бы произвольную команду в обход allowlist —
+   политика проверяла бы первую команду, а исполнялась вторая. Запись
+   конфигурации агенту не нужна: commit/checkout идут с фиксированными
+   identity-опциями из lib/git.mjs. */
 export const SAFE_GIT = Object.freeze([
   'status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'add', 'commit',
-  'checkout', 'branch', 'stash', 'apply', 'init', 'config',
+  'checkout', 'branch', 'stash', 'apply', 'init',
 ]);
 
 /* Явные запреты важнее разрешений: даже если команда попала в allowlist
@@ -45,6 +51,20 @@ const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
    поэтому абсолютные пути, `~` и выход через `..` запрещены целиком, а не по
    списку известных мест. */
 export const TOOL_PATH_DENIED = 'TOOL_PATH_DENIED';
+export const TOOL_GIT_DIR_DENIED = 'TOOL_GIT_DIR_DENIED';
+
+/* Метаданные репозитория — не рабочее пространство агента. Через `.git/config`
+   можно заново включить alias (в т.ч. alias на встроенную команду), через
+   `.git/hooks` — выполнить код при разрешённом `git commit`. Поэтому любые
+   упоминания каталога `.git` в командах запрещены, а не только `git config`. */
+function gitDirViolation(tokens) {
+  for (const token of tokens) {
+    if (!token || token.startsWith('-')) continue;
+    const parts = token.split('/');
+    if (parts.includes('.git')) return `the repository metadata directory is not writable: ${token}`;
+  }
+  return null;
+}
 
 function pathViolation(tokens) {
   for (const token of tokens) {
@@ -79,6 +99,8 @@ function decideSegment(segment, policy) {
   const tokens = raw.split(' ');
   const escape = pathViolation(tokens);
   if (escape) return { allow: false, code: TOOL_PATH_DENIED, reason: escape, segment: raw };
+  const gitDir = gitDirViolation(tokens);
+  if (gitDir) return { allow: false, code: TOOL_GIT_DIR_DENIED, reason: gitDir, segment: raw };
 
   const first = tokens[0];
   if (DENIED_FIRST.includes(first)) {

@@ -4,7 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "hardhat test",
+    "deploy:local": "hardhat run scripts/deploy-bridge.mjs",
+    "deploy:sepolia": "hardhat run --network sepolia scripts/deploy-bridge.mjs",
+    "pilot:local": "hardhat run scripts/pilot-bridge.mjs",
+    "pilot:sepolia": "hardhat run --network sepolia scripts/pilot-bridge.mjs"
   },
   "keywords": [],
   "author": "",

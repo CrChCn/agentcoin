@@ -15,7 +15,11 @@
 import { OpsStore, STATUS } from './store.mjs';
 import { lockStatus, pidAlive } from '../lib/lock.mjs';
 
-export function checkWatchdog({ root, staleAfterSec = Number(process.env.OPS_STALE_AFTER_SEC || 900), now = new Date() } = {}) {
+/* standalone — вызов из отдельного процесса (systemd-юнит watchdog). Тогда
+   heartbeat.pid обязан отличаться от нашего: это нормальная работа, а не
+   второй экземпляр. Проверку дубликата имеет смысл делать только внутри
+   самого оркестратора. */
+export function checkWatchdog({ root, staleAfterSec = Number(process.env.OPS_STALE_AFTER_SEC || 900), now = new Date(), standalone = false } = {}) {
   const store = new OpsStore(root, { readOnly: false });
   const beat = store.readHeartbeat();
   const age = store.heartbeatAgeSec(now);
@@ -36,7 +40,7 @@ export function checkWatchdog({ root, staleAfterSec = Number(process.env.OPS_STA
     }
   }
 
-  const duplicateInstance = Boolean(beat.pid && beat.pid !== process.pid && pidAlive(beat.pid) && age != null && age <= staleAfterSec);
+  const duplicateInstance = Boolean(!standalone && beat.pid && beat.pid !== process.pid && pidAlive(beat.pid) && age != null && age <= staleAfterSec);
   if (duplicateInstance) problems.push({ code: 'DUPLICATE_INSTANCE', detail: `heartbeat belongs to live pid ${beat.pid}` });
 
   const record = {

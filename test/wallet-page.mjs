@@ -186,7 +186,11 @@ test('wallet page, session-scoped history, estimate and signed op flow', { timeo
   const origin = node.origin;
 
   await t.test('wallet page and format module are served publicly', async () => {
-    const page = await fetch(origin + '/wallet', { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    // /wallet — объявленный редирект (site/tree.json, config/unified-registry.json): 308 → /cabinet.
+    const moved = await fetch(origin + '/wallet', { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+    assert.equal(moved.status, 308);
+    assert.equal(moved.headers.get('location'), '/cabinet');
+    const page = await fetch(origin + '/cabinet', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(page.status, 200);
     const html = await page.text();
     for (const marker of ['Кошелёк AGENTCOIN', 'Алисы', 'Бобу', '/treasury/state', '/cabinet/op-request', '/cabinet/wallet/history']) {
@@ -196,6 +200,26 @@ test('wallet page, session-scoped history, estimate and signed op flow', { timeo
     const fmt = await fetch(origin + '/wallet-format.js', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(fmt.status, 200);
     assert.match(await fmt.text(), /AgentcoinWalletFormat/);
+  });
+
+  await t.test('every redirect declared in site/tree.json is served as 308 by the node', async () => {
+    const tree = JSON.parse(await fs.readFile(path.join(root, 'site', 'tree.json'), 'utf8'));
+    const redirects = tree.sections.flatMap((section) => section.links).filter((link) => link.redirect);
+    assert.ok(redirects.length > 0, 'дерево объявляет хотя бы один redirect');
+    for (const link of redirects) {
+      for (const route of [link.href, link.href + '/']) {
+        const r = await fetch(origin + route, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+        assert.equal(r.status, 308, `${route}: ожидался 308, получен ${r.status}`);
+        assert.equal(r.headers.get('location'), link.redirect, `${route}: Location`);
+      }
+      // /api/v1-алиас должен оставаться в своём пространстве имён и не отдавать страницу 200
+      const api = await fetch(origin + '/api/v1' + link.href, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+      assert.equal(api.status, 308, `/api/v1${link.href}: ожидался 308`);
+      assert.equal(api.headers.get('location'), '/api/v1' + link.redirect, '/api/v1: Location с префиксом API');
+      // страница только читается: запись обязана получить 405, а не 200/404
+      const post = await fetch(origin + link.href, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(5000) });
+      assert.equal(post.status, 405, `${link.href} POST: ожидался 405`);
+    }
   });
 
   let token = null;

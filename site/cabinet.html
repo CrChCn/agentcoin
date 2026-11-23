@@ -17,7 +17,7 @@ body>*{position:relative;z-index:1}
 <ol class="steps"><li>Установи Skill в собственной среде.</li><li>Создай зашифрованный профиль и отдельную резервную копию.</li><li>Закрепи ключ издателя и параметры сети. Пройди регистрацию через Skill.</li></ol>
 <a href="/skill/agentcoin-skill.zip">Скачать Skill — архив проекта</a><br><a href="/skill/SKILL.md">Установка и команды</a>
 <p><small>Свою полную ноду запускать необязательно. Потеря ноды не удаляет ключ. Потеря всех копий ключа и пароля может лишить доступа — оператор восстановить их не сможет.</small></p>
-</section><section class="panel"><h2>Подключение</h2><div id="nodeMeta" class="dim">Проверяю ноду…</div><p><small>Для смены ноды открой её кабинет и импортируй тот же публичный паспорт. Дочерняя нода должна доверять ключу издателя. Сверяй fingerprint через независимый канал.</small></p><p><a href="/">Состояние сети →</a></p><p><small>Автологин этой ноды можно не повторять при следующем входе: кнопка ниже просит общий auth-модуль <code>/cab-auth.js</code> выключить его (сессии модуля живут только в хранилище вкладки).</small></p><p><button id="disableAutologin" class="secondary">не входить автоматически</button></p></section></div>
+</section><section class="panel"><h2>Подключение</h2><div id="nodeMeta" class="dim">Проверяю ноду…</div><div id="nodes3" class="dim" style="margin-top:12px">Ноды: проверяю…</div><p><small>Для смены ноды открой её кабинет и импортируй тот же публичный паспорт. Дочерняя нода должна доверять ключу издателя. Сверяй fingerprint через независимый канал.</small></p><p><a href="/">Состояние сети →</a></p><p><small>Автологин этой ноды можно не повторять при следующем входе: кнопка ниже просит общий auth-модуль <code>/cab-auth.js</code> выключить его (сессии модуля живут только в хранилище вкладки).</small></p><p><button id="disableAutologin" class="secondary">не входить автоматически</button></p></section></div>
 <section class="panel" id="loginBox"><h2>2. Войти по подписи</h2><p class="dim">Загрузи публичный паспорт. Подпиши выданный запрос локальным Skill. Сюда вводится только подпись.</p>
 <label for="certFile">Публичный паспорт JSON</label><input id="certFile" type="file" accept="application/json,.json"><button id="importCert" class="secondary">Импортировать паспорт</button>
 <label for="adr">AGT-адрес</label><input id="adr" autocomplete="off" placeholder="AGT…">
@@ -69,6 +69,28 @@ action('importSigned',async()=>{checkedTx=null;$('broadcastTransfer').disabled=t
 $('confirmTransfer').onchange=()=>{$('broadcastTransfer').disabled=!checkedTx||!$('confirmTransfer').checked;};
 action('broadcastTransfer',async()=>{if(!token||!checkedTx||!prepared||!$('confirmTransfer').checked)throw Error('Нужно проверить файл и подтвердить перевод.');const approved=checkedTx,expected=prepared;await network();if(checkedTx!==approved||prepared!==expected||!$('confirmTransfer').checked||!token)throw Error('Подтверждение изменилось; повтори сверку.');const tx=approved;if(submitted.has(tx.txid))throw Error('Этот TX уже передан Skill в текущей сессии. Используй тот же файл и локальный журнал; не создавай новый платёж.');const manifest={schema:'agentcoin.wallet.signed.v1',network:prepared.network,genesisHash:prepared.genesisHash,intent:prepared,tx};savePublic('agentcoin-signed-transfer.json',manifest);submitted.set(tx.txid,{tx,status:'Ожидает локального Skill · сайт не отправлял TX'});checkedTx=null;$('confirmTransfer').checked=false;$('broadcastTransfer').disabled=true;$('message').textContent='Файл для Skill сохранён. Отправь его локальным CLI с журналом и --broadcast после сверки. Сайт не отправлял платёж.';await refreshHistory();});
 action('refreshWallet',refresh);api('/identity/meta').then(m=>{$('nodeMeta').textContent='Сеть: '+m.network+' · '+(m.role==='replica'?'дочерняя нода':'издатель паспортов')+'\nКлюч издателя: '+m.passportIssuerFingerprint+'\nНазначение входа: '+m.audience;api('/site/release').then(v=>{$('nodeMeta').append(document.createTextNode('\nВыпуск сайта: '+(v.release||v.checkoutRelease||'не указан')));}).catch(()=>{});}).catch(e=>{$('nodeMeta').textContent='Нода пока не поддерживает переносимые паспорта: '+e.message;});
+// Чтение по трём нодам (только чтение, без ключей и мутаций): сервер уже агрегирует
+// /network/nodes (эта нода + настроенные цели). Нет данных — «—» + stale.
+(function nodes3(){
+  const el=document.getElementById('nodes3'); if(!el) return;
+  async function load(){
+    try{
+      const r=await fetch('/network/nodes',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+      const j=await r.json(); const rows=Array.isArray(j.nodes)?j.nodes:[];
+      if(!rows.length){el.textContent='Ноды: — stale (нет данных)';return;}
+      el.replaceChildren();
+      const title=document.createElement('div'); title.textContent='Ноды ('+rows.length+'): сверяй tip по трём, не верь одной:'; el.append(title);
+      for(const n of rows){
+        const bad=!n.reachable||n.status==='stale_tip'||n.status==='lower_observed_height'||n.status==='invalid_chain'||n.status==='unreachable'||(Number.isFinite(Number(n.tipAgeSec))&&Number(n.tipAgeSec)>300);
+        const d=document.createElement('div');
+        const h=n.reachable?'#'+n.blocks:'—';
+        d.textContent=String(n.name)+': '+h+(n.tipHash?' · '+String(n.tipHash).slice(0,12)+'…':'')+(n.status&&n.status!=='responding'?' · '+n.status:'')+(bad?' · stale':'');
+        el.append(d);
+      }
+    }catch(e){el.textContent='Ноды: — stale ('+e.message+')';}
+  }
+  load(); setInterval(load,30000);
+})();
 // AGIP-45: тихий автологин оператора ТОЛЬКО на своей машине (loopback, анти-CSRF-заголовок).
 // Никаких хранилищ этой страницы: сессия живёт в переменных; в VM-тестах location отсутствует — ветка не идёт.
 // Отключение автологина запрашивается у общего auth-модуля /cab-auth.js (флаг agtx:autologin=off у оператора).

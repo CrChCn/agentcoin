@@ -8,11 +8,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { OpsStore, resolvePaths } from './store.mjs';
-import { loadMission, planNext } from './planner.mjs';
+import { loadMission, planNext, registryPathOf, repositoryRootOf } from './planner.mjs';
 import { loop, tick, realAgentsGate } from './runner.mjs';
 import { checkWatchdog } from './watchdog.mjs';
 import { startApi } from './api.mjs';
 import { runtimeOf, verifyRuntime } from './runtime.mjs';
+import { inspectSeed } from './seed.mjs';
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -44,6 +45,7 @@ function usage() {
     '',
     '  status                     состояние сервиса, очередь, checkpoint, память',
     '  plan                       один проход планировщика (таймер)',
+    '  seed                       семя (mission/registry): цело, устарело, исполнять нельзя',
     '  tick                       один цикл: восстановление → план → шаги задания',
     '  loop [--once] [--until-idle]  постоянный цикл оркестратора',
     '  api [--host 127.0.0.1] [--port 8799]   read-only Ops API',
@@ -90,6 +92,23 @@ async function main() {
     return 0;
   }
 
+  if (command === 'seed') {
+    /* Сервис только докладывает. Правка семени — действие владельца: у него
+       root на /etc и /var/lib/.../queue, у сервиса — чтение. */
+    const store = new OpsStore(root, { readOnly: true });
+    const loaded = (() => { try { return loadMission(root, opts.mission || null); } catch { return null; } })();
+    const mission = loaded ? loaded.mission : null;
+    const missionFile = loaded ? loaded.file : (opts.mission ? path.resolve(String(opts.mission)) : store.paths.missionFile);
+    const report = inspectSeed({
+      missionFile,
+      mission,
+      registryFile: mission ? registryPathOf(store, mission) : path.join(store.paths.base, 'queue', 'registry.json'),
+      repositoryRoot: mission ? repositoryRootOf(store, mission) : path.join(store.paths.base, 'repository'),
+    });
+    print(report);
+    return report.problems.length ? 2 : 0;
+  }
+
   if (command === 'tick') {
     ensureLayout(root);
     const { mission } = loadMission(root, opts.mission || null);
@@ -124,7 +143,9 @@ async function main() {
   }
 
   if (command === 'watchdog') {
-    const record = checkWatchdog({ root });
+    /* Этот процесс — не оркестратор, поэтому его pid и pid из heartbeat
+       различаются всегда; проверка дубликата здесь дала бы ложную тревогу. */
+    const record = checkWatchdog({ root, standalone: true });
     print(record);
     return record.problems.length ? 2 : 0;
   }

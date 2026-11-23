@@ -78,6 +78,22 @@ export function changedFiles(dir, baseCommit) {
   for (const file of git(dir, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean)) {
     files.set(file.replace(/\\/g, '/'), 'added');
   }
+
+  /* Запись в gitignored путь не видна ни `git diff`, ни `--exclude-standard`,
+     поэтому раньше она молча проходила мимо authority check: агент писал в
+     `data/` или `.env`, а список изменённых файлов оставался чистым. Теперь
+     такие файлы перечисляются: покрытый allowedPaths — нормальный кеш/сборка,
+     непокрытый — нарушение, которое останавливает задачу.
+     Содержимое `.git` не перечисляем: служебные файлы репозитория не являются
+     результатом работы агента. */
+  const ignored = git(dir, ['ls-files', '--others', '--ignored', '--exclude-standard'], { allowFail: true });
+  if (typeof ignored === 'string' && ignored) {
+    for (const entry of ignored.split('\n').filter(Boolean)) {
+      const file = entry.replace(/\\/g, '/').replace(/\/+$/, '');
+      if (!file || file === '.git' || file.startsWith('.git/')) continue;
+      if (!files.has(file)) files.set(file, 'added');
+    }
+  }
   return [...files.entries()].map(([file, status]) => ({ file, status })).sort((a, b) => a.file.localeCompare(b.file));
 }
 

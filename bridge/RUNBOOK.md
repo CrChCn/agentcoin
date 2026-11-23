@@ -3,8 +3,10 @@
 Статус: ядро + политика расхождения + локальный e2e собраны изолированно.
 Контракты + тесты EVM (8/8: кросс-шлюз replay и ротация подписаны), proto-каноника,
 сверка, vault 2-of-3 (6/6), расхождение политик, двусторонний e2e — зелены.
-НЕ собрано — наблюдатели/аттестор/ретранслятор как сервисы, API `/bridge/*`,
-развёртывание Sepolia. Основная сеть и реальные средства — НЕ подключать.
+НЕ собрано — наблюдатели/аттестор/ретранслятор как сервисы, API `/bridge/*`.
+Развёртывание — есть (`bridge/scripts/deploy-bridge.mjs`), на локальной сети прогон зелёный;
+Sepolia ждёт ключа деплоера с газом и отчёта независимого проверяющего (гейт 0).
+Основная сеть и реальные средства — НЕ подключать.
 
 ## Воспроизводимость стенда (независимый проверяющий, одна документация)
 Из корня репо `agentcoin/` (все команды — отсюда, если не сказано иное):
@@ -38,6 +40,40 @@
    (solc 0.8.24, evmVersion cancun, OZ v5).
 Секреты не нужны: все ключи генерируются внутри тестов (tmp), продовых нет.
 Шаблон отчёта проверяющего: `docs/INDEPENDENT-REPRO-TEMPLATE.md`.
+Пакет для проверяющего целиком: `node tools/gate0-package.mjs` → `dist/gate0-<ts>.tar.gz`
+(37 файлов, SHA256SUMS, README-GATE0, импорты замыкаются автоматически, секреты сканируются).
+Проверено распаковкой с нуля: `sha256sum -c` 37/37 OK, `node test/repro-stand.mjs` — ALL GREEN.
+EVM-часть требует `npm install` в `bridge/` (на Windows это десятки минут, в лимит командного окна не влезает).
+
+### Деплой стенда в EVM-сеть
+```bash
+cd bridge
+# локальная hardhat-сеть: ничего не стоит, 5 проверок состояния
+node node_modules/hardhat/internal/cli/cli.js run scripts/deploy-bridge.mjs
+# Sepolia — только с явным подтверждением и ключом в env:
+#   CONFIRM_DEPLOY=sepolia SEPOLIA_RPC_URL=... SEPOLIA_DEPLOYER_KEY=0x... npm run deploy:sepolia
+```
+Скрипт деплоит wAGT → gateway, выдаёт шлюзу `GATEWAY_ROLE`, перечитывает состояние
+(`gateway.wag()`, роль, `dstChainId`, `agentcoinChainId`, порог) и пишет
+`bridge/deployments/<network>.json` — без ключей, только адреса и параметры.
+Без `CONFIRM_DEPLOY=<сеть>` на внешней сети скрипт отказывается работать до отправки транзакций.
+
+### Приёмочный пилот: выпуск → сжигание → учёт → сверка
+```bash
+cd bridge
+# локально: стенд развернётся сам, если в файле деплоя нет кода (эфемерная сеть)
+node node_modules/hardhat/internal/cli/cli.js run scripts/pilot-bridge.mjs
+# на уже развёрнутом стенде (в т.ч. localhost / Sepolia):
+#   node node_modules/hardhat/internal/cli/cli.js run --network localhost scripts/pilot-bridge.mjs
+#   CONFIRM_PILOT=sepolia BRIDGE_SIGNER_KEYS=0x...,0x...,0x... npm run pilot:sepolia
+```
+20 проверок в 6 шагах: состояние стенда → `mintAttested` настоящими подписями федерации → отказы
+(`ThresholdNotMet`, `OverPerOpLimit`, повтор `AlreadyExecuted` — через `eth_call`, без трат газа) →
+`burnWithRecipient` → `observeBurn` (+ отказ постороннему) → `computeReserves` по дельтам прогона.
+Пишет `evidence/bridge-pilot-<network>-<ts>.json` с хешами и результатом; exit 2 — пилот не пройден.
+На локальной сети — 20/20, в том числе два прогона подряд на одном стенде (сверка по дельтам,
+а не по абсолюту — стенд мог быть использован раньше). Нативная нога в отчёте помечена как модельная:
+живой цепи Agentcoin в этом прогоне нет, проверяется EVM-сторона и её инварианты.
 
 ## Ключи стенда (тестовые, НЕ продовые)
 - Подписанты федерации 3-of-5: тестовые ключи hardhat-сети; продовые генерируются

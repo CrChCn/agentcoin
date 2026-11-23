@@ -1,9 +1,9 @@
 Agentcoin orchestrator — clean-room verification
-archive: agentcoin-orchestrator-stage-a-fix7d-20261120.zip
-files in archive: 84
+archive: agentcoin-orchestrator-stage-c-20261121.zip
+files in archive: 142
 extractor: unzip
 workspace root: <CLEANROOM>
-$ unzip -q agentcoin-orchestrator-stage-a-fix7d-20261120.zip -d unpacked
+$ unzip -q agentcoin-orchestrator-stage-c-20261121.zip -d unpacked
 exit 0
 --- stdout ---
 
@@ -15,7 +15,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:18208) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:2360) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -56,11 +56,15 @@ exit 0
 ✔ the proxy module has no filesystem access at all (<ms>)
 ✔ the mandatory matrix contains the script-mode attacks (<ms>)
 ✔ the temporary CODEX_HOME with auth.json is removed (<ms>)
-✔ plan.cleanup removes credentials, scratch, IPC and the broker socket (<ms>)
+﹣ plan.cleanup removes credentials, scratch, IPC and the broker socket (<ms>) # no smoke-tested isolation backend: backend wsl-bwrap cannot run the smoke test: no output
+✔ the real harness asks Codex for a non-git fixture and disables its bash snapshot (<ms>)
+﹣ the agent plan mounts contracts, outbox, the Codex scope and provider TLS files (<ms>) # no smoke-tested sandbox: backend wsl-bwrap cannot run the smoke test: no output
+✔ a rotated auth.json is returned to the canonical codex home before cleanup (<ms>)
+✔ the orchestrator makes the commit itself when the agent leaves the tree uncommitted (<ms>)
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:15908) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:6336) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -70,16 +74,41 @@ exit 0
 ✔ two real adapter processes: distinct thread_id, JSONL, usage, ACCEPTED (<ms>)
 ✔ reviewer ACCEPTED with a failing executed check is downgraded, not accepted (<ms>)
 ✔ adapter failures are BLOCKED, never a successful result (<ms>)
+✔ реестр не пуст и каждая проверка реально исполняется (<ms>)
+✔ ТЗ каждой записи проходит контракт задания (<ms>)
+✔ инварианты репозитория держатся: планировщику нечего ставить (<ms>)
+✔ задача реестра выполняется в том репозитории, где доказано расхождение (<ms>)
+✔ поколение инцидента меняет ключ дедупликации (<ms>)
+✔ report writes identical JSON at the run root and the existing log path (<ms>)
+✔ report writes both copies for a blocked run (<ms>)
 ✔ restart: journal wins over a stale snapshot and the loop continues in a new process (<ms>)
+✔ w: allowed tree is a path boundary, not a string prefix (<ms>)
+✔ w: forbiddenPaths выигрывает у allowedPaths (<ms>)
+✔ x: shell-формы и команды вне контракта не исполняются (<ms>)
+✔ x: разрешённую git-команду нельзя перепрограммировать в shell (<ms>)
+✔ w: запись в gitignored путь видна authority check, а не прячется (<ms>)
+✔ w: файл рядом с workspace — это ESCAPE_WORKSPACE, а не «просто мусор» (<ms>)
+✔ x: прокси держит транспорт и .git, а границу записи держит контракт (<ms>)
 ✔ a broken backend is rejected even though bwrap is installed (<ms>)
 ✔ no smoke-tested backend blocks a real agent before anything runs (<ms>)
 ✔ a smoke-tested backend without end-to-end evidence still blocks real agents (<ms>)
 ✔ level-3 evidence cannot be manufactured by hand (<ms>)
 ✔ the agent plan refuses to build without a smoke-tested backend (<ms>)
-✔ the real command runner executes an allowed command inside the sandbox (<ms>)
+﹣ the real command runner executes an allowed command inside the sandbox (<ms>) # no smoke-tested isolation backend: backend wsl-bwrap cannot run the smoke test: no output
 ✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
 ✔ an artifact that would carry a secret is refused instead of packaged (<ms>)
 ✔ a full two-agent cycle leaves no secret anywhere under the run root (<ms>)
+✔ пустое семя — штатный IDLE, а не проблема (<ms>)
+✔ падающая проверка — gap, проходящая — closed (<ms>)
+✔ containment не даёт доказательства: запись skipped, а не gap (<ms>)
+✔ нет repositoryRoot — unknown, а не closed (<ms>)
+✔ неизвестная проверка, дубль id и битый JSON — invalid (<ms>)
+✔ выключенная запись не делает семя работающим (<ms>)
+✔ владение семенем: проверяется там, где права вообще есть (<ms>)
+ℹ POSIX ownership is unavailable on this host
+✔ CLI: seed печатает отчёт и возвращает 2 на непригодном семени (<ms>)
+✔ checkout clones the repository named in the contract and records it (<ms>)
+✔ a missing or non-git source is refused at checkout, never replaced by the fixture (<ms>)
 ✔ a normal regular file still works end to end (<ms>)
 ﹣ 1. an allowed path that is a symlink to an outside file is refused before reading (<ms>) # symlinks are not permitted for this user/platform
 ﹣ 2. a symlink to an outside directory cannot be used as a path component (<ms>) # symlinks are not permitted for this user/platform
@@ -105,14 +134,14 @@ exit 0
 ✔ substitution and path escapes are denied before any allowlist match (<ms>)
 ✔ the task allowlist matches exactly, not by prefix (<ms>)
 ✔ a task command cannot smuggle a second command (<ms>)
-ℹ tests 88
+ℹ tests 116
 ℹ suites 0
-ℹ pass 78
+ℹ pass 103
 ℹ fail 0
 ℹ cancelled 0
-ℹ skipped 10
+ℹ skipped 13
 ℹ todo 0
-ℹ duration_ms 199231.5476
+ℹ duration_ms 190717.665
 --- stderr ---
 
 
@@ -236,25 +265,25 @@ exit 0
   ]
 }
 --- stderr ---
-(node:6048) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:18588) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 
-$ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean --codex-bin "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js"
+$ node orchestrator.mjs preflight --task fixtures/tasks/lesson-01.json --root runs/preflight-clean
 exit 3
 --- stdout ---
 {
   "status": "BLOCKED",
   "ready": false,
   "taskId": "lesson-01",
-  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-8qw2OB\\unpacked\\orchestrator\\runs\\preflight-clean",
+  "root": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agentcoin-fix-clean-YKaaaL\\unpacked\\orchestrator\\runs\\preflight-clean",
   "isolation": {
-    "available": true,
-    "backend": "wsl-bwrap",
+    "available": false,
+    "backend": null,
     "installedBackend": "wsl-bwrap",
-    "detail": "wsl-bwrap passed the isolation smoke test",
+    "detail": "backend wsl-bwrap cannot run the smoke test: no output",
     "levels": {
       "installed": true,
-      "smokeTested": true,
+      "smokeTested": false,
       "adapterEndToEnd": false
     },
     "evidence": null,
@@ -273,15 +302,12 @@ exit 3
       "role": "implementer",
       "id": "codex-implementer",
       "simulated": false,
-      "available": true,
+      "available": false,
       "programmatic": true,
       "authenticated": false,
-      "authKind": "none",
-      "blocked": null,
-      "version": "codex-cli 0.170.0",
-      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
-      "reason": "codex CLI установлен, но вход не выполнен",
-      "requiresHuman": "codex login",
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
       "evidence": "https://developers.openai.com/codex/noninteractive",
       "adapter": "codex-implementer",
       "provider": "codex"
@@ -290,15 +316,12 @@ exit 3
       "role": "reviewer",
       "id": "codex-reviewer",
       "simulated": false,
-      "available": true,
+      "available": false,
       "programmatic": true,
       "authenticated": false,
-      "authKind": "none",
-      "blocked": null,
-      "version": "codex-cli 0.170.0",
-      "binary": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-codex-probe\\node_modules\\@openai\\codex\\bin\\codex.js",
-      "reason": "codex CLI установлен, но вход не выполнен",
-      "requiresHuman": "codex login",
+      "reason": "spawnSync codex ENOENT",
+      "install": "npm i -g @openai/codex",
+      "binary": "codex",
       "evidence": "https://developers.openai.com/codex/noninteractive",
       "adapter": "codex-reviewer",
       "provider": "codex"
@@ -317,20 +340,20 @@ exit 3
   "blockers": [
     {
       "role": "implementer",
-      "code": "agent_unauthenticated",
-      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
     },
     {
       "role": "reviewer",
-      "code": "agent_unauthenticated",
-      "detail": "Run `codex login` once on this computer, then re-run preflight. Do not paste the key into chat or the repository."
+      "code": "agent_unavailable",
+      "detail": "spawnSync codex ENOENT"
     },
     {
-      "code": "agent_isolation_unproven",
-      "detail": "no machine-bound end-to-end evidence for the real Codex worker; run `node tools/agent-hostile-check.mjs --real` (evidence/agent-isolation.json)"
+      "code": "isolated_runner_unavailable",
+      "detail": "real agents require a smoke-tested OS isolation backend (bubblewrap on Linux, WSL2 on Windows): backend wsl-bwrap cannot run the smoke test: no output"
     }
   ],
-  "nextCommand": "agent_unauthenticated"
+  "nextCommand": "install the agent CLI on this host (npm i -g @openai/codex), then re-run preflight"
 }
 --- stderr ---
 
@@ -353,15 +376,31 @@ artifacts/apply.mjs: OK
 artifacts/store.mjs: OK
 contracts/event.schema.json: OK
 contracts/implementer-result.schema.json: OK
+contracts/public-status.schema.json: OK
 contracts/review-result.schema.json: OK
 contracts/state.schema.json: OK
 contracts/task.schema.json: OK
+evidence/c1-install-dryrun.txt: OK
+evidence/c1-preflight.json: OK
+evidence/c1-real-crash-recovery.txt: OK
+evidence/c1-restart-proof.txt: OK
+evidence/c1-service-tests.txt: OK
+evidence/c1-stop-proof.txt: OK
+evidence/c1-systemd-verify.txt: OK
+evidence/c2-acceptance.json: OK
+evidence/c2-acceptance.txt: OK
+evidence/c2-install-rehearsal.txt: OK
 evidence/demo.txt: OK
 evidence/hostile-check.txt: OK
 evidence/package-clean-test.txt: OK
 evidence/preflight-clean.json: OK
 evidence/preflight.json: OK
 evidence/tests.txt: OK
+fixtures/repo-invariants/caddy-routes.conf: OK
+fixtures/repo-invariants/docs/OPS-ORCHESTRATOR.md: OK
+fixtures/repo-invariants/node.mjs: OK
+fixtures/repo-invariants/site/ops.html: OK
+fixtures/repo-invariants/site/tree.json: OK
 fixtures/reviewer-checks/reviewer.extra.test.mjs: OK
 fixtures/task-src/README.md: OK
 fixtures/task-src/src/pricing.mjs: OK
@@ -378,7 +417,9 @@ lib/fsx.mjs: OK
 lib/git.mjs: OK
 lib/journal.mjs: OK
 lib/lock.mjs: OK
+lib/opsauth.mjs: OK
 lib/package.mjs: OK
+lib/procinfo.mjs: OK
 lib/prompts.mjs: OK
 lib/safefs.mjs: OK
 lib/sandbox.mjs: OK
@@ -389,6 +430,40 @@ lib/zip.mjs: OK
 logs/.gitkeep: OK
 orchestrator.mjs: OK
 policies/policy.mjs: OK
+service/C2.md: OK
+service/README.md: OK
+service/api.mjs: OK
+service/checks.mjs: OK
+service/deployer.mjs: OK
+service/install.sh: OK
+service/mission.json: OK
+service/operator.mjs: OK
+service/ops-env.example: OK
+service/opsd.mjs: OK
+service/planner.mjs: OK
+service/public/ops.html: OK
+service/publicview.mjs: OK
+service/registry.json: OK
+service/runner.mjs: OK
+service/runtime.json: OK
+service/runtime.mjs: OK
+service/seed.mjs: OK
+service/store.mjs: OK
+service/systemd/agt-deployer.service: OK
+service/systemd/agt-orchestrator-api.service: OK
+service/systemd/agt-orchestrator-scheduler.service: OK
+service/systemd/agt-orchestrator-scheduler.timer: OK
+service/systemd/agt-orchestrator-watchdog.service: OK
+service/systemd/agt-orchestrator-watchdog.timer: OK
+service/systemd/agt-orchestrator.service: OK
+service/tests/service.test.mjs: OK
+service/tools/c1-real-crash-recovery.sh: OK
+service/tools/c1-restart-proof.sh: OK
+service/tools/c1-stop-proof.sh: OK
+service/tools/c2-acceptance.mjs: OK
+service/tools/c2-host-acceptance.sh: OK
+service/tools/codex-pin.mjs: OK
+service/watchdog.mjs: OK
 state/.gitkeep: OK
 state/store.mjs: OK
 tests/artifact-swap.test.mjs: OK
@@ -400,15 +475,21 @@ tests/e2e.test.mjs: OK
 tests/env-policy.test.mjs: OK
 tests/evidence.test.mjs: OK
 tests/fix6.test.mjs: OK
+tests/fix7d.test.mjs: OK
 tests/helpers.mjs: OK
 tests/hostile/attacks.mjs: OK
 tests/lock-holder.mjs: OK
 tests/lock.test.mjs: OK
 tests/package-closure.test.mjs: OK
 tests/real-harness.test.mjs: OK
+tests/registry.test.mjs: OK
+tests/report-copy.test.mjs: OK
 tests/restart.test.mjs: OK
+tests/rwx.test.mjs: OK
 tests/sandbox-runner.test.mjs: OK
 tests/secrets.test.mjs: OK
+tests/seed.test.mjs: OK
+tests/source.test.mjs: OK
 tests/symlink.test.mjs: OK
 tests/termination.test.mjs: OK
 tests/test-isolation.test.mjs: OK
@@ -424,8 +505,8 @@ FILELIST.txt: OK
 --- stderr ---
 
 summary:
-  tests: exit 0, pass 78, fail 0
+  tests: exit 0, pass 103, fail 0
   capabilities: exit 0, adapters fixture-implementer,fixture-reviewer,freebuff-cli,codex-cli,codex-implementer,codex-reviewer
-  preflight: exit 3, blockers agent_isolation_unproven,agent_unauthenticated
+  preflight: exit 3, blockers agent_unavailable,isolated_runner_unavailable
   sha256sum: exit 0
   verdict: PASS

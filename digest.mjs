@@ -17,7 +17,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(process.cwd() + '/');
-const API = (process.env.AGT_API || 'http://127.0.0.1:9335').replace(/\/$/, '');
+// Читает только публичные маршруты (/info, /life, /jobs/state, /ops/watchdog/state,
+// POST /community/send) — поэтому по умолчанию боевой узел; локальный адрес — через AGT_API.
+const API = (process.env.AGT_API || 'https://agentcoin.work').replace(/\/$/, '');
 const PUBLIC_URL = process.env.AGT_PUBLIC_URL || '';
 if (PUBLIC_URL) {
   const u = new URL(PUBLIC_URL);

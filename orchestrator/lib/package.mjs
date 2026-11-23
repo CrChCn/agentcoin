@@ -20,7 +20,11 @@ const DYNAMIC_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const CONTAINER_DIRS = new Set(['state', 'logs', 'artifacts']);
 const SKIP_NAMES = new Set(['node_modules', '.git', 'runs', 'workspaces', 'dist']);
 
-const DATA_PREFIXES = ['contracts/', 'fixtures/', 'evidence/'];
+/* service/ целиком: это точки входа systemd и человека (opsd, api, operator,
+   deployer, install.sh, юниты, seed-файлы, acceptance-скрипты), а не импорты.
+   Без этого префикса ZIP собирался без service/install.sh и service/opsd.mjs:
+   архив не устанавливал сервис и падал на собственных тестах registry и seed. */
+const DATA_PREFIXES = ['contracts/', 'fixtures/', 'evidence/', 'service/'];
 /* Доказательство уровня 3 привязано к машине и конкретному потоку Codex.
    В архив оно не попадает: иначе распакованный архив открыл бы автономный
    запуск на другой машине без собственной hostile-проверки. */
@@ -170,11 +174,33 @@ export function toolEntrypoints(root = ORCH_ROOT) {
     .sort();
 }
 
+/* Команды сервиса — тоже entrypoints: их импорты (store, planner, checks,
+   api) обязаны попасть в архив, а отсутствующий модуль должен быть ошибкой
+   сборки, а не ошибкой при первом запуске на хосте. */
+export function serviceEntrypoints(root = ORCH_ROOT) {
+  const dir = path.join(root, 'service');
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  const collect = (sub) => {
+    const abs = sub ? path.join(dir, sub) : dir;
+    if (!fs.existsSync(abs)) return;
+    for (const name of fs.readdirSync(abs)) {
+      if (!name.endsWith('.mjs')) continue;
+      out.push(sub ? `service/${sub}/${name}` : `service/${name}`);
+    }
+  };
+  collect('');
+  collect('tools');
+  collect('tests');
+  return out.sort();
+}
+
 export function buildShipList({ root = ORCH_ROOT, include = [] } = {}) {
   const entrypoints = [
     ...runtimeEntrypoints(root),
     ...testEntrypoints(root),
     ...toolEntrypoints(root),
+    ...serviceEntrypoints(root),
     ...include,
   ];
   const graph = closure(entrypoints, root);

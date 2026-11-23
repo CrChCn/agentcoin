@@ -1,5 +1,8 @@
 {
-  "bootstrap": [],
-  "updatedAt": "2026-10-18T00:00:00.000Z",
-  "note": "No built-in operator peers. Configure reachable peer URLs for your own deployment; an empty list does not join a network. Loopback refers only to the machine executing the client. See docs/JOINING.md."
+  "bootstrap": [
+    "https://agentcoin.work",
+    "https://node1.agentcoin.work"
+  ],
+  "updatedAt": "2026-11-21T00:00:00.000Z",
+  "note": "Public seed endpoints of the AGENTCOIN mainnet. Both names answer on the writing node (node1); https://node2.agentcoin.work and https://node3.agentcoin.work are dark reserves (403 outside the operator allowlist) and are therefore not dialable as public peers. A deployment may replace this list with its own reachable peers; an empty list joins no network. Loopback refers only to the machine executing the client. See docs/JOINING.md."
 }

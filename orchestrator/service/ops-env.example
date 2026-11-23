@@ -1,7 +1,7 @@
 # /etc/agentcoin/ops.env — переменные окружения сервиса.
 # Ставится install.sh только если файла ещё нет; права 0640 root:agt-orchestrator.
 
-OPS_ROOT=/srv/agentcoin-ops
+OPS_ROOT=/var/lib/agentcoin-orchestrator
 OPS_API_HOSTS=127.0.0.1,::1
 OPS_API_PORT=8799
 OPS_STALE_AFTER_SEC=900

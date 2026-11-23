@@ -64,7 +64,7 @@ try {
       assert(!html.includes('const CANDS'));
     }
     assert(read('site/dashboard.html').includes("j('/network/nodes')"));
-    assert(read('site/index.html').includes("getElementById('puburl').textContent = location.origin"));
+    // site/index.html — сгенерированный Next-экспорт (b88c097); рукописного #puburl там нет и не будет.
   });
 
   const deploy = read('scripts/deploy-vps.sh');
@@ -105,7 +105,8 @@ try {
         const context = vm.createContext({process:{env}, fs, URL});
         return JSON.parse(JSON.stringify(vm.runInContext(code + '\nloadNodeTargets()', context)));
       }
-      assert.deepEqual(getTargets({}), [['own-node', 'http://127.0.0.1:9335']]);
+      // Дефолт мониторинга — боевой узел (публичные /life): локальный адрес задаётся AGT_API.
+      assert.deepEqual(getTargets({}), [['own-node', 'https://agentcoin.work']]);
       assert.deepEqual(getTargets({AGT_API:'https://my-node.example/'}), [['own-node', 'https://my-node.example']]);
       const config = path.join(tmp, 'targets.json');
       fs.writeFileSync(config, JSON.stringify([{name:'daughter', url:'https://daughter.example'}]));

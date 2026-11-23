@@ -23,6 +23,8 @@ data-emperor/
 agt-skill/.state/
 # Ключи тестовых onboard-агентов (onboard_agent.py) — НИКОГДА не в git
 onboard-cred-*.json
+# Ключи деплоя — только локально, НИКОГДА в git (общий *.token — в секции 6)
+.tz-deploy/
 
 # --- 4) Отчёты и служебные артефакты ---
 reports/
@@ -73,7 +75,16 @@ srv/
 *.key
 *.token
 
-# --- 6) Мост: зависимости и артефакты сборки (восстанавливаются по bridge/package.json) ---
+# --- 7) агент-трейдер: keystore, состояние, журнал (НИКОГДА не в git) ---
+.agent-trader/
+.agent-trader-*/
+
+# --- 8) Мост: зависимости и артефакты сборки (восстанавливаются по bridge/package.json) ---
 bridge/node_modules/
 bridge/artifacts/
 bridge/cache/
+.tools/
+dist/
+.gate0-check/
+bridge/deployments/hardhat.json
+bridge/deployments/localhost.json

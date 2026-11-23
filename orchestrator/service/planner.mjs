@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadTask } from '../lib/engine.mjs';
 import { canonical, readJson, sha256, writeJsonAtomic } from '../lib/fsx.mjs';
+import { isRepo } from '../lib/git.mjs';
 
 import { STATUS } from './store.mjs';
 import { evaluateCheck } from './checks.mjs';
@@ -45,7 +46,7 @@ export function loadMission(root, explicitFile = null) {
 
 /* Реестр ищется сначала в OPS_ROOT (владелец может править его без
    переустановки кода), затем рядом с сервисом. */
-function registryPathOf(store, mission) {
+export function registryPathOf(store, mission) {
   const local = path.join(store.paths.base, 'queue', 'registry.json');
   if (fs.existsSync(local)) return local;
   const configured = mission.planner && mission.planner.registry;
@@ -53,7 +54,7 @@ function registryPathOf(store, mission) {
   return path.isAbsolute(configured) ? configured : path.resolve(HERE, configured);
 }
 
-function repositoryRootOf(store, mission) {
+export function repositoryRootOf(store, mission) {
   const configured = mission.repositoryRoot;
   if (!configured) return path.join(store.paths.base, 'repository');
   return path.isAbsolute(configured) ? configured : path.resolve(store.paths.base, configured);
@@ -218,6 +219,13 @@ export function planNext(store, mission, { now = new Date(), repositoryRoot = nu
     title: chosen.entry.task.title || taskId,
     trigger,
   };
+  /* Расхождение доказано в repositoryRoot — работать нужно в нём. Без source
+     движок берёт fixture-шаблон, где нужного пути может просто не быть, и
+     задача «чинит» не тот репозиторий. Fixture остаётся путём тестов, а не
+     рабочей петлёй. */
+  if (!task.source && isRepo(repoRoot)) {
+    task.source = { repo: repoRoot, ref: 'HEAD' };
+  }
   writeJsonAtomic(taskFile, task);
   /* Контракт проверяется до постановки: безвалидное ТЗ не попадает в очередь. */
   loadTask(taskFile);

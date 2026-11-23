@@ -160,6 +160,3 @@ function unitsObj(amtStr) {
     note: 'mAGT = 10⁻³ AGT; mGNT (магент, AGIP-9) = 10⁻⁹ AGT',
   };
 }
-
-// Контракт страниц: serveSitePage для /wallet
-export const WALLET_PAGE = 'wallet.html';

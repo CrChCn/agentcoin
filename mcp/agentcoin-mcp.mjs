@@ -17,6 +17,8 @@ const TOOLS = [
   { name: 'jobs_claim', description: 'MUTATING (destructive): взять только свою задачу', inputSchema: { type: 'object', properties: { address: { type: 'string' } }, required: ['address'] } },
   { name: 'jobs_submit', description: 'MUTATING (destructive): сдать работу (summary>=40)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, jobId: { type: 'string' }, summary: { type: 'string' } }, required: ['address', 'jobId', 'summary'] } },
   { name: 'offers_search', description: 'READ-ONLY: поиск услуг по навыку/цене/формату', inputSchema: { type: 'object', properties: { skill: { type: 'string' }, maxPriceAtomic: { type: 'number' }, format: { type: 'string' } } } },
+  { name: 'trust_card', description: 'READ-ONLY: Trust Card — интервал доверия, grade и доказательства по адресу', inputSchema: { type: 'object', properties: { address: { type: 'string' }, role: { type: 'string' } }, required: ['address'] } },
+  { name: 'offers_ranked', description: 'READ-ONLY: ранжирование услуг по нижней границе доверия и цене', inputSchema: { type: 'object', properties: { skill: { type: 'string' }, maxPriceAtomic: { type: 'number' }, format: { type: 'string' }, limit: { type: 'number' } } } },
   { name: 'offers_publish', description: 'MUTATING (destructive): опубликовать предложение услуги', inputSchema: { type: 'object', properties: { address: { type: 'string' }, offer: { type: 'object' } }, required: ['address', 'offer'] } },
   { name: 'orders_create', description: 'MUTATING (destructive): создать заказ (идемпотентный)', inputSchema: { type: 'object', properties: { address: { type: 'string' }, offerId: { type: 'string' }, input: { type: 'object' }, idempotencyKey: { type: 'string' } }, required: ['address', 'offerId'] } },
   { name: 'orders_submit', description: 'MUTATING (destructive): сдать артефакт результата', inputSchema: { type: 'object', properties: { address: { type: 'string' }, assignmentId: { type: 'string' }, artifact: { type: 'object' }, contentB64: { type: 'string' } }, required: ['address', 'assignmentId', 'artifact', 'contentB64'] } },
@@ -48,11 +50,35 @@ function client(addr) {
 }
 async function call(name, args = {}) {
   if (name === 'ops_metrics') return await makeClient({ node: NODE }).opsMetrics();
+  if (name === 'trust_card') {
+    const address = String(args.address || ADDRESS || '');
+    if (!address) throw Object.assign(new Error('address required'), { code: -32602 });
+    return await makeClient({ node: NODE }).getTrustCard(address, String(args.role || 'provider'));
+  }
+  if (name === 'offers_ranked') {
+    const limit = Math.max(1, Math.min(20, Number(args.limit) || 5));
+    const pub = makeClient({ node: NODE });
+    const found = await pub.searchOffers({ skill: args.skill, maxPriceAtomic: args.maxPriceAtomic, format: args.format });
+    const offers = (found.offers || []).slice(0, limit);
+    const ranked = [];
+    for (const offer of offers) {
+      let trust = null;
+      try { trust = (await pub.getTrustCard(String(offer.provider))).card; } catch {}
+      ranked.push({ ...offer, trust });
+    }
+    ranked.sort((a, b) => {
+      const sa = a.trust?.score == null ? -1 : a.trust.score;
+      const sb = b.trust?.score == null ? -1 : b.trust.score;
+      return sb - sa || Number(a.priceAtomic) - Number(b.priceAtomic);
+    });
+    return { count: ranked.length, ranking: 'trust lower bound desc, price asc', offers: ranked };
+  }
   const { c, addr } = client(args.address);
   if (name === 'status') return await c.status(addr);
   if (name === 'my_task') return { task: await c.myTask(addr) };
   if (name === 'payments') return await c.payments(addr);
   if (name === 'offers_search') return await c.searchOffers({ skill: args.skill, maxPriceAtomic: args.maxPriceAtomic, format: args.format });
+
   if (name === 'offers_publish') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.publishOffer(addr, args.offer); }
   if (name === 'orders_create') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.createOrder(addr, String(args.offerId), args.input || {}, String(args.idempotencyKey || '')); }
   if (name === 'orders_submit') { if (!WALLET) throw Object.assign(new Error('wallet required for write'), { code: -32000 }); return await c.submitArtifact(addr, String(args.assignmentId), args.artifact, String(args.contentB64)); }

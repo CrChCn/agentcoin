@@ -3,7 +3,7 @@ exit 0
 --- stdout ---
 ✔ artifact swap: one byte invalidates the hash and revokes acceptance (<ms>)
 ✔ authority: widening scope, escaping the workspace or an unlisted command blocks the loop (<ms>)
-(node:18208) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:2360) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ Freebuff: official surface is interactive, so it is not a programmatic interface (<ms>)
 ✔ Codex CLI absent: adapter is unavailable and the loop blocks with agent_unavailable (<ms>)
@@ -44,11 +44,15 @@ exit 0
 ✔ the proxy module has no filesystem access at all (<ms>)
 ✔ the mandatory matrix contains the script-mode attacks (<ms>)
 ✔ the temporary CODEX_HOME with auth.json is removed (<ms>)
-✔ plan.cleanup removes credentials, scratch, IPC and the broker socket (<ms>)
+﹣ plan.cleanup removes credentials, scratch, IPC and the broker socket (<ms>) # no smoke-tested isolation backend: backend wsl-bwrap cannot run the smoke test: no output
+✔ the real harness asks Codex for a non-git fixture and disables its bash snapshot (<ms>)
+﹣ the agent plan mounts contracts, outbox, the Codex scope and provider TLS files (<ms>) # no smoke-tested sandbox: backend wsl-bwrap cannot run the smoke test: no output
+✔ a rotated auth.json is returned to the canonical codex home before cleanup (<ms>)
+✔ the orchestrator makes the commit itself when the agent leaves the tree uncommitted (<ms>)
 ✔ two concurrent step processes: the agent runs once, the second gets TASK_BUSY (<ms>)
 ✔ lock storm: 20 concurrent processes, exactly one wins, the rest get TASK_BUSY (<ms>)
 ✔ a dead lock is never taken over blindly: NEEDS_RECONCILE, then explicit reconcile (<ms>)
-(node:15908) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:6336) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 ✔ every runtime module imported by the orchestrator exists (<ms>)
 ✔ static and literal dynamic imports all resolve inside the source tree (<ms>)
@@ -58,16 +62,41 @@ exit 0
 ✔ two real adapter processes: distinct thread_id, JSONL, usage, ACCEPTED (<ms>)
 ✔ reviewer ACCEPTED with a failing executed check is downgraded, not accepted (<ms>)
 ✔ adapter failures are BLOCKED, never a successful result (<ms>)
+✔ реестр не пуст и каждая проверка реально исполняется (<ms>)
+✔ ТЗ каждой записи проходит контракт задания (<ms>)
+✔ инварианты репозитория держатся: планировщику нечего ставить (<ms>)
+✔ задача реестра выполняется в том репозитории, где доказано расхождение (<ms>)
+✔ поколение инцидента меняет ключ дедупликации (<ms>)
+✔ report writes identical JSON at the run root and the existing log path (<ms>)
+✔ report writes both copies for a blocked run (<ms>)
 ✔ restart: journal wins over a stale snapshot and the loop continues in a new process (<ms>)
+✔ w: allowed tree is a path boundary, not a string prefix (<ms>)
+✔ w: forbiddenPaths выигрывает у allowedPaths (<ms>)
+✔ x: shell-формы и команды вне контракта не исполняются (<ms>)
+✔ x: разрешённую git-команду нельзя перепрограммировать в shell (<ms>)
+✔ w: запись в gitignored путь видна authority check, а не прячется (<ms>)
+✔ w: файл рядом с workspace — это ESCAPE_WORKSPACE, а не «просто мусор» (<ms>)
+✔ x: прокси держит транспорт и .git, а границу записи держит контракт (<ms>)
 ✔ a broken backend is rejected even though bwrap is installed (<ms>)
 ✔ no smoke-tested backend blocks a real agent before anything runs (<ms>)
 ✔ a smoke-tested backend without end-to-end evidence still blocks real agents (<ms>)
 ✔ level-3 evidence cannot be manufactured by hand (<ms>)
 ✔ the agent plan refuses to build without a smoke-tested backend (<ms>)
-✔ the real command runner executes an allowed command inside the sandbox (<ms>)
+﹣ the real command runner executes an allowed command inside the sandbox (<ms>) # no smoke-tested isolation backend: backend wsl-bwrap cannot run the smoke test: no output
 ✔ adapter output, argv, metadata, JSONL, prompt and error text are redacted (<ms>)
 ✔ an artifact that would carry a secret is refused instead of packaged (<ms>)
 ✔ a full two-agent cycle leaves no secret anywhere under the run root (<ms>)
+✔ пустое семя — штатный IDLE, а не проблема (<ms>)
+✔ падающая проверка — gap, проходящая — closed (<ms>)
+✔ containment не даёт доказательства: запись skipped, а не gap (<ms>)
+✔ нет repositoryRoot — unknown, а не closed (<ms>)
+✔ неизвестная проверка, дубль id и битый JSON — invalid (<ms>)
+✔ выключенная запись не делает семя работающим (<ms>)
+✔ владение семенем: проверяется там, где права вообще есть (<ms>)
+ℹ POSIX ownership is unavailable on this host
+✔ CLI: seed печатает отчёт и возвращает 2 на непригодном семени (<ms>)
+✔ checkout clones the repository named in the contract and records it (<ms>)
+✔ a missing or non-git source is refused at checkout, never replaced by the fixture (<ms>)
 ✔ a normal regular file still works end to end (<ms>)
 ﹣ 1. an allowed path that is a symlink to an outside file is refused before reading (<ms>) # symlinks are not permitted for this user/platform
 ﹣ 2. a symlink to an outside directory cannot be used as a path component (<ms>) # symlinks are not permitted for this user/platform
@@ -93,14 +122,14 @@ exit 0
 ✔ substitution and path escapes are denied before any allowlist match (<ms>)
 ✔ the task allowlist matches exactly, not by prefix (<ms>)
 ✔ a task command cannot smuggle a second command (<ms>)
-ℹ tests 88
+ℹ tests 116
 ℹ suites 0
-ℹ pass 78
+ℹ pass 103
 ℹ fail 0
 ℹ cancelled 0
-ℹ skipped 10
+ℹ skipped 13
 ℹ todo 0
-ℹ duration_ms 199231.5476
+ℹ duration_ms 190717.665
 --- stderr ---
 
 

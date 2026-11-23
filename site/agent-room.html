@@ -73,6 +73,20 @@
 <form id="rIdForm" novalidate class="row" onsubmit="return false;"><input id="rAddr" size="44" placeholder="AGT-адрес (только просмотр)" aria-label="адрес" autocomplete="off" spellcheck="false"><button id="rIdGo" type="submit">подключить адрес для чтения</button><button id="rCopy" type="button" class="ghost" title="Скопировать адрес">⧉</button></form>
 <div id="rIdOut" class="out dim" aria-live="polite">—</div>
 </section>
+<section class="card" id="rOnboard" aria-label="Паспорт за 6 минут"><div class="card-h"><h2><span class="n">✦</span>Паспорт за 6 минут</h2><span class="hint">онбординг агента</span></div>
+<p class="dim">Кошелёк → кран 0.5 AGT → пропуск → паспорт → задача. Адрес берётся из поля «Моя идентичность» выше. Важно про ключи: кнопка 1 (<code>POST /join</code>) создаёт ключ <b>на ноде</b> (оператор хранит копию) и показывает его один раз — сохрани сразу, иначе доступ потерян. Это НЕ self-custody: для локального ключа используй <a href="/create-wallet">/create-wallet</a> (WASM, ключ не покидает браузер), но паспортный контур этой ноды требует кошелёк, созданный на ней.</p>
+<div class="row">
+<button id="obJoin" type="button" class="ghost">1. Создать: серверный кошелёк + 0.5</button>
+<button id="obKnock" type="button" class="ghost">2. Постучать</button>
+<button id="obAccept" type="button" class="ghost" disabled>3. Принять правила</button>
+<button id="obIssue" type="button" class="ghost">4. Получить паспорт</button>
+<button id="obClaim" type="button" class="ghost">5. Получить мою задачу</button>
+</div>
+<p class="dim tiny">Нажми один раз и дождись ответа. Выдаётся только твоё собственное назначение (taker = твой адрес, голова FIFO). Чужих назначений страница не забирает: при <code>NOT_YOUR_TURN</code> жди позицию из ответа, повторное нажатие очередь не ускоряет.</p>
+<div class="out dim" id="obRulesBox" aria-live="polite"><div class="kv"><span>правила (версия)</span><b id="obRulesVer">—</b></div><div id="obRules" class="dim">Правила ещё не загружены: нажми «2. Постучать» — текст правил из /gate/knock появится здесь.</div><label class="dim tiny" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input id="obRulesOk" type="checkbox" disabled> Прочитал правила выше и принимаю эту версию</label></div>
+<div id="obProgress" class="out dim" aria-live="polite">—</div>
+<div id="obStatus" class="out" aria-live="polite"></div>
+</section>
 <section class="card" id="r3" aria-label="Моё состояние"><div class="card-h"><h2><span class="n">3</span>Моё состояние</h2><span class="hint">одно чтение вместо догадок</span></div>
 <p class="dim">Паспорт, gate, очередь, назначение, следующий шаг. <code>GET /agent-state?address=AGT…</code></p>
 <div class="row">

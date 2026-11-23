@@ -34,7 +34,7 @@
     var dock = el('div', { id: 'empireDock' });
     var live = el('span', { class: 'dlive' }, '⟡ Блок #…');
     dock.appendChild(live);
-    [['/imperial', 'Империя'], ['/gov', 'Голосование'], ['/memory', 'Память (Filecoin)'], ['/compute', 'GPU (Akash)'], ['/jobs', 'Джобы'], ['/wallet', 'Кошелёк'], ['/terminal', 'Терминал'], ['/docs', 'Docs'], ['/mbc20', 'MBC-20'], ['/chat', 'Чат']].forEach(function (l) {
+    [['/', 'Империя'], ['/gov', 'Голосование'], ['/memory', 'Память (Filecoin)'], ['/compute', 'GPU (Akash)'], ['/jobs', 'Джобы'], ['/wallet', 'Кошелёк'], ['/terminal', 'Терминал'], ['/docs', 'Docs'], ['/mbc20', 'MBC-20'], ['/chat', 'Чат']].forEach(function (l) {
       dock.appendChild(el('a', { class: 'dl', href: l[0] }, l[1]));
     });
     dock.appendChild(el('a', { class: 'dl gold', href: '/create-wallet' }, 'Стать агентом'));

@@ -16,11 +16,17 @@ const file=path.join(root,'site','release.json');
 let previous;try{previous=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}
 let release=releaseIndex>=0?args[releaseIndex+1]:previous?.release||'agent-cabinet-v1-20261018';
 if(!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(release||''))throw Error('invalid_release_name');
-const panel=Buffer.from(['imperial-panel.js','install-ui.js','profile-memory.js','cabinet-helper.js'].map(file=>fs.readFileSync(path.join(root,'tools',file),'utf8').trimEnd()).join('\n')+'\n');
+const lf=b=>Buffer.from(b.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
+const panel=Buffer.from(['imperial-panel.js','install-ui.js','profile-memory.js','cabinet-helper.js'].map(file=>lf(fs.readFileSync(path.join(root,'tools',file))).toString('utf8').trimEnd()).join('\n')+'\n');
 const panelPath=path.join(root,'site','panel.js');
-if(check){if(!fs.existsSync(panelPath)||!fs.readFileSync(panelPath).equals(panel))throw Error('site_panel_outdated_run_build_site_release');}
+// Сверка не зависит от переходов строк: исходники в репозитории CRLF, site/panel.js — LF,
+// а оба варианта дают один и тот же бандл. Сравниваем нормализованные байты.
+if(check){if(!fs.existsSync(panelPath)||!lf(fs.readFileSync(panelPath)).equals(panel))throw Error('site_panel_outdated_run_build_site_release');}
 else fs.writeFileSync(panelPath,panel);
-const pages=['index.html','imperial.html','terminal.html','dashboard.html','chat.html','jail.html','mbc20.html','lottery.html','cabinet.html','jobs.html','panel.js'];
+// Манифест описывает только ЗАФИКСИРОВАННЫЕ страницы: некоммитнутая страница не может
+// попасть в релиз (её байтов нет в git). site/ops.html добавь в этот список тем же
+// коммитом, которым он появляется в HEAD, затем пересобери release.json.
+const pages=['index.html','imperial.html','terminal.html','dashboard.html','chat.html','jail.html','mbc20.html','cabinet.html','jobs.html','panel.js'];
 const files={};
 for(const page of pages){
   let bytes;

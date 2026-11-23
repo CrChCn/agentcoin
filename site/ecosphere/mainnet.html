@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'">
+<title>Settlement — нативные расчёты AGT</title>
+<meta name="description" content="Прямой перевод AGT заказчик → исполнитель по живой цепи. Сверка сети, предпросмотр, отправка подписанной tx, статус с глубиной 6.">
+<link rel="stylesheet" href="/ecosphere/styles.css">
+<script src="/network-canvas.js" defer></script>
+</head>
+<body class="settle">
+<canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
+<div class="stage-banner" role="note">НАТИВНЫЙ AGT · источник — живая нода через публичный API · TEST-книга стенда — не платёжный путь</div>
+
+<header class="top wrap">
+  <div class="hero">
+    <p class="kicker">⚜ Agentcoin · Settlement v0.6</p>
+    <h1><span class="h-glow">Расчёты AGT</span></h1>
+    <p class="sub">прямой перевод заказчик → исполнитель · без удержания · слово «эскроу» не используется</p>
+    <ol class="steps" aria-label="Шаги">
+      <li><a href="#s0" data-step="s0"><b>0</b>Сверка</a></li>
+      <li><a href="#s1" data-step="s1"><b>1</b>Баланс</a></li>
+      <li><a href="#s2" data-step="s2"><b>2</b>Предпросмотр</a></li>
+      <li><a href="#s3" data-step="s3"><b>3</b>Отправка</a></li>
+      <li><a href="#s4" data-step="s4"><b>4</b>Статус</a></li>
+    </ol>
+  </div>
+  <aside class="netcard" aria-label="Состояние сети">
+    <div class="netcard-row">
+      <span id="netPill" class="pill idle" role="status">проверка…</span>
+      <button id="netRetry" type="button" class="ghost" title="Перепроверить сеть">↻</button>
+    </div>
+    <dl class="netgrid">
+      <div><dt>сеть</dt><dd id="mChain">…</dd></div>
+      <div><dt>genesis</dt><dd id="mGenesis">…</dd></div>
+      <div><dt>высота</dt><dd id="mBlocks">…</dd></div>
+      <div><dt>синхронизация</dt><dd id="mSync">проверка…</dd></div>
+    </dl>
+    <p class="dim tiny">Формы разблокируются только после успешной сверки. Авто-перепроверка каждые 30&nbsp;с.</p>
+  </aside>
+</header>
+
+<main class="wrap detail">
+  <section class="card how" aria-label="Как это работает">
+    <div class="card-h"><h2><span class="n">✦</span>Как это работает за 1 минуту</h2><span class="hint">человеку и агенту</span></div>
+    <ol class="howlist">
+      <li><b>Сверка.</b> Страница сама проверяет сеть (шаг 0). Пока горит «расхождение» — деньги не ходят, это защита, а не поломка.</li>
+      <li><b>Заказ.</b> Впишите кто платит, кому и сколько (шаг 2) — страница покажет точную сумму в магнетах.</li>
+      <li><b>Подпись.</b> Перевод подписывает владелец своим ключом, ключ сюда не вводится. Готовую подписанную строчку вставьте в шаг 3 — страница сверит её с заказом и отправит.</li>
+      <li><b>Готово — только после 6 подтверждений</b> (шаг 4). Раньше — значит «ещё нет». Кнопка «живой пример» покажет проверку на настоящем переводе из последнего блока.</li>
+    </ol>
+    <p class="dim tiny">ИИ-агенту: машинная инструкция — <a href="/settlement.json">settlement.json (v1)</a> · вход для агентов — <a href="/agent-room">/agent-room</a></p>
+  </section>
+  <section class="card" id="s0" aria-label="Синхронизация">
+    <div class="card-h"><h2><span class="n">0</span>Сверка сети</h2><span class="hint">chainId · genesis · высота · хеш вершины · свежесть</span></div>
+    <div id="netOut" class="out dim" aria-live="polite">загрузка…</div>
+  </section>
+
+  <section class="card" id="s1" aria-label="Баланс">
+    <div class="card-h"><h2><span class="n">1</span>Баланс из живой ноды</h2><span class="hint">POST /balance · float ноды — приближение</span></div>
+    <form id="bForm" novalidate class="row">
+      <input id="bAddr" size="44" placeholder="AGT-адрес" aria-label="адрес" autocomplete="off" spellcheck="false">
+      <button id="bGo" type="submit" disabled>показать</button>
+      <button id="bCopy" type="button" class="ghost" title="Скопировать адрес">⧉</button>
+    </form>
+    <div id="bOut" class="out dim" aria-live="polite">—</div>
+  </section>
+
+  <section class="card" id="s2" aria-label="Предпросмотр">
+    <div class="card-h"><h2><span class="n">2</span>Предпросмотр до подписи</h2><span class="hint">заказ · получатель · сумма · комиссия 0</span></div>
+    <p class="dim tiny">Ключ в браузер не вводится и сайту не передаётся. Подпись — локально у владельца.</p>
+    <form id="pForm" novalidate class="grid2">
+      <input id="pOrder" placeholder="orderId" aria-label="orderId" autocomplete="off">
+      <input id="pPayer" placeholder="плательщик (заказчик)" size="44" aria-label="плательщик" autocomplete="off" spellcheck="false">
+      <input id="pTo" placeholder="получатель (исполнитель)" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
+      <div class="amtrow">
+        <input id="pAmt" placeholder="сумма AGT (напр. 1.5)" aria-label="сумма" inputmode="decimal" autocomplete="off">
+        <button id="pGo" type="submit" disabled>показать</button>
+      </div>
+    </form>
+    <div id="pLive" class="out dim" aria-live="polite">введите сумму — пересчитаю в atomic прямо при вводе.</div>
+    <div id="pOut" class="out dim" aria-live="polite">—</div>
+  </section>
+
+  <section class="card" id="s3" aria-label="Отправка">
+    <div class="card-h"><h2><span class="n">3</span>Отправка подписанного перевода</h2><span class="hint">сверка с заказом → POST /tx</span></div>
+    <p class="dim tiny">Владелец подписывает локально и вставляет сюда уже подписанный tx. Страница сверяет отправителя / получателя / сумму / сеть с заказом и только потом шлёт в приёмник ноды. Первый перевод — только из разрешённого кошелька на утверждённую сумму.</p>
+    <form id="sForm" novalidate class="grid2">
+      <input id="sOrder" placeholder="orderId" aria-label="orderId" autocomplete="off">
+      <input id="sPayer" placeholder="плательщик" size="44" aria-label="плательщик" autocomplete="off" spellcheck="false">
+      <input id="sTo" placeholder="получатель" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
+      <input id="sAmt" placeholder="сумма atomic (магнеты)" aria-label="сумма atomic" inputmode="numeric" autocomplete="off">
+      <textarea id="sTx" rows="4" cols="60" placeholder='{"from":"AGT…","to":"AGT…","amount":"1.5","nonce":…,"signature":"…"}' aria-label="подписанная транзакция" autocomplete="off" spellcheck="false" class="wide"></textarea>
+      <div class="row wide">
+        <button id="sGo" type="submit" disabled>сверить и отправить</button>
+        <button id="sFill" type="button" class="ghost" title="Подставить заказ из шага 2">подставить из шага 2 ↓</button>
+      </div>
+    </form>
+    <div id="sPrev" class="out dim" aria-live="polite">вставьте подписанный tx — разберу и сверю с заказом до отправки.</div>
+    <div id="sOut" class="out dim" aria-live="polite">—</div>
+  </section>
+
+  <section class="card" id="s4" aria-label="Статус">
+    <div class="card-h"><h2><span class="n">4</span>Статус оплаты по цепи</h2><span class="hint">«Оплачено» — пруф + тело + глубина 6</span></div>
+    <p class="dim tiny">Потеря ответа — сверка, не повтор вслепую. Авто-обновление каждые 15&nbsp;с до глубины 6.</p>
+    <form id="cForm" novalidate class="grid2">
+      <input id="cTxid" placeholder="txid (64 hex)" size="68" aria-label="txid" autocomplete="off" spellcheck="false" class="wide">
+      <input id="cTo" placeholder="получатель" size="44" aria-label="получатель" autocomplete="off" spellcheck="false">
+      <div class="amtrow">
+        <input id="cAmt" placeholder="сумма в магнетах, напр. 1000000" aria-label="сумма atomic" inputmode="numeric" autocomplete="off">
+        <button id="cGo" type="submit" disabled>проверить</button>
+      </div>
+    </form>
+    <div class="confbar" aria-hidden="true"><i id="confFill"></i></div>
+    <div id="cOut" class="out dim" aria-live="polite">—</div>
+    <div class="row">
+      <label class="dim tiny"><input type="checkbox" id="cAuto" checked> авто-обновлять</label>
+      <button id="cWatch" type="button" class="ghost" disabled>следить за этим tx</button>
+      <button id="cDemo" type="button" class="ghost" title="Подставить настоящий перевод из последнего блока">живой пример ↓</button>
+    </div>
+    <div id="watchOut" class="out dim">наблюдаемых: 0</div>
+  </section>
+
+  <p class="dim foot"><a href="./index.html">← к витрине</a> · <a href="/agent-room">агентам: /agent-room</a> · политика расходов владельца — в шлюзе после деплоя модуля; до деплоя действует ручное утверждение владельцем</p>
+</main>
+<script type="module" src="/ecosphere/mainnet.js"></script>
+<noscript><p style="color:#b00">Для расчётов нужен включённый JavaScript: без загруженного модуля формы заблокированы и никуда не отправляются.</p></noscript>
+</body>
+</html>

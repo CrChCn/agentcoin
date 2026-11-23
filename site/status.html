@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENTCOIN — статус сети</title>
+<style>
+:root{--bg:#0b111c;--panel:#131c2b;--line:#24314a;--txt:#e8edf5;--dim:#8b93a1;--gold:#e8b923;--ok:#3ddc84;--bad:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,sans-serif}
+main{max-width:860px;margin:auto;padding:28px 18px}
+h1{font-size:clamp(24px,4vw,36px);margin:8px 0}.dim{color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:14px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h2{font-size:15px;margin:0 0 10px;color:var(--gold)}
+.big{font-size:30px;font-weight:700}.mono{font-family:ui-monospace,monospace;word-break:break-all;font-size:13px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+button{font:inherit;background:transparent;color:var(--gold);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+button[aria-pressed=true]{background:var(--gold);color:#111}
+#err{color:var(--bad);white-space:pre-wrap;min-height:20px}
+footer{margin-top:18px;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<div class="row">
+<h1 data-i18n="title">AGENTCOIN — статус сети</h1>
+<div><button id="langRu" aria-pressed="true">RU</button> <button id="langEn" aria-pressed="false">EN</button></div>
+</div>
+<p class="dim"><span data-i18n="upd">Обновлено</span>: <span id="updated">—</span> · <span data-i18n="auto">автообновление 30 с</span></p>
+<div id="err"></div>
+<div class="grid">
+<section class="card"><h2 data-i18n="chain">Цепь</h2>
+<div class="big" id="height">—</div>
+<div class="dim"><span data-i18n="tipAge">возраст типа</span>: <span id="tipAge">—</span></div>
+<div class="dim"><span data-i18n="diff">сложность</span>: <span id="diff">—</span> · <span data-i18n="halving">до халвинга</span>: <span id="halving">—</span></div>
+<div class="dim"><span data-i18n="supply">эмиссия</span>: <span id="supply">—</span> / <span id="maxSupply">—</span></div>
+</section>
+<section class="card"><h2 data-i18n="mesh">Меш нод</h2><div id="mesh">—</div></section>
+<section class="card"><h2 data-i18n="mempool">Мемпул</h2>
+<div class="big" id="mempool">—</div>
+<div class="dim"><span data-i18n="attacks">атак замечено</span>: <span id="attacks">—</span> · <span data-i18n="banned">в бане</span>: <span id="banned">—</span></div>
+</section>
+<section class="card"><h2 data-i18n="treasury">Казна</h2>
+<div class="big" id="treasuryBal">—</div>
+<div class="mono" id="treasuryAddr">—</div>
+<div class="dim" id="treasuryPol">—</div>
+</section>
+</div>
+<footer class="dim">AGENTCOIN · <span data-i18n="foot">только чтение, ключи не требуются</span> · <a href="/wallet" style="color:var(--gold)">/wallet</a></footer>
+</main>
+<script>
+const T={
+ru:{title:'AGENTCOIN — статус сети',upd:'Обновлено',auto:'автообновление 30 с',chain:'Цепь',tipAge:'возраст типа',diff:'сложность',halving:'до халвинга',supply:'эмиссия',mesh:'Меш нод',mempool:'Мемпул',attacks:'атак замечено',banned:'в бане',treasury:'Казна',foot:'только чтение, ключи не требуются',responding:'на связи',fail:'не отвечает',blocks:'блоков',sec:'с',req:'требуется подписей',signers:'подписанты',err:'Ошибка обновления: '},
+en:{title:'AGENTCOIN — network status',upd:'Updated',auto:'auto-refresh 30s',chain:'Chain',tipAge:'tip age',diff:'difficulty',halving:'blocks to halving',supply:'supply',mesh:'Node mesh',mempool:'Mempool',attacks:'attacks seen',banned:'banned',treasury:'Treasury',foot:'read-only, no keys needed',responding:'responding',fail:'unreachable',blocks:'blocks',sec:'s',req:'signatures required',signers:'signers',err:'Refresh error: '}};
+let lang=localStorage.getItem('agt:status-lang')||'ru';
+function tr(k){return (T[lang]&&T[lang][k])||T.ru[k]||k}
+function applyLang(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(e=>{e.textContent=tr(e.dataset.i18n)});document.getElementById('langRu').setAttribute('aria-pressed',lang==='ru');document.getElementById('langEn').setAttribute('aria-pressed',lang==='en');refresh()}
+async function j(p){const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw new Error(p+': '+r.status);return r.json()}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function refresh(){
+try{
+const [info,nodes,trs]=await Promise.all([j('/info'),j('/network/nodes'),j('/treasury/state')]);
+document.getElementById('height').textContent=info.blocks;
+document.getElementById('diff').textContent=info.difficultyBits+' bit';
+document.getElementById('halving').textContent=info.halvingIn;
+document.getElementById('supply').textContent=Math.floor(info.totalSupplyCirculating)+' AGT';
+document.getElementById('maxSupply').textContent=info.maxSupply+' AGT';
+document.getElementById('mempool').textContent=info.mempool;
+document.getElementById('attacks').textContent=info.security?info.security.attacksSeen:'—';
+document.getElementById('banned').textContent=info.security?info.security.bannedCount:'—';
+const rows=(nodes.nodes||[]).map(n=>{const ok=/responding/i.test(n.status||'');return '<tr><td>'+esc(n.name||'?')+'</td><td>'+esc(n.blocks??'—')+'</td><td>'+esc(n.tipAgeSec??'—')+' '+esc(tr('sec'))+'</td><td class="'+(ok?'ok':'bad')+'">'+(ok?esc(tr('responding')):esc(tr('fail')))+'</td></tr>'}).join('');
+document.getElementById('mesh').innerHTML='<table><tr><th>node</th><th>'+esc(tr('blocks'))+'</th><th>'+esc(tr('tipAge'))+'</th><th></th></tr>'+rows+'</table>';
+const self=(nodes.nodes||[])[0];document.getElementById('tipAge').textContent=(self&&self.tipAgeSec!=null)?self.tipAgeSec+' '+tr('sec'):'—';
+const tbal=await (await fetch('/balance',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({address:trs.policy.treasury})})).json().catch(()=>null);
+document.getElementById('treasuryBal').textContent=(tbal&&tbal.balance!=null)?tbal.balance+' AGT':'—';
+document.getElementById('treasuryAddr').textContent=trs.policy.treasury;
+document.getElementById('treasuryPol').textContent=tr('req')+': '+trs.policy.requires+' · '+tr('signers')+': '+(trs.policy.signers||[]).length;
+document.getElementById('err').textContent='';
+document.getElementById('updated').textContent=new Date().toLocaleString();
+}catch(e){document.getElementById('err').textContent=tr('err')+e.message}
+}
+document.getElementById('langRu').onclick=()=>{lang='ru';localStorage.setItem('agt:status-lang',lang);applyLang()};
+document.getElementById('langEn').onclick=()=>{lang='en';localStorage.setItem('agt:status-lang',lang);applyLang()};
+applyLang();setInterval(refresh,30000);
+</script>
+</body>
+</html>

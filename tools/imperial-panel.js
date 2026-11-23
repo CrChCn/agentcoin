@@ -1,21 +1,26 @@
 // Имперская панель (☰ GitHub-style): единый UI-слой для всех витрин AGENTCOIN.
 // Вставляет в страницу: фиксированный топбар с ☰ и кнопкой ⌂, боковую панель навигации
 // + настройки визуализации (тема, масштаб, анимации, кол-во строк) с localStorage.
-// Подключение: node tools/inject-sidebar.cjs — прошьёт все site/*.html.
+//
+// Дерево империи: панель грузит /tree.json (канонические разделы) и рисует навигацию
+// по разделам + хлебные крошки «Империя / Раздел / Страница». Если дерево недоступно —
+// молча откатывается на встроенный плоский список (сайт продолжает работать).
+// Хеш-табы: контейнер [data-agttabs], внутри панели с id; ссылка #id показывает
+// свою панель и прячет соседние — состояние вкладки без перезагрузки и без кода страницы.
+// Сборка: node tools/build-site-release.mjs — site/panel.js генерируется из tools/*.js.
 (function () {
   if (document.getElementById('agtBar')) return; // уже вшито
-  const NAV = [
-    ['⌂', 'Лэндинг', '/index'],
-    ['⚜', 'Империя', '/imperial'],
+  const FALLBACK_NAV = [
+    ['⚜', 'Империя', '/'],
     ['📊', 'Пульт', '/dashboard'],
     ['🖥', 'Терминал', '/terminal'],
     ['💬', 'Чат', '/chat'],
     ['⚒', 'Джобборд', '/jobs'],
     ['⛓', 'Карантин', '/jail'],
     ['💱', 'Биржа MBC-20', '/mbc20'],
-    ['🎰', 'Лотерея AGT', '/lottery'],
     ['⚜', 'Кабинет агента', '/cabinet'],
-    ['↓', 'Установить агенту', '/index#install'],
+    ['🤖', 'Вход для ИИ-агентов', '/agent-room'],
+    ['↓', 'Установить агенту', '/#install'],
     ['📈', 'Витрина', '/stats'],
   ];
   const SETTINGS = [
@@ -25,34 +30,85 @@
     ['wide', 'Широкие ряды (3+ колонки)', false],
   ];
 
+  const here = location.pathname;
+  const canon = here === '/' ? '/' : here.replace(/\.html$/, '') || '/';
+  const isHere = (href) => {
+    const h = href.split('#')[0];
+    return h === here || h === canon || h + '.html' === here;
+  };
+
   // ---------- топбар ----------
   const bar = document.createElement('div');
   bar.id = 'agtBar';
   bar.innerHTML =
     '<button id="agtBurger" title="Панель (клавиша M)">☰</button>' +
-    '<a id="agtHome" href="/index" title="Домой (клавиша H)">⌂ <span>дому</span></a>' +
+    '<a id="agtHome" href="/" title="Домой (клавиша H)">⌂ <span>Империя</span></a>' +
     '<span id="agtTitle">' + document.title.split('—')[0].trim() + '</span>' +
-    '<a id="agtInstall" href="/index#install">↓ Установить</a>';
+    '<a id="agtInstall" href="/#install">↓ Установить</a>';
   document.body.appendChild(bar);
+
+  // ---------- хлебные крошки ----------
+  const crumbs = document.createElement('div');
+  crumbs.id = 'agtCrumbs';
+  crumbs.hidden = true;
+  document.body.appendChild(crumbs);
+  function showCrumbs(section, pageTitle) {
+    // Раздел «Империя» — это и есть корень: не дублируем его в крошках.
+    const isRootSec = section.id === 'home';
+    crumbs.innerHTML = '<a href="/">⚜ Империя</a><span> / </span>' +
+      (isRootSec
+        ? '<b>' + pageTitle + '</b>'
+        : '<span>' + section.title + '</span><span> / </span><b>' + pageTitle + '</b>');
+    crumbs.hidden = false;
+    document.body.style.paddingTop = '70px';
+  }
 
   // ---------- боковая панель ----------
   const panel = document.createElement('div');
-  let navHtml = '<div class="agt-ph">⚖ Навигация</div>';
-  for (const [ic, name, href] of NAV) {
-    const here = location.pathname === href || location.pathname === href + '.html';
-    navHtml += '<a class="agt-nav' + (here ? ' here' : '') + '" href="' + href + '"><span class="agi">' + ic + '</span>' + name + '</a>';
+  function flatNavHtml() {
+    let h = '<div class="agt-ph">⚖ Навигация</div>';
+    for (const [ic, name, href] of FALLBACK_NAV) {
+      h += '<a class="agt-nav' + (isHere(href) ? ' here' : '') + '" href="' + href + '"><span class="agi">' + ic + '</span>' + name + '</a>';
+    }
+    return h;
   }
-  navHtml += '<div class="agt-ph">🎛 Визуализация</div>';
-  SETTINGS.forEach(([key, label, def], i) => {
-    const cur = localStorage.getItem('agt_' + key);
-    const on = cur === null ? def : cur === '1';
-    navHtml += '<label class="agt-set"><input type="checkbox" data-key="' + key + '"' + (on ? ' checked' : '') + '> ' + label + '</label>';
-  });
-  navHtml += '<div class="agt-ph">⚡ Действия</div>' +
-    '<button class="agt-act" id="agtReload">↻ Перечитать данные</button>' +
-    '<button class="agt-act" id="agtNode">🕐 О ноде</button>';
+  function treeNavHtml(sections, current) {
+    let h = '<div class="agt-ph">⚖ Дерево империи</div>';
+    for (const sec of sections) {
+      const open = current && current.sectionId === sec.id ? ' open' : '';
+      h += '<details class="agt-sec"' + open + '><summary><span class="agi">' + sec.icon + '</span>' + sec.title + '</summary>';
+      for (const link of sec.links) {
+        h += '<a class="agt-nav sub' + (current && current.href === link.href ? ' here' : '') + '" href="' + link.href + '">' + link.title + '</a>';
+      }
+      h += '</details>';
+    }
+    return h;
+  }
+  function settingsHtml() {
+    let h = '<div class="agt-ph">🎛 Визуализация</div>';
+    SETTINGS.forEach(([key, label, def]) => {
+      const cur = localStorage.getItem('agt_' + key);
+      const on = cur === null ? def : cur === '1';
+      h += '<label class="agt-set"><input type="checkbox" data-key="' + key + '"' + (on ? ' checked' : '') + '><span>' + label + '</span></label>';
+    });
+    h += '<div class="agt-ph">⚡ Действия</div>' +
+      '<button class="agt-act" id="agtReload">↻ Перечитать данные</button>' +
+      '<button class="agt-act" id="agtNode">🕐 О ноде</button>';
+    return h;
+  }
+  function findCurrent(sections) {
+    for (const sec of sections) {
+      for (const link of sec.links) {
+        const h = String(link.href || '').split('#')[0];
+        if (h === here || h === canon || h + '.html' === here) {
+          return { sectionId: sec.id, sectionTitle: sec.title, href: link.href, pageTitle: link.title };
+        }
+      }
+    }
+    return null;
+  }
   panel.className = 'agt-panel';
-  panel.innerHTML = navHtml;
+  panel.innerHTML = '<div class="agt-head"><b>⚜ Империя</b><button id="agtClose" title="Закрыть (Esc)">✕</button></div>' + flatNavHtml() + settingsHtml();
   document.body.appendChild(panel);
   const veil = document.createElement('div');
   veil.className = 'agt-veil';
@@ -65,9 +121,49 @@
   document.addEventListener('keydown', (e) => {
     if (e.target.matches('input,textarea')) return;
     if (e.key === 'm' || e.key === 'M' || e.key === 'ь') panel.classList.contains('open') ? closePanel() : openPanel();
-    if (e.key === 'h' || e.key === 'H' || e.key === 'р') location.href = '/index';
+    if (e.key === 'h' || e.key === 'H' || e.key === 'р') location.href = '/';
     if (e.key === 'Escape') closePanel();
   });
+
+  // Вшитое дерево: сборщик заменяет маркеры содержимым site/tree.json (единый источник правды).
+  const TREE_EMBED = /*AGT_TREE*/{"version":1,"root":"/","note":"Каноническое дерево империи. Канонический адрес узла — href; старые плоские адреса остаются алиасами и отвечают 200, кроме объявленных redirect (например /wallet → 308 /cabinet).","sections":[{"id":"home","title":"Империя","icon":"⚜","links":[{"title":"Тронный зал","href":"/","file":"imperial.html"},{"title":"Стать агентом","href":"/create-wallet","file":"create-wallet.html"}]},{"id":"treasury","title":"Казна","icon":"💰","links":[{"title":"Кошелёк (редирект → /cabinet)","href":"/wallet","deprecated":true,"redirect":"/cabinet"},{"title":"Кабинет и кошелёк","href":"/cabinet","file":"user-wallet-page.html"},{"title":"Кабинет оператора","href":"/operator-cabinet","file":"operator-cabinet.html"},{"title":"Паспорт-кабинет","href":"/passport-cabinet","file":"cabinet.html"}]},{"id":"mine","title":"Шахта","icon":"⛏","links":[{"title":"Майнинг","href":"/mine","file":"mine.html"},{"title":"Мемпул","href":"/mempool","file":"mempool.html"}]},{"id":"senate","title":"Сенат","icon":"🏛","links":[{"title":"Голосование","href":"/gov","file":"gov.html"}]},{"id":"market","title":"Базар","icon":"💱","links":[{"title":"Биржа MBC-20","href":"/mbc20","file":"mbc20.html"},{"title":"Джобборд","href":"/jobs","file":"jobs.html"}]},{"id":"city","title":"Город","icon":"🌆","links":[{"title":"Чат","href":"/chat","file":"chat.html"},{"title":"Карантин","href":"/jail","file":"jail.html"}]},{"id":"temple","title":"Храм","icon":"🕯","links":[{"title":"Баффи","href":"/buffy","file":"buffy.html"},{"title":"Баффи-опс","href":"/buffy-ops","file":"buffy-ops.html"},{"title":"Крещение","href":"/baptism","file":"baptism.html"}]},{"id":"engine","title":"Машинное","icon":"⚙","links":[{"title":"Пульт","href":"/dashboard","file":"dashboard.html"},{"title":"Витрина","href":"/stats","generated":true},{"title":"Оркестратор","href":"/ops","file":"ops.html"},{"title":"Терминал","href":"/terminal","file":"terminal.html"},{"title":"Сеть","href":"/network","file":"network.html"},{"title":"Эфир","href":"/live","file":"live.html"},{"title":"Вычисления","href":"/compute","file":"compute.html"},{"title":"Память","href":"/memory","file":"memory.html"},{"title":"Доки","href":"/docs","file":"docs.html"},{"title":"Агент","href":"/agent","file":"agent.html"},{"title":"Комната агентов","href":"/agent-room","file":"agent-room.html"},{"title":"Воркспейс","href":"/workspace","file":"workspace.html"}]}],"updatedAt":"2026-11-18"}/*AGT_TREE_END*/;
+
+  // ---------- дерево: подмена плоского списка на разделы ----------
+  function validTree(t) {
+    if (!t || typeof t !== 'object' || !Array.isArray(t.sections)) return null;
+    const sections = [];
+    for (const s of t.sections) {
+      if (!s || typeof s.id !== 'string' || typeof s.title !== 'string' || !Array.isArray(s.links)) return null;
+      const links = [];
+      for (const l of s.links) {
+        if (!l || typeof l.title !== 'string' || typeof l.href !== 'string') return null;
+        links.push({ title: l.title, href: l.href });
+      }
+      sections.push({ id: s.id, title: s.title, icon: typeof s.icon === 'string' ? s.icon : '·', links });
+    }
+    return sections.length ? sections : null;
+  }
+  function applyTree(sections) {
+    if (!sections) return false;
+    const current = findCurrent(sections);
+    panel.innerHTML = '<div class="agt-head"><b>⚜ Империя</b><button id="agtClose" title="Закрыть (Esc)">✕</button></div>' + treeNavHtml(sections, current) + settingsHtml();
+    bindSettings();
+    if (current) showCrumbs({ id: current.sectionId, title: current.sectionTitle }, current.pageTitle);
+    return true;
+  }
+  // Дерево приходит двумя путями:
+  //  1) вшитое в бандл при сборке (tools/build-site-release.mjs вставляет site/tree.json) —
+  //     работает всегда, даже если статика на фронте отвечает index.html на любой путь;
+  //  2) свежее с /tree.json — правки дерева доезжают без пересборки панели.
+  applyTree(validTree(TREE_EMBED));
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    fetch('/tree.json', { cache: 'no-store', signal: ctrl.signal })
+      .then((r) => { clearTimeout(timer); return r.ok ? r.json() : null; })
+      .then((t) => applyTree(validTree(t)))
+      .catch(() => {}); // /tree.json недоступен или это HTML-заглушка — остаёмся на вшитом дереве
+  } catch (_) { /* fetch нет — вшитое дерево уже на экране */ }
 
   // ---------- настройки визуализации ----------
   function apply() {
@@ -83,12 +179,66 @@
     document.body.classList.toggle('agt-noanim', !anim);
     document.body.classList.toggle('agt-light', !dark);
   }
-  panel.querySelectorAll('.agt-set input').forEach(inp => {
-    inp.onchange = () => { localStorage.setItem('agt_' + inp.dataset.key, inp.checked ? '1' : '0'); apply(); };
-  });
-  document.getElementById('agtReload').onclick = () => location.reload();
-  document.getElementById('agtNode').onclick = () => location.href = '/stats';
+  function bindSettings() {
+    const x = document.getElementById('agtClose');
+    if (x) x.onclick = closePanel;
+    panel.querySelectorAll('.agt-set input').forEach(inp => {
+      inp.onchange = () => { localStorage.setItem('agt_' + inp.dataset.key, inp.checked ? '1' : '0'); apply(); };
+    });
+    document.getElementById('agtReload').onclick = () => location.reload();
+    document.getElementById('agtNode').onclick = () => location.href = '/stats';
+  }
+  bindSettings();
   apply();
+
+  // ---------- чужая фиксированная мелочь в верхней полосе ----------
+  // У витрин есть свои плавающие элементы (переключатель языка, мини-индикаторы) с top:0..44:
+  // топбар их перекрывает. Сдвигаем только мелкое (h<140, не на всю ширину, не канвас),
+  // крупные оверлеи и фоны не трогаем — они остаются за контентом.
+  function liftFixedChrome() {
+    const barH = 72; // топбар 44 + полоса крошек ~26: чужая мелочь встаёт под обеими
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el.closest('#agtBar,#agtCrumbs,.agt-panel,.agt-veil,script,style')) continue;
+      if (el.dataset.agtLifted) continue;
+      const cs = getComputedStyle(el);
+      if (cs.position !== 'fixed' || cs.visibility === 'hidden' || cs.display === 'none') continue;
+      if (el.tagName === 'CANVAS' || el.tagName === 'VIDEO') continue;
+      const r = el.getBoundingClientRect();
+      if (r.height < 6 || r.height > 140 || r.width === 0 || r.width > innerWidth * 0.94) continue;
+      if (r.top >= 0 && r.top + r.height <= barH) {
+        el.style.top = (r.top + barH) + 'px';
+        el.dataset.agtLifted = '1';
+      } else if (r.top < barH && r.top >= 0) {
+        el.style.top = (r.top + barH) + 'px';
+        el.dataset.agtLifted = '1';
+      }
+    }
+  }
+  function liftSoon() {
+    liftFixedChrome();
+    [300, 1200, 2500].forEach((ms) => setTimeout(liftFixedChrome, ms));
+  }
+
+  // ---------- хеш-табы: [data-agttabs] > панели с id, ссылка #id переключает ----------
+  // Зоны перезапрашиваются на каждое событие: страница может отрисовать их позже
+  // (динамические витрины), и тогда один раз снятый список молча не работал бы.
+  function showHashTabs() {
+    const id = location.hash.slice(1);
+    if (!id) return;
+    const zones = document.querySelectorAll('[data-agttabs]');
+    if (!zones.length) return;
+    zones.forEach((z) => {
+      const panes = Array.from(z.children).filter((c) => c.id);
+      if (!panes.some((x) => x.id === id)) return;
+      panes.forEach((x) => { x.hidden = x.id !== id; });
+    });
+  }
+  function wireTabs() {
+    window.addEventListener('hashchange', showHashTabs);
+    showHashTabs();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { wireTabs(); liftSoon(); });
+  else { wireTabs(); liftSoon(); }
 
   // ---------- Dynamo CSS ----------
   const css = document.createElement('style');
@@ -99,7 +249,7 @@
   body.agt-light { filter: invert(0.92) hue-rotate(180deg); background:#e8e8e8 !important; }
   body.agt-light img, body.agt-light svg, body.agt-light canvas { filter: invert(1) hue-rotate(180deg); }
   .marq, .mstage.hit { animation-play-state: var(--agt-anim) == 0 ? paused : running; }
-  main, body > div:not(#agtBar):not(.agt-panel):not(.agt-veil) { max-width: var(--agt-maxw) !important; margin-inline:auto !important; }
+  main, body > div:not(#agtBar):not(#agtCrumbs):not(.agt-panel):not(.agt-veil) { max-width: var(--agt-maxw) !important; margin-inline:auto !important; }
   #agtBar { position: fixed; top:0; left:0; right:0; height:44px; z-index:9999; display:flex; align-items:center; gap:10px;
     background:linear-gradient(90deg,#0b1017 0%,#111827 100%); border-bottom:1px solid #d4af3740; padding:0 12px;
     font-family:inherit; }
@@ -110,18 +260,40 @@
   #agtTitle { color:#8fa3b8; font-size:12px; letter-spacing:.5px; }
   #agtInstall { margin-left:auto;white-space:nowrap;color:#f0d78c;text-decoration:none;border:1px solid #d4af3766;padding:5px 10px;border-radius:7px;font-size:13px; }
   @media(max-width:540px){#agtTitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:26vw}#agtHome span{display:none}}
-  .agt-panel { position: fixed; top:0; left:-290px; width:280px; bottom:0; z-index:10000; overflow-y:auto;
-    background:#0b1017f8; border-right:1px solid #d4af3740; padding:56px 12px 20px; transition:left .25s ease; }
+  #agtCrumbs { position:fixed; top:44px; left:0; right:0; z-index:9998; padding:4px 14px; font-size:12px;
+    color:#8fa3b8; background:rgba(11,16,23,.9); border-bottom:1px solid #d4af3730; }
+  #agtCrumbs a { color:#f0d78c; text-decoration:none; }
+  #agtCrumbs b { color:#e8eef5; font-weight:600; }
+  .agt-panel { position: fixed; top:0; left:-290px; width:280px; bottom:0; z-index:10000; overflow-y:auto; overflow-x:hidden;
+    background:#0b1017; border-right:1px solid #d4af3766; padding:14px 12px 20px; transition:left .25s ease; }
   .agt-panel.open { left:0; }
   .agt-veil { position:fixed; inset:0; background:#0008; z-index:9998; opacity:0; pointer-events:none; transition:opacity .25s; }
   .agt-veil.show { opacity:1; pointer-events:auto; }
+  /* Изоляция от глобального CSS витрин: страницы империи вешают input{width:100%}
+     и собственные стили кнопок — панель обязана выглядеть одинаково на всех 26 страницах. */
+  .agt-panel, .agt-panel *, #agtBar, #agtBar *, #agtCrumbs, #agtCrumbs * { box-sizing:border-box; }
+  .agt-panel input, #agtBar input { width:auto; min-width:0; margin:0; float:none; }
+  .agt-panel button, #agtBar button, .agt-panel a, #agtBar a { width:auto; min-height:0; margin:0; text-transform:none; letter-spacing:normal; font-family:inherit; }
+  .agt-head { display:flex; align-items:center; justify-content:space-between; padding:2px 4px 10px; border-bottom:1px solid #d4af3722; }
+  .agt-head b { color:#f0d78c; font-size:14px; letter-spacing:.5px; }
+  #agtClose { background:none; border:1px solid #2a3646; color:#c8d4e0; border-radius:6px; padding:2px 8px; cursor:pointer; font-size:13px; }
+  #agtClose:hover { border-color:#d4af37; color:#f0d78c; }
   .agt-ph { color:#d4af37; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; margin:16px 4px 6px; }
+  .agt-sec { margin:2px 0; }
+  .agt-sec > summary { display:flex; align-items:center; gap:10px; color:#f0d78c; font-size:14px; padding:8px 10px;
+    border-radius:8px; cursor:pointer; list-style:none; }
+  .agt-sec > summary::-webkit-details-marker { display:none; }
+  .agt-sec > summary::after { content:'›'; margin-left:auto; color:#8fa3b8; font-size:16px; line-height:1; transition:transform .15s; }
+  .agt-sec[open] > summary::after { transform:rotate(90deg); color:#d4af37; }
+  .agt-sec > summary:hover { background:#d4af3718; }
   .agt-nav { display:flex; align-items:center; gap:10px; color:#e8eef5; text-decoration:none; padding:8px 10px; border-radius:8px; font-size:14px; }
   .agt-nav:hover { background:#d4af3718; }
   .agt-nav.here { background:#d4af3728; color:#f0d78c; border-left:3px solid #d4af37; padding-left:7px; }
+  .agt-nav.sub { padding-left:38px; font-size:13.5px; }
   .agi { width:20px; text-align:center; }
-  .agt-set { display:flex; align-items:center; gap:8px; color:#c8d4e0; font-size:12.5px; padding:6px 10px; cursor:pointer; }
-  .agt-set input { accent-color:#d4af37; }
+  .agt-set { display:flex; align-items:center; gap:8px; color:#c8d4e0; font-size:12.5px; padding:6px 10px; cursor:pointer; line-height:1.25; }
+  .agt-set input { width:15px; height:15px; min-width:15px; flex:0 0 15px; accent-color:#d4af37; }
+  .agt-set span { flex:1 1 auto; min-width:0; }
   .agt-act { display:block; width:100%; background:#1a2230; color:#f0d78c; border:1px solid #d4af3766; border-radius:7px; padding:7px; cursor:pointer; margin-top:6px; font-size:13px; }
   .agt-act:hover { background:#223048; }
   `;

@@ -1,0 +1,106 @@
+{
+ "startedAt": "2026-11-09T10:37:27.689Z",
+ "period": "2026-W45",
+ "limits": {
+  "PER_OP": 10,
+  "WEEK_TOTAL": 20
+ },
+ "steps": [
+  {
+   "name": "p1 выплата 10 + 6 за неделю",
+   "ok": true,
+   "detail": "{\"mode\":\"worker\",\"dec\":[{\"key\":\"op-hetzner|2026-W45\",\"action\":\"computed\",\"amountMinor\":10000000000},{\"key\":\"op-do|2026-W45\",\"action\":\"computed\",\"amountMinor\":6000000000}],\"out\":[{\"key\":\"op-hetzner|202"
+  },
+  {
+   "name": "p1.2 обе выплаты подтверждены",
+   "ok": true,
+   "detail": "[{\"key\":\"op-hetzner|2026-W45\",\"action\":\"marked_paid\",\"block\":4},{\"key\":\"op-do|2026-W45\",\"action\":\"marked_paid\",\"block\":4}]"
+  },
+  {
+   "name": "p1.3 балансы 10 / 6",
+   "ok": true,
+   "detail": "10/6"
+  },
+  {
+   "name": "p2 повтор: новых tx нет, выплат по-прежнему по 1",
+   "ok": true,
+   "detail": "{\"mode\":\"worker\",\"dec\":[{\"key\":\"op-hetzner|2026-W45\",\"action\":\"skip_exists\",\"status\":\"paid\"},{\"key\":\"op-do|2026-W45\",\"action\":\"skip_exists\",\"status\":\"paid\"}],\"o"
+  },
+  {
+   "name": "p3 параллельные экземпляры: оба exit 0, дублей нет",
+   "ok": true,
+   "detail": "exit=0/0"
+  },
+  {
+   "name": "p4.0 воркер упал после отправки",
+   "ok": true,
+   "detail": "exit=1"
+  },
+  {
+   "name": "p4.1 recover нашёл отправленную tx (тот же txid), новой не создал",
+   "ok": true,
+   "detail": "[{\"key\":\"op-hetzner|2026-W46\",\"action\":\"marked_paid\",\"block\":6}]"
+  },
+  {
+   "name": "p4.2 продолжение завершилось",
+   "ok": true,
+   "detail": "{\"mode\":\"worker\",\"dec\":[{\"key\":\"op-hetzner|2026-W46\",\"action\":\"skip_exists\",\"status\":\"paid\"},{\"key\":\"op-do|2026-W46\",\"action\":\"skip_exists\",\"status\":\"intended\"}"
+  },
+  {
+   "name": "p4.3 обе выплаты W46 подтверждены, повторных отправок нет",
+   "ok": true,
+   "detail": "paid=2"
+  },
+  {
+   "name": "p4.4 аудит: по ключу ровно 1 выплата",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "name": "p5 отказы без транзакций: zero_budget и over_limit",
+   "ok": true,
+   "detail": "[{\"key\":\"op-hetzner|2026-W47\",\"action\":\"refused\",\"reason\":\"zero_budget\"},{\"key\":\"op-do|2026-W47\",\"action\":\"refused\",\"reason\":\"zero_budget\"},{\"key\":\"op-hetzner|2026-W47\",\"action\":\"computed\",\"amountMino"
+  },
+  {
+   "name": "p6 аудит выявил ручной дубль с другим txid",
+   "ok": true,
+   "detail": "op-hetzner|2026-W45: выплат 2, ожидалась 1; op-hetzner|2026-W45: РАЗНЫЕ txid на один ключ: 7f3c5fc89bc842fc3a9f2fb1f08cfb1eedfdcdbd12ee8b41b9cd5ddd7b301e4c,f48343d768f0695223c6dd041fcd1ad7b92bdb677a2d"
+  },
+  {
+   "name": "p7 реестр сдан",
+   "ok": true,
+   "detail": "entries=4"
+  }
+ ],
+ "refusals": {
+  "zero_budget": [
+   {
+    "key": "op-hetzner|2026-W47",
+    "action": "refused",
+    "reason": "zero_budget"
+   },
+   {
+    "key": "op-do|2026-W47",
+    "action": "refused",
+    "reason": "zero_budget"
+   }
+  ],
+  "over_limit": [
+   {
+    "key": "op-hetzner|2026-W47",
+    "action": "computed",
+    "amountMinor": 10000000000
+   },
+   {
+    "key": "op-do|2026-W47",
+    "action": "refused",
+    "reason": "per_op_over_limit"
+   }
+  ]
+ },
+ "auditCatchesManualDouble": true,
+ "registry": "C:\\Users\\Mark\\Desktop\\agentcoin-fix\\docs\\a-topology\\ops-weekly-registry.json",
+ "finishedAt": "2026-11-09T10:37:37.607Z",
+ "passed": 13,
+ "failed": 0
+}

@@ -1,0 +1,51 @@
+{
+  "ok": true,
+  "nodes": [
+    {
+      "name": "Эта нода",
+      "ok": true,
+      "service": "agt-node",
+      "blocks": 38161,
+      "tipHash": "000a183fc9f305f5f88cdee9b818f13d74c176ff7384cf589241fb2eb7bef1e7",
+      "tipAgeSec": 62,
+      "chainValid": true,
+      "overloaded": false,
+      "loopLagMs": 2,
+      "reachable": true,
+      "behindObserved": 0,
+      "status": "responding",
+      "fresh": true,
+      "centrality": 1
+    },
+    {
+      "name": "node2 (Hetzner fsn1)",
+      "reachable": true,
+      "blocks": 38161,
+      "tipHash": "000a183fc9f305f5f88cdee9b818f13d74c176ff7384cf589241fb2eb7bef1e7",
+      "tipAgeSec": 62,
+      "overloaded": false,
+      "chainValid": true,
+      "behindObserved": 0,
+      "status": "responding",
+      "fresh": true,
+      "centrality": 0
+    },
+    {
+      "name": "node3 (DO fra1)",
+      "reachable": true,
+      "blocks": 38161,
+      "tipHash": "000a183fc9f305f5f88cdee9b818f13d74c176ff7384cf589241fb2eb7bef1e7",
+      "tipAgeSec": 62,
+      "overloaded": false,
+      "chainValid": true,
+      "behindObserved": 0,
+      "status": "responding",
+      "fresh": true,
+      "centrality": 0
+    }
+  ],
+  "maxObservedBlocks": 38161,
+  "checkedAt": "2026-11-09T09:37:08.751Z",
+  "note": "Высота сравнивается только с настроенными узлами. Это не доказательство каноничности цепи или независимости операторов.",
+  "centralityNote": "hub-and-spoke: эта нода опрашивает каждую цель; рёбра=self↔reachable"
+}

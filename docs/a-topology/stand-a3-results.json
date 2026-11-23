@@ -1,0 +1,107 @@
+{
+ "startedAt": "2026-11-09T10:34:33.609Z",
+ "limits": {
+  "CAP_AGENT": 500000000,
+  "CAP_DAY": 5000000000,
+  "CAP_PILOT": 20000000000,
+  "unit": "minor(1 AGT=1e9)"
+ },
+ "steps": [
+  {
+   "name": "g1.0 привязка pub→адрес при регистрации",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "g1.1 валидная заявка принята",
+   "ok": true,
+   "detail": "txid=c9884329bb92"
+  },
+  {
+   "name": "g1.2 чужой адрес/подпись отклонены",
+   "ok": true,
+   "detail": "challenge_mismatch"
+  },
+  {
+   "name": "g1.3 неверная подпись отклонена",
+   "ok": true,
+   "detail": "bad_signature"
+  },
+  {
+   "name": "g1.4 повтор запроса отклонён",
+   "ok": true,
+   "detail": "challenge_reused_or_unknown"
+  },
+  {
+   "name": "g1.5 отозванный паспорт отклонён",
+   "ok": true,
+   "detail": "passport_revoked"
+  },
+  {
+   "name": "g1.6 параллельные заявки: ровно одна принята",
+   "ok": true,
+   "detail": "ok / agent_cap_reached"
+  },
+  {
+   "name": "g1.7 повтор после лимита агента отклонён",
+   "ok": true,
+   "detail": "agent_cap_reached"
+  },
+  {
+   "name": "g1.8 аудит: выплат ровно по числу принятых, без дублей",
+   "ok": true,
+   "detail": "выплат=2"
+  },
+  {
+   "name": "g1.9 балансы: A=0.5 C=0.5",
+   "ok": true,
+   "detail": "0.5/0.5"
+  },
+  {
+   "name": "g2.0 дочерний процесс упал после отправки",
+   "ok": true,
+   "detail": "exit=1 out=crash-child submitted: {\"ok\":true,\"claimId\":\"claim-ch-22bb6fb8150490bb\",\"txid\":\"09d0d5a5230526d580335e66d143a2ba219f69db"
+  },
+  {
+   "name": "g2.1 восстановление нашло отправленную tx, новой не создал",
+   "ok": true,
+   "detail": "[{\"claimId\":\"claim-ch-22bb6fb8150490bb\",\"action\":\"marked_paid\",\"block\":5}]"
+  },
+  {
+   "name": "g2.2 аудит: ровно 1 выплата, дублей txid нет",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "name": "g3 пустой резерв: отказ с причиной, лишних tx нет",
+   "ok": true,
+   "detail": "fund_tx_rejected / viol=0"
+  },
+  {
+   "name": "g4.1 сутки: 10 принято, 11-й отклонён daily_exhausted",
+   "ok": true,
+   "detail": "ok=10 deny=1"
+  },
+  {
+   "name": "g4.2 ончейн ровно 10 выплат = 5.0 AGT",
+   "ok": true,
+   "detail": "выплат=10"
+  },
+  {
+   "name": "g5.1 пилот: 40 принято за 4 суток, на 5-е — pilot_exhausted",
+   "ok": true,
+   "detail": "ok=40 last=pilot_exhausted"
+  },
+  {
+   "name": "g5.2 ончейн ровно 40 выплат = 20.0 AGT, дублей нет",
+   "ok": true,
+   "detail": "выплат=40 viol=0"
+  }
+ ],
+ "g1": {
+  "journal": "C:\\Users\\Mark\\AppData\\Local\\Temp\\agt-a3-JNAKoS\\j1.json"
+ },
+ "finishedAt": "2026-11-09T10:34:40.474Z",
+ "passed": 18,
+ "failed": 0
+}

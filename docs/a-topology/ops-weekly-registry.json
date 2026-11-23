@@ -1,0 +1,48 @@
+{
+ "period": [
+  "2026-W45",
+  "2026-W46"
+ ],
+ "budget": {
+  "perOp": 10,
+  "total": 20
+ },
+ "entries": [
+  {
+   "key": "op-hetzner|2026-W45",
+   "op": "op-hetzner",
+   "amountAgt": 10,
+   "txid": "7f3c5fc89bc842fc3a9f2fb1f08cfb1eedfdcdbd12ee8b41b9cd5ddd7b301e4c",
+   "block": 4,
+   "status": "paid",
+   "why": "онлайн 168/168 ч, WS-пиры ≥2, релей 1240 блоков — полный лимит"
+  },
+  {
+   "key": "op-do|2026-W45",
+   "op": "op-do",
+   "amountAgt": 6,
+   "txid": "4754f56ead775b6801e3c1812bb44419dcdf5d2282add232cee7414d31df451a",
+   "block": 4,
+   "status": "paid",
+   "why": "онлайн 141/168 ч (84%), релей 700 блоков — частичная выплата 6/10"
+  },
+  {
+   "key": "op-hetzner|2026-W46",
+   "op": "op-hetzner",
+   "amountAgt": 10,
+   "txid": "f9ab9dfb319a745aa2e4f9a8fe549e312d6c49ea512affb8ec6fd16d1095cd98",
+   "block": 6,
+   "status": "paid",
+   "why": "онлайн 168/168 ч, WS-пиры ≥2, релей 1240 блоков — полный лимит"
+  },
+  {
+   "key": "op-do|2026-W46",
+   "op": "op-do",
+   "amountAgt": 6,
+   "txid": "1259f4845365ef9cefd67019a792849cd13d9ac289aa1f1cf548c1d1a9400fa3",
+   "block": 8,
+   "status": "paid",
+   "why": "онлайн 141/168 ч (84%), релей 700 блоков — частичная выплата 6/10"
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+  "wsPeers": 0,
+  "roster": [],
+  "selfUrl": "http://127.0.0.1:9335",
+  "blocks": 38161,
+  "tipHash": "000a183fc9f305f5f88cdee9b818f13d74c176ff7384cf589241fb2eb7bef1e7",
+  "tipAgeSec": 63,
+  "fresh": true,
+  "chainValid": true,
+  "genesisHash": "00026d18205c7c873bd612d6e2480321171eb0cb0b3d06c2c2cb0b17b9188e4e",
+  "p2p": {
+    "peer_count": 0,
+    "inbound": 0,
+    "outbound": 0,
+    "withIp": 0,
+    "subnets": [],
+    "subnetsOk": false,
+    "note": "subnetsOk=false, если все пиры в одной /24 — eclipse-предупреждение (одиночный хост)",
+    "maxInbound": 25,
+    "maxOutbound": 10,
+    "eclipseWarn": true,
+    "seed": 3
+  }
+}

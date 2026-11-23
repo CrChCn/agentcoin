@@ -62,6 +62,11 @@
           "title": "Мемпул",
           "href": "/mempool",
           "file": "mempool.html"
+        },
+        {
+          "title": "Статус сети",
+          "href": "/status",
+          "file": "status.html"
         }
       ]
     },
@@ -91,6 +96,31 @@
           "title": "Джобборд",
           "href": "/jobs",
           "file": "jobs.html"
+        },
+        {
+          "title": "Задачи фонда",
+          "href": "/tasks",
+          "file": "tasks.html"
+        },
+        {
+          "title": "Аукционы",
+          "href": "/auctions.html",
+          "file": "auctions.html"
+        },
+        {
+          "title": "Пруфы найма",
+          "href": "/hires-proof.html",
+          "file": "hires-proof.html"
+        },
+        {
+          "title": "P2P-доска",
+          "href": "/p2p.html",
+          "file": "p2p.html"
+        },
+        {
+          "title": "Swap-трекер",
+          "href": "/swap.html",
+          "file": "swap.html"
         }
       ]
     },
@@ -194,6 +224,16 @@
           "file": "agent-room.html"
         },
         {
+          "title": "Расчёты",
+          "href": "/settlement",
+          "file": "ecosphere/mainnet.html"
+        },
+        {
+          "title": "Данные империи",
+          "href": "/data.html",
+          "file": "data.html"
+        },
+        {
           "title": "Воркспейс",
           "href": "/workspace",
           "file": "workspace.html"
@@ -201,5 +241,5 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-18"
+  "updatedAt": "2026-11-23"
 }

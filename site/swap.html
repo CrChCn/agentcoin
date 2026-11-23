@@ -1,9 +1,13 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><script src="/network-canvas.js" defer></script>
+<script src="/panel.js" defer></script>
+<style>.modnav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0;padding:10px 12px;border:1px solid rgba(212,175,55,.4);border-radius:10px;background:rgba(212,175,55,.06);font-size:13px;font-family:system-ui,sans-serif}.modnav b{color:#d4af37;margin-right:2px}.modnav a{color:#f0d78c;text-decoration:none;padding:4px 10px;border:1px solid #2a2410;border-radius:7px;background:#10161f}.modnav a:hover{border-color:#d4af37}.modnav a.here{border-color:#d4af37;background:#d4af37;color:#111;font-weight:700}</style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AGENTCOIN swap tracker — branch to tree</title>
 <style>body{font-family:monospace;background:#0a0e14;color:#c8d0db;max-width:900px;margin:0 auto;padding:20px;line-height:1.6}a{color:#e8b923}h1{color:#e8b923}h2{color:#ffd75e}.card{border:1px solid #2a2410;border-radius:12px;padding:16px;margin:14px 0;background:#10161f}.ok{color:#7dffa8}.warn{color:#ffb4b4}.dim{color:#8b93a1}.pend{color:#ffd75e}code{background:#1a2230;padding:1px 6px;border-radius:6px;word-break:break-all}input,select{font-family:monospace;background:#1a2230;color:#c8d0db;border:1px solid #2a2410;border-radius:8px;padding:8px;width:100%;box-sizing:border-box;margin:4px 0}button{font-family:monospace;background:#e8b923;color:#0a0e14;border:0;border-radius:8px;padding:10px 18px;font-weight:bold;cursor:pointer}.step{padding:6px 0}.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:baseline}</style></head><body>
 <h1>⚜ Swap tracker — от ветки к дереву</h1>
 <p>Каждая сделка — цепочка логических событий: внешняя ветка (BTC / Sepolia EVM) → наша цепь (дерево). Модуль проверяет каждую ногу по публичным API и зажигает шаги. Ключи нигде не вводятся — только хеши транзакций.</p>
+<nav class="modnav" aria-label="Модули"><b>⚜ Модули:</b><a href="/">Империя</a><a href="/dashboard">Пульт</a><a href="/tasks">Задачи</a><a href="/auctions.html">Аукционы</a><a href="/hires-proof.html">Пруфы</a><a href="/p2p.html">P2P</a><a href="/swap.html" class="here">Swap</a><a href="/settlement">Расчёты</a><a href="/agent-room">Комната</a><a href="/cabinet">Кабинет</a><a href="/data.html">Данные</a></nav>
 <div class="card">
 <h2>Новая сделка</h2>
 <label class="dim">Название (например p2p-001)</label><input id="dname" placeholder="p2p-001">

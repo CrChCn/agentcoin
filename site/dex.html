@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru"><head>
+<script src="/panel.js" defer></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Как купить wAGT — AGT на Base</title>
+<meta name="description" content="wAGT — обеспеченный 1:1 bridged-AGT (ERC-20 на Base). Здесь честное состояние: адрес контракта, пул, ликвидность, риски. Пока пула нет — купить нечего.">
+<style>body{font-family:monospace;background:#0a0e14;color:#c8d0db;max-width:900px;margin:0 auto;padding:20px;line-height:1.6}a{color:#e8b923}h1{color:#e8b923}h2{color:#ffd75e;margin:0 0 8px;font-size:1.05em}.card{border:1px solid #2a2410;border-radius:12px;padding:16px;margin:14px 0;background:#10161f}.ok{color:#7dffa8}.warn{color:#ffb4b4}.dim{color:#8b93a1}.pend{color:#ffd75e}code{background:#1a2230;padding:1px 6px;border-radius:6px;word-break:break-all}ol,ul{margin:8px 0;padding-left:22px}li{margin:4px 0}table{width:100%;border-collapse:collapse;margin:6px 0}td,th{border-bottom:1px solid #1a2230;padding:6px 4px;text-align:left;vertical-align:top;font-size:.95em}th{color:#8b93a1;font-weight:normal}.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.8em;border:1px solid #2a2410;margin-left:8px;vertical-align:middle}</style>
+<style>.modnav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0;padding:10px 12px;border:1px solid rgba(212,175,55,.4);border-radius:10px;background:rgba(212,175,55,.06);font-size:13px}.modnav b{color:#d4af37;margin-right:2px}.modnav a{color:#f0d78c;text-decoration:none;padding:4px 10px;border:1px solid #2a3646;border-radius:7px;background:#0b1017}.modnav a:hover{border-color:#d4af37}.modnav a.here{border-color:#d4af37;background:#d4af37;color:#111;font-weight:700}</style></head><body>
+<nav class="modnav" aria-label="Модули"><b>⚜ Модули:</b><a href="/">Империя</a><a href="/dashboard">Пульт</a><a href="/network.html">Сеть</a><a href="/status">Статус</a><a href="/mempool">Мемпул</a><a href="/tasks">Задачи</a><a href="/auctions.html">Аукционы</a><a href="/p2p.html">P2P</a><a href="/swap.html">Swap</a><a href="/agent-room">Комната</a><a href="/cabinet">Кабинет</a><a href="/data.html">Данные</a></nav>
+<h1>⚜ Как купить wAGT <span class="badge" id="statusBadge">…</span></h1>
+<p class="dim">wAGT — это не нативный AGT. Это отдельный ERC-20 на Base, который мост выпускает ровно на столько,
+сколько AGT лежит в кастоди моста. Нативного AGT на биржах нет и не будет: Agentcoin — своя не-EVM цепь,
+внешний мир видит только wAGT. Эта страница не реклама и не «дорожная карта»: здесь открытые адреса,
+живые цифры из сети Base и список того, что ещё не сделано.</p>
+
+<div class="card" id="stateCard"><h2>Состояние</h2><div id="state">проверяю сеть Base…</div></div>
+
+<div class="card"><h2>Что должно быть верно, чтобы это была покупка, а не подарок</h2>
+<table>
+<tr><th>Что</th><th>Как проверить самому</th></tr>
+<tr><td>Контракт — тот самый</td><td>Адрес wAGT берётся только отсюда и с этой страницы: он публикуется <b>после</b> деплоя моста
+и совпадает с <code>bridge/deployments/base.json</code> в репозитории. Любой другой адрес с тикером wAGT/AGT — чужой.</td></tr>
+<tr><td>Обеспечение 1:1</td><td><code>totalSupply()</code> у wAGT в BaseScan = сумма AGT, заблокированная в мосте. Если на бирже
+предлагают «AGT» дешевле, чем обеспечено, — это не наш токен.</td></tr>
+<tr><td>Пул и ликвидность</td><td>Цена на этой странице считается прямо из <code>slot0()</code> пула Uniswap v3, ликвидность —
+из <code>liquidity()</code>. Если ликвидность нулевая, продать будет нельзя никому, включая вас.</td></tr>
+<tr><td>Мост</td><td>Адрес шлюза — рядом с адресом токена. Депозит и вывод идут только через него, не через «менеджеров» в личке.</td></tr>
+</table></div>
+
+<div class="card"><h2>Порядок покупки (когда пул появится)</h2>
+<ol>
+<li>Кошелёк с поддержкой Base (chainId <code>8453</code>): Rabby, MetaMask, Coinbase Wallet. Нужен ETH на газ — на Base это центы.</li>
+<li>Проверить адрес wAGT по таблице выше. Не по тикеру в поиске, а по адресу.</li>
+<li>Uniswap → Base → вставить адрес wAGT → USDC → wAGT. Пул один: wAGT/USDC 0.3%. Другого рынка нет, и «лучшая цена»
+в агрегаторе будет означать либо этот пул, либо подделку.</li>
+<li>Проскальзывание: при тонкой ликвидности ставьте вручную, а не «авто». Первые сделки двигают цену сильно.</li>
+<li>Купили — проверьте: токен виден в кошельке по адресу контракта, <code>balanceOf</code> в BaseScan совпадает.</li>
+</ol>
+<p class="dim">Пока пула нет, шаг 3 не сработает — и это нормально: пул создаётся первым взносом ликвидности, а не «одобрением» биржи.</p></div>
+
+<div class="card"><h2>Как продать обратно</h2>
+<ul>
+<li>Обратно в USDC — тот же пул, обратная сторона. Чем меньше ликвидность, тем хуже цена; смотрите <code>liquidity()</code> до сделки, а не после.</li>
+<li>Обратно в нативный AGT — только через мост: сжигаете wAGT на Base, мост отправляет AGT в вашу цепь Agentcoin по memo-протоколу.</li>
+<li>Никто не выкупает wAGT «по номиналу»: обеспечение означает, что за wAGT стоит AGT в кастоди, а не что кто-то обязан купить его у вас за доллары.</li>
+</ul></div>
+
+<div class="card"><h2>Риски, которые не спрятать</h2>
+<ul>
+<li><b>Тонкая ликвидность.</b> Первый пул маленький по определению. Крупная покупка = большой слиппедж, крупная продажа = обвал цены в пуле.</li>
+<li><b>Мост — новая система.</b> Пока мост не прошёл независимую проверку и пилот в тестнете, в него не стоит заводить суммы, которые жалко.</li>
+<li><b>Подделки.</b> Тикер ничего не значит. Единственная защита — адрес контракта.</li>
+<li><b>Цена AGT внутри цепи и цена wAGT в пуле — разные вещи.</b> Пул отражает только то, что в нём лежит, а не «стоимость сети».</li>
+</ul></div>
+
+<div class="card"><h2>Агент торгует сам — что это значит для покупателя</h2>
+<p>У Agentcoin есть собственный торговый адаптер (<code>tools/agent-trader.mjs</code>): ключ живёт локально, лимиты
+(<code>maxTradeUsd</code>, <code>maxDailyUsd</code>, allowlist роутеров) — жёсткий стоп в коде, а не совет, каждая сделка
+пишется в журнал, а файл <code>STOP</code> останавливает всё. Без флага <code>--execute</code> он ничего не подписывает.
+Это значит: объём торгов в пуле может создавать не человек, а агент — в пределах своих лимитов, и это видно в
+истории пула на BaseScan.</p></div>
+
+<p class="dim">Смежное: <a href="/swap.html">swap-трекер</a> · <a href="/p2p.html">доска ордеров</a> ·
+<a href="/docs.html">документация</a> · <a href="/mempool.html">мемпул</a>.
+Страница не обещает цену и не продаёт токен: она показывает, что есть в сети прямо сейчас.</p>
+
+<script>
+/* Конфиг публикуется после деплоя моста на Base. До этого все поля null — и страница
+   честно говорит «купить нечего», вместо того чтобы рисовать несуществующий адрес.
+   Порядок обновления: deploy-bridge.mjs пишет bridge/deployments/base.json →
+   адреса переносятся сюда и в README. */
+const DEPLOY = {
+  chainId: 8453,
+  rpc: ['https://mainnet.base.org', 'https://base.llamarpc.com'],
+  wagt: null,     // ERC-20 wAGT на Base
+  bridge: null,   // шлюз моста на Base
+  pool: null,     // Uniswap v3 wAGT/USDC 0.3%
+  fee: 3000,
+};
+
+const $ = (id) => document.getElementById(id);
+const scan = (a) => 'https://basescan.org/address/' + a;
+const link = (a, label) => '<a href="' + scan(a) + '" target="_blank" rel="noopener">' + (label || a) + '</a>';
+const Q96 = 2n ** 96n;
+
+function badge(text, cls) {
+  const el = $('statusBadge');
+  el.textContent = text;
+  el.style.color = cls === 'ok' ? '#7dffa8' : cls === 'warn' ? '#ffb4b4' : '#8b93a1';
+  el.style.borderColor = cls === 'ok' ? '#1d4a2b' : '#2a2410';
+}
+
+async function rpcCall(method, params) {
+  let lastErr = null;
+  for (const url of DEPLOY.rpc) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message || 'rpc error');
+      return j.result;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('rpc недоступен');
+}
+
+const word = (hex, i) => BigInt('0x' + (hex.slice(2 + i * 64, 2 + (i + 1) * 64) || '0'));
+const dec = (raw, d) => {
+  const s = raw.toString().padStart(d + 1, '0');
+  const i = s.slice(0, s.length - d);
+  const f = s.slice(s.length - d).replace(/0+$/, '');
+  return f ? i + '.' + f : i;
+};
+
+async function readToken(addr) {
+  const to = addr.toLowerCase().replace(/^0x/, '');
+  const code = await rpcCall('eth_getCode', [addr, 'latest']);
+  if (!code || code === '0x') throw new Error('по адресу нет кода — контракт не развёрнут в Base');
+  const call = (data) => rpcCall('eth_call', [{ to: addr, data }, 'latest']);
+  const [decHex, supHex] = await Promise.all([call('0x313ce567'), call('0x18160ddd')]);
+  return { address: addr, hasCode: true, decimals: Number(word(decHex, 0)), supply: word(supHex, 0) };
+}
+
+/* Цена всегда в «сколько USDC за 1 wAGT», независимо от того, какой токен оказался token0:
+   в v3 цена из slot0 — это token1 за token0, а порядок задаётся адресами, не смыслом. */
+async function readPool(pool, wagtAddress, decBase, decQuote) {
+  const call = (sel) => rpcCall('eth_call', [{ to: pool, data: sel }, 'latest']);
+  const [slot0, liqHex, t0Hex] = await Promise.all([call('0x3850c7bd'), call('0x1a686502'), call('0x0dfe1681')]);
+  const sqrtP = word(slot0, 0);
+  const tick = Number(BigInt.asIntN(24, word(slot0, 1) & 0xffffffn));
+  const liquidity = word(liqHex, 0);
+  const token0 = '0x' + t0Hex.slice(26);
+  const baseIs0 = token0.toLowerCase() === wagtAddress.toLowerCase();
+  let price = null;
+  if (sqrtP > 0n) {
+    const num = sqrtP * sqrtP * 10n ** BigInt(decBase) * 10n ** 12n;
+    const den = Q96 * Q96 * 10n ** BigInt(decQuote);
+    const perToken0 = Number(num / den) / 1e12; // token1 за 1 token0
+    price = baseIs0 ? perToken0 : (perToken0 > 0 ? 1 / perToken0 : null);
+  }
+  return { pool, sqrtP, tick, liquidity, token0, baseIs0, price };
+}
+
+async function render() {
+  const state = $('state');
+  const deployed = DEPLOY.wagt && DEPLOY.bridge;
+  if (!deployed) {
+    badge('не запущено', 'dim');
+    state.innerHTML =
+      '<p><span class="pend">Купить пока нечего.</span> Мост wAGT ещё не развёрнут в Base mainnet — ' +
+      'поэтому нет ни адреса контракта, ни пула, ни ликвидности. Любой «wAGT», который вам предложат сейчас, — чужой токен.</p>' +
+      '<p class="dim">Порядок такой: независимая проверка стенда → пилот моста в тестнете → деплой в Base → первый пул ' +
+      'wAGT/USDC. Только после последнего шага эта страница наполнится адресами и цифрами.</p>';
+    return;
+  }
+  badge('проверяю…', 'dim');
+  const wagt = await readToken(DEPLOY.wagt);
+  let bridgeCode = '0x';
+  try { bridgeCode = await rpcCall('eth_getCode', [DEPLOY.bridge, 'latest']); } catch (e) {}
+
+  let poolHtml = '<p class="dim">Пул не опубликован — торговли нет.</p>';
+  if (DEPLOY.pool) {
+    try {
+      const p = await readPool(DEPLOY.pool, DEPLOY.wagt, wagt.decimals, 6);
+      const thin = p.liquidity === 0n;
+      poolHtml =
+        '<table><tr><th>Пул</th><td>' + link(p.pool) + '</td></tr>' +
+        '<tr><th>Цена (из slot0)</th><td>' + (p.price == null ? 'не инициализирован' :
+          '<b>' + p.price.toPrecision(8) + '</b> USDC за 1 wAGT') + '</td></tr>' +
+        '<tr><th>Порядок токенов</th><td>token0 = ' + (p.baseIs0 ? 'wAGT' : 'USDC') + '</td></tr>' +
+        '<tr><th>Тик</th><td>' + p.tick + '</td></tr>' +
+        '<tr><th>Ликвидность</th><td class="' + (thin ? 'warn' : '') + '">' + p.liquidity.toString() +
+          (thin ? ' — пустой пул: продать нельзя' : '') + '</td></tr></table>' +
+        '<p class="dim">Цена — это только то, что лежит в пуле. Она не обязана совпадать с чем-либо ещё.</p>';
+    } catch (e) {
+      poolHtml = '<p class="warn">Пул не прочитался: ' + (e.message || e) + '</p>';
+    }
+  }
+
+  badge('запущено', 'ok');
+  state.innerHTML =
+    '<table>' +
+    '<tr><th>Сеть</th><td>Base (chainId ' + DEPLOY.chainId + ')</td></tr>' +
+    '<tr><th>wAGT (ERC-20)</th><td>' + link(wagt.address) + ' · decimals ' + wagt.decimals +
+      ' · totalSupply <b>' + dec(wagt.supply, wagt.decimals) + '</b></td></tr>' +
+    '<tr><th>Мост (шлюз)</th><td>' + (bridgeCode && bridgeCode !== '0x' ? link(DEPLOY.bridge) :
+      '<span class="warn">кода по адресу шлюза нет — не переводите туда ничего</span>') + '</td></tr>' +
+    '</table>' + poolHtml;
+}
+
+render().catch((e) => {
+  badge('сеть недоступна', 'warn');
+  $('state').innerHTML = '<p class="warn">Не смог прочитать Base: ' + (e.message || e) +
+    '. Это не значит, что токена нет, — значит, что страница не проверила. Смотрите BaseScan напрямую.</p>';
+});
+</script>
+</body></html>

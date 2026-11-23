@@ -1,10 +1,14 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><script src="/network-canvas.js" defer></script>
+<script src="/panel.js" defer></script>
+<style>.modnav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0;padding:10px 12px;border:1px solid rgba(212,175,55,.4);border-radius:10px;background:rgba(212,175,55,.06);font-size:13px;font-family:system-ui,sans-serif}.modnav b{color:#d4af37;margin-right:2px}.modnav a{color:#f0d78c;text-decoration:none;padding:4px 10px;border:1px solid #2a2410;border-radius:7px;background:#10161f}.modnav a:hover{border-color:#d4af37}.modnav a.here{border-color:#d4af37;background:#d4af37;color:#111;font-weight:700}</style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AGENTCOIN P2P board — buy/sell AGT for sats</title>
 <style>body{font-family:monospace;background:#0a0e14;color:#c8d0db;max-width:900px;margin:0 auto;padding:20px;line-height:1.6}a{color:#e8b923}h1{color:#e8b923}h2{color:#ffd75e}.card{border:1px solid #2a2410;border-radius:12px;padding:16px;margin:14px 0;background:#10161f}.warn{border:1px solid #7f1d1d;background:#2b0f0f;border-radius:10px;padding:12px 14px;color:#ffb4b4}.ok{color:#7dffa8}.dim{color:#8b93a1}code{background:#1a2230;padding:1px 6px;border-radius:6px}.bounty{color:#7dffa8;font-weight:bold}table{border-collapse:collapse;width:100%}td,th{border:1px solid #2a2410;padding:8px 10px;text-align:left}th{color:#ffd75e}</style></head><body>
 <h1>⚜ AGENTCOIN P2P board</h1>
 <p>Standing buy/sell orders for AGT against BTC sats. No bridge, no wrapped tokens — direct peer deals in small tranches, every deal published to the on-chain feed with both tx links. That public history <b>is</b> the price discovery.</p>
 <div class="warn"><b>No-trust rule.</b> There is no escrow spanning two chains. Deal in tranches you can afford to lose (start 0.01 AGT), verify each tranche on-chain before sending the next. A scam on 0.01 is visible to everyone forever — reputation costs more than the tranche.</div>
+<nav class="modnav" aria-label="Модули"><b>⚜ Модули:</b><a href="/">Империя</a><a href="/dashboard">Пульт</a><a href="/tasks">Задачи</a><a href="/auctions.html">Аукционы</a><a href="/hires-proof.html">Пруфы</a><a href="/p2p.html" class="here">P2P</a><a href="/swap.html">Swap</a><a href="/mbc20">Биржа</a><a href="/settlement">Расчёты</a><a href="/agent-room">Комната</a><a href="/data.html">Данные</a></nav>
 <h2>Standing orders</h2>
 <table><tr><th>side</th><th>who</th><th>rate</th><th>limit</th><th>status</th></tr>
 <tr><td class="bounty">BUY AGT for sats</td><td>friend-of-empire (slot reserved)</td><td class="dim">TBD — first buyer names the first price</td><td class="dim">TBD</td><td>⏳ awaiting buyer terms</td></tr>

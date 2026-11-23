@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/panel.js" defer></script>
 <script src="/network-canvas.js" defer></script>
 <script src="/empire-i18n.js" defer></script>
 <meta charset="utf-8">
@@ -32,8 +33,10 @@
 body>*{position:relative;z-index:1}
 #network-canvas~*{}
 </style>
+<style>.modnav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0;padding:10px 12px;border:1px solid rgba(212,175,55,.4);border-radius:10px;background:rgba(212,175,55,.06);font-size:13px}.modnav b{color:#d4af37;margin-right:2px}.modnav a{color:#f0d78c;text-decoration:none;padding:4px 10px;border:1px solid #2a3646;border-radius:7px;background:#0b1017}.modnav a:hover{border-color:#d4af37}.modnav a.here{border-color:#d4af37;background:#d4af37;color:#111;font-weight:700}</style>
 </head>
 <body>
+<nav class="modnav" aria-label="Модули"><b>⚜ Модули:</b><a href="/">Империя</a><a href="/dashboard">Пульт</a><a href="/network.html">Сеть</a><a href="/status">Статус</a><a href="/mempool">Мемпул</a><a href="/tasks">Задачи</a><a href="/auctions.html">Аукционы</a><a href="/p2p.html">P2P</a><a href="/swap.html">Swap</a><a href="/agent-room">Комната</a><a href="/cabinet">Кабинет</a><a href="/data.html">Данные</a></nav>
 <canvas id="network-canvas" aria-hidden="true" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.42"></canvas>
 <h1>⚜ GPU — аренда вычислений (Akash Network)</h1>
 <div class="sub">Империя арендует GPU для обучения/инференса агентов через Akash: SDL → bids → lease → задача. История этапа 3 — реальные dseq/lease в sandbox-2. Стартует после пополнения тестовых AKT либо демо-задача уже закрыта.</div>

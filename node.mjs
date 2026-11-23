@@ -69,6 +69,7 @@ const assistantLastRequest = new Map();
 import { govState, newRef as govRef, govProjectsState, saveProjectStage, PROJECT_STAGES } from './gov.mjs';
 import { treasuryState, makeTreasuryPolicyFn } from './treasury.mjs';
 import { AgentQueue } from './queue.mjs';
+import { ipBucket, clientIp } from './ip-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.AGT_DATA_DIR || path.join(__dirname, 'data'); // AGT_DATA_DIR: вторая нода на одной машине
@@ -142,7 +143,7 @@ const PUBLIC_READS = [
   '/ops/watchdog/state', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
   '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
   '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
-  '/queue/status', '/queue/history', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
+  '/queue/status', '/queue/history', '/jobs/auction/list', '/jobs/auction/state', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
   '/security/status', '/security/banlist', '/security/attacks', '/whitelist/status',
   '/gateway/list', '/balances',
 ];
@@ -445,12 +446,26 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   }
   res.__cors = { origin: req.headers.origin, acrh: req.headers['access-control-request-headers'] };
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true });
-  const _ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+  // За прокси (Caddy/Cloudflare) все посетители приходят с одного socket-IP —
+  // ключ rate-limit считаем через clientIp()/ipBucket() из ip-budget.mjs
+  // (заголовкам верим только от доверенного прокси, IPv6 режем на /64),
+  // иначе весь сайт делит один бакет 300/мин и imperial вечно в 429.
+  // Для админ-авторизации это НЕ используется (там по-прежнему прямая петля без прокси).
+  const _ip = clientIp(req) || 'unknown';
   // health-эндпоинты (life/dashboard/корень) не лимитируем — маяк живости обязан отвечать всегда
   // AGIP-6: публичные read-only витрины (кэшированы) не гасим при шеддинге — «лицо сети» живо даже под нагрузкой
+  // imperial.html опрашивает пачкой дешёвые GET-витрины каждые 12с — они тоже не лимитируются (иначе вечный 429 + баннер «Данные устарели»).
   const healthFree = req.method === 'GET' && (
     p === '/life' || p === '/dashboard' || p === '/' ||
+    p === '/info' || p === '/capabilities' ||
     p === '/stats' || p === '/stats.html' || p === '/stats-data' ||
+    p === '/balances' || p === '/blocks' || p === '/headers' || p === '/mempool' ||
+    p === '/gov/state' || p === '/gov/projects' || p === '/treasury/state' ||
+    p === '/queue/status' || p === '/queue/history' ||
+    p === '/network/nodes' || p === '/site/release' ||
+    p === '/jobs/auction/list' || p === '/jobs/auction/state' ||
+    p === '/dxe/items' || p === '/dxe/orders' || p === '/dxe/book' || p === '/dxe/fills' ||
+    p === '/passport/count' || p === '/cloud/stats' || p === '/cloud/epochs' || p === '/tax/state' ||
     p === '/index' || p === '/index.html' || p === '/imperial' || p === '/imperial.html' || p === '/buffy' || p === '/buffy.html' ||
     p === '/jobs' || p === '/jobs.html' ||
     p === '/jobs/state' || p === '/jobs/auction/state' || p === '/trust' || p === '/escrow/state' || p === '/ops/watchdog/state' ||
@@ -464,7 +479,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
     p === '/panel.js' || p === '/shield' ||
     p === '/pool/stats' ||
     p === '/cab-auth.js' || p === '/manifest.webmanifest' || p === '/apple-icon.png'); // витрины империи не гаснут под нагрузкой (кампания/майнер дают лаг, лицо сети должно жить)
-  if (!healthFree && !rateAllow(_ip, req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
+  if (!healthFree && !rateAllow(ipBucket(_ip), req.method === 'POST' && reqIsHeavy(p), !forwardedViaProxy(req))) {
     res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', Connection: 'close' });
     return res.end(JSON.stringify({ error: 'rate_limited', retryAfterSec: 60 }));
   }

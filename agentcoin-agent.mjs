@@ -41,6 +41,7 @@ const CFG = {
   artifacts: process.env.ARTIFACT_DIR || path.join(HERE, 'data-agents', 'agent-artifacts'),
   intervalSec: Number(process.env.POLL_INTERVAL_SEC || 0),
   heartbeatSec: Number(process.env.AGENT_HEARTBEAT_SEC || 5),
+  claimPerPoll: Number(process.env.CLAIM_PER_POLL || 0), // 0 = без лимита (как раньше); 1 = честная дележка между агентами
 };
 
 const log = (level, msg, extra) => console.log(JSON.stringify({ ts: new Date().toISOString(), agent: CFG.agentId, level, msg, ...(extra || {}) }));
@@ -203,15 +204,17 @@ async function runOnce(execFn) {
   if (!open.length) return;
 
   const cursor = loadCursor();
+  let claimed = 0;
   for (const job of open) {
     if (cursor.done[job.jobId]) continue;
+    if (CFG.claimPerPoll > 0 && claimed >= CFG.claimPerPoll) { log('info', 'claim_cap', { cap: CFG.claimPerPoll }); break; }
     log('info', 'claim', { jobId: job.jobId });
     const claim = await httpJson('POST', CFG.steward, '/v1/jobs/claim', { jobId: job.jobId, agentId: CFG.agentId });
     if (!(claim.json && claim.json.ok)) {
       log('warn', 'claim_rejected', { jobId: job.jobId, body: claim.json || claim.raw });
       continue;
     }
-    currentLease = job.jobId; heartbeatRefresh();
+    currentLease = job.jobId; claimed++; heartbeatRefresh();
     let artifact;
     try {
       artifact = await exec(buildPrompt(job));

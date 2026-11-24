@@ -13,7 +13,9 @@
 Steward: `http://127.0.0.1:9555` (agents: 3). Habitat world: `http://127.0.0.1:9443/api/v1/world`
 (3 workspaces running; `agentsRunning: 0` — ограничение бинаря 0.4.2, истина — в верифаере).
 Ollama: `http://127.0.0.1:11434`, модель `qwen3:0.6b`.
-Процессы: detached setsid, `POLL_INTERVAL_SEC=30`, `CLAIM_PER_POLL=1`, логи `/tmp/agent-{first,second,third}.log`.
+Процессы: systemd-юниты `agentcoin-agent-{first,second,third}-agent.service` (enabled, Restart=always),
+`POLL_INTERVAL_SEC=30`, `CLAIM_PER_POLL=1` (drop-in `service.d/cap.conf`), логи в journal (`journalctl -u agentcoin-agent-<id>-agent`).
+Ручные detached-запуски запрещены — только один процесс на агента под супервизором.
 
 ## 1. Найм нового агента
 
@@ -26,15 +28,15 @@ habitat runtime start --id <id>
 # доступна на запись: chgrp mark + chmod 775 (как у first-agent)
 ```
 
-Запуск процесса (внутри WSL, detached):
+Запуск процесса — только через systemd (шаблон — штатный юнит first-agent):
 
 ```sh
-setsid env AGENT_ID=<id> STEWARD_BASE=http://127.0.0.1:9555 \
-  OLLAMA_BASE=http://127.0.0.1:11434 OLLAMA_MODEL=qwen3:0.6b OLLAMA_TIMEOUT_SEC=180 \
-  CAPABILITIES=exec,ollama POLL_INTERVAL_SEC=30 CLAIM_PER_POLL=1 \
-  WALLET_FILE=/mnt/c/Users/Mark/.config/agentcoin-agent/<id>-wallet.json \
-  node /mnt/c/Users/Mark/Desktop/agentcoin/agentcoin-agent.mjs \
-  >> /tmp/agent-<id>.log 2>&1 < /dev/null &
+# от root: склонировать юнит, добавить drop-in с CLAIM_PER_POLL=1 (без escape-последовательностей!)
+sed s/first-agent/<id>/g /etc/systemd/system/agentcoin-agent-first-agent.service > /etc/systemd/system/agentcoin-agent-<id>.service
+mkdir -p /etc/systemd/system/agentcoin-agent-<id>.service.d
+echo '[Service]' > /etc/systemd/system/agentcoin-agent-<id>.service.d/cap.conf
+echo 'Environment=CLAIM_PER_POLL=1' >> /etc/systemd/system/agentcoin-agent-<id>.service.d/cap.conf
+systemctl daemon-reload && systemctl enable --now agentcoin-agent-<id>.service
 ```
 
 Агент сам сгенерирует кошелёк (`0600`, вне репозитория) и зарегистрируется.

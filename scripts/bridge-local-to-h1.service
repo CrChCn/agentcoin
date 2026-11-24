@@ -1,0 +1,20 @@
+[Unit]
+Description=AgentCoin SSH reverse bridge local->H1 (9335->19335)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Запуск на ЛОКАЛЬНОМ линуксе, не на H1!
+# Меняй только env при другом порте/хосте.
+Environment=LOCAL_PORT=9335
+Environment=REMOTE_PORT=19335
+Environment=H1_HOST=2.31.145.160
+Environment=H1_USER=root
+Environment=SSH_KEY=%h/.ssh/agentcoin_bridge
+ExecStartPre=/usr/bin/sh -c 'command -v autossh >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq autossh)'
+ExecStart=/usr/bin/autossh -M 0 -N -T -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:${REMOTE_PORT}:127.0.0.1:${LOCAL_PORT} -i ${SSH_KEY} ${H1_USER}@${H1_HOST}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

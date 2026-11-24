@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentCoin — другу за 15 минут</title>
+<style>
+:root{--bg:#0b0f14;--card:#131a24;--line:#243044;--txt:#dbe4f0;--mut:#8fa0b5;--acc:#4cc2ff;--ok:#3ddc84;--warn:#ffb020;--bad:#ff5d5d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.6 system-ui,Segoe UI,Roboto,Arial}
+.wrap{max-width:900px;margin:0 auto;padding:28px 18px 70px}
+h1{font-size:28px;margin:6px 0}h2{font-size:20px;margin:30px 0 10px}
+.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0}
+.hero{background:linear-gradient(135deg,#13202f,#0b0f14);border:1px solid var(--acc);border-radius:16px;padding:20px 22px;margin:16px 0}
+.hero a{color:var(--acc);font-size:18px}
+code{background:#0a0e13;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:13px;overflow-wrap:anywhere}
+pre{background:#0a0e13;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+a{color:var(--acc)}.mut{color:var(--mut)}
+.tag{display:inline-block;font-size:12px;border:1px solid var(--line);border-radius:20px;padding:1px 10px;margin-right:6px}
+.ok{border-color:var(--ok);color:var(--ok)}.warn{border-color:var(--warn);color:var(--warn)}.bad{border-color:var(--bad);color:var(--bad)}
+button{background:#1c2635;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:13px}
+button:hover{border-color:var(--acc)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.btn{display:inline-block;padding:10px 18px;border-radius:10px;border:1px solid var(--acc);text-decoration:none}
+.btn.primary{background:var(--acc);color:#06121d;font-weight:700}
+.btn.ghost{color:var(--txt)}
+ul{margin:8px 0;padding-left:20px}.li{margin:6px 0}
+.dont{border-left:3px solid var(--bad);padding:8px 12px;background:#0a0e13;margin:10px 0}
+.do{border-left:3px solid var(--ok);padding:8px 12px;background:#0a0e13;margin:10px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.kv{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>👋 Привет, друг. AgentCoin за 15 минут — без боли</h1>
+<p class="sub">Ты попал в проект, где чёрт ногу сломит. Это карта, чтобы не утонуть. Ничего ставить на прод не надо — сначала своя нода, потом вопросы.</p>
+
+<div class="hero">
+<div>⚡ Сначала открой живую сеть, потом код:</div>
+<div style="font-size:22px;margin:8px 0"><a href="https://agentcoin.work/" target="_blank" rel="noopener">agentcoin.work → открыть прод</a></div>
+<div class="btns">
+<a class="btn primary" href="https://agentcoin.work/info" target="_blank" rel="noopener">/info — высота цепи</a>
+<a class="btn ghost" href="https://agentcoin.work/life" target="_blank" rel="noopener">/life — alive / chainValid</a>
+<a class="btn ghost" href="https://github.com/CrChCn/agentcoin" target="_blank" rel="noopener">GitHub — код</a>
+</div>
+<p class="mut" style="margin:10px 0 0">Проверка сегодня: <code>/info blocks=41228</code>, <code>/life alive=true fresh=true chainValid=true peers=3</code>. Если открывается — прод жив.</p>
+</div>
+
+<h2>1. Что это вообще <span class="tag ok">2 мин</span></h2>
+<div class="card">
+<p>AGT — своя маленькая крипта + сеть нод на чистом <b>Node.js 24</b> (ноль npm-пакетов).<br>
+Нода = <code>node node.mjs</code> — хранит цепь, принимает переводы, отвечает по HTTP.</p>
+<ul>
+<li class="li">Хочешь понять сеть — смотри <code>node.mjs → core.mjs → chain.json</code></li>
+<li class="li">Хочешь понять сайт — смотри <code>site/ + tree.json</code>, его отдаёт та же нода</li>
+<li class="li">Консенсус (PoW, балансы) — локально в коде, без внешних ключей</li>
+</ul>
+</div>
+
+<h2>2. Что тебе дали, а что не проси <span class="tag warn">важно</span></h2>
+<div class="card">
+<div class="do"><b>ДАТЬ:</b><br>
+• git <code>https://github.com/CrChCn/agentcoin</code> (main)<br>
+• этот файл + <code>docs/audit-services.html</code> — карта инфры, только прод<br>
+• <code>caddy-routes.conf + bootstrap.json</code> (сейчас пустой — пиры настроишь сам)<br>
+• <code>site/habitat.html</code> — витрина «Рабочий режим / Реальный блокчейн»</div>
+<div class="dont"><b>НЕ ДАВАТЬ и не просить:</b><br>
+• <code>data/ data-agtx/ wallets.json admin-token.txt pin-auth.json .gh-token filecoin/sdk/wallet.json</code><br>
+• локальные пути и порты прод-сервера — их в репо нет и не надо. Секреты в HTML не вшиты, только имена.</div>
+</div>
+
+<h2>3. Своя нода с нуля — 5 минут <span class="tag ok">никого не сломаешь</span></h2>
+<div class="card">
+<p>Нужно: Node.js 24 LTS + пустая папка. Не бери чужую <code>data/</code>.</p>
+<div class="row"><b>Терминал 1 — запуск:</b> <button data-cp="git clone https://github.com/CrChCn/agentcoin.git
+cd agentcoin
+export NODE_PORT=9335
+export AGT_DATA_DIR=&quot;$PWD/data-friend&quot;
+export AGT_BIND=127.0.0.1
+node node.mjs &quot;$NODE_PORT&quot;">скопировать всё</button></div>
+<pre>git clone https://github.com/CrChCn/agentcoin.git
+cd agentcoin
+export NODE_PORT=9335
+export AGT_DATA_DIR="$PWD/data-friend"
+export AGT_BIND=127.0.0.1
+node node.mjs "$NODE_PORT"</pre>
+<div class="row"><b>Терминал 2 — проверка:</b> <button data-cp="export LOCAL_NODE_URL=&quot;http://127.0.0.1:9335&quot;
+curl -fsS &quot;$LOCAL_NODE_URL/health&quot;
+curl -fsS &quot;$LOCAL_NODE_URL/life&quot;">скопировать всё</button></div>
+<pre>export LOCAL_NODE_URL="http://127.0.0.1:9335"
+curl -fsS "$LOCAL_NODE_URL/health"
+curl -fsS "$LOCAL_NODE_URL/life"</pre>
+<p class="mut">Хочешь к живой сети — попроси у владельца PEER_URL, потом <code>POST /peer/add</code> + <code>/sync-now</code>. Без пиров ты просто локальный стенд — это нормально для старта.</p>
+<p><b>Правила:</b> 1 нода = 1 порт + 1 пустая DATA_DIR. Токен <code>AGT_ADMIN_TOKEN</code> — только твой.</p>
+</div>
+
+<h2>4. Карта кодовой базы — куда смотреть</h2>
+<div class="card">
+<div class="grid">
+<div><b>Ядро</b><br>• <code>node.mjs</code> — HTTP + WS, вход всего<br>• <code>core.mjs</code> — цепь, PoW, эскроу<br>• <code>sync.mjs / ws.mjs</code> — синк / gossip<br>• <code>miner-client.mjs</code> — майнер</div>
+<div><b>Сайт</b><br>• <code>site/imperial.html</code> — главная<br>• <code>site/dashboard.html</code> — пульт<br>• <code>site/habitat.html</code> — витрина<br>• <code>site/tree.json</code> — дерево сайта</div>
+</div>
+<div class="kv"><span class="mut">Сайт-маршруты прод-ноды:</span> <code>/</code> <code>/dashboard</code> <code>/cabinet</code> <code>/terminal</code> <code>/create-wallet</code> <code>/chat</code></div>
+<div class="kv"><span class="mut">Дальше:</span> <code>docs/JOINING.md</code> — 15 мин, <code>docs/audit-services.html</code> — инфра, <code>agt-c/sync-verify.sh</code> — C-верификатор</div>
+</div>
+
+<h2>5. Как не облажаться в первый день</h2>
+<div class="card">
+<ul>
+<li class="li">Не коммить секреты — <code>.gitignore</code> уже режет кошельки и токены, не обходи.</li>
+<li class="li">Не трогай прод (Hetzner H1/H2, DO node3) без владельца.</li>
+<li class="li">Не меняй витрину <code>habitat.html</code> — там уже чисто.</li>
+<li class="li">Сначала добейся <code>chainValid:true</code> на своей <code>/life</code>, потом проси peer.</li>
+</ul>
+<p class="mut">Запутался — начни с двух страниц: <code>README.md</code> Быстрый старт + открой <code>docs/audit-services.html</code> в браузере.</p>
+</div>
+
+<p class="mut">Собрано из FRIEND-START.md · 24.11.2026 · прод: agentcoin.work blocks=41228 · секретов внутри нет, только пути.</p>
+</div>
+<script>
+function copyText(t,btn){navigator.clipboard.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='скопировано';setTimeout(()=>btn.textContent=o,1200)}).catch(()=>{btn.textContent='не вышло'})}
+document.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(b.dataset.cp,b));
+</script>
+</body>
+</html>

@@ -214,6 +214,11 @@
           "file": "docs.html"
         },
         {
+          "title": "Атлас",
+          "href": "/atlas.html",
+          "file": "atlas.html"
+        },
+        {
           "title": "Агент",
           "href": "/agent",
           "file": "agent.html"
@@ -241,5 +246,5 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-23"
+  "updatedAt": "2026-11-24"
 }

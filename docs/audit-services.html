@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentCoin — внешние зависимости: что к чему</title>
+<style>
+:root{--bg:#0b0f14;--card:#131a24;--line:#243044;--txt:#dbe4f0;--mut:#8fa0b5;--acc:#4cc2ff;--ok:#3ddc84;--warn:#ffb020;--bad:#ff5d5d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,Segoe UI,Roboto,Arial}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:26px;margin:8px 0}h2{font-size:19px;margin:26px 0 10px}.sub{color:var(--mut);margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:10px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.kv{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+code{background:#0a0e13;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:13px;overflow-wrap:anywhere}
+a{color:var(--acc)}.mut{color:var(--mut)}.tag{display:inline-block;font-size:12px;border:1px solid var(--line);border-radius:20px;padding:1px 10px;margin-right:6px}
+.crit{border-color:var(--bad);color:var(--bad)}.high{border-color:var(--warn);color:var(--warn)}.mid{border-color:var(--acc);color:var(--acc)}.low{border-color:var(--ok);color:var(--ok)}
+button{background:#1c2635;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer;font-size:13px}
+button:hover{border-color:var(--acc)}
+.secret{filter:blur(6px);user-select:none;transition:filter .15s}
+.secret.open{filter:none;user-select:text}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}.tbl th,.tbl td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+.note{background:#0a0e13;border-left:3px solid var(--warn);padding:8px 12px;margin:10px 0;color:var(--mut)}
+svg{max-width:100%;height:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>AgentCoin — что к чему: внешние зависимости</h1>
+<p class="sub">Обновлено 24.11.2026 (сегодня, проверка живьём: /info blocks=41228 tip=0099a9bb…dcc2e7, /life fresh=true chainValid=true peers=3). Секреты в этот файл <b>не вшиты</b>: вместо значений — только имя env / путь к файлу и кнопка «скопировать путь». Публичные идентификаторы скрыты блюром — нажми «показать», чтобы увидеть и скопировать.</p>
+
+<div class="note">Правило безопасности: приватные ключи, <code>wallets.json</code>, <code>admin-token.txt</code>, <code>.gh-token</code> никогда не копируем в HTML. Ниже — только указатели, где они лежат.</div>
+
+<h2>0. Инфра-консоли — твои 4 ссылки <span class="tag crit">владелец / биллинг</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Porkbun (домен + DNS):</span> <a href="https://porkbun.com/account/messages" target="_blank" rel="noopener">porkbun.com/account/messages</a>
+<span class="mut">— здесь письма о продлении agentcoin.work, смене NS, трансферах. В коде упоминаний porkbun нет (проверено поиском) — значит API-ключа в репо нет. Если включал DNS API — ключ только в кабинете Porkbun, сюда кладем только имя.</span></div>
+<div class="kv"><span class="mut">Комментарий:</span> упадёт домен — отвалятся agentcoin.work + node1/2/3 разом, хотя сами ноды живы по IP. Продление смотреть тут, а не в Caddy.</div>
+</div>
+<div class="card">
+<div class="kv"><span class="mut">Hetzner (H1+H2):</span> <a href="https://console.hetzner.com/projects/16601208/servers/173574035/network" target="_blank" rel="noopener">project 16601208 / server 173574035 / network</a>
+<span class="row"><code class="secret" id="s0h">project 16601208, server 173574035 | H1 2.31.145.160 (agentcoin.work+node1) + H2 91.99.191.236 (node2)</code>
+<button data-t="s0h">показать</button><button data-c="s0h">скопировать</button></span></div>
+<div class="kv"><span class="mut">Комментарий:</span> H1 — пишущая нода + Caddy :80/:443; H2 — тёмная резервная (остальное 403). Эта твоя ссылка — network-вкладка сервера: private network, firewall, floating IP. API-токен Hetzner в коде не найден — только в консоли.</div>
+</div>
+<div class="card">
+<div class="kv"><span class="mut">Vercel:</span> <a href="https://vercel.com/vs7777fr-2470" target="_blank" rel="noopener">vercel.com/vs7777fr-2470</a>
+<span class="row"><code class="secret" id="s0v">vs7777fr-2470</code>
+<button data-t="s0v">показать</button><button data-c="s0v">скопировать</button></span></div>
+<div class="kv"><span class="mut">Комментарий:</span> в репо <code>vercel.json</code> нет, в коде Vercel-токенов нет. Значит Vercel — не консенсус, а вероятный статический хостинг/превью сайта. Проверь в этой консоли какой проект задеплоен и какой домен привязан; цепь от него не зависит.</div>
+</div>
+<div class="card">
+<div class="kv"><span class="mut">DigitalOcean (node3):</span> <a href="https://cloud.digitalocean.com/droplets/614949944/settings?i=a529c4" target="_blank" rel="noopener">droplet 614949944 / settings</a>
+<span class="row"><code class="secret" id="s0d">droplet 614949944 | node3.agentcoin.work 64.225.104.125</code>
+<button data-t="s0d">показать</button><button data-c="s0d">скопировать</button></span></div>
+<div class="kv"><span class="mut">Комментарий:</span> по SERVERS.csv SRV-DO — читающая тёмная нода (то же dark-правило что H2). Твоя ссылка — settings дроплета: backups, monitoring, VPC, rename. DO-токен в коде не найден — хранить только в консоли.</div>
+</div>
+<h2>Карта: что от чего зависит</h2>
+<div class="card">
+<svg viewBox="0 0 900 300" role="img" aria-label="схема зависимостей">
+<rect x="10" y="120" width="150" height="60" rx="10" fill="#131a24" stroke="#4cc2ff"/><text x="85" y="155" fill="#dbe4f0" text-anchor="middle" font-size="13">нода node.mjs</text>
+<rect x="200" y="20" width="170" height="52" rx="10" fill="#131a24" stroke="#ff5d5d"/><text x="285" y="50" fill="#dbe4f0" text-anchor="middle" font-size="12">agentcoin.work / Caddy</text>
+<rect x="200" y="90" width="170" height="52" rx="10" fill="#131a24" stroke="#ffb020"/><text x="285" y="120" fill="#dbe4f0" text-anchor="middle" font-size="12">GitHub raw (site-sync)</text>
+<rect x="200" y="160" width="170" height="52" rx="10" fill="#131a24" stroke="#ffb020"/><text x="285" y="190" fill="#dbe4f0" text-anchor="middle" font-size="12">Celestia mocha-5</text>
+<rect x="200" y="230" width="170" height="52" rx="10" fill="#131a24" stroke="#4cc2ff"/><text x="285" y="260" fill="#dbe4f0" text-anchor="middle" font-size="12">AI (прод)</text>
+<rect x="420" y="20" width="170" height="52" rx="10" fill="#131a24" stroke="#4cc2ff"/><text x="505" y="50" fill="#dbe4f0" text-anchor="middle" font-size="12">Filecoin Warm Stor.</text>
+<rect x="420" y="90" width="170" height="52" rx="10" fill="#131a24" stroke="#3ddc84"/><text x="505" y="120" fill="#dbe4f0" text-anchor="middle" font-size="12">Moltbook</text>
+<rect x="420" y="160" width="170" height="52" rx="10" fill="#131a24" stroke="#3ddc84"/><text x="505" y="190" fill="#dbe4f0" text-anchor="middle" font-size="12">SMS (нет провайдера)</text>
+<rect x="640" y="90" width="150" height="60" rx="10" fill="#131a24" stroke="#8fa0b5"/><text x="715" y="125" fill="#dbe4f0" text-anchor="middle" font-size="13">P2P bootstrap</text>
+<line x1="160" y1="150" x2="200" y2="46" stroke="#243044"/><line x1="160" y1="150" x2="200" y2="116" stroke="#243044"/><line x1="160" y1="150" x2="200" y2="186" stroke="#243044"/><line x1="160" y1="150" x2="200" y2="256" stroke="#243044"/>
+</svg>
+<p class="mut">Стрелки: нода ходит наружу только в эти точки. Консенсус (PoW, балансы, agt-verify) — локальный, без внешних ключей.</p>
+</div>
+
+<h2>1. Лицо сети <span class="tag crit">критично</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Прод-домены:</span>
+<span class="row"><code class="secret" id="s1">https://agentcoin.work, https://node1.agentcoin.work</code>
+<button data-t="s1">показать</button><button data-c="s1">скопировать</button></span></div>
+<div class="kv"><span class="mut">Caddy (прод):</span> маршруты <code>/create-wallet, /live, /wasm/*</code> <span class="mut">из</span> <code>agentcoin/caddy-routes.conf</code> <span class="mut">— конфиг и root только на прод-сервере, сюда пути не выносим.</span></div>
+<div class="kv"><span class="mut">Прокси-заголовки = 403 для админки (AGIP-37):</span> <code>x-forwarded-for, x-real-ip, cf-connecting-ip, forwarded, x-via</code> <span class="mut">— cloudflared/nginx/Tailscale Funnel перед нодой меняют только вход, не консенсус</span></div>
+<div class="kv"><span class="mut">Комментарий:</span> упадёт Caddy/443 — витрина мертва, ноды на 933x живы. CORS пускает только <code>*.agentcoin.work</code>.</div>
+<div class="kv"><a href="https://agentcoin.work/info" target="_blank" rel="noopener">открыть /info</a><a href="https://agentcoin.work/life" target="_blank" rel="noopener">открыть /life</a><a href="https://agentcoin.work/headers?from=0&limit=5" target="_blank" rel="noopener">открыть /headers</a></div>
+</div>
+
+<h2>2. Код и автообновление сайта <span class="tag high">высоко</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Репозиторий:</span> <a href="https://github.com/CrChCn/agentcoin" target="_blank" rel="noopener">github.com/CrChCn/agentcoin</a></div>
+<div class="kv"><span class="mut">Site-sync источник:</span>
+<span class="row"><code class="secret" id="s2">https://raw.githubusercontent.com/CrChCn/agentcoin/main/site</code>
+<button data-t="s2">показать</button><button data-c="s2">скопировать</button></span>
+<span class="mut">— <code>SITE_RELEASE_SOURCE</code> в site-release.mjs, тик каждые 10 мин (<code>AGT_SITE_SYNC=0</code> — выкл). Упал raw — сайт замер, цепь идёт.</span></div>
+</div>
+
+<h2>3. Celestia DA — архив memo <span class="tag high">высоко для истории</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Сеть:</span> <code>mocha-5</code> <span class="mut">namespace</span>
+<span class="row"><code class="secret" id="s3">0x61676e61 («agna»)</code>
+<button data-t="s3">показать</button><button data-c="s3">скопировать</button></span></div>
+<div class="kv"><span class="mut">Прод:</span> <code>mocha-5</code> + <code>blob.Submit</code> <span class="mut">— лайт-нода стоит только на прод-сервере, локальные пути/RPC сюда не выносим.</span></div>
+<div class="kv"><span class="mut">Логика:</span> <code>scripts/prune-memos.mjs</code> — memo ≥64Б вне окна 1000 блоков → <code>DAA|&lt;sha16&gt;</code>. Генезис-пример на проде <code>DAA|a6d72baa3db900b0</code> — sha сходится.</div>
+<div class="kv"><span class="mut">Что сломается:</span> нет лайт-ноды — пруны падают, старые memo не восстановить; tip и PoW не страдают.</div>
+</div>
+
+<h2>4. Filecoin — память агентов <span class="tag mid">средне</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Скрипты:</span> <code>test_filecoin.py</code> + <code>filecoin/sdk/upload.mjs</code> (Synapse SDK), Warm Storage, calibration testnet</div>
+<div class="kv"><span class="mut">Деньги теста:</span> <code>tFIL</code> (газ) + <code>tUSDFC</code> (хранение), faucet <a href="https://faucet.reiers.io" target="_blank" rel="noopener">faucet.reiers.io</a> <span class="mut">— бесплатно</span></div>
+<div class="kv"><span class="mut">Ключ кошелька:</span> <code>filecoin/sdk/wallet.json</code> <span class="mut">(gitignored — значение сюда не вставляем)</span>
+<button data-cp="filecoin/sdk/wallet.json">скопировать путь</button></div>
+<div class="kv"><span class="mut">Комментарий:</span> в цепи только <code>memory_cid</code> профиля. Нет Filecoin — не пишется память, деньги/блоки целы.</div>
+</div>
+
+<h2>5. AI <span class="tag mid">средне</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Прод:</span> внешних OpenAI/Anthropic-ключей в коде нет. AI живёт только на прод-сервере, локальные адреса/порты сюда не выносим. Без AI assistant отвечает <code>assistant_unavailable</code>.</div>
+</div>
+
+<h2>6. Moltbook <span class="tag low">низко для цепи</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Файлы:</span> <code>moltbook-watch.mjs, moltbook-*-post*.cjs, data/moltbook-ops-state.json</code> <span class="mut">+ внешняя</span> <code>../cyberguard-skill/moltbook-ops.js</code> <span class="mut">— посты и мониторинг упоминаний каждые 30 мин. Умрёт — тишина в соцсетях.</span></div>
+</div>
+
+<h2>7. Telegram / SMS <span class="tag low">нет внешней зависимости</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">Telegram-токенов в <code>*.mjs</code> нет. Внешнего SMS-провайдера нет (Twilio нет) — только прод-логика без локальных адресов.</span></div>
+</div>
+
+<h2>8. P2P-вход <span class="tag high">пусто — настроить руками</span></h2>
+<div class="card">
+<div class="kv"><span class="mut">bootstrap.json сейчас:</span> <code>{"bootstrap": []}</code> <span class="mut">— встроенных пиров нет. Свои пиры: <code>AGT_SEED_NODES / AGT_URLS / AGT_GUARD_NODES / peers.json</code>, ручной</span> <code>POST /peer/add</code>.</div>
+</div>
+
+<h2>9. Секреты — только указатели, значений здесь нет</h2>
+<div class="card">
+<table class="tbl">
+<tr><th>Что</th><th>Где лежит</th><th>Действие</th></tr>
+<tr><td>Админ-токен ноды</td><td><code>AGT_ADMIN_TOKEN</code> / <code>data-agtx/admin-token.txt</code></td><td><button data-cp="data-agtx/admin-token.txt">скопировать путь</button></td></tr>
+<tr><td>Режим админки</td><td><code>AGT_ADMIN_MODE=local|token</code>, заголовок <code>x-admin-token</code></td><td><button data-cp="AGT_ADMIN_MODE">скопировать имя</button></td></tr>
+<tr><td>Кошельки ноды</td><td><code>wallets.json</code> <span class="mut">(путь только на прод-сервере)</span>, <code>bip39-lite.mjs</code><td><button data-cp="wallets.json">скопировать путь</button></td></tr>
+<tr><td>PIN-вход</td><td><code>pin-auth.json</code> <span class="mut">(путь только на прод-сервере, scrypt)</span></td><td><button data-cp="pin-auth.json">скопировать путь</button></td></tr>
+<tr><td>Паспорта/идентити</td><td><code>AGT_PASSPORT_ISSUER_FINGERPRINT</code>, <code>AGT_TRUSTED_ISSUERS_FILE</code>, <code>data-agents/passports.json</code></td><td><button data-cp="data-agents/passports.json">скопировать путь</button></td></tr>
+<tr><td>GitHub-токен (не класть в репо)</td><td><code>agentcoin/.gh-token</code> (gitignored)</td><td><button data-cp="agentcoin/.gh-token">скопировать путь</button></td></tr>
+</table>
+<p class="mut">Нажми «скопировать путь» — в буфер уйдёт путь, не секрет. Сами значения смотри только на своей машине (<code>cat</code> локально), не в браузере и не в чате.</p>
+</div>
+
+<h2>10. Системные бинарники</h2>
+<div class="card">
+<div class="kv"><code>cc + libssl-dev (openssl/evp.h)</code> <span class="mut">— сборка agt-verify; без него sync-verify.sh встаёт на [4/5]</span> <code>python3</code> <span class="mut">(конверт blocks→chain)</span> <code>git, caddy, celestia, node ≥18</code></div>
+</div>
+
+</div>
+<script>
+function copyText(t,btn){navigator.clipboard.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='скопировано';setTimeout(()=>btn.textContent=o,1200)}).catch(()=>{btn.textContent='не вышло'})}
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{document.getElementById(b.dataset.t).classList.toggle('open');b.textContent=document.getElementById(b.dataset.t).classList.contains('open')?'скрыть':'показать'});
+document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>copyText(document.getElementById(b.dataset.c).textContent.trim(),b));
+document.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(b.dataset.cp,b));
+</script>
+</body>
+</html>

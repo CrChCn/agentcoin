@@ -13,7 +13,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/script
 (релизный тарболл собирается штатно: `VERSION=x.y.z bash packaging/node/build.sh`)
 
 Скрипт: бандл Node **24 LTS** в `/opt/agentcoin-node/runtime` (системный nodejs не ставится; ветки 18/20 — EOL) → код из релизного тарболла в `/opt/agentcoin-node/src` →
-systemd-юнит `agentcoin-node.service` (restart всегда, данные `/opt/agentcoin-node/data`, `BIND 127.0.0.1`, `ADMIN local`) → пример Caddy-dark для 443 (печатается, вставляется руками; пиры и `/ws` — прокси, остальное 403) → cron ежедневных бэкапов данных (03:20, keep 14 дней) → live-проверка `/life` обязательна (fail-fast — без живой ноды install провален).
+systemd-юнит `agentcoin-node.service` (restart всегда, данные `/opt/agentcoin-node/data`, `BIND 127.0.0.1`, `ADMIN local`) → пример Caddy-dark для 443 (печатается, вставляется руками + дописать IP пиров; `/ws` — локально, `/health`+`/life` пирам — локально через `@peerHealth` (иначе мониторинг видит зеркало node1), остальное пирам — прокси на node1, всем прочим 403) → cron ежедневных бэкапов данных (03:20, keep 14 дней) → live-проверка `/life` обязательна (fail-fast — без живой ноды install провален).
 
 ## Обновления (git на хостах НЕТ — только файловой раскаткой)
 

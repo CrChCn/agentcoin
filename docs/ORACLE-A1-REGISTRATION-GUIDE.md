@@ -65,7 +65,7 @@ export LOCAL_NODE_URL="http://127.0.0.1:9335"  # порт ноды фиксир�
 bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) nodeX.agentcoin.work ./dist/node/agentcoin-node-0.1.1.tar.gz "$SEED1" "$SEED2"
 ```
 
-Скрипт сам: бандл Node **24 LTS** (системный nodejs не ставит) → код из релизного тарболла в `/opt/agentcoin-node/src` → systemd `agentcoin-node.service` (loopback, `ADMIN local`, данные `/opt/agentcoin-node/data`) → пример Caddy-dark для 443 (вставляется руками) → cron бэкапов → fail-fast: живость `/life` — обязательное условие «ГОТОВО».
+Скрипт сам: бандл Node **24 LTS** (системный nodejs не ставит) → код из релизного тарболла в `/opt/agentcoin-node/src` → systemd `agentcoin-node.service` (loopback, `ADMIN local`, данные `/opt/agentcoin-node/data`) → пример Caddy-dark для 443 (вставляется руками + дописать IP пиров и `@peerHealth`, иначе мониторинг слепой — детали в `docs/VPS-NODE-DEPLOY.md`) → cron бэкапов → fail-fast: живость `/life` — обязательное условие «ГОТОВО».
 
 > ⚠️ Повторный install поверх живой ноды скрипт запрещает. Обновления — только `scripts/rollout-node-update.sh` (файловая раскатка, см. `docs/VPS-NODE-DEPLOY.md`, раздел «Обновления»).
 

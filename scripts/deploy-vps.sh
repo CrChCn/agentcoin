@@ -89,6 +89,15 @@ cat <<EOF
 ${SITE} {
 	@ws { path /ws /ws/* }
 	handle @ws { reverse_proxy 127.0.0.1:${PORT} }
+	# IP пиров дописать руками в оба remote_ip (напр. 2.31.145.160 и IP соседней ноды).
+	# Без @peerHealth пиры получают /health с node1 (зеркало) и мониторинг слепнет.
+	@peerHealth {
+		remote_ip 127.0.0.1 ::1 100.64.0.0/10
+		path /health /life
+	}
+	handle @peerHealth {
+		reverse_proxy 127.0.0.1:${PORT}
+	}
 	@peer { remote_ip 127.0.0.1 ::1 100.64.0.0/10 }
 	handle @peer { reverse_proxy https://agentcoin.work }
 	handle { respond "reserve node: dark (use https://agentcoin.work)" 403 }

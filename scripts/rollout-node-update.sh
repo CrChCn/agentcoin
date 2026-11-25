@@ -91,6 +91,6 @@ wait_alive || die "нода не отвечает 90с — откат: ROLLBACK=
 
 echo "[5/5] сверки"
 report_life || die "нода не отвечает на /life после рестарта"
-ERRS="$(journalctl -u "$UNIT" --since '10 min ago' --no-pager -p err 2>/dev/null | tail -5)"
+ERRS="$(journalctl -u "$UNIT" --since '10 min ago' --no-pager -p err 2>/dev/null | grep -v -- '-- No entries --' | tail -5 || true)"
 if [ -z "$ERRS" ]; then echo "  журнал: ошибок нет"; else echo "$ERRS"; die "есть ошибки в журнале — разбирай"; fi
 echo "=== ГОТОВО. Tip сверь с H1 (https://agentcoin.work/life): лаг в 1-2 блока — норма gossip-синхронизации ==="

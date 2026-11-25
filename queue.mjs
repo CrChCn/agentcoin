@@ -48,11 +48,23 @@ export class AgentQueue {
     return { ok: true, position: this.state.waiting.length, rotation: 'по кругу: сделав работу, вернёшься в конец' };
   }
   claim(taker) {
+    // Семантика «только вызывающий»: чужой клик голову FIFO не сдвигает.
+    const t = String(taker || '');
+    if (!t) return { ok: false, error: 'TAKER_REQUIRED', expected: 'retry-with-address', retryAfterSeconds: 0 };
+    const held = Object.entries(this.state.onDuty).find(([, a]) => a === t);
+    if (held) return { ok: true, jobId: held[0], agent: t, repeat: true, positionLeft: this.state.waiting.length, note: 'назначение уже выдано — повторная выдача не нужна' };
+    if (!this.state.waiting.length) return { ok: false, error: 'QUEUE_EMPTY', expected: 'join', retryAfterSeconds: 60 };
+    const pos = this.state.waiting.indexOf(t);
+    if (pos !== 0) {
+      if (Object.keys(this.state.onDuty).length >= MAX_ON_DUTY) return { ok: false, error: 'TOO_MANY_ON_DUTY', cap: MAX_ON_DUTY, retryAfterSeconds: 60 };
+      return pos > 0
+        ? { ok: false, error: 'NOT_YOUR_TURN', position: pos + 1, ahead: pos, expected: 'wait', retryAfterSeconds: 60 }
+        : { ok: false, error: 'NOT_YOUR_TURN', position: null, queued: false, expected: 'join', retryAfterSeconds: 0 };
+    }
     const addr = this.state.waiting.shift();
-    if (!addr) return { ok: false, error: 'queue_empty' };
     if (Object.keys(this.state.onDuty).length >= MAX_ON_DUTY) {
       this.state.waiting.unshift(addr); // вернуть на место
-      return { ok: false, error: 'too_many_on_duty', cap: MAX_ON_DUTY };
+      return { ok: false, error: 'TOO_MANY_ON_DUTY', cap: MAX_ON_DUTY, retryAfterSeconds: 60 };
     }
     const jobId = this.hashId(`${addr}|${taker || ''}|${Date.now()}`);
     this.state.onDuty[jobId] = addr;
@@ -69,6 +81,26 @@ export class AgentQueue {
   requeue(address) {
     if (!this.state.waiting.includes(address)) this.state.waiting.push(address);
     this.save();
+  }
+  leave(address, reason = '') { // явный выход из очереди с записью причины (без выплаты, без сдвига остальных)
+    const a = String(address || '');
+    const i = this.state.waiting.indexOf(a);
+    if (i < 0) return { ok: false, error: this.isOnDuty(a) ? 'already_on_duty' : 'not_queued' };
+    this.state.waiting.splice(i, 1);
+    this.state.history.push({ at: Date.now(), jobId: '—', agent: a, summary: ('leave: ' + String(reason || 'no reason')).slice(0, 200) });
+    if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
+    this.save();
+    return { ok: true, left: a, reason: String(reason || ''), waitingLeft: this.state.waiting.length };
+  }
+  cancel(jobId, reason = '') { // отмена назначения БЕЗ выплаты: слот свободен, история сохранена, агент в очередь НЕ возвращается
+    const j = String(jobId || '');
+    const agent = this.state.onDuty[j];
+    if (!agent) return { ok: false, error: 'job_not_found' };
+    delete this.state.onDuty[j];
+    this.state.history.push({ at: Date.now(), jobId: j, agent, summary: ('cancelled: ' + String(reason || 'no reason')).slice(0, 200) });
+    if (this.state.history.length > HISTORY_MAX) this.state.history = this.state.history.slice(-HISTORY_MAX);
+    this.save();
+    return { ok: true, cancelled: j, agent, onDutyLeft: Object.keys(this.state.onDuty).length };
   }
   status() {
     return {

@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const MAX_TEXT_LEN = 500;
+const MAX_STORED_MESSAGES = 5000;
 const RATE_WINDOW_MS = 30_000;
 const RATE_LIMIT = 10;
 const SILENCE_MS = 60_000;
@@ -53,7 +54,7 @@ export class CommunityChat {
 
   save() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, JSON.stringify({ messages: this.messages.slice(-500), pinned: this.pinned, updatedAt: Date.now() }, null, 2));
+    fs.writeFileSync(this.file, JSON.stringify({ messages: this.messages.slice(-MAX_STORED_MESSAGES), pinned: this.pinned, updatedAt: Date.now() }, null, 2));
   }
 
   canSend(senderAddress) {

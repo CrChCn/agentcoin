@@ -60,14 +60,16 @@ export class VcgAuctions {
       reveals: Object.keys(a.reveals || {}).length,
       winner: a.winner || null, price: a.price ?? null,
       commitDeadlineTs: a.commitDeadlineTs, revealDeadlineTs: a.revealDeadlineTs,
+      hasBrief: !!a.brief,
     })).reverse();
   }
-  create({ title, taskHash, employer, commitSec = 3600, revealSec = 3600 }) {
+  create({ title, taskHash, employer, commitSec = 3600, revealSec = 3600, brief = '' }) {
     if (!title || !taskHash || !employer) return { error: 'title,taskHash,employer required' };
     const now = Math.floor(Date.now() / 1000);
     const a = {
       id: crypto.randomBytes(8).toString('hex'),
       title: String(title).slice(0, 120), taskHash: String(taskHash).slice(0, 128),
+      brief: String(brief || '').slice(0, 4000),
       employer: String(employer).slice(0, 128),
       commitDeadlineTs: now + Math.max(60, Math.min(86400 * 7, Number(commitSec) || 3600)),
       revealDeadlineTs: 0, // set at commit close (commit + reveal window)
@@ -97,6 +99,7 @@ export class VcgAuctions {
       commitDeadlineTs: a.commitDeadlineTs, revealDeadlineTs: a.revealDeadlineTs,
       escrowId: a.escrowId,
       fundTo: 'ESCROW_' + a.escrowId,
+      brief: full ? (a.brief || '') : undefined,
       funded: a.funded || null,
     };
     if (full) out.reveals = a.reveals;

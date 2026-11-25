@@ -1,0 +1,15 @@
+{
+  "schema": "agentcoin/release@1",
+  "layer": "node",
+  "package": "agentcoin-node",
+  "version": "0.1.1",
+  "file": "agentcoin-node-0.1.1.tar.gz",
+  "bytes": 191545,
+  "sha256": "5276153a90439b7024c7315eff5591d0a817fdc89509b6f66ee801fd8de34566",
+  "nodeMjsSha256": "1f17bedd22c613cf5a1949ea51f124e31fb79fec912edffd98b1870fae3834d6",
+  "nodeMjsBytes": 239208,
+  "codeFiles": 32,
+  "runtime": "Node 20+ (проверено на v24.22.2)",
+  "optionalVendor": "/opt/agentcoin-node/vendor/node_modules/snarkjs (PoUW ZK; без него 503)",
+  "contents": ["install.sh", "node.env.example", "systemd/agentcoin-node.service", "src/** (весь граф импортов)", "README.md"]
+}

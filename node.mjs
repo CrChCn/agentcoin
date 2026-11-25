@@ -2281,8 +2281,17 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     // Commissия казны (AGIP-6, шаг 14): работодатель доплачивает ~2.5% сверх цены джоба
   // — обычная employer-tx → адрес казны (FAUCET_FUND), memo escfee:<escId>. Старые ноды
   // принимают её как нормальную подписанную tx — форковой совместимости не бьёт.
+  // AGIP-4: работодатель — активная казна: escfee из казны требует 2-й подписи (sig2),
+  // которой в запросе payout нет. Комиссию с казны не берём: трата уже авторизована
+  // голосованием trs|K, гнать второй ключ ради копеек бессмысленно. Явный exempt вместо
+  // молчаливого провала с treasury_needs_2sig. Проверка — тем же policy-объектом, что и
+  // консенсус (null до passed+closed → обычная логика).
+  const treasPol = treasuryState(bc).policy;
+  const employerIsTreasury = !!(treasPol && treasPol.treasury && String(open.employer).toLowerCase() === String(treasPol.treasury).toLowerCase());
   let fee = null;
   try {
+    if (employerIsTreasury) fee = { ok: false, reason: 'treasury_employer_exempt', amount: 0, note: 'работодатель — казна 2-of-3: escfee не взимается' };
+    else {
     const FEE_PCT = Math.max(0, Math.min(25, Number(process.env.AGT_JOB_FEE_PCT ?? 2.5)));
     const feeAmt = Math.round(open.openTx.amount * FEE_PCT / 100 * 10000) / 10000;
     const fw = wallets[open.employer];
@@ -2294,8 +2303,15 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       fee = fr.ok ? { ok: true, amount: feeAmt, to_treasury: true, txid: feeTx.txid.slice(0, 16) } : { ok: false, reason: fr.reason || 'fee_tx_rejected', amount: feeAmt };
       if (fr.ok) { setImmediate(() => { gossipTx(feeTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: feeTx }); }); }
     } else fee = { ok: false, reason: 'employer_wallet_missing' };
+    } // end else employerIsTreasury
     // AGIP-10: паспортный налог работодателя (если в паспорте есть tax-поле) —
     // отдельная tx в паспортный фонд юрисдикции, memo tax:<seq>:<CC>:<rate>:<escId>
+    // AGIP-4: работодатель — казна: tax-tx из казны тоже требует sig2 и тоже обречена на
+    // treasury_needs_2sig (подписывается одним ключом внутри taxSplitTx). Пропускаем явно,
+    // фиксируем в ответе, чтобы не было молчаливого провала. Иначе Object.assign ниже мог бы
+    // выставить ok:true поверх treasury_employer_exempt при успешном налоге.
+    if (employerIsTreasury) fee = Object.assign(fee || {}, { tax: { skipped: true, reason: 'treasury_employer_exempt' } });
+    else {
     const taxTx = taxSplitTx(open.employer, open.openTx.amount, String(escId));
     if (taxTx) {
       const tr = bc.addTransaction(taxTx);
@@ -2304,6 +2320,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
         setImmediate(() => { gossipTx(taxTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: taxTx }); });
       }
     }
+    } // end else employerIsTreasury (tax)
   } catch (fe) { fee = { ok: false, reason: String(fe.message).slice(0, 80) };
   }
   return json(res, 201, { escId, payoutPrepared: true, txid: tx.txid.slice(0, 16), mempool: r.mempoolSize, fee, note: 'tx в мемпуле; майнер упакует (двойная подпись проверяется любой нодой' });

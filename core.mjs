@@ -752,6 +752,28 @@ export function addressFromPub(pub) {
   return 'AGT' + pubHash.slice(0, 32) + checksum;
 }
 
+// Браузерная адресная схема (create-wallet, agt-tx, слова): адрес считается от
+// СЫРЫХ 32 байт ключа, а не от текста PEM. Канон формулы — здесь (консенсус),
+// agent-identity.mjs и site/js/agt-tx.mjs обязаны совпадать (покрыто тестами).
+// Поддержка сырого fromPub в verifyTransaction — строго расширяющая: все ранее
+// валидные tx идут прежним PEM-путём без изменений.
+const RAW_PUB_HEX_RE = /^[0-9a-fA-F]{64}$/;
+export function isRawPubHex(s) {
+  return typeof s === 'string' && RAW_PUB_HEX_RE.test(s);
+}
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+export function rawPubKeyObject(pubHex) {
+  if (!isRawPubHex(pubHex)) throw new Error('invalid_public_key');
+  return crypto.createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(pubHex, 'hex')]), format: 'der', type: 'spki' });
+}
+export function addressFromRawPub(pubHex) {
+  if (!isRawPubHex(pubHex)) throw new Error('invalid_public_key');
+  const raw = Buffer.from(pubHex.toLowerCase(), 'hex');
+  const h = (x) => crypto.createHash('sha256').update(x).digest();
+  const hBytes = h(h(raw));
+  return 'AGT' + hBytes.toString('hex').slice(0, 32) + h(h(hBytes)).toString('hex').slice(0, 8);
+}
+
 // ==== AGIP-4 (шаг 12): мультисиг казны 2-of-3 ====
 // tx от активной казны требует вторую подпись от одного из policy.signers:
 // tx.sig2 (hex ed25519 над тем же digest) + tx.sig2Pub; sig2Pub должен разворачиваться
@@ -760,6 +782,15 @@ export function addressFromPub(pub) {
 export function verifySecondSig(tx, policy, addressOf = addressFromPub) {
   if (!policy || !policy.treasury || tx.from !== policy.treasury) return true; // не казна — проверка не применяется
   if (typeof tx.sig2 !== 'string' || typeof tx.sig2Pub !== 'string' || !tx.sig2 || !tx.sig2Pub) return false;
+  // sig2Pub в сыром hex: привязка по браузерной схеме, ключ из DER (как verifyTransaction).
+  if (isRawPubHex(tx.sig2Pub)) {
+    // Второй подписант — НЕ казна: требуется только вхождение в allowlist политики.
+    if (!(policy.signers || []).includes(addressFromRawPub(tx.sig2Pub))) return false; // подписант не из доверенных
+    if (tx.sig2Pub === tx.fromPub) return false;                        // два разных ключа (2-of-3, не «двойной клик»)
+    try {
+      return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), rawPubKeyObject(tx.sig2Pub), Buffer.from(tx.sig2, 'hex'));
+    } catch { return false; }
+  }
   const addr = typeof addressOf === 'function' ? addressOf(tx.sig2Pub) : null;
   if (!addr || !(policy.signers || []).includes(addr)) return false;  // подписант не из доверенных
   if (tx.sig2Pub === tx.fromPub) return false;                        // два разных ключа (2-of-3, не «двойной клик»)
@@ -780,9 +811,14 @@ export function verifyTransaction(tx) {
   // fromPub БЕЗ свертки адреса — чужим ключом можно подписать расход с ЧУЖОГО адреса.
   // Теперь ДО crypto.verify требуем строгой адресной привязки anchored к канонической
   // addressFromPub(). Исключений для обычных tx нет; эскроу-адрес проверяет verifyEscrowTx.
-  if (addressFromPub(tx.fromPub) !== tx.from) return false;
+  let verifyKey = tx.fromPub;
+  if (isRawPubHex(tx.fromPub)) {
+    // Сырой fromPub: привязка по браузерной схеме, ключ собираем из DER.
+    if (addressFromRawPub(tx.fromPub) !== tx.from) return false;
+    try { verifyKey = rawPubKeyObject(tx.fromPub); } catch { return false; }
+  } else if (addressFromPub(tx.fromPub) !== tx.from) return false;
   try {
-    return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), tx.fromPub, Buffer.from(tx.signature, 'hex'));
+    return crypto.verify(null, Buffer.from(txDigest(tx), 'hex'), verifyKey, Buffer.from(tx.signature, 'hex'));
   } catch { return false; }
 }
 
@@ -1421,11 +1457,20 @@ export class Blockchain {
     }
     if (isEscrowSpend && (balances[tx.from] || 0) - incoming - tx.amount < 0) {
       const escCheck = verifyEscrowTx(tx, this.chain);
-      return { ok: false, reason: 'escrow_tx_invalid', detail: String(escCheck?.reason || '') };
+      if (!escCheck || !escCheck.ok) return { ok: false, reason: 'escrow_tx_invalid', detail: String((escCheck && escCheck.reason) || '') };
+      // Подписи сошлись, но сейф пуст: открытие ушло не на адрес сейфа (надо платить НА ESCROW_<id>,
+      // а не себе с escrow-memo). Отдельная причина вместо пустого detail (поймано 16.11 на репетиции).
+      const have = (balances[tx.from] || 0) - incoming;
+      return { ok: false, reason: 'escrow_unfunded', detail: 'vault ' + tx.from + ' has ' + have + ', needs ' + tx.amount + '; open must pay TO ' + tx.from };
     }
     // AGIP-4: tx из активной казны — обязательна вторая подпись (2-of-3),
-    // до push в mempool; отклонение — «treasury_needs_2sig», без бан-эскалации
-    if (!verifySecondSig(tx, this.getTreasuryPolicy())) return { ok: false, reason: 'treasury_needs_2sig' };
+    // до push в mempool; отклонение — без бан-эскалации. Различаем «пары нет»
+    // и «пара есть, но не сошлась» (подпись от другого txid / чужой ключ):
+    // второе — treasury_sig2_invalid с подсказкой подписать ТЕКУЩИЙ запрос заново.
+    const tpol = this.getTreasuryPolicy();
+    if (tpol && tpol.treasury && tx.from === tpol.treasury && (tx.sig2 != null || tx.sig2Pub != null) && !verifySecondSig(tx, tpol))
+      return { ok: false, reason: 'treasury_sig2_invalid', hint: 'вторая подпись не сошлась с этим txid/ключом: подпиши вторым ключом заново ТЕКУЩИЙ запрос' };
+    if (!verifySecondSig(tx, tpol)) return { ok: false, reason: 'treasury_needs_2sig' };
     this.mempool.push(tx);
     this.saveMempool();
     this.vTick();

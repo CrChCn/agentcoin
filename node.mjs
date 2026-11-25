@@ -39,12 +39,12 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
-  addressFromPub, isRawPubHex, addressFromRawPub,
+  addressFromPub, isRawPubHex, addressFromRawPub, rawPubKeyObject,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
-import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen } from './core.mjs';
+import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen, escrowPaidOut } from './core.mjs';
 import { lsagSign, lsagVerify, pointFromPubKeyPEM } from './ring-signature.mjs';
 import { CommunityChat } from './community.mjs';
 import { CloudLedger } from './cloud-hooks.mjs';
@@ -2277,16 +2277,50 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   }
   // Payout: обе подписи в escProof → tx от адреса эскроу (без обычной подписи)
   if (p === '/escrow/payout' && req.method === 'POST') {
-    const { escId, employerPrivKey, employerAddress, workerReceiptSig, workerPub } = await body(req);
-    const open = findEscrowOpen(bc.chain, String(escId || ''));
+    const { escId, employerPrivKey, employerAddress, workerReceiptSig, workerPub, employerConfirm: employerConfirmIn, employerPub: employerPubIn } = await body(req);
+    const escIdStr = String(escId || '');
+    const open = findEscrowOpen(bc.chain, escIdStr);
     if (!open) return json(res, 404, { error: 'escrow_open_not_found' });
+    // Повторная отправка одного escId запрещена явно (оборона в глубину поверх
+    // балансовой арифметики мемпула и overdraft-контроля цепи): детерминированный
+    // 409 без зависимости от балансов и тайминга майнинга.
+    if (escrowPaidOut(bc.chain, escIdStr, null) > 0) return json(res, 409, { error: 'escrow_already_paid', escId: escIdStr });
+    if ((bc.mempool || []).some(t => t && t.memo === `escpayout:${escIdStr}`)) return json(res, 409, { error: 'escrow_payout_in_mempool', escId: escIdStr });
     const wallets = loadWallets();
     const ew = employerAddress && employerAddress === open.employer ? (wallets[employerAddress] || null) : null;
-    const employerKey = employerPrivKey || ew?.privKey;
-    if (!employerKey) return json(res, 400, { error: 'employer key required', employerExpected: open.employer });
     if (!workerReceiptSig || !workerPub) return json(res, 400, { error: 'worker receipt required (claim first)' });
     const confirmDigest = escrowConfirmDigest(String(escId), open.taskHash, open.worker, open.openTx.amount);
-    const employerConfirm = crypto.sign(null, Buffer.from(confirmDigest, 'hex'), employerKey).toString('hex');
+    // Подтверждение работодателя: либо подпись ставится нодой (ключ локальный/присланный),
+    // либо приносится готовой (air-gapped co-sign: ключ не покидает держателя).
+    // Готовая подпись привязана к дайджесту (escId+taskHash+worker+amount) и к адресу
+    // работодателя через employerPub — переиспользовать для чужого эскроу нельзя.
+    const treasPol = treasuryState(bc).policy;
+    const employerIsTreasury = !!(treasPol && treasPol.treasury && String(open.employer).toLowerCase() === String(treasPol.treasury).toLowerCase());
+    let employerConfirm = null;
+    let employerKey = null; // ключ — только в key-пути; external-confirm идёт без ключа
+    if (employerConfirmIn) {
+      // External-confirm — только для казны: у обычного работодателя ключ доступен
+      // ноде напрямую, а внешний путь без ключа нечем подписать escfee (лазейка от комиссии).
+      // Казна от escfee освобождена (exempt ниже), ей внешний путь и нужен.
+      if (!employerIsTreasury) return json(res, 400, { error: 'external_confirm_treasury_only', employer: open.employer });
+      if (!employerPubIn) return json(res, 400, { error: 'employerPub required with employerConfirm' });
+      let addr = null;
+      try { addr = isRawPubHex(String(employerPubIn)) ? addressFromRawPub(String(employerPubIn)) : addressFromPub(String(employerPubIn)); } catch { addr = null; }
+      if (!addr || addr !== open.employer) return json(res, 400, { error: 'employerPub does not match escrow employer', employerExpected: open.employer });
+      let ok = false;
+      try {
+        const sigBuf = Buffer.from(String(employerConfirmIn), 'hex');
+        ok = isRawPubHex(String(employerPubIn))
+          ? crypto.verify(null, Buffer.from(confirmDigest, 'hex'), rawPubKeyObject(String(employerPubIn)), sigBuf)
+          : crypto.verify(null, Buffer.from(confirmDigest, 'hex'), String(employerPubIn), sigBuf);
+      } catch { ok = false; }
+      if (!ok) return json(res, 400, { error: 'employerConfirm does not verify against confirmDigest' });
+      employerConfirm = String(employerConfirmIn);
+    } else {
+      employerKey = employerPrivKey || ew?.privKey;
+      if (!employerKey) return json(res, 400, { error: 'employer key required', employerExpected: open.employer, hint: 'или принесите employerConfirm+employerPub (air-gapped подпись держателя ключа)' });
+      employerConfirm = crypto.sign(null, Buffer.from(confirmDigest, 'hex'), employerKey).toString('hex');
+    }
     const tx = {
       from: ESCROW_PREFIX + String(escId), to: open.worker, amount: open.openTx.amount,
       nonce: Date.now(), ts: Math.floor(Date.now() / 1000), memo: `escpayout:${escId}`,
@@ -2304,23 +2338,21 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // голосованием trs|K, гнать второй ключ ради копеек бессмысленно. Явный exempt вместо
   // молчаливого провала с treasury_needs_2sig. Проверка — тем же policy-объектом, что и
   // консенсус (null до passed+closed → обычная логика).
-  const treasPol = treasuryState(bc).policy;
-  const employerIsTreasury = !!(treasPol && treasPol.treasury && String(open.employer).toLowerCase() === String(treasPol.treasury).toLowerCase());
-  let fee = null;
+  let fee = null; // treasPol/employerIsTreasury посчитаны выше (нужны ещё гейту external-confirm)
   try {
     if (employerIsTreasury) fee = { ok: false, reason: 'treasury_employer_exempt', amount: 0, note: 'работодатель — казна 2-of-3: escfee не взимается' };
     else {
     const FEE_PCT = Math.max(0, Math.min(25, Number(process.env.AGT_JOB_FEE_PCT ?? 2.5)));
     const feeAmt = Math.round(open.openTx.amount * FEE_PCT / 100 * 10000) / 10000;
     const fw = wallets[open.employer];
-    if (fw && feeAmt > 0) {
+    if (fw && feeAmt > 0 && employerKey) {
       const feeTx = { from: open.employer, fromPub: fw.pub, to: FAUCET_FUND_ADDR, amount: feeAmt, nonce: Date.now() + 1, ts: Math.floor(Date.now() / 1000), memo: `escfee:${escId}` };
       feeTx.signature = signTransaction(feeTx, employerKey);
       feeTx.txid = txDigest(feeTx);
       const fr = bc.addTransaction(feeTx);
       fee = fr.ok ? { ok: true, amount: feeAmt, to_treasury: true, txid: feeTx.txid.slice(0, 16) } : { ok: false, reason: fr.reason || 'fee_tx_rejected', amount: feeAmt };
       if (fr.ok) { setImmediate(() => { gossipTx(feeTx, SELF_URL).catch(() => {}); hub.broadcast({ type: 'inv-tx', tx: feeTx }); }); }
-    } else fee = { ok: false, reason: 'employer_wallet_missing' };
+    } else fee = { ok: false, reason: !fw ? 'employer_wallet_missing' : 'fee_unsigned_external_confirm' };
     } // end else employerIsTreasury
     // AGIP-10: паспортный налог работодателя (если в паспорте есть tax-поле) —
     // отдельная tx в паспортный фонд юрисдикции, memo tax:<seq>:<CC>:<rate>:<escId>

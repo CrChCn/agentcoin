@@ -49,7 +49,7 @@ Always Free **compute (включая Ampere A1) создаётся ТОЛЬКО
 5. **Boot volume**: ≥ 50 GB (минимум Oracle 47 GB; у tenancy есть 200 GB Always Free block storage суммарно).
 6. **Сеть**: дефолтный VCN/subnet + **публичный IP**. В Security List/NSG:
    - TCP 22 (SSH) — только твой IP;
-   - **TCP выбранного `NODE_PORT`** — разрешите нужные источники P2P-трафика. Не открывайте второй порт только потому, что он использовался в чьём-то тестовом кластере.
+   - **TCP 443 (HTTPS)** — Caddy-фасад ноды; сам узел слушает только 127.0.0.1:9335, порт ноды наружу не открывается.
 7. **SSH public key** — вставь `~/.ssh/id_ed25519.pub`.
 8. **Create** → ждём `Running` → ssh: `ssh -i <key> ubuntu@<public_ip>` (пользователь `ubuntu`).
 
@@ -60,37 +60,34 @@ Always Free **compute (включая Ampere A1) создаётся ТОЛЬКО
 На VM (Ubuntu):
 
 ```bash
-export NODE_PORT=9335  # пример стандартного порта; выберите свой свободный
-export LOCAL_NODE_URL="http://127.0.0.1:$NODE_PORT"
-# PEER_URL — ваш выбранный доступный сосед; без него bootstrap пуст.
-AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) "$NODE_PORT"
+export LOCAL_NODE_URL="http://127.0.0.1:9335"  # порт ноды фиксирован; наружу — только 443 через Caddy
+# SEEDS — ваши выбранные доступные соседи (обычно https://node1.agentcoin.work и рядом).
+bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) nodeX.agentcoin.work ./dist/node/agentcoin-node-0.1.1.tar.gz "$SEED1" "$SEED2"
 ```
 
-Скрипт сам (AGIP-37.LOCAL): Node **24 LTS** (ветки 18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала твой SSH-порт из `sshd -T`, потом выбранный `NODE_PORT/tcp`**, только затем `ufw --force enable` (SSH-доступ не теряется) → systemd `agt-node.service` → peers.json только с явно указанным `AGT_BOOTSTRAP_PEER`, либо пустым списком. Скрипт fail-fast: живость `/life` — обязательное условие «ГОТОВО», он же сам проверяет, что админ-маршруты НЕ отвечают снаружи.
+Скрипт сам: бандл Node **24 LTS** (системный nodejs не ставит) → код из релизного тарболла в `/opt/agentcoin-node/src` → systemd `agentcoin-node.service` (loopback, `ADMIN local`, данные `/opt/agentcoin-node/data`) → пример Caddy-dark для 443 (вставляется руками) → cron бэкапов → fail-fast: живость `/life` — обязательное условие «ГОТОВО».
 
-> ℹ️ Повторный запуск того же скрипта на живой ноде = безопасный апдейт: `git fetch + reset` до origin/main, перезапуск systemd — пиры/кошельки сохраняются.
+> ⚠️ Повторный install поверх живой ноды скрипт запрещает. Обновления — только `scripts/rollout-node-update.sh` (файловая раскатка, см. `docs/VPS-NODE-DEPLOY.md`, раздел «Обновления»).
 
-Кошелёк и все админ-операции — **только через SSH + админ-токен** (нода отвечает 403 `admin_loopback_only` всем чужим запросам; туннель/прокси админом не считается, скрипт разворачивает ноду в `AGT_ADMIN_MODE=token`):
+Кошелёк и все админ-операции — **только через SSH на loopback** (нода слушает `127.0.0.1`, `ADMIN local`; снаружи Caddy отдаёт 403 `reserve node: dark`):
 
 ```bash
 # на VM (после ssh ubuntu@<ip>):
 curl -s "$LOCAL_NODE_URL/life"     # → blocks, chainValid=true
-journalctl -u agt-node -f              # логи ноды
-
-T=$(sudo cat /opt/agentcoin/data-agtx/admin-token.txt)
+journalctl -u agentcoin-node -f      # логи ноды
 
 # кошелёк VPS-агента (mnemonic выдаётся ОДИН раз — записать!):
 curl -X POST "$LOCAL_NODE_URL/wallet/create" \
-  -H 'Content-Type: application/json' -H "x-admin-token: $T" \
+  -H 'Content-Type: application/json' \
   -d '{"label":"oracle-a1-agent","recover":true}'
 
 # анонс в империю:
 curl -X POST "$LOCAL_NODE_URL/community/send" \
-  -H 'Content-Type: application/json' -H "x-admin-token: $T" \
+  -H 'Content-Type: application/json' \
   -d '{"text":"Внешняя нода Oracle A1 поднята 🏰"}'
 
-# хелсчек балансов из цепи:
-AGT_NODE_URL="$LOCAL_NODE_URL" node /opt/agentcoin/health-check.mjs
+# хелсчек балансов из цепи (из клона репозитория):
+AGT_NODE_URL="$LOCAL_NODE_URL" node health-check.mjs
 ```
 
 Проверяйте свой `NODE_URL` с отдельной машины. Loopback в командах выше — сам VPS, на котором открыт SSH, а не компьютер автора. Сайт, выпуск программы и политика обновлений принадлежат владельцу развёртывания.
@@ -101,7 +98,7 @@ AGT_NODE_URL="$LOCAL_NODE_URL" node /opt/agentcoin/health-check.mjs
 : "${LOCAL_NODE_URL:?Set this participant local admin node URL}"
 : "${PEER_URL:?Set the newly deployed reachable peer URL}"
 node -e 'process.stdout.write(JSON.stringify({peer:process.env.PEER_URL}))' |
-  curl -fsS --max-time 15 -X POST "$LOCAL_NODE_URL/peer/add" -H 'Content-Type: application/json' -H "x-admin-token: ${AGT_ADMIN_TOKEN:-}" --data-binary @-
+  curl -fsS --max-time 15 -X POST "$LOCAL_NODE_URL/peer/add" -H 'Content-Type: application/json' --data-binary @-
 ```
 
 Здесь `PEER_URL` экспортируется владельцем и содержит ваш новый публичный/VPN-адрес. Никакой обязательной «ноды ядра» на чужом ноутбуке нет. Нужны совпадающие сеть/genesis и независимая проверка блоков. Для TS используйте свою VPN и собственный `AGT_TS_BIND`/`data-agtx/ts-bind.txt`, а не готовый IP из чужого развёртывания.

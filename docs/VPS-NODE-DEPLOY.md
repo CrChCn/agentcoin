@@ -5,22 +5,29 @@
 ## Быстрый деплой (Ubuntu/Debian VPS, от root)
 
 ```bash
-export NODE_PORT=9335  # стандартный порт приложения; можно выбрать другой
-export LOCAL_NODE_URL="http://127.0.0.1:$NODE_PORT"
-# PEER_URL задаётся вами; без него нода разворачивается без стартового пира.
-AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) "$NODE_PORT"
+export LOCAL_NODE_URL="http://127.0.0.1:9335"  # порт ноды фиксирован; наружу открывается только 443 через Caddy
+# SEEDS — ваши выбранные доступные соседи (обычно https://node1.agentcoin.work и рядом); без них нода стартует без пиров.
+bash <(curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/deploy-vps.sh) nodeX.agentcoin.work ./dist/node/agentcoin-node-0.1.1.tar.gz "$SEED1" "$SEED2"
 ```
-или: `git clone https://github.com/CrChCn/agentcoin && cd agentcoin && bash scripts/deploy-vps.sh`
+или из клона: `git clone https://github.com/CrChCn/agentcoin && cd agentcoin && bash scripts/deploy-vps.sh <site-hostname> <release-tgz> [seed-url...]`  
+(релизный тарболл собирается штатно: `VERSION=x.y.z bash packaging/node/build.sh`)
 
-Скрипт (ревью 2026-10-17): Node **24 LTS** (18/20 — EOL, не ставит) → репо в `/opt/agentcoin` → UFW **сначала SSH-порт из `sshd -T`, потом выбранный `NODE_PORT/tcp`**, только затем enable →
-systemd-юнит `agt-node.service` (restart всегда, data-dir `data-vps`) →
-peers.json получает только явно указанный `AGT_BOOTSTRAP_PEER`; без него список стартовых пиров пуст → live-проверка `/life` обязательна (fail-fast — скрипт без живой ноды НЕ печатает «ГОТОВО»). Повторный запуск = надёжный апдейт (`reset --hard origin/HEAD` + systemd restart).
+Скрипт: бандл Node **24 LTS** в `/opt/agentcoin-node/runtime` (системный nodejs не ставится; ветки 18/20 — EOL) → код из релизного тарболла в `/opt/agentcoin-node/src` →
+systemd-юнит `agentcoin-node.service` (restart всегда, данные `/opt/agentcoin-node/data`, `BIND 127.0.0.1`, `ADMIN local`) → пример Caddy-dark для 443 (печатается, вставляется руками; пиры и `/ws` — прокси, остальное 403) → cron ежедневных бэкапов данных (03:20, keep 14 дней) → live-проверка `/life` обязательна (fail-fast — без живой ноды install провален).
 
-**Админ-плоскость закрыта от интернета (AGIP-37.LOCAL, ревизия 2)**: барьер внутри самой ноды — чужие и туннельные запросы (в т.ч. через cloudflared/Funnel с прокси-заголовками) проходят только белый список публичных маршрутов (read-only + POST /tx + /blocktemplate · /block/submit для тонких майнеров). `/wallet/create`, `/tx/sign`, `/mine`, `/security/*`, `/peer/add` и пр. снаружи → 403 `admin_loopback_only`. Скрипт разворачивает ноду в `AGT_ADMIN_MODE=token` — кошельковые операции только по `x-admin-token` (хранится в `data-agtx/admin-token.txt`):
-- `T=$(cat /opt/agentcoin/data-agtx/admin-token.txt)`;
-- `curl -X POST "$LOCAL_NODE_URL/wallet/create" -H "x-admin-token: $T" -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
-- `curl -X POST "$LOCAL_NODE_URL/community/send" -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'`;
-- `AGT_NODE_URL="$LOCAL_NODE_URL" node health-check.mjs` — аудит балансов (сам резолвит `data-vps`).
+## Обновления (git на хостах НЕТ — только файловой раскаткой)
+
+1. Локально подготовить новый `node.mjs` (контекст сверен с живой копией хоста, `node --check` чист) и узнать md5 текущей копии на хосте.
+2. `scp new-node.mjs root@<host>:/root/node.mjs.new` и `scp scripts/rollout-node-update.sh root@<host>:/root/`.
+3. На хосте: `bash /root/rollout-node-update.sh /root/node.mjs.new <md5-текущего>` — скрипт сверит базу, сделает бэкап кода и данных, поставит файл, прогонит `node --check` бандл-рантаймом, рестартанёт юнит, дождётся живости и проверит журнал.
+4. Tip сверить с H1 (`https://agentcoin.work/life`): лаг в 1–2 блока — норма gossip-синхронизации, смотреть прямые loopback-чтения, а не только `/network/nodes`.
+Откат: `ROLLBACK=1 bash /root/rollout-node-update.sh` (возвращает свежий `.bak-*`, рестарт, проверка).
+
+**Админ-плоскость закрыта от интернета**: нода слушает только loopback (`AGT_ADMIN_MODE=local`), наружу — только Caddy-dark (`POST /tx/sign`, `/wallet/create` и прочие непубличные пути с интернета → 403 `reserve node: dark`). Кошельковые операции — только по SSH на loopback, без токенов:
+- `curl -s "$LOCAL_NODE_URL/life"` → `blocks`, `chainValid`;
+- `curl -X POST "$LOCAL_NODE_URL/wallet/create" -d '{"label":"vps-agent","recover":true}'` → mnemonic ОДИН раз;
+- `curl -X POST "$LOCAL_NODE_URL/community/send" -d '{"text":"Внешняя нода поднята 🏰"}'`;
+- `node health-check.mjs` из клона репозитория — аудит балансов из цепи.
 
 Сайт и политика обновлений принадлежат владельцу развёртывания. Адрес для посетителей публикуется как собственный `NODE_URL`; состояние сравнивают с выбранными пирами, если они настроены.
 
@@ -28,9 +35,9 @@ peers.json получает только явно указанный `AGT_BOOTST
 
 | что | где |
 |---|---|
-| живость | `journalctl -u agt-node -f` (спам resume/старта не бывает: restart всегда 15с) |
+| живость | `journalctl -u agentcoin-node -f` (рестарт всегда через 15с) |
 | цепь | `curl -s "$LOCAL_NODE_URL/life"` → `blocks`, `chainValid` |
-| порт | провайдер: Security Rules/Firewall → открыть выбранный `NODE_PORT/tcp`; в UFW уже открыто скриптом |
+| порт | наружу только `443/tcp` (Caddy); порт ноды `9335` — только loopback, в фаерволе не открывается |
 
 ## Честное сравнение бесплатных/дешёвых VPS (исследование 2026-10-17)
 
@@ -50,16 +57,15 @@ peers.json получает только явно указанный `AGT_BOOTST
 
 Провижинить аккаунт провайдера автоматически нельзя: регистрации Oracle/AWS/GCP/Hetzner/
 OVH требуют платёжную карту и персональные данные. Рекомендованный порядок:
-1. Пробуем **Oracle A1** (регион home, форма создания VM, Ubuntu 22.04 ARM) → `AGT_BOOTSTRAP_PEER="${PEER_URL:-}" bash deploy-vps.sh "$NODE_PORT"`;
+1. Пробуем **Oracle A1** (регион home, форма создания VM, Ubuntu 22.04 ARM) → `bash deploy-vps.sh <site-hostname> <release-tgz> [seed-url...]`;
 2. Если `out of host capacity` — повторять в другой день или همین **OVH VPS-1** ($4.54).
 
-Подключение к существующей сети требует доступных выбранных соседей: передайте `AGT_BOOTSTRAP_PEER` при деплое, настройте свой `bootstrap.json` либо добавьте `PEER_URL` через собственный админ-маршрут `/peer/add`. Сам факт установки VPS не делает его известным всем остальным участникам. Соседи настраивают ваши URL у себя независимо.
+Подключение к существующей сети требует доступных выбранных соседей: передайте их URL при деплое (параметры seed-url → `AGT_SEED_NODES`). Сам факт установки VPS не делает его известным всем остальным участникам. Соседи настраивают ваши URL у себя независимо.
 
 ## Безопасность
 
-- admin-эндпоинты ноды (`/wallet/create`, `/security/*` и деструктивные POST) на внешней машине
-  обязаны закрываться от мира: скрипт открывает выбранный порт ноды и SSH; UFW по умолчанию DROP остальное.
-- ключи кошелька — в `data-vps/wallets.json` на VPS (никогда не публикуются и не уезжают в чат);
+- admin-эндпоинты ноды (`/wallet/create`, `/security/*` и деструктивные POST) доступны только с loopback самой машины; наружу скрипт ничего не открывает: Caddy отдаёт 403 dark всему, кроме `/ws` и явно перечисленных пиров.
+- ключи кошелька — в `/opt/agentcoin-node/data/wallets.json` на VPS (никогда не публикуются и не уезжают в чат);
   mnemonic — одна выдача, потом хранится только у оператора.
 - подключение к другому владельцу не передаёт ему административные права; свои `/peer/add`, подпись и кошельковые операции выполняйте с авторизацией только на своей ноде.
 - TS bind на Windows — собственный `AGT_TS_BIND` или ignored `data-agtx/ts-bind.txt`; публичный пример не содержит адреса VPN другого владельца.

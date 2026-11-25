@@ -1,228 +1,186 @@
 #!/usr/bin/env bash
-# ============================================================
-# deploy-vps.sh — поднять ноду AGT на внешнем Linux VPS и подключить её
-# к ядру AGIP-24 как первый внешний пир (AGIP-27: https-пир через TLS-фаннел).
-# Запуск от root (или sudo) на Ubuntu/Debian/Oracle-Ampere:
-#   bash deploy-vps.sh [порт=9335]
-# Безопасность (аудит-ревью 2026-10-17, AGIP-37.LOCAL):
-#   - админ/кошелёк/майнинг-маршруты ноды отвечают НЕ с loopback отказом 403
-#     (барьер в самой ноде) → наружу светится только публичный read-only + POST /tx;
-#   - правила UFW заносятся ДО enable, SSH-порт определяется из sshd (не 22 «наугад»);
-#   - все шаги fail-fast: установка либо прошла с проверкой живости, либо не «ГОТОВО»;
-#   - повторный запуск = надёжный апдейт (fetch/reset, systemd restart всегда).
-# Скрипт НЕ печатает секретов: токен админа генерируется в data-agtx/admin-token.txt
-# (мнемоника кошелька выдаётся на СВОЕЙ ноде после старта — один раз).
-# ============================================================
+# deploy-vps.sh — внешняя нода AGT (класс node2/node3) в РЕАЛЬНОЙ раскладке сети.
+# Проверено руками 2026-11-25: git на хостах НЕТ (файловая копия!), юнит
+# agentcoin-node.service, код /opt/agentcoin-node/src, данные
+# /opt/agentcoin-node/data, BIND 127.0.0.1, ADMIN local, снаружи — Caddy-dark
+# (403 reserve node: dark; пирам и /ws — прокси). Прямой порт наружу НЕ открывается.
+#
+# Режимы:
+#   bash deploy-vps.sh install <site-hostname> <release-tgz> [peer-ips...]
+#     — первичная установка: пакеты, рантайм node, код из релизного тарболла,
+#       юнит, Caddy-dark, cron бэкапов. peer-ips: IP пиров для @peer-правила
+#       (свой loopback и tailnet подставляются сами).
+#   bash deploy-vps.sh update <new-node.mjs> <md5-текущего-node.mjs>
+#     — штатная раскатка: база → бэкап → гейт базы → установка → node --check →
+#       рестарт → живость → сверки. Единственный путь обновлений (git pull нет).
+#   ROLLBACK=1 bash deploy-vps.sh
+#     — откат node.mjs на свежий .bak-* + рестарт + проверка.
 set -euo pipefail
 
-PORT="${1:-9335}"
-REPO_URL="https://github.com/CrChCn/agentcoin"
-# Optional peer selected by this node's operator. No personal laptop is a seed.
-BOOTSTRAP_PEER="${AGT_BOOTSTRAP_PEER:-}"
-INSTALL_DIR="${AGT_INSTALL_DIR:-/opt/agentcoin}"
-SVC_USER="${AGT_SVC_USER:-agt}"
-UNIT=/etc/systemd/system/agt-node.service
-PEERS_FILE="${INSTALL_DIR}/data-vps/peers.json"
+INSTALL_DIR=/opt/agentcoin-node
+SRC=${INSTALL_DIR}/src
+DATA_DIR=${INSTALL_DIR}/data
+UNIT=agentcoin-node
+PORT=9335
 
 die() { echo "✗ ОШИБКА: $*" >&2; exit 1; }
 
-# Validate before packages, firewall or repository changes. Accept an origin,
-# never credentials, paths, query strings, fragments or shell metacharacters.
-[[ "${PORT}" =~ ^[0-9]{1,5}$ ]] && (( 10#${PORT} >= 1 && 10#${PORT} <= 65535 )) || die "порт должен быть числом 1..65535"
-if [ -n "${BOOTSTRAP_PEER}" ]; then
-  [[ "${BOOTSTRAP_PEER}" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/?$ ]] || die "AGT_BOOTSTRAP_PEER: нужен http(s) origin без пароля, пути, query и fragment"
-  PEER_AUTHORITY="${BOOTSTRAP_PEER#*://}"; PEER_AUTHORITY="${PEER_AUTHORITY%/}"
-  PEER_PORT="${PEER_AUTHORITY##*:}"
-  if [[ "${PEER_PORT}" =~ ^[0-9]+$ ]]; then
-    (( 10#${PEER_PORT} >= 1 && 10#${PEER_PORT} <= 65535 )) || die "AGT_BOOTSTRAP_PEER: неверный порт"
+pick_node() {
+  for c in "${INSTALL_DIR}"/runtime/*/bin/node /opt/agentcoin-staging/runtime/*/bin/node /usr/bin/node /usr/local/bin/node; do
+    [ -x "$c" ] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+
+wait_alive() {
+  for _ in $(seq 1 45); do
+    if curl -fsS -m 5 "http://127.0.0.1:${PORT}/life" 2>/dev/null | grep -q '"chainValid": *true'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+report_life() {
+  curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" 2>/dev/null | python3 -c \
+    "import json,sys; d=json.load(sys.stdin); print('blocks:',d['blocks'],'| tip:',str(d['tipHash'])[:16],'| age:',d['tipAgeSec'],'| fresh:',d['fresh'],'| valid:',d['chainValid'])"
+}
+
+do_rollback() {
+  echo "[rollback] поиск свежего бэкапа node.mjs.bak-*"
+  # shellcheck disable=SC2012
+  BAK="$(ls -t "${SRC}"/node.mjs.bak-* 2>/dev/null | head -1)" || true
+  [ -n "${BAK:-}" ] || die "бэкапов node.mjs.bak-* нет — откат невозможен"
+  cp "$BAK" "${SRC}/node.mjs"
+  NODE_BIN="$(pick_node)" || die "node runtime не найден"
+  "$NODE_BIN" --check "${SRC}/node.mjs" || die "node --check после отката провален"
+  systemctl restart "$UNIT"
+  wait_alive || die "нода не ожила за 90с — journalctl -u ${UNIT} -f"
+  report_life
+  echo "ОТКАТ ГОТОВ"
+}
+
+do_update() {
+  NEW_FILE="${1:-}"; BASE_MD5="${2:-}"
+  [ -n "$NEW_FILE" ] && [ -f "$NEW_FILE" ] || die "usage: bash $0 update <new-node.mjs> <md5-текущего>"
+  [ -n "$BASE_MD5" ] || die "нужен md5 текущего node.mjs — защита от наката не на ту базу"
+  [ -d "$SRC" ] || die "${SRC} нет — это не нода реальной раскладки, сначала install"
+
+  echo "[1/5] база"
+  report_life
+  CUR_MD5="$(md5sum "${SRC}/node.mjs" | cut -d' ' -f1)"
+  echo "  текущий md5: ${CUR_MD5}"
+  [ "$CUR_MD5" = "$BASE_MD5" ] || die "база на хосте != ожидаемой — хост менялся, разбирайся руками"
+
+  echo "[2/5] бэкап (код + данные)"
+  STAMP="$(date -u +%Y%m%d)"
+  cp "${SRC}/node.mjs" "${SRC}/node.mjs.bak-${STAMP}-011"
+  tar czf /root/agentcoin-vps-backup-011-data.tgz -C "$INSTALL_DIR" data
+  chmod 600 /root/agentcoin-vps-backup-011-data.tgz
+
+  echo "[3/5] установка + node --check (гейт)"
+  cp "$NEW_FILE" "${SRC}/node.mjs"
+  NODE_BIN="$(pick_node)" || die "node runtime не найден"
+  "$NODE_BIN" --check "${SRC}/node.mjs" && echo "  JS_OK"
+
+  echo "[4/5] рестарт + ожидание живости (до 90с)"
+  systemctl restart "$UNIT"
+  wait_alive || die "нода не отвечает 90с — откат: ROLLBACK=1 bash $0; логи: journalctl -u ${UNIT} -f"
+
+  echo "[5/5] сверки"
+  report_life
+  ERRS="$(journalctl -u "$UNIT" --since '10 min ago' --no-pager -p err 2>/dev/null | tail -5)"
+  if [ -z "$ERRS" ]; then echo "  журнал: ошибок нет"; else echo "$ERRS"; die "есть ошибки в журнале"; fi
+  echo "=== ГОТОВО. Сверь tip с H1 (https://agentcoin.work/life) и /network/nodes (behind 0) ==="
+}
+
+do_install() {
+  SITE="${1:-}"; TGZ="${2:-}"; shift 2 || true
+  PEERS="$*"
+  [ -n "$SITE" ] || die "usage: bash $0 install <site-hostname> <release-tgz> [peer-ips...]"
+  [ -f "$TGZ" ] || die "релизный тарболл ${TGZ} не найден (dist/node/agentcoin-node-*.tar.gz)"
+  [ "$(id -u)" = "0" ] || die "install — только от root"
+
+  echo "[1/6] пакеты: curl, ca-certificates, jq"
+  apt-get update -qq
+  apt-get install -y -qq curl ca-certificates jq
+
+  echo "[2/6] рантайм node (бандл, без системного nodejs — юнит берёт свой)"
+  NODE_VER="${AGT_NODE_VER:-24.22.2}"
+  mkdir -p "${INSTALL_DIR}/runtime"
+  if [ ! -x "${INSTALL_DIR}/runtime/node-v${NODE_VER}-linux-x64/bin/node" ]; then
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.xz" \
+      -o /tmp/node-runtime.tar.xz
+    tar xJf /tmp/node-runtime.tar.xz -C "${INSTALL_DIR}/runtime"
+    rm -f /tmp/node-runtime.tar.xz
   fi
-  BOOTSTRAP_PEER="${BOOTSTRAP_PEER%/}"
-fi
+  "${INSTALL_DIR}"/runtime/*/bin/node --version
 
-echo "[1/7] Пакеты: curl, git, ca-certificates, jq, ufw"
-apt-get update -qq
-apt-get install -y -qq curl git ca-certificates jq ufw
+  echo "[3/6] код из релизного тарболла → ${SRC} (повторный install поверх — только руками)"
+  [ -e "$SRC" ] && die "${SRC} уже существует — это update, а не install: bash $0 update ..."
+  mkdir -p "$SRC" "$DATA_DIR"
+  tar xzf "$TGZ" -C "$SRC"
 
-echo "[2/7] Node.js ≥ 24 LTS (NodeSource; ветки 18/20 — EOL и не ставим)"
-NODE_MAJOR="$(node -e 'console.log(process.version.match(/^v(\d+)/)?.[1]||0)' 2>/dev/null || echo 0)"
-if [ "${NODE_MAJOR:-0}" -lt 24 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-  apt-get install -y -qq nodejs
-fi
-command -v node >/dev/null || die "Node.js не установился"
-echo "  node $(node --version)"
-
-echo "[3/7] Файрвол: SSH не теряем, потом порт ноды, потом enable"
-# Ревью п.5: sshd -T может падать (нет sshd_i, права) — fallback 22 должен ВСЁ
-# РАВНО выполняться, а не убить скрипт через set -euo pipefail (ssh -T|awk
-# с pipefail возвращает ненулевой код при падении sshd).
-SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')" || true
-[ -n "${SSH_PORT:-}" ] || SSH_PORT=22
-ufw allow "${SSH_PORT}/tcp" comment 'ssh-admin' >/dev/null
-ufw allow "${PORT}/tcp" comment 'agt-node (публичный пир; админ-маршруты закрыты на уровне ноды)' >/dev/null
-ufw --force enable >/dev/null
-ufw status verbose | sed 's/^/  /'
-echo "  ⚠ если это Oracle Cloud — дополнительно открой ${PORT}/tcp в Security List/NSG в консоли OCI"
-
-echo "[4/7] Репозиторий → ${INSTALL_DIR} (повторный запуск = жёсткий апдейт до origin/main)"
-if [ -d "${INSTALL_DIR}/.git" ]; then
-  # Ревью п.6 (C-2 ревизия): проверять нужно ВСЕ отслеживаемые файлы; прежний
-  # pathspec «{...}» — буквальный — ничего не матчил, и грязное дерево проходило.
-  # Ошибка git-замера = не верить: стоп, а не обновляться вслепую.
-  if ! GIT_DIRTY="$(git -C "${INSTALL_DIR}" status --porcelain --untracked-files=no 2>&1)"; then
-    die "git status не удался ($(echo "${GIT_DIRTY}" | head -1)) — обновление прервано без reset"
-  fi
-  if [ -n "${GIT_DIRTY}" ]; then
-    echo "${GIT_DIRTY}" | head -10 >&2
-    die "в ${INSTALL_DIR} есть незакоммиченные правки — reset --hard их затрёт. Закоммить/сохранить и повтори"
-  fi
-  # safe.directory: после chown agt:agt запуск git от root больше не валится
-  # с «dubious ownership» (и мы НЕ прячем его ошибку).
-  git config --system --add safe.directory "${INSTALL_DIR}"
-  git -C "${INSTALL_DIR}" fetch origin --prune
-  git -C "${INSTALL_DIR}" reset --hard origin/HEAD
-else
-  git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
-  git config --system --add safe.directory "${INSTALL_DIR}"
-fi
-cd "${INSTALL_DIR}"
-
-echo "[5/7] Пользователь сервиса и права"
-id -u "${SVC_USER}" >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin "${SVC_USER}"
-mkdir -p "${INSTALL_DIR}/data-vps"
-# токен админа: с ним деструктивные POST требуют x-admin-token ДАЖЕ с loopback
-if [ ! -s "${INSTALL_DIR}/data-agtx/admin-token.txt" ]; then
-  mkdir -p "${INSTALL_DIR}/data-agtx"
-  (umask 077 && head -c 32 /dev/urandom | sha256sum | cut -c1-64 > "${INSTALL_DIR}/data-agtx/admin-token.txt")
-fi
-chown -R "${SVC_USER}:${SVC_USER}" "${INSTALL_DIR}"
-chmod 700 "${INSTALL_DIR}/data-agtx"
-chmod 600 "${INSTALL_DIR}/data-agtx/admin-token.txt"
-
-echo "[6/7] systemd unit agt-node.service (порт ${PORT}, data-dir data-vps)"
-cat > "${UNIT}" <<EOF
+  echo "[4/6] env + systemd юнит ${UNIT} (loopback; наружу — только Caddy)"
+  cat > /etc/agentcoin-node.env <<EOF
+AGT_DATA_DIR=${DATA_DIR}
+AGT_BIND=127.0.0.1
+AGT_ADMIN_MODE=local
+AGT_PEER_DISCOVERY=1
+AGT_PUBLIC_URL=https://${SITE}
+AGT_MONITOR_TARGETS_FILE=${INSTALL_DIR}/monitor-targets.json
+EOF
+  chmod 600 /etc/agentcoin-node.env
+  cat > "/etc/systemd/system/${UNIT}.service" <<EOF
 [Unit]
-Description=AGENTCOIN (AGT) full node — внешняя нода империи
+Description=AGENTCOIN validating pull node
 After=network-online.target
 Wants=network-online.target
-
 [Service]
 Type=simple
-User=${SVC_USER}
-WorkingDirectory=${INSTALL_DIR}
-Environment=AGT_DATA_DIR=${INSTALL_DIR}/data-vps
-Environment=AGT_BIND=0.0.0.0
-Environment=AGT_ADMIN_MODE=token
-ExecStart=/usr/bin/node ${INSTALL_DIR}/node.mjs ${PORT}
+WorkingDirectory=${SRC}
+EnvironmentFile=/etc/agentcoin-node.env
+ExecStart=${INSTALL_DIR}/runtime/node-v${NODE_VER}-linux-x64/bin/node ${SRC}/node.mjs ${PORT}
 Restart=always
 RestartSec=15
-Nice=5
-
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload
-systemctl enable agt-node.service
-# ⚠ enable --now НЕ перезапускает уже работающую службу — restart всегда:
-systemctl restart agt-node.service
+  systemctl daemon-reload
+  systemctl enable "${UNIT}.service"
+  systemctl restart "${UNIT}.service"
 
-# Явно выбранный bootstrap-пир в peers.json (unit уже перезапущен,
-# нода мержит bootstrap.json сама и пересчитывает пиры посменно офлайн-конфига)
-install -d -o "${SVC_USER}" -g "${SVC_USER}" "$(dirname "${PEERS_FILE}")"
-[ -s "${PEERS_FILE}" ] || (echo '[]' | install -o "${SVC_USER}" -g "${SVC_USER}" /dev/stdin "${PEERS_FILE}")
-if [ -n "${BOOTSTRAP_PEER}" ] && ! jq -e --arg p "${BOOTSTRAP_PEER}" 'index($p) != null' "${PEERS_FILE}" >/dev/null; then
-  jq --arg p "${BOOTSTRAP_PEER}" '. + [$p]' "${PEERS_FILE}" > "${PEERS_FILE}.tmp"
-  install -o "${SVC_USER}" -g "${SVC_USER}" "${PEERS_FILE}.tmp" "${PEERS_FILE}"
-  rm -f "${PEERS_FILE}.tmp"
-  systemctl restart agt-node.service
+  echo "[5/6] Caddy-dark (пример; поправь пиры и перезагрузи caddy)"
+  cat <<EOF
+${SITE} {
+	@ws { path /ws /ws/* }
+	handle @ws { reverse_proxy 127.0.0.1:${PORT} }
+	@peer { remote_ip 127.0.0.1 ::1 ${PEERS} 100.64.0.0/10 }
+	handle @peer { reverse_proxy https://agentcoin.work }
+	handle { respond "reserve node: dark (use https://agentcoin.work)" 403 }
+}
+EOF
+  echo "  вставь блок в /etc/caddy/Caddyfile (имена/пиры свои) и: systemctl reload caddy"
+
+  echo "[6/6] cron ежедневных бэкапов данных (03:20, keep 14 дней)"
+  (crontab -l 2>/dev/null | grep -v agentcoin-backup; echo "20 3 * * * tar czf ${INSTALL_DIR}/backups/agentcoin-data-\$(date -u +\\%Y\\%m\\%dT\\%H\\%M\\%SZ).tar.gz -C ${DATA_DIR} . && chmod 600 ${INSTALL_DIR}/backups/agentcoin-data-*.tar.gz && find ${INSTALL_DIR}/backups -name 'agentcoin-data-*.tar.gz' -mtime +14 -delete") | crontab -
+  mkdir -p "${INSTALL_DIR}/backups"; chmod 700 "${INSTALL_DIR}/backups"
+
+  echo "[7/7] живость (обязательно)"
+  wait_alive || die "нода не отвечает 90с — journalctl -u ${UNIT} -f"
+  report_life
+  echo "=== УСТАНОВЛЕНО. Дальше только update-режим этого же скрипта (git на хосте нет и не нужен) ==="
+}
+
+if [ "${ROLLBACK:-0}" = "1" ]; then
+  do_rollback
+  exit 0
 fi
-
-echo "[7/7] Проверка живости (ОБЯЗАТЕЛЬНАЯ: без неё скрипт падает, а не рапортует «ГОТОВО»)"
-ALIVE=""
-for i in $(seq 1 45); do
-  if curl -fsS -m 5 "http://127.0.0.1:${PORT}/life" 2>/dev/null | jq -e '.chainValid == true' >/dev/null; then
-    ALIVE=1; break
-  fi
-  sleep 2
-done
-if [ -z "${ALIVE}" ]; then
-  journalctl -u agt-node -n 30 --no-pager | tail -n 15 >&2 || true
-  die "нода не отвечает 90 секунд — смотри journalctl -u agt-node -f (скрипт НЕ завершён УСПЕХом)"
-fi
-BLOCKS="$(curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" | jq -r '.blocks')"
-echo "  ✓ нода жива, цепь валидна: blocks=${BLOCKS}"
-# Local validity alone does not establish membership in a live network.
-if [ -n "${BOOTSTRAP_PEER}" ]; then
-PEER_H="$(curl -fsS -m 12 "${BOOTSTRAP_PEER}/life" 2>/dev/null | jq -r '.blocks' || true)"
-if [[ "${PEER_H:-}" =~ ^[0-9]{1,12}$ ]] && [[ "${BLOCKS}" =~ ^[0-9]{1,12}$ ]]; then
-  DELTA=$(( ${PEER_H} >= ${BLOCKS} ? PEER_H - BLOCKS : BLOCKS - PEER_H ))
-  echo "  высота нода/выбранный пир: ${BLOCKS}/${PEER_H} (разница ${DELTA}; это не проверка совпадения цепей)"
-  if [ "${DELTA}" -gt 25 ]; then
-    echo "  ⚠ разница с выбранным пиром более 25 блоков — проверь синхронизацию." >&2
-    echo "    Дальше: journalctl -u agt-node -f | grep sync; на сервере: curl http://127.0.0.1:${PORT}/sync-now" >&2
-  fi
-else
-  echo "  ⚠ высота выбранного пира недоступна (${BOOTSTRAP_PEER}) — синхронизация сети НЕ ПРОВЕРЕНА"
-fi
-else
-  echo "  ⚠ bootstrap-пир не задан: своя нода работает, подключение к сети НЕ ПРОВЕРЕНО. Укажи AGT_BOOTSTRAP_PEER=http(s)://<свой-доверенный-пир>."
-fi
-
-# публичный барьер — самопроверка с фактического публичного адреса.
-# Ревью п.3: «curl -f» успешно скрывает 404/таймаут и «барьер активен» печатался
-# даже при полном отказе сети. Проверяем ДОСЛОВНО: HTTP 403 и тело admin_loopback_only.
-# Сетевая ошибка (000/refused/timeout) = НЕ ПРОВЕРЕНО — так и печатаем, успеха не заявляем.
-PUB_IP="$(curl -fsS -m 10 https://api.ipify.org 2>/dev/null || true)"
-BARRIER_VERIFIED=0
-if [ -n "${PUB_IP}" ]; then
-  BODY_FILE=$(mktemp)
-  # при refused/timeout curl сам пишет 000 в -w и выходит с ошибкой — перезатираем
-  # ОДНИМ 000 (без доклейки: двойной «000000» ломал ветку «не проверено»)
-  HTTP_CODE=$(curl -sS -m 10 -o "${BODY_FILE}" -w '%{http_code}' -X POST "http://${PUB_IP}:${PORT}/tx/sign" -H 'Content-Type: application/json' -d '{}') || HTTP_CODE=000
-  BODY_GOT=$(head -c 200 "${BODY_FILE}"; rm -f "${BODY_FILE}")
-  # C-3: гонки веток честные: PASS = 403+тело; НЕ ПРОВЕРЕНО = только «сеть не
-  # дала ответ» (000); ВСЁ ОСТАЛЬНОЕ (2xx/3xx/любой другой 4xx/5xx/странный
-  # 403 без нашего тела) — защита сломана → hard fail.
-  if [ "${HTTP_CODE}" = "403" ] && grep -q 'admin_loopback_only' <<<"${BODY_GOT}"; then
-    BARRIER_VERIFIED=1
-    echo "  ✓ публичный барьер подтверждён: POST /tx/sign с ${PUB_IP} → 403 admin_loopback_only"
-  elif [ "${HTTP_CODE}" = "000" ]; then
-    echo "  ⚠ барьер НЕ ПРОВЕРЕН: публичный ${PUB_IP}:${PORT} не отвечает изнутри (NAT/провайдер firewall?) — проверь снаружи сам:  curl -i http://${PUB_IP}:${PORT}/tx/sign -X POST -d '{}'" >&2
-  else
-    echo "  ✗ админ-маршрут ответил извне: HTTP ${HTTP_CODE} ($(echo "${BODY_GOT}" | head -1)) — старая версия кода? git -C ${INSTALL_DIR} pull && systemctl restart agt-node" >&2
-    exit 1
-  fi
-fi
-
-# C-1 (Codex): делимитер в КАВЫЧКАХ — текст ниже — чистые инструкции для ЧЕЛОВЕКА:
-# $T и $(sudo ...) исполняются только в его SSH-сессии, а никогда — в деплое
-# (раскрытие здесь печатало бы админ-токен в stdout и падало с unbound T).
-# Плейсхолдеры __PORT__/__CONF__ подставляет sed (PORT/INSTALL_DIR — механически).
-cat <<'NEXT' | sed "s|__PORT__|${PORT}|g; s|__CONF__|${INSTALL_DIR}|g"
-
-=== ГОТОВО ===
-  - нода:      systemctl status agt-node
-  - логи:      journalctl -u agt-node -f
-  - админ-токен (для деструктивных POST и кошельковых операций):
-               sudo cat __CONF__/data-agtx/admin-token.txt
-
-КОШЕЛЁК И АДМИН — ТОЛЬКО ЧЕРЕЗ SSH (AGIP-37.LOCAL, режим admin_mode=token):
-  с твоей машины:
-    ssh ubuntu@<vps-ip>
-  на сервере (loopback + админ-токен — нода развернута в token-режиме: туннель
-  никогда не считается админом, авторизация — единственный путь):
-    T=$(sudo cat __CONF__/data-agtx/admin-token.txt)
-    curl -X POST http://127.0.0.1:__PORT__/wallet/create \\
-      -H 'Content-Type: application/json' -H "x-admin-token: $T" \\
-      -d '{"label":"vps-agent","recover":true}'
-      → mnemonic ОДИН раз; ключи остаются в data-vps/wallets.json
-  АНОНС В ЧАТ (на сервере, порт подставлен честно):
-    curl -X POST http://127.0.0.1:__PORT__/community/send -H 'Content-Type: application/json' \\
-      -H "x-admin-token: $T" -d '{"text":"Внешняя нода поднята 🏰"}'
-    (адрес подставит нода — AGIP-21)
-
-ПРОВЕРКА БАЛАНСОВ ИЗ ЦЕПИ (на сервере; health-check сам подхватит токен из
-__CONF__/data-agtx/admin-token.txt или из env AGT_ADMIN_TOKEN):
-    node health-check.mjs __PORT__
-
-NEXT
+MODE="${1:-update}"; shift || true
+case "$MODE" in
+  update)   do_update "$@" ;;
+  install)  do_install "$@" ;;
+  rollback) do_rollback ;;
+  *) die "режим: install | update | rollback" ;;
+esac

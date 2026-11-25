@@ -414,6 +414,24 @@ const AGT_ADMIN_MODE = process.env.AGT_ADMIN_MODE === 'token' ? 'token' : 'local
 const siteRelease = new SiteReleaseManager({ dataDir: DATA_DIR, apiVersion: 2 });
 let checkoutSiteManifest = null;
 try { checkoutSiteManifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'release.json'), 'utf8')); } catch {}
+// Релизная идентичность КОДА ноды (не сайта): версия + sha256 ключевых файлов.
+// Считается один раз при старте из файлов рядом с запущенным node.mjs —
+// отдельного манифеста не требует и работает при файловой раскатке.
+// /site/release отдаёт наружу только версию и хеши (секретов нет).
+const NODE_RELEASE_VERSION = '0.1.1';
+let nodeCodeIdCache = null;
+function nodeCodeIdentity() {
+  if (nodeCodeIdCache) return nodeCodeIdCache;
+  const files = {};
+  try {
+    const dir = path.dirname(process.argv[1] || '') || __dirname;
+    for (const f of ['node.mjs', 'core.mjs', 'treasury.mjs', 'law.mjs']) {
+      try { files[f] = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, f))).digest('hex'); } catch {}
+    }
+  } catch {}
+  nodeCodeIdCache = { release: NODE_RELEASE_VERSION, files };
+  return nodeCodeIdCache;
+}
 const SITE_PAGE_CONTENT_TYPE = (page) =>
   page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
@@ -950,7 +968,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   // Public identity endpoints receive public material and signatures only.
   if (p === '/site/release' && req.method === 'GET') {
     const status = siteRelease.status();
-    return json(res, 200, { ...status, checkoutRelease: checkoutSiteManifest?.release || null,
+    return json(res, 200, { ...status, node: nodeCodeIdentity(), checkoutRelease: checkoutSiteManifest?.release || null,
       serving: status.release && process.env.AGT_SITE_SYNC !== '0' ? 'approved_cache' : 'checkout',
       ...(status.release ? {} : { files: checkoutSiteManifest?.files || {} }) });
   }

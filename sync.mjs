@@ -47,6 +47,50 @@ const PEER_SHAPE_RE = /^(https?):\/\/([^\/?#@\s]+)\/?$/i;
 const V4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 const V6_RE = /^\[[0-9a-f:]+\]$/;
 const FQDN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+// AGIP-PRIV-01 (2026-11-13): пир обязан быть ПУБЛИЧНЫМ адресом.
+// Причина: tailnet-ноут (laptop-*.ts.net), loopback (127.0.0.1:934x) и приватные
+// подсети (10/8, 172.16/12, 192.168/16, 100.64/10 = CGNAT/Tailscale, link-local,
+// .local, .internal, .ts.net) возвращались в peers.json через gossip/announce и
+// висели в сводках ботов как «живые ноды». Теперь такой адрес не читается и не
+// пишется НИ ОДНИМ путём: ни seeds, ни bootstrap, ни gossip, ни /peers/announce.
+const PRIVATE_HOST_SUFFIXES = ['.local', '.internal', '.lan', '.home', '.ts.net', '.tailscale.net'];
+function ipv4Private(host) {
+  const o = host.split('.').map(Number);
+  if (o.length !== 4 || o.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = o;
+  if (a === 10) return true;                        // 10/8
+  if (a === 127) return true;                       // loopback
+  if (a === 0) return true;                         // 0/8
+  if (a === 169 && b === 254) return true;          // link-local
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12
+  if (a === 192 && b === 168) return true;          // 192.168/16
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 CGNAT (Tailscale)
+  if (a >= 224) return true;                        // multicast/reserved
+  return false;
+}
+export function isPublicPeerHost(host) {
+  const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h === '::1' || h === '::' || h === '0.0.0.0') return false;
+  if (PRIVATE_HOST_SUFFIXES.some(sfx => h.endsWith(sfx))) return false;
+  if (/^[0-9.]+$/.test(h)) return !ipv4Private(h);
+  if (h.includes(':')) { // IPv6: loopback/ULA/link-local
+    if (h === '::1') return false;
+    if (/^f[cd]/.test(h)) return false;             // fc00::/7 ULA
+    if (/^fe[89ab]/.test(h)) return false;          // fe80::/10 link-local
+    return true;
+  }
+  // безточечное имя машины (ключи vclock, ярлыки): laptop/localhost/tailscale — не публичное.
+  // Точечных FQDN это не касается: laptopshop.com никто не блокирует.
+  if (!h.includes('.') && /laptop|localhost|tailscale/.test(h)) return false;
+  return true; // публичный FQDN
+}
+// Единая проверка URL (announce, ручной /peer/add): разбор хоста — в одном месте.
+export function isPublicPeerUrl(url) {
+  const m = /^https?:\/\/([^/:]+)/i.exec(String(url || ''));
+  return !!m && isPublicPeerHost(m[1]);
+}
+
 export function normalizePeerUrl(raw) {
   if (typeof raw !== 'string') return null;
   const m = PEER_SHAPE_RE.exec(raw.trim());
@@ -64,6 +108,8 @@ export function normalizePeerUrl(raw) {
       : FQDN_RE.test(host));
   // односоставный хост (p1, p2, foo) — не резолвится в интернете, это заполнитель
   if (!okHost) return null;
+  // AGIP-PRIV-01: приватные/локальные/тейлнет-хосты пирами не считаются
+  if (!isPublicPeerHost(host)) return null;
   return `${scheme}://${host}${port ? ':' + port : ''}`;
 }
 function peerSelfSet() {

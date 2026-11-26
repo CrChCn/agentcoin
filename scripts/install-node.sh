@@ -109,10 +109,11 @@ else
   else
     TMPX=$(mktemp -d)
     trap 'rm -rf "$TMPX"' EXIT
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-${ARCH}.tar.xz" -o "$TMPX/node.tar.xz"
+    # имя файла должно совпадать с записью в SHASUMS256.txt: sha256sum -c берёт путь оттуда
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-${ARCH}.tar.xz" -o "$TMPX/node-v${NODE_VER}-${ARCH}.tar.xz"
     curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/SHASUMS256.txt" -o "$TMPX/SHASUMS256.txt"
     ( cd "$TMPX" && grep " node-v${NODE_VER}-${ARCH}.tar.xz\$" SHASUMS256.txt | sha256sum -c - ) || die "контрольная сумма Node не совпала"
-    tar xJf "$TMPX/node.tar.xz" -C "$INSTALL_DIR/runtime"
+    tar xJf "$TMPX/node-v${NODE_VER}-${ARCH}.tar.xz" -C "$INSTALL_DIR/runtime"
   fi
 fi
 

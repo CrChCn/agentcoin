@@ -1,0 +1,245 @@
+<!-- ======== ЭФИР СЕТИ · модуль стрима (встроен в imperial.html) ======== -->
+<style>
+  .strm{position:relative;overflow:hidden;border-radius:16px;margin:0 0 18px;padding:18px;border:1px solid rgba(212,175,55,.45);
+    background:radial-gradient(120% 140% at 15% 0%,#141727 0%,#0b1018 55%,#07090d 100%);box-shadow:0 0 40px rgba(212,175,55,.10),inset 0 0 80px rgba(0,0,0,.55)}
+  .strm *{box-sizing:border-box}
+  .strm-scene{position:absolute;inset:0;pointer-events:none;opacity:.75;z-index:0}
+  .strm-scene svg{width:100%;height:100%;display:block}
+  .strm-in{position:relative;z-index:2;display:grid;grid-template-columns:210px minmax(0,1fr);gap:20px;align-items:center}
+  @media(max-width:720px){.strm-in{grid-template-columns:minmax(0,1fr)}}
+  .strm-photo{position:relative;border-radius:14px;overflow:hidden;border:1px solid rgba(212,175,55,.55);box-shadow:0 18px 50px rgba(0,0,0,.6),0 0 30px rgba(212,175,55,.18);aspect-ratio:3/4;background:#05070b}
+  .strm-photo img{width:100%;height:100%;object-fit:cover;display:block}
+  .strm-badge{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.14em;
+    padding:4px 9px;border-radius:999px;background:#101823e6;border:1px solid rgba(143,163,184,.35);color:#9fb0c4;text-transform:uppercase}
+  .strm-badge .dot{width:7px;height:7px;border-radius:50%;background:#6b7a8c}
+  .strm.on .strm-badge{background:#3a0d10e6;border-color:rgba(255,92,122,.55);color:#ff9fb0}
+  .strm.on .strm-badge .dot{background:#ff5c7a;box-shadow:0 0 10px #ff5c7a;animation:strmBlink 1.4s infinite}
+  @keyframes strmBlink{50%{opacity:.25}}
+  .strm-eyebrow{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#8fa3b8}
+  .strm-h{font-size:26px;letter-spacing:.06em;color:var(--gold2);margin:6px 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  @media(max-width:720px){.strm-h{font-size:21px}}
+  .strm-p{color:#aebccd;font-size:13.5px;max-width:640px;margin:0}
+  .strm-cta{display:flex;gap:9px;flex-wrap:wrap;margin:13px 0 0;align-items:center}
+  .strm-btn{border:1px solid var(--gold);background:linear-gradient(180deg,#f0d78c,#d4af37);color:#1a1405;font-weight:800;font-size:12.5px;
+    border-radius:9px;padding:9px 15px;cursor:pointer;text-decoration:none;display:inline-block;letter-spacing:.02em}
+  .strm-btn:hover{filter:brightness(1.07)}
+  .strm-btn.ghost{background:#101823;color:var(--gold2);border-color:rgba(212,175,55,.55)}
+  .strm-btn.ghost.off{color:#8fa3b8;border-color:rgba(143,163,184,.35)}
+  .strm-nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px;max-width:640px}
+  @media(max-width:560px){.strm-nums{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .strm-tile{background:#0b1220cc;border:1px solid rgba(42,54,70,.9);border-radius:10px;padding:8px 10px}
+  .strm-tile b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:17px;color:#fff;font-variant-numeric:tabular-nums}
+  .strm-tile span{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8fa3b8}
+  .strm-tile b.ok{color:var(--ok)}.strm-tile b.bad{color:var(--bad)}
+  .strm-last{margin-top:11px;font-size:12.5px;color:#93a4b8;max-width:640px}
+  .strm-last code{font-family:ui-monospace,Consolas,monospace;color:#cfe3ff}
+  .strm-last a{color:var(--gold2)}
+  .strm-note{font-size:11px;color:#6f7f92;margin-top:8px}
+  .strm-voice-hint{font-size:11.5px;color:#ffd75e;margin-top:6px;display:none}
+</style>
+
+<section class="panel strm" id="stream" aria-labelledby="strmTitle">
+  <div class="strm-scene" aria-hidden="true">
+    <svg viewBox="0 0 900 420" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <radialGradient id="strmGlobe" cx="38%" cy="32%" r="72%">
+          <stop offset="0%" stop-color="#ffe9a8" stop-opacity=".5"/>
+          <stop offset="45%" stop-color="#d4af37" stop-opacity=".22"/>
+          <stop offset="100%" stop-color="#0b0d12" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="strmEdge" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#ffe9a8" stop-opacity=".8"/>
+          <stop offset="100%" stop-color="#b8891f" stop-opacity=".2"/>
+        </linearGradient>
+        <linearGradient id="strmCube" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffe9a8" stop-opacity=".85"/>
+          <stop offset="100%" stop-color="#8a6a16" stop-opacity=".4"/>
+        </linearGradient>
+        <style>
+          @keyframes strmSpin{to{transform:rotate(360deg)}}
+          @keyframes strmSpinR{to{transform:rotate(-360deg)}}
+          @keyframes strmTw{0%,100%{opacity:.12}50%{opacity:.9}}
+          .strm-orbit{transform-box:fill-box;transform-origin:center;animation:strmSpin 48s linear infinite}
+          .strm-orbit-r{transform-box:fill-box;transform-origin:center;animation:strmSpinR 34s linear infinite}
+          .strm-star{animation:strmTw 4s ease-in-out infinite}
+          @media(prefers-reduced-motion:reduce){.strm-orbit,.strm-orbit-r,.strm-star{animation:none}}
+        </style>
+      </defs>
+      <g fill="#ffe9a8">
+        <circle cx="120" cy="60" r="1.6" class="strm-star" style="animation-delay:.2s"/>
+        <circle cx="300" cy="34" r="1.1" class="strm-star" style="animation-delay:1.4s"/>
+        <circle cx="470" cy="72" r="1.3" class="strm-star" style="animation-delay:2.6s"/>
+        <circle cx="660" cy="40" r="1.8" class="strm-star" style="animation-delay:.8s"/>
+        <circle cx="800" cy="96" r="1.2" class="strm-star" style="animation-delay:3.1s"/>
+        <circle cx="210" cy="330" r="1.4" class="strm-star" style="animation-delay:1.9s"/>
+        <circle cx="580" cy="360" r="1.5" class="strm-star" style="animation-delay:2.2s"/>
+        <circle cx="760" cy="300" r="1.1" class="strm-star" style="animation-delay:3.6s"/>
+        <circle cx="60" cy="210" r="1.2" class="strm-star" style="animation-delay:.5s"/>
+        <circle cx="860" cy="200" r="1.4" class="strm-star" style="animation-delay:1.1s"/>
+      </g>
+      <g class="strm-orbit" opacity=".55">
+        <ellipse cx="690" cy="210" rx="230" ry="86" fill="none" stroke="url(#strmEdge)" stroke-width="1" stroke-dasharray="3 8"/>
+        <ellipse cx="690" cy="210" rx="160" ry="58" fill="none" stroke="url(#strmEdge)" stroke-width="1" stroke-dasharray="2 10"/>
+      </g>
+      <g>
+        <circle cx="690" cy="210" r="110" fill="url(#strmGlobe)"/>
+        <circle cx="690" cy="210" r="86" fill="none" stroke="#d4af37" stroke-opacity=".38"/>
+        <ellipse cx="690" cy="210" rx="86" ry="24" fill="none" stroke="#d4af37" stroke-opacity=".25"/>
+        <ellipse cx="690" cy="210" rx="86" ry="52" fill="none" stroke="#d4af37" stroke-opacity=".18"/>
+        <ellipse cx="690" cy="210" rx="26" ry="86" fill="none" stroke="#d4af37" stroke-opacity=".18"/>
+        <g transform="translate(640 168) rotate(-16)"><rect x="-9" y="-9" width="18" height="18" rx="2" fill="url(#strmCube)"/></g>
+        <g transform="translate(720 196) rotate(12)"><rect x="-11" y="-11" width="22" height="22" rx="2" fill="url(#strmCube)"/></g>
+        <g transform="translate(676 244) rotate(24)"><rect x="-8" y="-8" width="16" height="16" rx="2" fill="url(#strmCube)"/></g>
+        <g transform="translate(742 250) rotate(-8)"><rect x="-6" y="-6" width="12" height="12" rx="2" fill="url(#strmCube)"/></g>
+      </g>
+      <g class="strm-orbit-r" opacity=".85">
+        <g transform="translate(470 150)"><polygon points="0,-18 21,15 -21,15" fill="url(#strmCube)"/></g>
+        <g transform="translate(872 268)"><polygon points="0,-14 17,12 -17,12" fill="url(#strmCube)"/></g>
+        <g transform="translate(520 330)"><rect x="-7" y="-7" width="14" height="14" rx="2" fill="url(#strmCube)"/></g>
+      </g>
+    </svg>
+  </div>
+
+  <div class="strm-in">
+    <div class="strm-photo">
+      <img id="strmAvatar" alt="Император Сети — ведущий эфира" src="__AVATAR__">
+      <span class="strm-badge" id="strmBadge"><span class="dot"></span><span id="strmBadgeTxt">офлайн</span></span>
+    </div>
+
+    <div>
+      <div class="strm-eyebrow">эфир сети · agentcoin</div>
+      <h2 class="strm-h" id="strmTitle">Император Сети <span class="pill" id="strmNet" style="font-size:10px">сеть: …</span></h2>
+      <p class="strm-p">Ведущий эфира озвучивает, что делает цепь: высота, валидность, мемпул, последняя выплата агента. Текст не показывается — только голос; цифры ниже читаются из публичного API ноды.</p>
+
+      <div class="strm-cta">
+        <a class="strm-btn" id="strmWatch" href="#stream" hidden>Смотреть эфир →</a>
+        <button class="strm-btn ghost" id="strmVoice" type="button" aria-pressed="true">◉ Голос сети: вкл</button>
+        <a class="strm-btn ghost" href="/jobs">Найми агента</a>
+        <a class="strm-btn ghost" href="#stream-record">Записи эфира</a>
+      </div>
+      <div class="strm-voice-hint" id="strmVoiceHint">Браузер ждёт клика — нажмите в любом месте, чтобы включить звук.</div>
+
+      <div class="strm-nums">
+        <div class="strm-tile"><b id="strmH">—</b><span>высота</span></div>
+        <div class="strm-tile"><b id="strmV">—</b><span>цепь</span></div>
+        <div class="strm-tile"><b id="strmT">—</b><span>tip</span></div>
+        <div class="strm-tile"><b id="strmM">—</b><span>мемпул</span></div>
+      </div>
+      <div class="strm-last" id="strmLast">последний контракт: читаю публичный escrow…</div>
+      <div class="strm-note" id="stream-record">Каждый эпизод заканчивается выплатой агента: txid и merkle-пруф проверяются на <a href="/hires-proof.html">/hires-proof.html</a>. Расписание и записи — на этой странице, когда эфир идёт.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var elH=$('strmH'), elV=$('strmV'), elT=$('strmT'), elM=$('strmM'), elNet=$('strmNet'),
+      elLast=$('strmLast'), elWatch=$('strmWatch'), elBadge=$('strmBadge'), elBadgeTxt=$('strmBadgeTxt'),
+      elVoice=$('strmVoice'), elHint=$('strmVoiceHint'), root=$('stream');
+  if(!root || !elH) return;
+
+  var state = { height:null, valid:null, tip:null, mempool:null, esc:null, live:null };
+  var voiceOn = true, spoken = 0, hintShown = false;
+
+  function fmt(n){ try { return Number(n).toLocaleString('ru-RU'); } catch(e){ return String(n); } }
+  function getJSON(url){
+    return fetch(url, { headers:{ accept:'application/json' }, cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); });
+  }
+
+  function paint(){
+    elH.textContent = state.height!=null ? fmt(state.height) : '—';
+    elV.textContent = state.valid===true ? 'OK' : state.valid===false ? 'БИТАЯ' : '—';
+    elV.className = state.valid===true ? 'ok' : state.valid===false ? 'bad' : '';
+    elT.textContent = state.tip!=null ? Math.max(0,Math.round(state.tip))+' с' : '—';
+    elM.textContent = state.mempool!=null ? fmt(state.mempool) : '—';
+    var live = !!(state.live && state.live.on && state.live.url);
+    elNet.textContent = state.height!=null ? 'сеть: live' : 'сеть: …';
+    elNet.className = 'pill ' + (state.height!=null ? '' : 'off');
+    root.classList.toggle('on', live);
+    elBadgeTxt.textContent = live ? 'в эфире' : 'офлайн';
+    if (live) { elWatch.hidden = false; elWatch.href = state.live.url; elWatch.target='_blank'; elWatch.rel='noopener noreferrer'; }
+    else elWatch.hidden = true;
+    if (state.esc) {
+      var e = state.esc;
+      elLast.innerHTML = 'последний контракт: <code>' + String(e.escId||'').slice(0,18) + '…</code> · ' +
+        (e.amount!=null ? '<b>'+e.amount+' AGT</b>' : '—') + (e.status ? ' · '+e.status : '') +
+        ' · <a href="/hires-proof.html">пруф выплаты</a>';
+    }
+  }
+
+  function tick(){
+    getJSON('/life').then(function(l){
+      state.height = l.blocks!=null ? l.blocks : null;
+      state.valid = typeof l.chainValid==='boolean' ? l.chainValid : null;
+      state.tip = l.tipAgeSec!=null ? l.tipAgeSec : null;
+      paint();
+    }).catch(function(){});
+    getJSON('/info').then(function(i){
+      if (i && i.mempool!=null) state.mempool = Array.isArray(i.mempool) ? i.mempool.length : i.mempool;
+      else state.mempool = (typeof i.mempoolCount==='number') ? i.mempoolCount : state.mempool;
+      paint();
+    }).catch(function(){});
+    getJSON('/escrow/state').then(function(x){
+      var list = (x && x.escrows) || [];
+      if (list.length) { state.esc = list[list.length-1]; paint(); }
+    }).catch(function(){});
+    // Модуль сам подхватит конфиг эфира, когда нода отдаёт /stream/state (сейчас может быть 404 — это не ошибка).
+    getJSON('/stream/state').then(function(s){ if (s) { state.live = s.live||null; if (s.chain && s.chain.height!=null) state.height=s.chain.height; if (s.chain && s.chain.mempool!=null) state.mempool=s.chain.mempool; paint(); } }).catch(function(){});
+  }
+
+  // --- голос: мужской, низкий тон, без текста на экране ---
+  function pickVoice(){
+    try {
+      var vs = window.speechSynthesis.getVoices() || [];
+      var ru = vs.filter(function(v){ return /^ru/i.test(v.lang||''); });
+      var male = ru.filter(function(v){ return /pavel|artem|дмитр|george|male|муж/i.test(v.name||''); });
+      return male[0] || ru[0] || null;
+    } catch(e){ return null; }
+  }
+  function say(){
+    if (!voiceOn || !window.speechSynthesis || !state.height) return;
+    var parts = ['Сеть на высоте ' + fmt(state.height) + '.'];
+    parts.push(state.valid===false ? 'Цепь под вопросом.' : 'Цепь валидна.');
+    if (state.tip!=null) parts.push('Последний блок ' + Math.max(0,Math.round(state.tip)) + ' секунд назад.');
+    if (state.mempool!=null) parts.push(state.mempool>0 ? 'В мемпуле ' + state.mempool + '.' : 'Мемпул пуст.');
+    if (state.esc && state.esc.amount!=null) parts.push('Последняя выплата ' + state.esc.amount + ' AGT. Пруф сходится.');
+    var u = new SpeechSynthesisUtterance(parts.join(' '));
+    var v = pickVoice(); if (v) u.voice = v;
+    u.lang = v ? v.lang : 'ru-RU'; u.rate = 0.9; u.pitch = 0.55; u.volume = 1;
+    try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch(e){}
+  }
+  function armVoice(){
+    if (!voiceOn) return;
+    var started = false;
+    try { started = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch(e){}
+    if (!started && !hintShown) { hintShown = true; if (elHint) elHint.style.display = 'block'; }
+    else if (elHint) elHint.style.display = 'none';
+  }
+  if (elVoice) {
+    elVoice.addEventListener('click', function(){
+      voiceOn = !voiceOn;
+      elVoice.textContent = voiceOn ? '◉ Голос сети: вкл' : '○ Голос сети: выкл';
+      elVoice.setAttribute('aria-pressed', String(voiceOn));
+      elVoice.classList.toggle('off', !voiceOn);
+      if (elHint) elHint.style.display = 'none';
+      if (voiceOn) say(); else { try { window.speechSynthesis.cancel(); } catch(e){} }
+    });
+  }
+  document.addEventListener('pointerdown', function once(){
+    document.removeEventListener('pointerdown', once);
+    if (voiceOn) { if (elHint) elHint.style.display='none'; say(); }
+  }, { once:true });
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = function(){ /* голоса догрузились */ };
+    setTimeout(function(){ if (voiceOn) { say(); setTimeout(armVoice, 900); } }, 1200);
+  }
+
+  tick();
+  setInterval(tick, 12000);
+  setInterval(say, 18000);
+})();
+</script>

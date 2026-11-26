@@ -35,7 +35,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';import { createSeedWallet, recoverFromMnemonic } from './bip39-lite.mjs';
 import { Blockchain, createWallet, signTransaction, verifyTransaction,
   CHAIN_ID, TICKER, MAX_SUPPLY, computeBlockHash, hashMeetsDifficulty,
-  validateBlockAgainstChain, txDigest, sha256d,
+  validateBlockAgainstChain, assumeValidHeight, txDigest, sha256d,
   // R-01/R-02: единая сеть + version-gate + read-only preflight поверхности
   networkChainId, txDigestV2Activation, chainNonceKeysOf, unitsOfAmountBigInt,
   isCanonicalAddress, escProofSchemaError, verifyTxAny, txSigningDigestV2,
@@ -330,7 +330,7 @@ setInterval(() => {
 }, LAG_PROBE_MS).unref();
 // 3) Щит-гейт: false = вернуть 503 при перегрузке. Ядровое (mine/tx/блоки) не режем —
 // консенсус важнее сервиса, иначе нода глохнет при собственном PoW-лаге.
-const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
+const CORE_PATH_RE = /^\/(mine|blocktemplate|block\/submit|tx|life|info|dashboard|health|headers|blocks|escrow\/state|dxe\/(book|orders|items|fills)|gov\/state|network\/nodes|site\/release|identity\/|cabinet\/|queue\/status|stats|stats-data|index|jobs|jobs\/state|ops\/watchdog\/state|tax\/state|passport\/count|cloud\/(stats|epochs)|community\/(feed|rules|pinned|send)|security\/(status|banlist|attacks)|imperial(\.html)?|buffy-ops(.html)?|buffy(\.html)?|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|get-agt(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|panel\.js|pool\/stats|jail(\.html)?|jail\/(state|patrol|inmate)|mbc20(\.html)?|mbc20\/(state|book)|cabinet(\.html)?|cabinet\/challenge)/;
 function overloaded(p) {
   return Date.now() < shedUntil && !CORE_PATH_RE.test(p);
 }
@@ -382,7 +382,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|stream\/state|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|stream\/state|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|get-agt(\.html)?|sim(\.html)?|mini\/?|dex(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -433,10 +433,14 @@ function nodeCodeIdentity() {
   nodeCodeIdCache = { release: NODE_RELEASE_VERSION, files };
   return nodeCodeIdCache;
 }
+const MINI_APP_URL = process.env.AGT_MINI_APP_URL || 'https://agentcoin.work/miner/mini/app';
 const SITE_PAGE_CONTENT_TYPE = (page) =>
   page.endsWith('.wasm') ? 'application/wasm' : (page.endsWith('.js') || page.endsWith('.mjs')) ? 'text/javascript; charset=utf-8'
   : page.endsWith('.webmanifest') ? 'application/manifest+json; charset=utf-8'
   :   page.endsWith('.css') ? 'text/css; charset=utf-8' : page.endsWith('.png') ? 'image/png'
+  : page.endsWith('.json') ? 'application/json; charset=utf-8'
+  : page.endsWith('.woff2') ? 'font/woff2'
+  : page.endsWith('.svg') ? 'image/svg+xml'
   : page.endsWith('.md') ? 'text/markdown; charset=utf-8'
   : page.endsWith('.zip') ? 'application/zip'
   : 'text/html; charset=utf-8';
@@ -544,7 +548,7 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
   // AGIP-37.LOCAL: админ-плоскость = x-admin-token ИЛИ (mode=local ∧ прямая петля ∧
   // без прокси-заголовков). Всё остальное — только белый список публичных маршрутов
   // (read-only + POST /tx: P2P-поверхность).
-  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js|assets\/tokens\/agt[.]png)$/;
+  const PUB_STATIC_RE = /^[/](?:skill\/[A-Za-z0-9_.-]+[.](?:md|zip)|agent(?:[.]html)?|mine(?:[.]html)?|wasm[/][A-Za-z0-9_.-]+[.](?:wasm|js)|js[/][A-Za-z0-9_./-]+[.]m?js|network-canvas[.]js|empire-dock[.]js|empire-i18n[.]js|cab-auth[.]js|user-wallet-format-lib[.]js|sim-[a-z]+[.]js|_next\/[A-Za-z0-9_./-]+\.(?:js|css|json|woff2?|svg|png|ico|txt)|assets\/tokens\/agt[.]png)$/;
 
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
@@ -3043,6 +3047,22 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
     return serveSitePage(res, 'shield.html');
   }
   if (p === '/docs' || p === '/docs.html') return serveSitePage(res, 'docs.html');
+  // Ассеты Next-экспорта (/mine, /index и др.): отдаём только известные расширения
+  // из каталога site/_next и без выхода за него. Без них страницы рендерятся голым HTML.
+  if (req.method === 'GET' && p.startsWith('/_next/') && !p.includes('..')
+    && /\/[A-Za-z0-9_./-]+\.(?:js|css|json|woff2?|svg|png|ico|txt)$/.test(p)) {
+    try { return serveSitePage(res, p.slice(1)); } catch { return json(res, 404, { error: 'not_found' }); }
+  }
+  if (p === '/get-agt' || p === '/get-agt.html') return serveSitePage(res, 'get-agt.html');
+  if (p === '/sim' || p === '/sim.html') return serveSitePage(res, 'sim.html');
+  if (p === '/dex' || p === '/dex.html') return serveSitePage(res, 'dex.html');
+  // Мини-приложение Miner Console живёт на основном хосте: это Telegram WebApp
+  // с абсолютным API agentcoin.work/api/v1. Здесь — только короткий вход /mini,
+  // чтобы ссылка была нашей и её можно было заменить на self-hosted без правок страниц.
+  if (p === '/mini' || p === '/mini/') {
+    res.writeHead(302, { Location: MINI_APP_URL, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   if (p === '/habitat' || p === '/habitat.html') return serveSitePage(res, 'habitat.html');
   if (p === '/atlas' || p === '/atlas.html') return serveSitePage(res, 'atlas.html');
   if (p === '/create-wallet' || p === '/create-wallet.html') return serveSitePage(res, 'create-wallet.html');
@@ -3129,6 +3149,16 @@ if (!isLocalBind) console.log(`[${new Date().toISOString()}] ВНИМАНИЕ: �
 if (AGT_ADMIN_MODE === 'local' && !process.env.AGT_ADMIN_TOKEN) console.log(`[agip-37] local-режим: кошелёк/админ доступны с прямой петли; для туннелей делай AGT_ADMIN_MODE=token`);
 server.maxConnections = 256; // OWASP DoS: лишние TCP-соединения отбрасываются
 server.on('drop', (info) => console.log(`[shield] connection dropped: ip ${info.remoteAddress}`));
+// AGT_ASSUME_VALID_HEIGHT: проверяем значение ДО приёма блоков, чтобы опечатка в env
+// не превратилась в тихое «валидируем всё» или, хуже, в отказ на каждом блоке.
+try {
+  const assumed = assumeValidHeight();
+  if (assumed !== Infinity) console.log(`[assume-valid] блоки ниже высоты ${assumed} принимаются по заголовку (merkle/подписи не перепроверяются); с ${assumed} — полная валидация`);
+} catch (e) {
+  console.error(String(e && e.message || e));
+  process.exit(1);
+}
+
 server.listen(PORT, BIND); // maxConnections капнут ниже (анти-overload: TCP за пределами порога отбрасывается)
 // Инцидент 2026-10-15: uncaughtException-guard ниже проглатывал EADDRINUSE —
 // дубликат ноды от watchdog-а логировал ошибку и ЖИЛ ВЕЧНО (18 зомби-процессов

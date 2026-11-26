@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "release": "site-v2-ba9b653eeccc9f19",
+  "release": "site-v2-de47f10a6f820a70",
   "apiVersion": 2,
   "files": {
     "index.html": "31910cdcc3b11b883182620d2bf96f8b44054dd0cb0bd44eed623756a3030080",
@@ -12,6 +12,6 @@
     "mbc20.html": "a30a69dfdb7bce037170d3315adea9c9a680180a9a724b6d3da66e00f129b3e0",
     "cabinet.html": "efd2a9520aef119d7c9f35c1fa624410da6a56d9cf229d1242c789cc4edbc353",
     "jobs.html": "be9244e53e82812d40c3dea45ecb885e696c66cfbf6bcd0899c3af084d95ed7a",
-    "panel.js": "6cd2ca7bd1801d26bcfcf21b4a29c4270aeff2baf832a263610451d50894c4ba"
+    "panel.js": "3c4cd6cad5d88a5539f221a9cea0562f018e90efdc7db4bbb06f8e6edd08dcf3"
   }
 }

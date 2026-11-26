@@ -1012,6 +1012,23 @@ export function isCanonicalAddress(a) { return typeof a === 'string' && ADDRESS_
 //  · replay-защиту: txid уже в цепи и повтор txid/(from,nonce) внутри блока;
 //  · ПОСЛЕДОВАТЕЛЬНУЮ бухгалтерию: баланс отправителя не уходит в минус
 //    ни на одном шаге внутри блока (double-spend в одном блоке невозможен).
+// AGT_ASSUME_VALID_HEIGHT=N: тела блоков ниже N считаются доверенными (по аналогии с
+// bitcoin assumevalid). Нужно, чтобы свежая нода могла догнать легаси-историю: у ранних
+// блоков merkle-корни и txid посчитаны старыми правилами и невосстанавливаемы из
+// отдаваемых данных (см. docs/SITE-ASSISTANT-01.md и инструкцию по ноде). Заголовок
+// такой высоты всё равно проверяется: prevHash, hash, PoW. Значение читается из
+// opts.assumeValidHeight или из env; невалидное значение — fail-closed (ошибка, а не
+// «доверяем всему»).
+export function assumeValidHeight(opts = {}) {
+  const raw = opts.assumeValidHeight !== undefined ? opts.assumeValidHeight : process.env.AGT_ASSUME_VALID_HEIGHT;
+  if (raw === undefined || raw === null || raw === '') return Infinity;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`AGT_ASSUME_VALID_HEIGHT_invalid: ${JSON.stringify(String(raw))} — ожидается целое >= 1`);
+  }
+  return n;
+}
+
 export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (!block || !block.header || !Array.isArray(block.txs)) return 'bad_block_shape';
   if (typeof block.height !== 'number' || block.height !== chain.length) return 'height_mismatch';
@@ -1020,6 +1037,11 @@ export function validateBlockAgainstChain(block, chain, opts = {}) {
   if (!prev || block.header.prevHash !== prev.hash) return 'prevHash_mismatch';
   if (computeBlockHash(block.header) !== block.hash) return 'hash_mismatch';
   if (!hashMeetsDifficulty(block.hash, block.header.difficultyBits)) return 'pow_fail';
+  // AGT_ASSUME_VALID_HEIGHT: ниже порога тело блока не перепроверяется — только
+  // заголовок выше (prevHash/hash/PoW). Это opt-in доверие к легаси-истории, а не
+  // ослабление консенсуса для новых блоков: начиная с порога валидация полная.
+  const assumed = assumeValidHeight(opts);
+  if (assumed !== Infinity && block.height < assumed) return null;
   if (block.header.difficultyBits !== expectedDifficultyBits(chain)) return 'difficulty_rule_violation';
   if (block.header.merkleRoot !== merkleRoot(block.txs)) return 'merkle_mismatch';
   const act = coreP0ActivationHeight(opts);

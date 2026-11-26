@@ -38,28 +38,21 @@ function rootRel(absPath) {
   return { rel: path.relative(srcDir, absPath) };
 }
 
-// staging-копия перекрывает одноимённый файл из src
-function preferStaged(absPath) {
-  const rel = path.relative(srcDir, absPath);
-  if (rel.startsWith('..')) return absPath;
-  const staged = path.join(stagingDir, rel);
-  return isFile(staged) ? staged : absPath;
-}
-
 // импортёр может лежать в staging, а цель — ещё в src (или наоборот), поэтому
-// ищем в обоих корнях по одному и тому же относительному пути
+// ищем в обоих корнях по одному и тому же относительному пути. Порядок корней
+// и есть приоритет: staging перекрывает одноимённый файл из src.
 function resolveSpec(importerAbs, spec) {
   const { rel } = rootRel(importerAbs);
   for (const root of [stagingDir, srcDir]) {
     const base = path.resolve(root, path.dirname(rel), spec);
     for (const cand of [base, `${base}.mjs`, `${base}.js`, path.join(base, 'index.mjs'), path.join(base, 'index.js')]) {
-      if (isFile(cand)) return preferStaged(cand);
+      if (isFile(cand)) return cand;
     }
   }
   return null;
 }
 
-const queue = listMjs(stagingDir).map(n => preferStaged(path.join(stagingDir, n)));
+const queue = listMjs(stagingDir).map(n => path.join(stagingDir, n));
 if (!queue.length) {
   console.error(`✗ в ${stagingDir} нет ни одного .mjs`);
   process.exit(2);

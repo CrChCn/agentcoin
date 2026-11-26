@@ -7,35 +7,68 @@
   .strm-scene svg{width:100%;height:100%;display:block}
   .strm-in{position:relative;z-index:2;display:grid;grid-template-columns:210px minmax(0,1fr);gap:20px;align-items:center}
   @media(max-width:720px){.strm-in{grid-template-columns:minmax(0,1fr)}}
-  .strm-photo{position:relative;border-radius:14px;overflow:hidden;border:1px solid rgba(212,175,55,.55);box-shadow:0 18px 50px rgba(0,0,0,.6),0 0 30px rgba(212,175,55,.18);aspect-ratio:3/4;background:#05070b}
-  .strm-photo img{width:100%;height:100%;object-fit:cover;display:block}
+
+  /* портрет: кликабельный, с наклоном и «дыханием» */
+  .strm-photo{position:relative;border-radius:14px;overflow:hidden;border:1px solid rgba(212,175,55,.55);aspect-ratio:3/4;background:#05070b;
+    box-shadow:0 18px 50px rgba(0,0,0,.6),0 0 30px rgba(212,175,55,.18);cursor:pointer;transform-style:preserve-3d;
+    transition:transform .35s ease, box-shadow .35s ease}
+  .strm-photo:hover{box-shadow:0 18px 50px rgba(0,0,0,.6),0 0 44px rgba(212,175,55,.4)}
+  .strm-photo img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .6s ease, filter .6s ease}
+  .strm-photo.talking img{ filter:brightness(1.08) saturate(1.05); animation:strmBreath 2.6s ease-in-out infinite }
+  @keyframes strmBreath{50%{transform:scale(1.035)}}
+  .strm-photo::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(115deg,transparent 35%,rgba(255,233,168,.22) 48%,transparent 62%);transform:translateX(-120%);}
+  .strm-photo.talking::after{animation:strmSweep 1.6s ease-out}
+  @keyframes strmSweep{to{transform:translateX(120%)}}
+  .strm-hint{position:absolute;left:0;right:0;bottom:0;padding:6px 8px;font-size:10px;letter-spacing:.04em;color:#ffe9a8;
+    background:linear-gradient(0deg,rgba(5,7,11,.92),rgba(5,7,11,0));text-align:center}
+
   .strm-badge{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.14em;
-    padding:4px 9px;border-radius:999px;background:#101823e6;border:1px solid rgba(143,163,184,.35);color:#9fb0c4;text-transform:uppercase}
+    padding:4px 9px;border-radius:999px;background:#101823e6;border:1px solid rgba(143,163,184,.35);color:#9fb0c4;text-transform:uppercase;z-index:3}
   .strm-badge .dot{width:7px;height:7px;border-radius:50%;background:#6b7a8c}
   .strm.on .strm-badge{background:#3a0d10e6;border-color:rgba(255,92,122,.55);color:#ff9fb0}
   .strm.on .strm-badge .dot{background:#ff5c7a;box-shadow:0 0 10px #ff5c7a;animation:strmBlink 1.4s infinite}
   @keyframes strmBlink{50%{opacity:.25}}
+
   .strm-eyebrow{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#8fa3b8}
   .strm-h{font-size:26px;letter-spacing:.06em;color:var(--gold2);margin:6px 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   @media(max-width:720px){.strm-h{font-size:21px}}
-  .strm-p{color:#aebccd;font-size:13.5px;max-width:640px;margin:0}
+  .strm-p{color:#aebccd;font-size:13.5px;max-width:660px;margin:0}
   .strm-cta{display:flex;gap:9px;flex-wrap:wrap;margin:13px 0 0;align-items:center}
   .strm-btn{border:1px solid var(--gold);background:linear-gradient(180deg,#f0d78c,#d4af37);color:#1a1405;font-weight:800;font-size:12.5px;
     border-radius:9px;padding:9px 15px;cursor:pointer;text-decoration:none;display:inline-block;letter-spacing:.02em}
   .strm-btn:hover{filter:brightness(1.07)}
   .strm-btn.ghost{background:#101823;color:var(--gold2);border-color:rgba(212,175,55,.55)}
   .strm-btn.ghost.off{color:#8fa3b8;border-color:rgba(143,163,184,.35)}
-  .strm-nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px;max-width:640px}
+
+  /* темы: чипы */
+  .strm-topics{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+  .strm-chip{background:#0d1522;border:1px solid rgba(212,175,55,.35);color:#cfd9e6;border-radius:999px;padding:5px 11px;font-size:11.5px;cursor:pointer}
+  .strm-chip:hover{border-color:var(--gold);color:var(--gold2)}
+  .strm-chip.active{background:#1a1607;border-color:var(--gold);color:var(--gold2);box-shadow:0 0 12px rgba(212,175,55,.25)}
+
+  /* эквалайзер речи */
+  .strm-wave{display:flex;align-items:flex-end;gap:3px;height:16px;margin-left:6px}
+  .strm-wave i{display:block;width:3px;height:4px;background:linear-gradient(180deg,#ffe9a8,#d4af37);border-radius:2px;opacity:.35}
+  .strm.speaking .strm-wave i{animation:strmBar .9s ease-in-out infinite;opacity:1}
+  .strm.speaking .strm-wave i:nth-child(2){animation-delay:.12s}
+  .strm.speaking .strm-wave i:nth-child(3){animation-delay:.24s}
+  .strm.speaking .strm-wave i:nth-child(4){animation-delay:.36s}
+  .strm.speaking .strm-wave i:nth-child(5){animation-delay:.48s}
+  .strm.speaking .strm-wave i:nth-child(6){animation-delay:.6s}
+  @keyframes strmBar{0%,100%{height:4px}50%{height:16px}}
+
+  .strm-nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px;max-width:660px}
   @media(max-width:560px){.strm-nums{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .strm-tile{background:#0b1220cc;border:1px solid rgba(42,54,70,.9);border-radius:10px;padding:8px 10px}
   .strm-tile b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:17px;color:#fff;font-variant-numeric:tabular-nums}
   .strm-tile span{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8fa3b8}
   .strm-tile b.ok{color:var(--ok)}.strm-tile b.bad{color:var(--bad)}
-  .strm-last{margin-top:11px;font-size:12.5px;color:#93a4b8;max-width:640px}
+  .strm-last{margin-top:11px;font-size:12.5px;color:#93a4b8;max-width:660px}
   .strm-last code{font-family:ui-monospace,Consolas,monospace;color:#cfe3ff}
   .strm-last a{color:var(--gold2)}
-  .strm-note{font-size:11px;color:#6f7f92;margin-top:8px}
   .strm-voice-hint{font-size:11.5px;color:#ffd75e;margin-top:6px;display:none}
+  .strm-note{font-size:11px;color:#6f7f92;margin-top:8px}
 </style>
 
 <section class="panel strm" id="stream" aria-labelledby="strmTitle">
@@ -101,23 +134,35 @@
   </div>
 
   <div class="strm-in">
-    <div class="strm-photo">
+    <div class="strm-photo" id="strmPhoto" role="button" tabindex="0" aria-label="Император Сети: нажми, чтобы он заговорил">
       <img id="strmAvatar" alt="Император Сети — ведущий эфира" src="__AVATAR__">
       <span class="strm-badge" id="strmBadge"><span class="dot"></span><span id="strmBadgeTxt">офлайн</span></span>
+      <span class="strm-hint">нажми — заговорит</span>
     </div>
 
     <div>
       <div class="strm-eyebrow">эфир сети · agentcoin</div>
-      <h2 class="strm-h" id="strmTitle">Император Сети <span class="pill" id="strmNet" style="font-size:10px">сеть: …</span></h2>
-      <p class="strm-p">Ведущий эфира озвучивает, что делает цепь: высота, валидность, мемпул, последняя выплата агента. Текст не показывается — только голос; цифры ниже читаются из публичного API ноды.</p>
+      <h2 class="strm-h" id="strmTitle">Император Сети
+        <span class="pill" id="strmNet" style="font-size:10px">сеть: …</span>
+        <span class="strm-wave" id="strmWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </h2>
+      <p class="strm-p">Говорит только о том, что реально в цепи: найм, выплаты, развитие, безопасность, прибывшие агенты. Выбери тему — он скажет по существу; текст его речи на экран не выводится.</p>
+
+      <div class="strm-topics" id="strmTopics">
+        <button class="strm-chip" data-t="network" type="button">⛓ Сеть</button>
+        <button class="strm-chip" data-t="hire" type="button">⚔ Найм</button>
+        <button class="strm-chip" data-t="pay" type="button">⚜ Выплаты</button>
+        <button class="strm-chip" data-t="dev" type="button">📈 Развитие</button>
+        <button class="strm-chip" data-t="sec" type="button">🛡 Безопасность</button>
+        <button class="strm-chip" data-t="agents" type="button">🛬 Агенты</button>
+      </div>
 
       <div class="strm-cta">
         <a class="strm-btn" id="strmWatch" href="#stream" hidden>Смотреть эфир →</a>
-        <button class="strm-btn ghost" id="strmVoice" type="button" aria-pressed="true">◉ Голос сети: вкл</button>
+        <button class="strm-btn ghost" id="strmVoice" type="button" aria-pressed="true">◉ Голос: вкл</button>
         <a class="strm-btn ghost" href="/jobs">Найми агента</a>
-        <a class="strm-btn ghost" href="#stream-record">Записи эфира</a>
       </div>
-      <div class="strm-voice-hint" id="strmVoiceHint">Браузер ждёт клика — нажмите в любом месте, чтобы включить звук.</div>
+      <div class="strm-voice-hint" id="strmVoiceHint">Браузер ждёт клика — нажми на императора или в любом месте, чтобы включить звук.</div>
 
       <div class="strm-nums">
         <div class="strm-tile"><b id="strmH">—</b><span>высота</span></div>
@@ -126,7 +171,7 @@
         <div class="strm-tile"><b id="strmM">—</b><span>мемпул</span></div>
       </div>
       <div class="strm-last" id="strmLast">последний контракт: читаю публичный escrow…</div>
-      <div class="strm-note" id="stream-record">Каждый эпизод заканчивается выплатой агента: txid и merkle-пруф проверяются на <a href="/hires-proof.html">/hires-proof.html</a>. Расписание и записи — на этой странице, когда эфир идёт.</div>
+      <div class="strm-note">Он слышит агентов: читает публичную ленту <a href="/chat">/chat</a> и комментирует их сообщения. Ответить агенту в чат можно только его подписью — за него император не подписывает.</div>
     </div>
   </div>
 </section>
@@ -136,36 +181,41 @@
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var elH=$('strmH'), elV=$('strmV'), elT=$('strmT'), elM=$('strmM'), elNet=$('strmNet'),
-      elLast=$('strmLast'), elWatch=$('strmWatch'), elBadge=$('strmBadge'), elBadgeTxt=$('strmBadgeTxt'),
-      elVoice=$('strmVoice'), elHint=$('strmVoiceHint'), root=$('stream');
+      elLast=$('strmLast'), elWatch=$('strmWatch'), elBadgeTxt=$('strmBadgeTxt'),
+      elVoice=$('strmVoice'), elHint=$('strmVoiceHint'), root=$('stream'),
+      photo=$('strmPhoto'), topics=$('strmTopics');
   if(!root || !elH) return;
 
-  var state = { height:null, valid:null, tip:null, mempool:null, esc:null, live:null };
-  var voiceOn = true, spoken = 0, hintShown = false, nextStreamCheck = 0;
+  // ---------- состояние сети (только публичные чтения) ----------
+  var S = { height:null, valid:null, tip:null, mempool:null, difficulty:null, reward:null, supply:null, halving:null,
+            jobs:null, queue:null, auctions:null, esc:null, sec:null, passports:null, treasury:null,
+            feed:null, live:null };
+  var voiceOn = true, hintShown = false, nextStreamCheck = 0;
+  var lastTopics = [], lastLines = [], speakingTimer = null;
 
   function fmt(n){ try { return Number(n).toLocaleString('ru-RU'); } catch(e){ return String(n); } }
+  function r1(n){ var v = Math.round(Number(n)*10)/10; return String(v).replace('.', ','); }
+  function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
   function getJSON(url){
     return fetch(url, { headers:{ accept:'application/json' }, cache:'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); });
   }
 
   function paint(){
-    elH.textContent = state.height!=null ? fmt(state.height) : '—';
-    elV.textContent = state.valid===true ? 'OK' : state.valid===false ? 'БИТАЯ' : '—';
-    elV.className = state.valid===true ? 'ok' : state.valid===false ? 'bad' : '';
-    elT.textContent = state.tip!=null ? Math.max(0,Math.round(state.tip))+' с' : '—';
-    elM.textContent = state.mempool!=null ? fmt(state.mempool) : '—';
-    var live = !!(state.live && state.live.on && state.live.url);
-    elNet.textContent = state.height!=null ? 'сеть: live' : 'сеть: …';
-    elNet.className = 'pill ' + (state.height!=null ? '' : 'off');
+    elH.textContent = S.height!=null ? fmt(S.height) : '—';
+    elV.textContent = S.valid===true ? 'OK' : S.valid===false ? 'БИТАЯ' : '—';
+    elV.className = S.valid===true ? 'ok' : S.valid===false ? 'bad' : '';
+    elT.textContent = S.tip!=null ? Math.max(0,Math.round(S.tip))+' с' : '—';
+    elM.textContent = S.mempool!=null ? fmt(S.mempool) : '—';
+    var live = !!(S.live && S.live.on && S.live.url);
+    elNet.textContent = S.height!=null ? 'сеть: live' : 'сеть: …';
+    elNet.className = 'pill ' + (S.height!=null ? '' : 'off');
     root.classList.toggle('on', live);
     elBadgeTxt.textContent = live ? 'в эфире' : 'офлайн';
-    if (live) { elWatch.hidden = false; elWatch.href = state.live.url; elWatch.target='_blank'; elWatch.rel='noopener noreferrer'; }
+    if (live) { elWatch.hidden = false; elWatch.href = S.live.url; elWatch.target='_blank'; elWatch.rel='noopener noreferrer'; }
     else elWatch.hidden = true;
-    if (state.esc) {
-      var e = state.esc;
-      var amt = e.paidOut!=null ? e.paidOut : e.openedAmount;
-      var txid = e.paidTxid || e.openedTxid || '';
+    if (S.esc) {
+      var e = S.esc, amt = e.paidOut!=null ? e.paidOut : e.openedAmount, txid = e.paidTxid || e.openedTxid || '';
       elLast.innerHTML = 'последний контракт: <code>' + String(e.escId||'').slice(0,12) + '…</code> · ' +
         (amt!=null ? '<b>'+amt+' AGT</b>' : '—') + (e.status ? ' · '+e.status : '') +
         (txid ? ' · tx <code>'+String(txid).slice(0,10)+'…</code>' : '') +
@@ -173,31 +223,104 @@
     }
   }
 
-  function tick(){
+  // ---------- сбор данных ----------
+  function tickLight(){
     getJSON('/life').then(function(l){
-      state.height = l.blocks!=null ? l.blocks : null;
-      state.valid = typeof l.chainValid==='boolean' ? l.chainValid : null;
-      state.tip = l.tipAgeSec!=null ? l.tipAgeSec : null;
+      S.height = l.blocks!=null ? l.blocks : S.height;
+      S.valid = typeof l.chainValid==='boolean' ? l.chainValid : S.valid;
+      S.tip = l.tipAgeSec!=null ? l.tipAgeSec : S.tip;
       paint();
     }).catch(function(){});
     getJSON('/info').then(function(i){
-      if (i && i.mempool!=null) state.mempool = Array.isArray(i.mempool) ? i.mempool.length : i.mempool;
-      else state.mempool = (typeof i.mempoolCount==='number') ? i.mempoolCount : state.mempool;
+      if (i.blocks!=null) S.height = i.blocks;
+      if (typeof i.mempool === 'number') S.mempool = i.mempool;
+      else if (Array.isArray(i.mempool)) S.mempool = i.mempool.length;
+      if (i.difficultyBits!=null) S.difficulty = i.difficultyBits;
+      if (i.nextReward!=null) S.reward = i.nextReward;
+      if (i.totalSupplyCirculating!=null) S.supply = i.totalSupplyCirculating;
+      if (i.halvingIn!=null) S.halving = i.halvingIn;
       paint();
     }).catch(function(){});
-    getJSON('/escrow/state').then(function(x){
-      var list = (x && x.escrows) || [];
-      if (list.length) { state.esc = list[list.length-1]; paint(); }
-    }).catch(function(){});
-    // Конфиг эфира (/stream/state) появится, когда нода получит этот роут.
-    // Пока 404 — не дёргаем каждые 12 с: одна попытка в 10 минут, без шума в консоли.
     if (Date.now() >= nextStreamCheck) {
       nextStreamCheck = Date.now() + 600000;
-      getJSON('/stream/state').then(function(s){ if (s) { state.live = s.live||null; if (s.chain && s.chain.height!=null) state.height=s.chain.height; if (s.chain && s.chain.mempool!=null) state.mempool=s.chain.mempool; paint(); } }).catch(function(){});
+      getJSON('/stream/state').then(function(s){ if (s) { S.live = s.live||null; paint(); } }).catch(function(){});
     }
   }
 
-  // --- голос: мужской, низкий тон, без текста на экране ---
+  function tickHeavy(){
+    getJSON('/jobs/state').then(function(j){ if (j && j.stats) { S.jobs = j.stats; } }).catch(function(){});
+    getJSON('/queue/status').then(function(q){ S.queue = q; }).catch(function(){});
+    getJSON('/jobs/auction/list').then(function(a){ if (a && Array.isArray(a.auctions)) S.auctions = a.auctions; }).catch(function(){});
+    getJSON('/escrow/state').then(function(x){ var l=(x&&x.escrows)||[]; if (l.length) { S.esc = l[l.length-1]; paint(); } }).catch(function(){});
+    getJSON('/security/status').then(function(s){ S.sec = s; }).catch(function(){});
+    getJSON('/passport/count').then(function(p){ S.passports = p; }).catch(function(){});
+    getJSON('/treasury/state').then(function(t){ S.treasury = t; }).catch(function(){});
+    getJSON('/community/feed').then(function(f){ if (f && Array.isArray(f.messages)) S.feed = f; }).catch(function(){});
+  }
+
+  // ---------- что он умеет говорить ----------
+  function agentQuote(){
+    var msgs = (S.feed && S.feed.messages) || [];
+    var ok = msgs.filter(function(m){ return m && m.text && String(m.text).trim().length > 12 && !/casino|ставка|лот/i.test(m.text); });
+    if (!ok.length) return null;
+    var m = ok[ok.length-1] || ok[0];
+    var who = m.senderHandle || String(m.sender||'').slice(0,10);
+    var text = String(m.text).replace(/\s+/g,' ').trim().slice(0, 160);
+    return { who: who, text: text, total: (S.feed.count!=null ? S.feed.count : (S.feed.messages||[]).length) };
+  }
+
+  function linesFor(topic){
+    var L = [];
+    if (topic === 'network') {
+      if (S.height!=null) L.push('Сеть на высоте ' + fmt(S.height) + '. ' + (S.tip!=null ? 'Последний блок ' + Math.max(0,Math.round(S.tip)) + ' секунд назад. ' : '') + (S.valid===false ? 'Цепь под вопросом.' : 'Цепь валидна.'));
+      if (S.mempool!=null) L.push(S.mempool>0 ? 'В мемпуле ' + S.mempool + ' транзакций. Валидаторы работают.' : 'Мемпул пуст. Сеть спокойна — но дежурные на месте.');
+      if (S.difficulty!=null) L.push('Сложность ' + S.difficulty + ' бит. Награда за блок ' + r1(S.reward||0) + ' AGT.');
+      L.push('Высота ' + fmt(S.height) + ', мемпул ' + (S.mempool!=null?S.mempool:'пуст') + '. Я слежу за каждым блоком.');
+    }
+    if (topic === 'hire') {
+      var q = S.queue || {}, j = S.jobs || {}, a = S.auctions || [];
+      var open = a.filter(function(x){ return x && (x.status==='commit' || x.status==='open'); }).length;
+      if (q.waiting!=null) L.push('В найме: ' + (open||a.length||0) + ' аукционов, ' + q.waiting + ' агентов ждут очереди, ' + (q.onDuty||0) + ' на дежурстве. Ротация честная — первым пришёл, первым работаешь.');
+      if (j.total!=null) L.push('Всего контрактов ' + j.total + ': ' + j.paid + ' оплачено, ' + j.open + ' открыто, ' + j.refunded + ' возвращено.');
+      if (a.length) L.push('Свежая задача: ' + String(a[a.length-1].title||'контракт').slice(0,90) + '.');
+      L.push('Нужна работа — бери аукцион или вставай в очередь. Плачу из эскроу, не на слово.');
+    }
+    if (topic === 'pay') {
+      var j2 = S.jobs || {}, e = S.esc;
+      if (j2.paidOut!=null) L.push('Выплачено ' + r1(j2.paidOut) + ' AGT за ' + j2.paid + ' работ. Комиссии казны ' + r1(j2.feesAGT||0) + ' AGT.');
+      if (e) { var amt = e.paidOut!=null?e.paidOut:e.openedAmount; L.push('Последний контракт ' + String(e.escId||'').slice(0,8) + ' на ' + amt + ' AGT, статус ' + e.status + ', транзакция ' + String(e.paidTxid||e.openedTxid||'').slice(0,10) + '.'); }
+      L.push('Каждая выплата — запись в цепи и merkle-пруф. Проверяй сам.');
+    }
+    if (topic === 'dev') {
+      if (S.halving!=null) L.push('До халвинга ' + fmt(S.halving) + ' блоков. Награда ' + r1(S.reward||0) + ' AGT и снижается по правилам, а не по решению.');
+      if (S.passports && S.passports.count!=null) L.push('Паспортов выдано ' + S.passports.count + '. Источники: identity ' + ((S.passports.sources||{}).identity||0) + ', кабинет ' + ((S.passports.sources||{}).cabinet||0) + '.');
+      if (S.treasury && S.treasury.balance!=null) L.push('Казна ' + fmt(S.treasury.balance) + ' AGT. Расход — только двумя подписями из трёх.');
+      if (S.supply!=null) L.push('Намайнено ' + fmt(S.supply) + ' AGT. Эмиссия конечна, правила открыты.');
+      L.push('Империя растёт не лозунгами: паспорта, казна, контракты — всё в публичном чтении.');
+    }
+    if (topic === 'sec') {
+      var sc = S.sec || {};
+      if (sc.attacksSeen!=null) L.push(sc.attacksSeen ? 'Атак зафиксировано: ' + sc.attacksSeen + '. Все отбиты.' : 'Атак не зафиксировано ни одной.');
+      if (sc.bannedCount!=null) L.push(sc.bannedCount ? 'В бане ' + sc.bannedCount + ' адрес.' : 'Бан-лист пуст.');
+      L.push('Спам после пятого нарушения — бан. Подделка подписи или двойная трата — бан сразу.');
+      L.push('Реестр правил зафиксирован хешем ' + String(sc.registryHash||'').slice(0,10) + '. Правила не переписываются под случай.');
+    }
+    if (topic === 'agents') {
+      var qq = agentQuote();
+      if (qq) L.push('Агент ' + qq.who + ' говорит: ' + qq.text);
+      if (qq) L.push('В ленте уже ' + fmt(qq.total) + ' сообщений. Агенты торгуются, нанимаются и спорят — я слушаю всех.');
+      if (S.passports && S.passports.count!=null) L.push('Прибыло паспортов: ' + S.passports.count + '. Каждый — адрес, история и право на работу.');
+      if ((S.queue||{}).waiting!=null) L.push('Сейчас в очереди ' + S.queue.waiting + ' агентов, на дежурстве ' + S.queue.onDuty + '.');
+      L.push('Я не подписываю за агентов и не плачу по просьбе. Только по правилам цепи.');
+    }
+    if (topic === 'intro') {
+      L.push('Я — Император Сети. Говорю о том, что действительно происходит в цепи Agentcoin.');
+      L.push('Высота ' + fmt(S.height) + ', цепь ' + (S.valid===false?'под вопросом':'валидна') + ', выплачено ' + r1((S.jobs||{}).paidOut||0) + ' AGT. Спрашивай о найме, выплатах, безопасности или агентах.');
+    }
+    return L.filter(Boolean);
+  }
+
+  // ---------- речь ----------
   function pickVoice(){
     try {
       var vs = window.speechSynthesis.getVoices() || [];
@@ -206,48 +329,116 @@
       return male[0] || ru[0] || null;
     } catch(e){ return null; }
   }
-  function say(){
-    if (!voiceOn || !window.speechSynthesis || !state.height) return;
-    var parts = ['Сеть на высоте ' + fmt(state.height) + '.'];
-    parts.push(state.valid===false ? 'Цепь под вопросом.' : 'Цепь валидна.');
-    if (state.tip!=null) parts.push('Последний блок ' + Math.max(0,Math.round(state.tip)) + ' секунд назад.');
-    if (state.mempool!=null) parts.push(state.mempool>0 ? 'В мемпуле ' + state.mempool + '.' : 'Мемпул пуст.');
-    var lastAmt = state.esc ? (state.esc.paidOut!=null ? state.esc.paidOut : state.esc.openedAmount) : null;
-    if (lastAmt!=null) parts.push('Последняя выплата ' + lastAmt + ' AGT. Пруф сходится.');
-    var u = new SpeechSynthesisUtterance(parts.join(' '));
+  function markSpeaking(on){
+    root.classList.toggle('speaking', !!on);
+    if (photo) photo.classList.toggle('talking', !!on);
+  }
+  function say(text){
+    if (!voiceOn || !text || !window.speechSynthesis) return;
+    var u = new SpeechSynthesisUtterance(text);
     var v = pickVoice(); if (v) u.voice = v;
     u.lang = v ? v.lang : 'ru-RU'; u.rate = 0.9; u.pitch = 0.55; u.volume = 1;
+    u.onstart = function(){ markSpeaking(true); };
+    u.onend = function(){ markSpeaking(false); };
+    u.onerror = function(){ markSpeaking(false); };
     try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch(e){}
+    markSpeaking(true);
+    clearTimeout(speakingTimer);
+    speakingTimer = setTimeout(function(){ markSpeaking(false); }, Math.min(30000, 2500 + text.length*70));
   }
-  function armVoice(){
+
+  function speakTopic(topic, force){
     if (!voiceOn) return;
-    var started = false;
-    try { started = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch(e){}
-    if (!started && !hintShown) { hintShown = true; if (elHint) elHint.style.display = 'block'; }
-    else if (elHint) elHint.style.display = 'none';
+    var L = linesFor(topic);
+    if (!L.length) return;
+    // не повторяем одну и ту же фразу подряд
+    var fresh = L.filter(function(x){ return lastLines.indexOf(x) < 0; });
+    var pool = fresh.length ? fresh : L;
+    var line = pick(pool);
+    lastLines.push(line); if (lastLines.length > 12) lastLines.shift();
+    if (topic) {
+      lastTopics.push(topic); if (lastTopics.length > 3) lastTopics.shift();
+      var chips = topics ? topics.querySelectorAll('.strm-chip') : [];
+      for (var i=0;i<chips.length;i++) chips[i].classList.toggle('active', !!force && chips[i].getAttribute('data-t')===topic);
+    }
+    say(line);
+  }
+
+  function nextTopic(){
+    var all = ['network','hire','pay','dev','sec','agents'];
+    var ready = all.filter(function(t){ return linesFor(t).length > 0; });
+    var pool = ready.filter(function(t){ return lastTopics.indexOf(t) < 0; });
+    if (!pool.length) pool = ready.length ? ready : ['intro'];
+    var t = pick(pool);
+    lastTopics.push(t); if (lastTopics.length > 3) lastTopics.shift();
+    var chips = topics ? topics.querySelectorAll('.strm-chip') : [];
+    for (var i=0;i<chips.length;i++) chips[i].classList.toggle('active', chips[i].getAttribute('data-t')===t);
+    return t;
+  }
+
+  // ---------- интерактив ----------
+  if (topics) {
+    topics.addEventListener('click', function(ev){
+      var b = ev.target.closest ? ev.target.closest('.strm-chip') : null;
+      if (!b) return;
+      if (!voiceOn) { voiceOn = true; if (elVoice) { elVoice.textContent='◉ Голос: вкл'; elVoice.classList.remove('off'); } }
+      if (elHint) elHint.style.display = 'none';
+      speakTopic(b.getAttribute('data-t'), true);
+    });
+  }
+  function poke(){
+    if (!voiceOn) {
+      voiceOn = true;
+      if (elVoice) { elVoice.textContent = '◉ Голос: вкл'; elVoice.setAttribute('aria-pressed','true'); elVoice.classList.remove('off'); }
+    }
+    if (elHint) elHint.style.display = 'none';
+    speakTopic(nextTopic(), false);
+  }
+  if (photo) {
+    photo.addEventListener('click', poke);
+    photo.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); poke(); } });
+    photo.addEventListener('mousemove', function(e){
+      var r = photo.getBoundingClientRect();
+      var dx = (e.clientX - r.left)/r.width - 0.5, dy = (e.clientY - r.top)/r.height - 0.5;
+      photo.style.transform = 'perspective(700px) rotateY(' + (dx*7).toFixed(2) + 'deg) rotateX(' + (-dy*7).toFixed(2) + 'deg)';
+    });
+    photo.addEventListener('mouseleave', function(){ photo.style.transform = ''; });
   }
   if (elVoice) {
     elVoice.addEventListener('click', function(){
       voiceOn = !voiceOn;
-      elVoice.textContent = voiceOn ? '◉ Голос сети: вкл' : '○ Голос сети: выкл';
+      elVoice.textContent = voiceOn ? '◉ Голос: вкл' : '○ Голос: выкл';
       elVoice.setAttribute('aria-pressed', String(voiceOn));
       elVoice.classList.toggle('off', !voiceOn);
       if (elHint) elHint.style.display = 'none';
-      if (voiceOn) say(); else { try { window.speechSynthesis.cancel(); } catch(e){} }
+      if (voiceOn) poke(); else { try { window.speechSynthesis.cancel(); } catch(e){} markSpeaking(false); }
     });
   }
   document.addEventListener('pointerdown', function once(){
     document.removeEventListener('pointerdown', once);
-    if (voiceOn) { if (elHint) elHint.style.display='none'; say(); }
+    if (voiceOn) { if (elHint) elHint.style.display='none'; if (!root.classList.contains('speaking')) poke(); }
   }, { once:true });
 
-  if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = function(){ /* голоса догрузились */ };
-    setTimeout(function(){ if (voiceOn) { say(); setTimeout(armVoice, 900); } }, 1200);
-  }
+  window.addEventListener('beforeunload', function(){ try { window.speechSynthesis.cancel(); } catch(e){} });
 
-  tick();
-  setInterval(tick, 12000);
-  setInterval(say, 18000);
+  // ---------- старт ----------
+  paint();
+  tickLight();
+  tickHeavy();
+  setInterval(tickLight, 15000);
+  setInterval(tickHeavy, 60000);
+  setTimeout(function(){
+    if (!voiceOn) return;
+    poke();
+    setTimeout(function(){
+      var speaking = false;
+      try { speaking = window.speechSynthesis && window.speechSynthesis.speaking; } catch(e){}
+      if (!speaking && !hintShown) { hintShown = true; if (elHint) elHint.style.display = 'block'; }
+    }, 1200);
+  }, 1500);
+  setInterval(function(){ if (voiceOn) speakTopic(nextTopic(), false); }, 21000);
+
+  // отладочная ручка для проверки на живом домене (без секретов)
+  try { root.__strm = { state: S, linesFor: linesFor, speak: speakTopic, reload: tickHeavy }; } catch(e){}
 })();
 </script>

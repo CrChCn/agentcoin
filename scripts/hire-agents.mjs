@@ -209,8 +209,8 @@ function taskPool(f) {
 async function newAgents(n, ledger) {
   const last = (ledger.newcomers || []).at(-1);
   if (last && Date.now() - Date.parse(last.at) < NEW_AGENT_GAP_HOURS * 3600_000) {
-    const next = new Date(Date.parse(last.at) + NEW_AGENT_GAP_HOURS * 3600_000).toISOString().slice(11, 16);
-    console.log(`⏸ новичков не заводим: последний ${String(last.at).slice(11, 16)}Z, следующий после ${next}Z`);
+    const next = new Date(Date.parse(last.at) + NEW_AGENT_GAP_HOURS * 3600_000).toISOString().slice(0, 16);
+    console.log(`⏸ новичков не заводим: последний ${String(last.at).slice(0, 16)}Z, следующий после ${next}Z`);
     return [];
   }
   const wallets = readJson(WALLETS_FILE);

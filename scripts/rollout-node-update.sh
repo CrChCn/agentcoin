@@ -69,9 +69,14 @@ wait_alive() {
   return 1
 }
 
+# node уже обязателен скрипту — им и разбираем /life, без зависимости от python3
 report_life() {
-  curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" 2>/dev/null | python3 -c \
-    "import json,sys; d=json.load(sys.stdin); print('blocks:',d['blocks'],'| tip:',str(d['tipHash'])[:16],'| age:',d['tipAgeSec'],'| fresh:',d['fresh'],'| valid:',d['chainValid'])"
+  curl -fsS -m 10 "http://127.0.0.1:${PORT}/life" 2>/dev/null | "$NODE_BIN" -e '
+    let s = "";
+    process.stdin.on("data", d => { s += d; }).on("end", () => {
+      const d = JSON.parse(s);
+      console.log("blocks:", d.blocks, "| tip:", String(d.tipHash).slice(0, 16), "| age:", d.tipAgeSec, "| fresh:", d.fresh, "| valid:", d.chainValid);
+    });'
 }
 
 if [ "${ROLLBACK:-0}" = "1" ]; then

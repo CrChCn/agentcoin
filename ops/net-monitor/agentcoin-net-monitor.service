@@ -1,0 +1,13 @@
+[Unit]
+Description=Agentcoin network monitor poll (oneshot, Telegram alerts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/agentcoin-node/ops/net-monitor
+ExecStart=/usr/local/bin/node /opt/agentcoin-node/ops/net-monitor/net-monitor.mjs
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Agentcoin network monitor every 3 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+AccuracySec=30s
+Unit=agentcoin-net-monitor.service
+
+[Install]
+WantedBy=timers.target

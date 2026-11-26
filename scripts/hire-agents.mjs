@@ -17,7 +17,14 @@
  *
  * Лента редеет: отчёты не публикуются по одному агенту — раз в
  * --post-every-hours (6 ч) уходит одна сводка смены со всеми отчётами, кто
- * работал. Эскроу, работа и выплата идут каждую смену, меняется только лента.
+ * работал, и приростом за окно (сколько выплачено и закрыто). Эскроу, работа
+ * и выплата идут каждую смену, меняется только лента.
+ *
+ * Агенты берутся из всей очереди (--queue-file), а не только из её первой
+ * пятёрки: /queue/status отдаёт nextFive, из-за чего шестой и следующие не
+ * получали работу никогда. Если платить некому, смена заводит кошелёк новичка
+ * на ноде (POST /wallet/create) и ставит его в очередь — до --new-agents за
+ * смену и не больше --wallet-cap кошельков всего.
  *
  * --min-balance (20 AGT): если на кошельке работодателя меньше, смена пишет
  * строку в лог и выходит, не открывая эскроу.
@@ -44,6 +51,10 @@ const TASK_INDEX_RAW = arg('task-index');
 const TASK_INDEX = has('task-index') ? Number(TASK_INDEX_RAW) : null;
 const POST_EVERY_HOURS = Number(arg('post-every-hours', 6));
 const MIN_BALANCE = Number(arg('min-balance', 20));
+const QUEUE_FILE = arg('queue-file', '/opt/agentcoin-node/data/queue.json');
+const WALLETS_FILE = arg('wallets-file', '/opt/agentcoin-node/data/wallets.json');
+const NEW_AGENTS = Number(arg('new-agents', 1));
+const WALLET_CAP = Number(arg('wallet-cap', 60));
 const LEDGER = path.resolve(arg('ledger', path.join(__dirname, 'hire-ledger.json')));
 const DRY = has('dry-run');
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
@@ -70,6 +81,8 @@ function loadLedger() {
 }
 function saveLedger(l) { fs.mkdirSync(path.dirname(LEDGER), { recursive: true }); fs.writeFileSync(LEDGER, JSON.stringify(l, null, 1)); }
 
+function readJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
+
 // отчёт к публикации: формулировка чередуется от сводки к сводке
 function reportFor(t, ledger) {
   const n = (ledger.posts || []).length % t.variants.length;
@@ -90,9 +103,12 @@ const plural = (n, [one, few, many]) => {
 };
 
 // /community/send принимает одну строку без control-символов и не длиннее 500 символов
-function digestText(reports) {
-  const head = `Сводка смены, ${plural(reports.length, ['агент', 'агента', 'агентов'])}: `;
-  const text = (head + reports.join(' ')).replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
+function digestText(reports, delta = { pay: 0, jobs: 0 }) {
+  const head = `Сводка смены, ${plural(reports.length, ['агент', 'агента', 'агентов'])}. `;
+  const change = delta.jobs || delta.pay
+    ? `За окно: выплачено ${fmt(delta.pay)} AGT, закрыто ${plural(delta.jobs, ['работа', 'работы', 'работ'])}. `
+    : 'За окно: без новых выплат. ';
+  const text = (head + change + reports.join(' ')).replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
   return text.length > 480 ? text.slice(0, 480).replace(/[ ,;]+$/, '') + '…' : text;
 }
 
@@ -187,15 +203,45 @@ function taskPool(f) {
   ];
 }
 
+// новая пара ключей на ноде + место в очереди: так новичок может получать работу
+async function newAgents(n, ledger) {
+  const wallets = readJson(WALLETS_FILE);
+  const held = wallets ? Object.keys(wallets).length : 0;
+  if (wallets && held >= WALLET_CAP) {
+    console.log(`⏸ новичков не заводим: ${held} кошельков на ноде, лимит --wallet-cap ${WALLET_CAP}`);
+    return [];
+  }
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const r = await api('POST', '/wallet/create', { label: `hire-${stamp}-${i + 1}` });
+    if (r.status !== 201 || !r.data?.address) { console.error(`✖ /wallet/create ${r.status} ${r.data?.error || ''}`); break; }
+    const j = await api('POST', '/queue/join', { address: r.data.address, handle: '' });
+    console.log(`＋ новичок ${r.data.address} заведён на ноде, в очереди: ${j.status === 200 ? 'да' : j.status}`);
+    ledger.newcomers = [...(ledger.newcomers || []), { at: new Date().toISOString(), address: r.data.address, label: `hire-${stamp}-${i + 1}` }].slice(-200);
+    out.push(r.data.address);
+  }
+  return out;
+}
+
 async function pickWorkers(count, ledger) {
   const fixed = arg('worker');
   if (fixed) return [String(fixed)];
-  const q = await get('/queue/status');
-  const order = Array.isArray(q.nextFive) ? q.nextFive : [];
+  const keys = readJson(WALLETS_FILE);
+  const keySet = keys ? new Set(Object.keys(keys).map((a) => a.toLowerCase())) : null;
+  const waiting = readJson(QUEUE_FILE)?.waiting;
+  const order = Array.isArray(waiting) ? waiting : ((await get('/queue/status')).nextFive || []);
   const cutoff = Date.now() - REPEAT_HOURS * 3600_000;
   const recent = new Set((ledger.shifts || []).filter((s) => Date.parse(s.at) > cutoff).map((s) => s.worker));
-  const picked = order.filter((a) => !recent.has(a));
-  return picked.slice(0, count);
+  const canPay = keySet ? order.filter((a) => keySet.has(String(a).toLowerCase())) : order;
+  const noKey = order.filter((a) => !canPay.includes(a));
+  if (noKey.length) console.log(`в очереди без ключа на ноде: ${noKey.map(short).join(', ')} — пропуск`);
+  const picked = canPay.filter((a) => !recent.has(a)).slice(0, count);
+  if (!picked.length && NEW_AGENTS > 0) {
+    if (DRY) console.log('＋ платить некому: смена завела бы новичка на ноде (--new-agents)');
+    else picked.push(...(await newAgents(NEW_AGENTS, ledger)));
+  }
+  return picked;
 }
 
 async function waitEscrow(escId, want, timeoutMs = 240_000) {
@@ -220,7 +266,7 @@ async function main() {
   const bal = await api('POST', '/balance', { address: EMPLOYER });
   const funds = Number(bal.data?.balance ?? bal.data?.amount ?? 0);
 
-  console.log(`работодатель ${EMPLOYER} · ${fmt(funds)} AGT · ставка ${AMOUNT} AGT/смена`);
+    console.log(`работодатель ${EMPLOYER} · ${fmt(funds)} AGT · ставка ${AMOUNT} AGT/смена`);
   if (funds < MIN_BALANCE) {
     console.log(`⏸ смена остановлена: на кошельке ${fmt(funds)} AGT, порог --min-balance ${fmt(MIN_BALANCE)} AGT. Пополните кошелёк — следующая смена продолжится сама.`);
     return;
@@ -237,6 +283,11 @@ async function main() {
   });
 
   const gate = feedGate(ledger);
+  const prevPost = ledger.posts[ledger.posts.length - 1] || null;
+  const delta = {
+    pay: +(facts.paidOut - (prevPost?.paidOut ?? facts.paidOut)).toFixed(2),
+    jobs: facts.paidJobs - (prevPost?.paidJobs ?? facts.paidJobs),
+  };
   if (DRY) {
     const feed = gate.open
       ? `лента: сводка уйдёт этой сменой — ${plural(workers.length, ['отчёт', 'отчёта', 'отчётов'])} одним сообщением`
@@ -244,7 +295,7 @@ async function main() {
     for (const p of plan) console.log(`· ${short(p.worker)}\n  задача: ${p.task}\n  отчёт (вариант ${p.variant}): ${p.report}`);
     console.log(`\n${feed}`);
     if (gate.open) {
-      const preview = digestText(plan.map((p) => p.report));
+      const preview = digestText(plan.map((p) => p.report), delta);
       console.log(`\nтак уйдёт в ленту (${preview.length} символов, одна строка):\n${preview}`);
     }
     return;
@@ -292,10 +343,10 @@ async function main() {
   }
 
   if (done.length && gate.open) {
-    const text = digestText(done.map((d) => d.report));
+    const text = digestText(done.map((d) => d.report), delta);
     const sent = await api('POST', '/community/send', { sender: done[0].worker, text });
     if (sent.status === 201) {
-      ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key) });
+      ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key), paidOut: facts.paidOut, paidJobs: facts.paidJobs });
       console.log(`  сводка в ленте: ${plural(done.length, ['отчёт', 'отчёта', 'отчётов'])} от ${short(done[0].worker)}`);
     } else console.log(`  сводка не ушла (${sent.status}${sent.data?.reason ? ' ' + sent.data.reason : ''})`);
   } else if (done.length) {

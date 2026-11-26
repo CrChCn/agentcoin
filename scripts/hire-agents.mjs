@@ -24,7 +24,8 @@
  * пятёрки: /queue/status отдаёт nextFive, из-за чего шестой и следующие не
  * получали работу никогда. Если платить некому, смена заводит кошелёк новичка
  * на ноде (POST /wallet/create) и ставит его в очередь — до --new-agents за
- * смену и не больше --wallet-cap кошельков всего.
+ * смену, не чаще раза в --new-agent-gap-hours (24 ч) и не больше --wallet-cap
+ * кошельков всего.
  *
  * --min-balance (20 AGT): если на кошельке работодателя меньше, смена пишет
  * строку в лог и выходит, не открывая эскроу.
@@ -55,6 +56,7 @@ const QUEUE_FILE = arg('queue-file', '/opt/agentcoin-node/data/queue.json');
 const WALLETS_FILE = arg('wallets-file', '/opt/agentcoin-node/data/wallets.json');
 const NEW_AGENTS = Number(arg('new-agents', 1));
 const WALLET_CAP = Number(arg('wallet-cap', 60));
+const NEW_AGENT_GAP_HOURS = Number(arg('new-agent-gap-hours', 24));
 const LEDGER = path.resolve(arg('ledger', path.join(__dirname, 'hire-ledger.json')));
 const DRY = has('dry-run');
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
@@ -205,6 +207,12 @@ function taskPool(f) {
 
 // новая пара ключей на ноде + место в очереди: так новичок может получать работу
 async function newAgents(n, ledger) {
+  const last = (ledger.newcomers || []).at(-1);
+  if (last && Date.now() - Date.parse(last.at) < NEW_AGENT_GAP_HOURS * 3600_000) {
+    const next = new Date(Date.parse(last.at) + NEW_AGENT_GAP_HOURS * 3600_000).toISOString().slice(11, 16);
+    console.log(`⏸ новичков не заводим: последний ${String(last.at).slice(11, 16)}Z, следующий после ${next}Z`);
+    return [];
+  }
   const wallets = readJson(WALLETS_FILE);
   const held = wallets ? Object.keys(wallets).length : 0;
   if (wallets && held >= WALLET_CAP) {

@@ -89,6 +89,13 @@ const plural = (n, [one, few, many]) => {
   return `${n} ${m >= 11 && m <= 14 ? many : d === 1 ? one : d >= 2 && d <= 4 ? few : many}`;
 };
 
+// /community/send принимает одну строку без control-символов и не длиннее 500 символов
+function digestText(reports) {
+  const head = `Сводка смены, ${plural(reports.length, ['агент', 'агента', 'агентов'])}: `;
+  const text = (head + reports.join(' ')).replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > 480 ? text.slice(0, 480).replace(/[ ,;]+$/, '') + '…' : text;
+}
+
 // ── пул работ: каждая задача — проверяемая сводка по публичным данным ──
 async function loadFacts() {
   const [orders, jobs, esc, sec, life, pp, tr, auc, net] = await Promise.all([
@@ -236,7 +243,10 @@ async function main() {
       : `лента: сводка не уходит — прошлая ${String(gate.lastAt).slice(11, 16)}Z, следующая в ${new Date(gate.nextAt).toISOString().slice(11, 16)}Z`;
     for (const p of plan) console.log(`· ${short(p.worker)}\n  задача: ${p.task}\n  отчёт (вариант ${p.variant}): ${p.report}`);
     console.log(`\n${feed}`);
-    if (gate.open) console.log(`\nтак уйдёт в ленту:\nСводка смены, ${plural(plan.length, ['агент', 'агента', 'агентов'])}:\n` + plan.map((p) => `· ${p.report}`).join('\n'));
+    if (gate.open) {
+      const preview = digestText(plan.map((p) => p.report));
+      console.log(`\nтак уйдёт в ленту (${preview.length} символов, одна строка):\n${preview}`);
+    }
     return;
   }
   if (funds < AMOUNT * plan.length) throw new Error(`в кошельке работодателя мало средств: ${funds}`);
@@ -282,12 +292,12 @@ async function main() {
   }
 
   if (done.length && gate.open) {
-    const text = `Сводка смены, ${plural(done.length, ['агент', 'агента', 'агентов'])}:\n` + done.map((d) => `· ${d.report}`).join('\n');
+    const text = digestText(done.map((d) => d.report));
     const sent = await api('POST', '/community/send', { sender: done[0].worker, text });
     if (sent.status === 201) {
       ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key) });
       console.log(`  сводка в ленте: ${plural(done.length, ['отчёт', 'отчёта', 'отчётов'])} от ${short(done[0].worker)}`);
-    } else console.log(`  сводка не ушла (${sent.status})`);
+    } else console.log(`  сводка не ушла (${sent.status}${sent.data?.reason ? ' ' + sent.data.reason : ''})`);
   } else if (done.length) {
     console.log(`  сводка не уходит: прошлая ${String(gate.lastAt).slice(11, 16)}Z, следующая в ${new Date(gate.nextAt).toISOString().slice(11, 16)}Z`);
   }

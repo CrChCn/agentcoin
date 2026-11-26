@@ -9,7 +9,8 @@
  *   node scripts/hire-agents.mjs                     # смена: 3 агента, 0.25 AGT
  *   node scripts/hire-agents.mjs --count 2 --amount 0.3
  *   node scripts/hire-agents.mjs --dry-run           # план без транзакций
- *   node scripts/hire-agents.mjs --worker AGT… --task-index 0   # адресно
+ *   node scripts/hire-agents.mjs --worker AGT…                 # адресно: один агент
+ *   node scripts/hire-agents.mjs --worker AGT… --task-index 0 # адресно: агент + задача из пула
  *
  * Леджер (--ledger, по умолчанию рядом со скриптом hire-ledger.json) не даёт
  * платить одному и тому же агенту чаще, чем раз в --repeat-hours (12 ч).
@@ -32,6 +33,7 @@ const AMOUNT = Number(arg('amount', 0.25));
 const COUNT = Number(arg('count', 3));
 const DEADLINE = Number(arg('deadline', 7200));
 const REPEAT_HOURS = Number(arg('repeat-hours', 12));
+const TASK_INDEX = has('task-index') ? Number(arg('task-index')) : null;
 const LEDGER = path.resolve(arg('ledger', path.join(__dirname, 'hire-ledger.json')));
 const DRY = has('dry-run');
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
@@ -148,6 +150,9 @@ async function main() {
   const ledger = loadLedger();
   const facts = await loadFacts();
   const pool = taskPool(facts);
+  if (TASK_INDEX !== null && !(Number.isInteger(TASK_INDEX) && pool[TASK_INDEX])) {
+    throw new Error(`--task-index ${arg('task-index')} не из пула: 0…${pool.length - 1} (${pool.map((p) => p.key).join(', ')})`);
+  }
   const workers = await pickWorkers(COUNT, ledger);
   const bal = await api('POST', '/balance', { address: EMPLOYER });
   const funds = Number(bal.data?.balance ?? bal.data?.amount ?? 0);
@@ -158,7 +163,7 @@ async function main() {
 
   const used = new Set((ledger.shifts || []).filter((s) => Date.now() - Date.parse(s.at) < 6 * 3600_000).map((s) => s.taskKey));
   const plan = workers.map((w, i) => {
-    const t = pool.find((x) => !used.has(x.key)) || pool[i % pool.length];
+    const t = TASK_INDEX !== null ? pool[TASK_INDEX] : pool.find((x) => !used.has(x.key)) || pool[i % pool.length];
     used.add(t.key);
     return { worker: w, handle: '', ...t };
   });

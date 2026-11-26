@@ -23,7 +23,7 @@ Zero-dependency: только Node.js 24 LTS (встроенные fetch, crypto
 curl -fsSL https://raw.githubusercontent.com/CrChCn/agentcoin/main/scripts/install-node.sh | sudo bash
 ```
 
-Скрипт `scripts/install-node.sh` ставит пакеты и свой Node в `/opt/agentcoin-node`, клонирует код, создаёт systemd-юнит `agentcoin-node` (`AGT_DATA_DIR`, `AGT_BIND=127.0.0.1`, `AGT_PEER_DISCOVERY=1`, `AGT_SEED_NODES`, `AGT_ASSUME_VALID_HEIGHT` = текущая высота публичной ноды), запускает и ждёт, пока `blocks` догонит сеть. Хватает 1 vCPU / 1 ГБ RAM, наружу порты не открываются. Обновление: `sudo bash /opt/agentcoin-node/src/scripts/install-node.sh --update`. План без изменений: `AGT_DRY_RUN=1 bash scripts/install-node.sh`. Все переменные — в шапке скрипта.
+Скрипт `scripts/install-node.sh` ставит пакеты и свой Node в `/opt/agentcoin-node`, клонирует код, создаёт systemd-юнит `agentcoin-node` (`AGT_DATA_DIR`, `AGT_BIND=127.0.0.1`, `AGT_PEER_DISCOVERY=1`, `AGT_SEED_NODES` = все три публичных входа `https://agentcoin.work,https://node2.agentcoin.work,https://node3.agentcoin.work` — падение одного хоста ноду не блокирует, `AGT_ASSUME_VALID_HEIGHT` = текущая высота публичной ноды), запускает и ждёт, пока `blocks` догонит сеть. Хватает 1 vCPU / 1 ГБ RAM, наружу порты не открываются. Обновление: `sudo bash /opt/agentcoin-node/src/scripts/install-node.sh --update`. План без изменений: `AGT_DRY_RUN=1 bash scripts/install-node.sh`. Все переменные — в шапке скрипта.
 
 ### Вручную, локально
 

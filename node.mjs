@@ -89,9 +89,21 @@ const PORT = Number(process.argv[2]) || 9333;
 const BLOCK_INTERVAL_SEC = 30; // must match core
 const SELF_URL = `http://127.0.0.1:${Number(process.argv[2]) || 9333}`;
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.AGT_PUBLIC_URL || 'https://agentcoin.work').replace(/\/$/, '');
+// SELF_IDENTITY — как эту ноду видят другие. Именно это значение уходит пиру в ?their= и
+// сверяется при self-connect. SELF_URL (127.0.0.1:<порт>) для этой роли не годится: у всех
+// нод он одинаковый, и любой пир считался «собой» (см. ws.mjs/AGIP-23.SELF).
+// AGIP-8.1: AGT_SELF_URL допускает список через запятую (алиасы одного хоста:
+// node1.agentcoin.work + agentcoin.work). Идентичность — ТОЛЬКО первый элемент:
+// список целиком в ?their= ломал ключ пира на принимающей стороне (пир видел
+// "https://a,https://b" как один URL и дедупликация не срабатывала).
+const SELF_IDENTITIES = String(process.env.AGT_SELF_URL || process.env.AGT_PUBLIC_URL || process.env.PUBLIC_URL || SELF_URL)
+  .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean);
+const SELF_IDENTITY = SELF_IDENTITIES[0] || SELF_URL;
 // AGIP-8: sync.mjs должен знать собственный адрес ноды, иначе самоссылка из
 // bootstrap/госипа снова попадает в peers.json и нода дозванивается сама в себя.
 setSelfUrl(SELF_URL);
+// все алиасы — «свои»: иначе алиас из госсипа снова уходит в self-dial (502/backoff)
+for (const id of SELF_IDENTITIES) setSelfUrl(id);
 process.env.AGT_NODE_PORT ||= String(Number(process.argv[2]) || 9333);
 // AGIP-8: нода на не-loopback bind (tailnet 9336) слушает не 127.0.0.1, а свой
 // bind-адрес — без этой строки она дозванивалась сама в себя (socket hang up).
@@ -156,6 +168,15 @@ const PUBLIC_READS = [
 // уже публичного POST /balance, просто меньше повторов под опрос витрин).
 const balancesSnapshot = { at: 0, data: null };
 
+// Казна = баланс адреса активной политики AGIP-4 (не кран): /stats и /stats-data
+// должны отдавать одно число на всех нодах.
+function treasuryBalance(bal) {
+  let addr = null;
+  try { addr = (treasuryState(bc).policy || {}).treasury || null; } catch {}
+  if (!addr) addr = FAUCET_FUND_ADDR;
+  const k = Object.keys(bal || {}).find(a => String(a).toLowerCase() === String(addr).toLowerCase());
+  return k ? bal[k] : 0;
+}
 const WALLETS_FILE = path.join(DATA_DIR, 'wallets.json');
 function loadWallets() { try { return JSON.parse(fs.readFileSync(WALLETS_FILE, 'utf8')); } catch { return {}; } }
 function saveWallets(w) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(WALLETS_FILE, JSON.stringify(w, null, 2)); }
@@ -382,7 +403,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|stream\/state|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|get-agt(\.html)?|sim(\.html)?|mini\/?|dex(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|stream\/state|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|get-agt(\.html)?|sim(\.html)?|mini\/?|dex(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -2907,7 +2928,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       if (!stCache.data || Date.now() - stCache.at > 20000) {
         const info = bc.info();
         const bal = bc.balances();
-        const treasury = Object.entries(bal).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0;
+        const treasury = treasuryBalance(bal);
         const q = queue.status();
         const S = escrowStateOnce();
         stCache.data = { info, treasury, q, escTotal: S.stats.total, escPaid: S.stats.paid, escOpen: S.stats.open, feesAGT: S.stats.feesAGT };
@@ -2971,7 +2992,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
       if (!st.data || Date.now() - st.at > 20000) {
         // само-прогрев: тот же кэш, что /stats — снаружи не должно приходить null
         const S = escrowStateOnce();
-        st.data = { info: bc.info(), treasury: Object.entries(bc.balances()).filter(([a]) => a === FAUCET_FUND_ADDR).map(([, v]) => v)[0] || 0, q: queue.status(), escTotal: S.stats.total, escPaid: S.stats.paid, escOpen: S.stats.open, feesAGT: S.stats.feesAGT };
+        st.data = { info: bc.info(), treasury: treasuryBalance(bc.balances()), q: queue.status(), escTotal: S.stats.total, escPaid: S.stats.paid, escOpen: S.stats.open, feesAGT: S.stats.feesAGT };
         st.at = Date.now();
       }
       const info = st.data.info;
@@ -3108,6 +3129,7 @@ h1{color:#f7931a} .grid{display:grid;grid-template-columns:repeat(auto-fit,minma
 
 // --- WebSocket P2P (RFC 6455): inv-рассылка блоков/транзакций пейрастной сети ---
 hub.attachServer(server, SELF_URL, {
+  selfIds: [...SELF_IDENTITIES, PUBLIC_URL],
   // TZ-1.1-FINAL/AC-6.1: при полном inbound-капе новая нода получает peers из gossip
   gossipPeers: () => loadPeers().slice(0, 50),
   // ETAP1/FR-P2P-02: приветственное сообщение свежему входящему пиру — свой список peers (gossip)
@@ -3295,8 +3317,11 @@ async function wsConnectLoop() {
     const until = wsCooldown.get(peerUrl);
     if (until && until > Date.now()) continue;
     if (until) wsCooldown.delete(peerUrl);
-    const sockUrl = peerUrl + `/ws?their=${encodeURIComponent(SELF_URL)}`;
-    const already = [...hub.peers].some(p => p.connectedPeerUrl === peerUrl);
+    const sockUrl = peerUrl + `/ws?their=${encodeURIComponent(SELF_IDENTITY)}`;
+    // уже есть живая связь с этим пиром в ЛЮБУЮ сторону: входящая (её theirUrl =
+    // идентичность звонившего совпадает с peerUrl) или наша исходящая. Иначе два
+    // узла, звонящие друг другу, держат по два сокета на пару (двойной gossip).
+    const already = [...hub.peers].some(p => p.connectedPeerUrl === peerUrl || p.theirUrl === peerUrl);
     if (already) continue;
     try {
       const client = await connectClient(sockUrl, { timeoutMs: 4000 });

@@ -183,6 +183,23 @@ export function connectClient(urlStr, { timeoutMs = 8000 } = {}) {
 //   {type:'inv-tx', tx: {...}}       — анонс новой транзакции
 // Приёмник решает, имеет ли эту же info: дубликат игнорируется
 // (inv = inventory style: сначала короткий анонс, забор полный через HTTP при развилке).
+// AGIP-23.IP: реальный адрес пира за обратным прокси. Нода слушает loopback, Caddy
+// проксирует входящий WS, и socket.remoteAddress у всех пиров = 127.0.0.1:
+// анти-eclipse по /24 и IP-баны по входящим соединениям переставали работать.
+// X-Forwarded-For принимаем ТОЛЬКО если прямой пир — петля (значит, это наш Caddy),
+// и берём последний hop (его дописывает прокси) — подделать заголовок снаружи нельзя.
+export function effectivePeerIp(req) {
+  const raw = String(req?.socket?.remoteAddress || '');
+  const norm = (v) => String(v || '').replace(/^::ffff:/, '');
+  const direct = norm(raw);
+  const isLoop = direct === '127.0.0.1' || direct === '::1' || /^127\./.test(direct);
+  if (!isLoop) return raw;
+  const xff = String(req?.headers?.['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!xff.length) return raw;
+  const cand = norm(xff[xff.length - 1]);
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(cand) || (cand.includes(':') && !cand.includes(' ')) ? cand : raw;
+}
+
 export class WsHub {
   constructor() {
     this.peers = new Set();     // PeerSocket (все живые)
@@ -201,7 +218,14 @@ export class WsHub {
 
 
 
-  attachServer(server, selfUrl, { onBlock, onTx, onPeer, onPeers, gossipPeers } = {}) {
+  attachServer(server, selfUrl, { onBlock, onTx, onPeer, onPeers, gossipPeers, selfIds = [] } = {}) {
+    // AGIP-23.SELF: self-connect сравниваем НЕ только с локальным selfUrl. Все ноды слушают
+    // 127.0.0.1:9335, поэтому selfUrl у них совпадает строкой и любой входящий
+    // their=http://127.0.0.1:9335 (а именно так представлялись пиры) считался «подключением
+    // к себе» → сокет уничтожался → Caddy отдавал 502 → gossip не работал никогда.
+    // selfIds — публичные идентичности этой ноды (PUBLIC_URL/AGT_SELF_URL).
+    const selfKey = (u) => String(u || '').trim().replace(/\/$/, '');
+    const selfSet = new Set([selfUrl, ...(Array.isArray(selfIds) ? selfIds : [])].map(selfKey).filter(Boolean));
     server.on('upgrade', (req, socket, head) => {
       // ETAP1/FR-P2P-03: лимит входящих WS-соединений — превышение = HTTP 503 без upgrade (connections cap)
       const maxInbound = Number(process.env.AGT_MAX_INBOUND || 25);
@@ -250,7 +274,7 @@ export class WsHub {
       if (!key) { w('HTTP/1.1 400 Bad Request\r\n\r\n'); kill(); return; }
       const their = url.searchParams.get('their') || `anon-${++this._anonN}`;
       // self-connect запрещён (петля нулевой полезности) — сырой destroy без handshake
-      if (their === selfUrl) { try { socket.destroy(); } catch {} return; }
+      if (selfSet.has(selfKey(their))) { try { socket.destroy(); } catch {} return; }
       const existing = this.byTheir.get(their);
       // живость записи: ¬closed ∧ writable ∧ ¬destroyed
       const alive = (p) => p && !p.closed && p.socket && p.socket.writable && !p.socket.destroyed;
@@ -280,6 +304,7 @@ export class WsHub {
       const peer = new PeerSocket(socket, head);
       peer.self = selfUrl;
       peer.theirUrl = their;
+      peer.ip = effectivePeerIp(req);
       if (process.env.AGT_WS_DEBUG) {
         socket.on('data', (c) => console.log(`[ws raw srv] ${c.length}B ${c.toString('hex').slice(0, 28)}...`));
       }
@@ -311,14 +336,14 @@ export class WsHub {
     const ips44 = [];
     for (const p of this.peers) {
       if (p.isClient) outbound++;
-      const ra = p.socket && p.socket.remoteAddress ? p.socket.remoteAddress : null;
+      const ra = p.ip || (p.socket && p.socket.remoteAddress ? p.socket.remoteAddress : null);
       if (ra) {
         const ip4 = String(ra).replace(/^::ffff:/, '');
         if (/^\d+\.\d+\.\d+\.\d+$/.test(ip4)) ips44.push(ip4.split('.').slice(0, 3).join('.'));
       }
     }
     const subnets = [...new Set(ips44)];
-    const withIp = [...this.peers].map(p => p.socket?.remoteAddress).filter(Boolean).length;
+    const withIp = [...this.peers].map(p => p.ip || p.socket?.remoteAddress).filter(Boolean).length;
     return { peer_count: this.peers.size, inbound: this.peers.size - outbound, outbound, withIp,
       subnets, subnetsOk: subnets.length >= 2,
       note: 'subnetsOk=false, если все пиры в одной /24 — eclipse-предупреждение (одиночный хост)' };

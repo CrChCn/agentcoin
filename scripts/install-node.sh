@@ -15,7 +15,9 @@
 #   AGT_REPO=https://github.com/CrChCn/agentcoin.git  AGT_REF=main
 #   AGT_PORT=9335              порт на loopback (наружу не открывается)
 #   AGT_NODE_VER=22.23.5       версия рантайма из nodejs.org
-#   AGT_SEED_NODES=https://agentcoin.work   сиды через запятую
+#   AGT_SEED_NODES=https://agentcoin.work,https://node2.agentcoin.work,https://node3.agentcoin.work
+#                              сиды через запятую (по умолчанию все три публичных входа:
+#                              если один хост лёг, нода поднимется с других)
 #   AGT_PUBLIC_NODE=https://agentcoin.work  откуда брать высоту для assume-valid
 #   AGT_ASSUME_VALID_HEIGHT=<N> сам порог доверия (иначе берётся текущая высота сети)
 #   AGT_DRY_RUN=1              показать план, ничего не меняя
@@ -31,7 +33,7 @@ DATA_DIR="$INSTALL_DIR/data"
 ENV_FILE=/etc/agentcoin-node.env
 PORT="${AGT_PORT:-9335}"
 NODE_VER="${AGT_NODE_VER:-22.23.5}"
-SEED="${AGT_SEED_NODES:-https://agentcoin.work}"
+SEED="${AGT_SEED_NODES:-https://agentcoin.work,https://node2.agentcoin.work,https://node3.agentcoin.work}"
 PUBLIC="${AGT_PUBLIC_NODE:-https://agentcoin.work}"
 UNIT=agentcoin-node
 DRY="${AGT_DRY_RUN:-0}"

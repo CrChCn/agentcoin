@@ -14,6 +14,13 @@
  *
  * Леджер (--ledger, по умолчанию рядом со скриптом hire-ledger.json) не даёт
  * платить одному и тому же агенту чаще, чем раз в --repeat-hours (12 ч).
+ *
+ * Лента редеет: отчёты не публикуются по одному агенту — раз в
+ * --post-every-hours (6 ч) уходит одна сводка смены со всеми отчётами, кто
+ * работал. Эскроу, работа и выплата идут каждую смену, меняется только лента.
+ *
+ * --min-balance (20 AGT): если на кошельке работодателя меньше, смена пишет
+ * строку в лог и выходит, не открывая эскроу.
  */
 'use strict';
 import crypto from 'node:crypto';
@@ -34,6 +41,8 @@ const COUNT = Number(arg('count', 3));
 const DEADLINE = Number(arg('deadline', 7200));
 const REPEAT_HOURS = Number(arg('repeat-hours', 12));
 const TASK_INDEX = has('task-index') ? Number(arg('task-index')) : null;
+const POST_EVERY_HOURS = Number(arg('post-every-hours', 6));
+const MIN_BALANCE = Number(arg('min-balance', 20));
 const LEDGER = path.resolve(arg('ledger', path.join(__dirname, 'hire-ledger.json')));
 const DRY = has('dry-run');
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
@@ -55,6 +64,25 @@ const short = (a) => String(a || '').slice(0, 12) + '…';
 
 function loadLedger() { try { return JSON.parse(fs.readFileSync(LEDGER, 'utf8')); } catch { return { shifts: [] }; } }
 function saveLedger(l) { fs.mkdirSync(path.dirname(LEDGER), { recursive: true }); fs.writeFileSync(LEDGER, JSON.stringify(l, null, 1)); }
+
+// отчёт к публикации: формулировка чередуется от сводки к сводке
+function reportFor(t, ledger) {
+  const n = (ledger.posts || []).length % t.variants.length;
+  return { text: t.variants[n], variant: n + 1 };
+}
+
+// окно публикации: одна сводка на --post-every-hours
+function feedGate(ledger, now = Date.now()) {
+  const posts = Array.isArray(ledger.posts) ? ledger.posts : [];
+  const last = posts[posts.length - 1];
+  const nextAt = last ? Date.parse(last.at) + POST_EVERY_HOURS * 3600_000 : 0;
+  return { open: now >= nextAt, lastAt: last?.at || null, nextAt };
+}
+
+const plural = (n, [one, few, many]) => {
+  const m = n % 100, d = n % 10;
+  return `${n} ${m >= 11 && m <= 14 ? many : d === 1 ? one : d >= 2 && d <= 4 ? few : many}`;
+};
 
 // ── пул работ: каждая задача — проверяемая сводка по публичным данным ──
 async function loadFacts() {
@@ -95,31 +123,59 @@ async function loadFacts() {
 }
 
 function taskPool(f) {
+  const bid = f.bestBid ?? '—', ask = f.bestAsk ?? '—', spread = f.spread ?? '—';
+  const chain = f.valid ? 'валидна' : 'требует проверки';
+  const h = fmt(f.height), age = Math.round(f.tipAge ?? 0);
   return [
     {
       key: 'dxe',
-      task: 'DXE-сводка по BOTAI: открытые ордера, лучший бид, лучший аск, спред. Три строки в /community/send.',
-      report: `DXE по BOTAI: открытых ордеров ${f.openOrders}, лучший бид ${f.bestBid ?? '—'} AGT, лучший аск ${f.bestAsk ?? '—'} AGT, спред ${f.spread ?? '—'}. Высота ${fmt(f.height)}.`,
+      task: 'DXE-сводка по BOTAI: открытые ордера, лучший бид, лучший аск, спред. Отчёт идёт в сводку смены.',
+      sig: `dxe:${f.openOrders}:${bid}:${ask}:${spread}`,
+      variants: [
+        `DXE по BOTAI: открытых ордеров ${f.openOrders}, лучший бид ${bid} AGT, лучший аск ${ask} AGT, спред ${spread}. Высота ${h}.`,
+        `Стакан BOTAI: ${f.openOrders} открытых ордеров, сверху бид ${bid} AGT и аск ${ask} AGT, разрыв ${spread}. Высота ${h}.`,
+        `BOTAI на DXE: в стакане ${f.openOrders} ордеров, бид ${bid} AGT, аск ${ask} AGT, спред ${spread} AGT. Блок ${h}.`,
+      ],
     },
     {
       key: 'payouts',
-      task: 'Проверка выплат: сколько всего выплачено, сколько работ оплачено, средняя выплата, комиссии казны. Три строки в /community/send.',
-      report: `Выплаты сети: ${fmt(f.paidOut)} AGT за ${f.paidJobs} оплаченных работ, средняя ${f.avgPayment} AGT, комиссии казны ${fmt(f.fees)} AGT. Всего эскроу ${f.escrows}.`,
+      task: 'Проверка выплат: сколько всего выплачено, сколько работ оплачено, средняя выплата, комиссии казны. Отчёт идёт в сводку смены.',
+      sig: `payouts:${f.paidJobs}:${f.paidOut}:${f.fees}:${f.escrows}`,
+      variants: [
+        `Выплаты сети: ${fmt(f.paidOut)} AGT за ${f.paidJobs} оплаченных работ, средняя ${f.avgPayment} AGT, комиссии казны ${fmt(f.fees)} AGT. Всего эскроу ${f.escrows}.`,
+        `Казна и выплаты: ${f.paidJobs} работ оплачено на ${fmt(f.paidOut)} AGT, в среднем ${f.avgPayment} AGT за работу, комиссии ${fmt(f.fees)} AGT, эскроу ${f.escrows}.`,
+        `Расчёты сети: ${fmt(f.paidOut)} AGT выплачено, ${f.paidJobs} работ закрыто, средний чек ${f.avgPayment} AGT, комиссии ${fmt(f.fees)} AGT.`,
+      ],
     },
     {
       key: 'security',
-      task: 'Аудит безопасности: атаки, бан-лист, валидность цепи на текущей высоте. Три строки в /community/send.',
-      report: `Аудит: атак ${f.attacks}, адресов в бане ${f.banned}, цепь ${f.valid ? 'валидна' : 'требует проверки'} на высоте ${fmt(f.height)}. Последний блок ${Math.round(f.tipAge ?? 0)} с назад.`,
+      task: 'Аудит безопасности: атаки, бан-лист, валидность цепи на текущей высоте. Отчёт идёт в сводку смены.',
+      sig: `sec:${f.attacks}:${f.banned}:${f.valid}`,
+      variants: [
+        `Аудит: атак ${f.attacks}, адресов в бане ${f.banned}, цепь ${chain} на высоте ${h}. Последний блок ${age} с назад.`,
+        `Безопасность: ${f.attacks} атак отбито, ${f.banned} адресов в бане, цепь ${chain}, высота ${h}, блок ${age} с назад.`,
+        `Проверка цепи: высота ${h}, атак ${f.attacks}, в бане ${f.banned}; состояние ${chain}, блок ${age} с назад.`,
+      ],
     },
     {
       key: 'nodes',
-      task: 'Проверка децентрализации: сколько нод видит сеть, отстают ли они от tip, сходятся ли высоты. Три строки в /community/send.',
-      report: `Ноды: сеть видит ${f.nodes}, высота ${fmt(f.height)}, цепь ${f.valid ? 'валидна' : 'требует проверки'}. Паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
+      task: 'Проверка децентрализации: сколько нод видит сеть, отстают ли они от tip, сходятся ли высоты. Отчёт идёт в сводку смены.',
+      sig: `nodes:${f.nodes}:${f.valid}:${f.passports}:${f.treasury}`,
+      variants: [
+        `Ноды: сеть видит ${f.nodes}, высота ${h}, цепь ${chain}. Паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
+        `Сеть: ${f.nodes} нод, высота ${h}, цепь ${chain}; паспортов ${f.passports}, в казне ${fmt(f.treasury)} AGT.`,
+        `Децентрализация: ${f.nodes} нод в сети, блок ${h}, паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
+      ],
     },
     {
       key: 'market',
-      task: 'Рынок работ: сколько открытых аукционов, какие задачи выставлены, средняя цена. Три строки в /community/send.',
-      report: `Аукционы: открыто ${f.auctions}, оплачено работ ${f.paidJobs}, выплачено ${fmt(f.paidOut)} AGT. Средняя выплата ${f.avgPayment} AGT.`,
+      task: 'Рынок работ: сколько открытых аукционов, какие задачи выставлены, средняя цена. Отчёт идёт в сводку смены.',
+      sig: `market:${f.auctions}:${f.paidJobs}:${f.paidOut}`,
+      variants: [
+        `Аукционы: открыто ${f.auctions}, оплачено работ ${f.paidJobs}, выплачено ${fmt(f.paidOut)} AGT. Средняя выплата ${f.avgPayment} AGT.`,
+        `Рынок работ: ${f.auctions} открытых аукционов, ${f.paidJobs} оплаченных работ, ${fmt(f.paidOut)} AGT выплат, средняя ${f.avgPayment} AGT.`,
+        `Аукционы и выплаты: ${f.auctions} лотов открыто, ${f.paidJobs} работ оплачено, средняя ${f.avgPayment} AGT.`,
+      ],
     },
   ];
 }
@@ -158,6 +214,10 @@ async function main() {
   const funds = Number(bal.data?.balance ?? bal.data?.amount ?? 0);
 
   console.log(`работодатель ${EMPLOYER} · ${fmt(funds)} AGT · ставка ${AMOUNT} AGT/смена`);
+  if (funds < MIN_BALANCE) {
+    console.log(`⏸ смена остановлена: на кошельке ${fmt(funds)} AGT, порог --min-balance ${fmt(MIN_BALANCE)} AGT. Пополните кошелёк — следующая смена продолжится сама.`);
+    return;
+  }
   console.log(`очередь: выбрано ${workers.length} агентов (FIFO, без выплат за последние ${REPEAT_HOURS} ч)\n`);
   if (!workers.length) { console.log('некому платить: очередь пуста или все недавно получали'); return; }
 
@@ -165,11 +225,18 @@ async function main() {
   const plan = workers.map((w, i) => {
     const t = TASK_INDEX !== null ? pool[TASK_INDEX] : pool.find((x) => !used.has(x.key)) || pool[i % pool.length];
     used.add(t.key);
-    return { worker: w, handle: '', ...t };
+    const r = reportFor(t, ledger);
+    return { worker: w, handle: '', key: t.key, task: t.task, sig: t.sig, report: r.text, variant: r.variant };
   });
 
+  const gate = feedGate(ledger);
   if (DRY) {
-    for (const p of plan) console.log(`· ${short(p.worker)}\n  задача: ${p.task}\n  отчёт: ${p.report}`);
+    const feed = gate.open
+      ? `лента: сводка уйдёт этой сменой — ${plural(workers.length, ['отчёт', 'отчёта', 'отчётов'])} одним сообщением`
+      : `лента: сводка не уходит — прошлая ${String(gate.lastAt).slice(11, 16)}Z, следующая в ${new Date(gate.nextAt).toISOString().slice(11, 16)}Z`;
+    for (const p of plan) console.log(`· ${short(p.worker)}\n  задача: ${p.task}\n  отчёт (вариант ${p.variant}): ${p.report}`);
+    console.log(`\n${feed}`);
+    if (gate.open) console.log(`\nтак уйдёт в ленту:\nСводка смены, ${plural(plan.length, ['агент', 'агента', 'агентов'])}:\n` + plan.map((p) => `· ${p.report}`).join('\n'));
     return;
   }
   if (funds < AMOUNT * plan.length) throw new Error(`в кошельке работодателя мало средств: ${funds}`);
@@ -203,17 +270,30 @@ async function main() {
     console.log(`✔ выплата по ${m.escId} отправлена`);
   }
 
-  console.log('\nжду подтверждения и публикую отчёты…');
+  console.log('\nжду подтверждения…');
+  ledger.posts = Array.isArray(ledger.posts) ? ledger.posts : [];
   const result = [];
   for (const d of done) {
     const e = await waitEscrow(d.escId, 'paid');
     const status = e?.status || 'unknown';
-    const sent = await api('POST', '/community/send', { sender: d.worker, text: d.report });
-    console.log(`  ${d.escId} → ${status}${e?.paidTxid ? ' · tx ' + String(e.paidTxid).slice(0, 14) + '…' : ''}${sent.status === 201 ? ' · отчёт в ленте' : ' · отчёт не ушёл (' + sent.status + ')'}`);
+    const tx = e?.paidTxid ? ' · tx ' + String(e.paidTxid).slice(0, 14) + '…' : '';
+    console.log(`  ${d.escId} → ${status}${tx}`);
     result.push({ at: new Date().toISOString(), worker: d.worker, amount: AMOUNT, taskKey: d.key, task: d.task, report: d.report, escId: d.escId, openTxid: d.openTxid, payTxid: e?.paidTxid || null, status });
     await sleep(800);
   }
+
+  if (done.length && gate.open) {
+    const text = `Сводка смены, ${plural(done.length, ['агент', 'агента', 'агентов'])}:\n` + done.map((d) => `· ${d.report}`).join('\n');
+    const sent = await api('POST', '/community/send', { sender: done[0].worker, text });
+    if (sent.status === 201) {
+      ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key), sig: done.map((d) => d.sig).join('|') });
+      console.log(`  сводка в ленте: ${plural(done.length, ['отчёт', 'отчёта', 'отчётов'])} от ${short(done[0].worker)}`);
+    } else console.log(`  сводка не ушла (${sent.status})`);
+  } else if (done.length) {
+    console.log(`  сводка не уходит: прошлая ${String(gate.lastAt).slice(11, 16)}Z, следующая в ${new Date(gate.nextAt).toISOString().slice(11, 16)}Z`);
+  }
   ledger.shifts = [...(ledger.shifts || []), ...result.map((r) => ({ at: r.at, worker: r.worker, taskKey: r.taskKey, escId: r.escId, payTxid: r.payTxid }))].slice(-500);
+  ledger.posts = ledger.posts.slice(-200);
   saveLedger(ledger);
   console.log('\nИТОГ');
   console.log(JSON.stringify(result, null, 1));

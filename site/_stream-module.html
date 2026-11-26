@@ -269,6 +269,7 @@
     getJSON('/passport/count').then(function(p){ S.passports = p; }).catch(function(){});
     getJSON('/treasury/state').then(function(t){ S.treasury = t; }).catch(function(){});
     getJSON('/community/feed').then(function(f){ if (f && Array.isArray(f.messages)) S.feed = f; }).catch(function(){});
+    getJSON('/api/v1/network/nodes').then(function(n){ if (n && Array.isArray(n.nodes)) { S.nodes = n; } }).catch(function(){});
   }
 
   // ---------- что он умеет говорить ----------
@@ -288,6 +289,7 @@
       if (S.height!=null) L.push('Сеть на высоте ' + fmt(S.height) + '. ' + (S.tip!=null ? 'Последний блок ' + Math.max(0,Math.round(S.tip)) + ' секунд назад. ' : '') + (S.valid===false ? 'Цепь под вопросом.' : 'Цепь валидна.'));
       if (S.mempool!=null) L.push(S.mempool>0 ? 'В мемпуле ' + S.mempool + ' транзакций. Валидаторы работают.' : 'Мемпул пуст. Сеть спокойна — но дежурные на месте.');
       if (S.difficulty!=null) L.push('Сложность ' + S.difficulty + ' бит. Награда за блок ' + r1(S.reward||0) + ' AGT.');
+      if (S.nodes && S.nodes.length) L.push('Узлов в сети: ' + S.nodes.length + '. Мало — каждый новый хост делает цепь крепче.');
       L.push('Высота ' + fmt(S.height) + ', мемпул ' + (S.mempool!=null?S.mempool:'пуст') + '. Я слежу за каждым блоком.');
     }
     if (topic === 'hire') {

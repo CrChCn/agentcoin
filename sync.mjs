@@ -71,6 +71,9 @@ function ipv4Private(host) {
 export function isPublicPeerHost(host) {
   const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
   if (!h) return false;
+  // Изолированные стенды (тесты движка sync, локальная отладка) включают петлю
+  // явным флагом; без него поведение прежнее — только публичные адреса.
+  if (process.env.AGT_PEER_ALLOW_LOOPBACK === '1' && (h === 'localhost' || h === '::1' || /^127\./.test(h))) return true;
   if (h === 'localhost' || h === '::1' || h === '::' || h === '0.0.0.0') return false;
   if (PRIVATE_HOST_SUFFIXES.some(sfx => h.endsWith(sfx))) return false;
   if (/^[0-9.]+$/.test(h)) return !ipv4Private(h);

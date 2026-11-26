@@ -42,6 +42,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
   addressFromPub, isRawPubHex, addressFromRawPub, rawPubKeyObject,
 } from './core.mjs';
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
+import { FALLBACK_SEED_URLS, resolveDnsSeeds, seedHostsFromEnv } from './seeds.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
 import { WsHub, connectClient } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen, escrowPaidOut } from './core.mjs';
@@ -381,7 +382,7 @@ async function postSignedTx(res, { fromAddress, to, amount, memo }) {
 // /block/submit в белом списке — PoW ищется на стороне клиента, нода только
 // отдаёт шаблон/валидирует (не кошельковые). /mine — синхронный майнинг ЦП самой
 // ноды, наружу не светим: CPU-burn DoS. Выключить барьер нельзя (всегда ВКЛ).
-const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
+const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network\/nodes|site\/release|life|stream\/state|health|validate|forks|mempool|headers|blocks|blocktemplate|peers\/meta|peers\/bootstrap|ws\/status|stats-data|dashboard|stats|stats\.html|index(\.html)?|cabinet(\.html)?|passport-cabinet(\.html)?|wallet(\.html)?\/?|wallet-format(\.js)?|user-wallet-page(\.html)?|user-wallet-format-lib(\.js)?|cab-auth\.js|imperial(\.html)?|buffy(\.html)?|manifest\.webmanifest|apple-icon\.png|panel\.js|skill\/(SKILL[.]md|agentcoin-skill[.]zip)|jobs|jobs\.html|jobs\/state|jobs\/auction(\/state|\/list)?|jobs\/zkclaim(\/state)?|trust|escrow\/state|history\/.+|ops(?:[.]html)?|ops\/status\/?|ops\/watchdog\/state|terminal(\.html)?|chat(\.html)?|(?:index|mine|jobs|mbc20|agent|docs|gov|shield)[.]txt|gov(\.html)?|docs(\.html)?|shield(\.html)?|mine(\.html)?|agent(\.html)?|create-wallet(\.html)?|habitat(\.html)?|atlas(\.html)?|docs\/[A-Za-z0-9_.-]+\.md|jail(\.html)?|jail\/state|jail\/patrol|mbc20(\.html)?|mbc20\/state|mbc20\/book|tax\/state|passport\/count|pool\/stats|queue\/(status|history)|agent-state|gateway\/list|community\/(feed|rules|pinned)|whitelist\/status|security\/(status|banlist|attacks)|treasury\/state|gov\/state|gov\/projects|dxe\/(book|items|orders|fills)|cloud\/(stats|epochs|ledger)|shield|spore\/state|txproof\/.+|block\/.+|registry\/export|whoami\/.+)(\?.*)?$/;
 // A-5 (Codex-ревизия): публичные пользовательские POST — что ДЕЙСТВИТЕЛЬНО надо
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
@@ -548,7 +549,10 @@ const server = http.createServer({ requestTimeout: 120_000, headersTimeout: 10_0
 const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin-token'] === process.env.AGT_ADMIN_TOKEN);
   const adminLocal = AGT_ADMIN_MODE === 'local' && isLoopbackRequest(req) && !forwardedViaProxy(req);
   const proxied = forwardedViaProxy(req);
-  if (!(adminByToken || adminLocal) && !(PUB_REQUEST_RE.test(p) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)) || (req.method === 'GET' && PUB_STATIC_RE.test(p)))) {
+  // PUB_REQUEST_RE — список read-only маршрутов: POST /mine и подобные не должны
+  // обходить админ-гард только потому, что такой же путь есть у публичной страницы.
+  const readOnlyMethod = req.method === 'GET' || req.method === 'HEAD';
+  if (!(adminByToken || adminLocal) && !((readOnlyMethod && PUB_REQUEST_RE.test(p)) || (req.method === 'POST' && PUB_TX_ROUTES.has(p)) || (req.method === 'GET' && PUB_STATIC_RE.test(p)))) {
     console.log(`[agip-37] публичный отказ ${req.method} ${p} от ${_ip}${proxied ? ' (proxy-headers!)' : ''}`);
     return json(res, 403, {
       error: 'admin_loopback_only',
@@ -648,12 +652,55 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/peers/meta') return json(res, 200, peerMetaStatus());
   // AGIP-1: официальный стартовый список пиров (bootstrap.json из репо) + живые peers ноды
   if (p === '/peers/bootstrap') {
-    let boot = [];
+    // null — файла нет, тогда честно отдаём встроенный fallback (AGIP-SEED).
+    // Пустой явный список — это осознанная настройка (изолированная нода), его не подменяем.
+    let boot = null;
     try {
       const f = JSON.parse(fs.readFileSync(process.env.AGT_BOOTSTRAP_FILE || path.join(__dirname, 'bootstrap.json'), 'utf8'));
       boot = Array.isArray(f.bootstrap) ? f.bootstrap : [];
-    } catch { /* файла нет — пусто; положение документировано в AGIP-1 */ }
-    return json(res, 200, { bootstrap: boot, peers: loadPeers(), height: bc.blockCount() });
+    } catch { /* файла нет — ниже встроенный fallback (AGIP-SEED) */ }
+    return json(res, 200, { bootstrap: boot === null ? [...FALLBACK_SEED_URLS] : boot,
+      dnsSeeds: seedHostsFromEnv(), peers: loadPeers(), height: bc.blockCount() });
+  }
+  // Публичное состояние эфира для сайта: конфиг + последние карточки эпизодов + цепь.
+  // Только чтение, без ключей и без тяжёлых сканов — те же числа, что в /life.
+  if (p === '/stream/state') {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'site', 'stream.json'), 'utf8')); } catch {}
+    const episodes = [];
+    try {
+      const dir = path.join(__dirname, 'stream', 'episodes');
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.json')) continue;
+        try {
+          const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          episodes.push({
+            escId: c.escId, title: c.title || null, amount: c.amount, paidOut: c.paidOut ?? null,
+            status: c.status || null, verified: !!c.verified,
+            agent: c.agent && c.agent.name ? c.agent.name : null,
+            at: c.cardedAt || c.createdAt || null,
+          });
+        } catch { /* битая карточка не ломает эфир */ }
+      }
+      episodes.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    } catch { /* каталога нет — архив пуст */ }
+    const lf = lifeStatus();
+    return json(res, 200, {
+      live: cfg.live || { on: false, url: '', title: '' },
+      platform: cfg.platform || null,
+      schedule: Array.isArray(cfg.schedule) ? cfg.schedule : [],
+      chain: {
+        height: lf.blocks,
+        tipHash: lf.tipHash,
+        tipAgeSec: lf.tipAgeSec,
+        chainValid: lf.chainValid,
+        mempool: Array.isArray(bc.mempool) ? bc.mempool.length : null,
+        peers: (() => { try { return hub.count(); } catch { return null; } })(),
+        genesisHash: bc.info ? bc.info().genesisHash : null,
+      },
+      episodes: episodes.slice(0, 12),
+      updatedAt: new Date().toISOString(),
+    });
   }
   if (p === '/forks') return json(res, 200, { forks: (bc.forks || []).slice(-10).reverse(), tipWork: undefined });
 
@@ -3149,7 +3196,31 @@ function wsRetryClear(peerUrl) { wsRetry.delete(peerUrl); }
 // AGIP-23: авто-мердж bootstrap.json → peers.json — свежие ноды находятся сетью сами
 // (инцидент: форк 7597/7742 — 9347 достала цепь, но её не знали в peers.json).
 const BOOTSTRAP_FILE = process.env.AGT_BOOTSTRAP_FILE || path.join(__dirname, 'bootstrap.json');
-function mergeBootstrapPeers() {
+// AGIP-SEED: ниже какого числа пиров нода ищет DNS-seed/fallback и как часто
+// перечитывать TXT (оператор может переехать, не выпуская новую версию ноды).
+const SEED_MIN_PEERS = Number(process.env.AGT_SEED_MIN_PEERS || 3);
+const SEED_DNS_TTL_MS = Number(process.env.AGT_SEED_DNS_TTL_MS || 10 * 60_000);
+let dnsSeedCache = { at: 0, urls: [] };
+function mergePeerList(list, label) {
+  let peers = loadPeers();
+  let added = 0;
+  for (const u of list) {
+    const before = peers.length;
+    peers = addPeer(u); // addPeer сам отбрасывает приватные/битые/самоссылки
+    if (peers.length > before) added++;
+  }
+  if (added) console.log(`[peers] ${label}: +${added} пир(ов)`);
+  return added;
+}
+async function dnsSeedUrls() {
+  const hosts = seedHostsFromEnv();
+  if (!hosts.length) return [];
+  if (Date.now() - dnsSeedCache.at < SEED_DNS_TTL_MS) return dnsSeedCache.urls;
+  const urls = await resolveDnsSeeds({ hosts, log: (m) => console.log(m) });
+  dnsSeedCache = { at: Date.now(), urls };
+  return urls;
+}
+async function mergeBootstrapPeers() {
   if (process.env.AGT_PEER_DISCOVERY === '0') return;
   // ETAP1/FR-P2P-01: seed-ноды из конфига — env AGT_SEED_NODES (csv) и/или DATA_DIR/seed-nodes.json
   {
@@ -3158,26 +3229,30 @@ function mergeBootstrapPeers() {
       const f = path.join(DATA_DIR, 'seed-nodes.json');
       if (fs.existsSync(f)) for (const s of JSON.parse(fs.readFileSync(f, 'utf8'))) if (/^https?:\/\//.test(s)) seeds.push(s);
     } catch {}
-    if (seeds.length) {
-      const have = loadPeers();
-      let added = 0;
-      for (const u of seeds) if (!have.includes(u)) { addPeer(u); added++; }
-      if (added) console.log(`[peers] seeds merge: +${added} (seed config)`);
-    }
+    if (seeds.length) mergePeerList(seeds, 'seeds merge (seed config)');
   }
+  // bootstrap.json: список оператора из репозитория/деплоя
   try {
     const d = JSON.parse(fs.readFileSync(BOOTSTRAP_FILE, 'utf8'));
     const list = (d.bootstrap || []).filter(u => typeof u === 'string' && /^http/.test(u));
-    let added = 0;
-    const have = loadPeers();
-    for (const u of list) if (!have.includes(u)) { addPeer(u); added++; }
-    if (added) console.log(`[peers] bootstrap-merge: +${added} пир(ов)`);
+    mergePeerList(list, 'bootstrap-merge');
   } catch {}
+  // AGIP-SEED: DNS TXT (seed.agentcoin.work по умолчанию, AGT_DNS_SEEDS — свой),
+  // затем встроенный fallback. Нужны, только пока пиров мало: узел с живой сетью
+  // не дёргает DNS каждые 45с. Найденное всё равно проходит sanitizePeers(),
+  // поэтому DNS-ответ не может протащить loopback/приватный адрес в peers.json.
+  if (loadPeers().length < SEED_MIN_PEERS) {
+    const urls = await dnsSeedUrls();
+    if (urls.length) mergePeerList(urls, 'dns-seed');
+  }
+  if (process.env.AGT_SEED_FALLBACK !== '0' && loadPeers().length < SEED_MIN_PEERS) {
+    mergePeerList(FALLBACK_SEED_URLS, 'fallback-seed');
+  }
 }
 
 async function wsConnectLoop() {
   if (process.env.AGT_PEER_DISCOVERY === '0') return;
-  mergeBootstrapPeers();
+  await mergeBootstrapPeers();
   const peers = loadPeers();
   if (!peers.length) console.log('[ws] peers.json пуст — не к кому присоединяться');
   // ETAP1/FR-P2P-03: лимит исходящих WS-соединений (default 10)

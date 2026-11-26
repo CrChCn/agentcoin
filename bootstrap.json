@@ -1,5 +1,5 @@
 {
   "bootstrap": [],
-  "updatedAt": "2026-10-18T00:00:00.000Z",
-  "note": "No built-in operator peers. Configure reachable peer URLs for your own deployment; an empty list does not join a network. Loopback refers only to the machine executing the client. See docs/JOINING.md."
+  "updatedAt": "2026-11-25T22:05:00.000Z",
+  "note": "Local override only: node merges these URLs into peers.json. Empty is fine — bootstrap now falls back to the DNS TXT seed (seed.agentcoin.work, AGT_DNS_SEEDS) and then to the built-in peer list in seeds.mjs, so a fresh node needs no hand-typed addresses. AGT_SEED_FALLBACK=0 and AGT_DNS_SEEDS=off disable those layers. See docs/JOINING.md."
 }

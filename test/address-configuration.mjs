@@ -64,35 +64,50 @@ try {
       assert(!html.includes('const CANDS'));
     }
     assert(read('site/dashboard.html').includes("j('/network/nodes')"));
-    assert(read('site/index.html').includes("getElementById('puburl').textContent = location.origin"));
+    // index.html — экспорт Next-фронтенда (отдельный стек), публичный вход показывают
+    // его клиентские чанки. В самой странице не должно быть зашитой топологии оператора
+    // и его локального API — иначе гость ходил бы на чужую ноду.
+    const index = read('site/index.html');
+    assert.doesNotMatch(index, /(?:node\d|agentcoin)\.agentcoin\.work/i, 'operator node leaked into index.html');
+    assert.doesNotMatch(index, /127\.0\.0\.1:9335/, 'operator loopback endpoint leaked into index.html');
   });
 
   const deploy = read('scripts/deploy-vps.sh');
-  const preflight = deploy.slice(deploy.indexOf('set -euo pipefail'), deploy.indexOf('echo "[1/7]'));
-  function validateDeploy(peer, port = '9335') {
-    return spawnSync('bash', ['-c', preflight + '\nprintf "accepted:%s" "$BOOTSTRAP_PEER"', 'preflight', port],
-      {encoding:'utf8', env:{...process.env, AGT_BOOTSTRAP_PEER:peer}});
-  }
-  await test('deployment validates optional bootstrap before any system mutation', () => {
-    for (const bad of ['http://u:p@example.org', 'http://example.org/a', 'ftp://example.org', 'http://example.org?x=1', 'http://example.org/#x', 'http://example.org:0', 'http://example.org:65536', 'http://example.org;touch /tmp/nope', 'http://example.org\n']) {
-      const result = validateDeploy(bad);
-      assert.notEqual(result.status, 0, bad);
-      assert(!result.stdout.includes('accepted:'));
+  const hostValidator = path.join(root, 'scripts', 'validate-site-host.sh');
+  await test('deployment validates the site hostname before any system mutation', () => {
+    // SITE пишется в AGT_PUBLIC_URL и в Caddyfile: мусор там = сломанный конфиг ноды.
+    for (const bad of ['', 'http://node4.agentcoin.work', 'node4.agentcoin.work/path', 'u:p@node4.example', 'node 4.example', 'node4', '-node.example', 'node_4.example', 'node4\t.example', 'node4.example:443', 'node4.example.']) {
+      const result = spawnSync('bash', [hostValidator, bad], {encoding:'utf8'});
+      assert.notEqual(result.status, 0, JSON.stringify(bad));
     }
-    for (const good of ['', 'https://bootstrap.example', 'http://127.0.0.1:9888/', 'http://[::1]:9888']) assert.equal(validateDeploy(good).status, 0, good);
-    for (const port of ['0', '-1', '65536', '9335;exit 0']) assert.notEqual(validateDeploy('', port).status, 0);
+    for (const good of ['node4.agentcoin.work', 'Node5.Example.COM']) {
+      const result = spawnSync('bash', [hostValidator, good], {encoding:'utf8'});
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, good.toLowerCase());
+    }
+    const at = deploy.indexOf('validate-site-host.sh');
+    assert(at > 0, 'deploy must call the hostname validator');
+    assert(at < deploy.indexOf('apt-get update'));
+    assert(at < deploy.indexOf('tar xzf'));
+    assert(at < deploy.indexOf('} > /etc/agentcoin-node.env'));
   });
 
-  await test('empty bootstrap never creates an empty peer or changes existing peers', () => {
-    const peers = path.join(tmp, 'peers.json');
-    fs.writeFileSync(peers, '["https://existing.example"]\n');
-    const start = deploy.indexOf('if [ -n "${BOOTSTRAP_PEER}" ] && ! jq');
-    const block = deploy.slice(start, deploy.indexOf('\necho "[7/7]', start));
-    const result = spawnSync('bash', ['-c', 'set -euo pipefail\n' + block], {
-      encoding:'utf8', env:{...process.env, BOOTSTRAP_PEER:'', PEERS_FILE:peers, SVC_USER:'unused'}
+  await test('empty seed list writes no peer entry, explicit seeds are joined', () => {
+    // Аналог прежнего bootstrap-контракта: пустой список не должен превращаться в
+    // пустую запись AGT_SEED_NODES, а явные сиды — попадать в env файла ноды.
+    const anchor = deploy.indexOf('AGT_DATA_DIR=${DATA_DIR}');
+    assert(anchor > 0, 'env block not found');
+    const block = deploy.slice(deploy.lastIndexOf('{', anchor), deploy.indexOf('} > /etc/agentcoin-node.env', anchor) + 1);
+    const runEnv = seeds => spawnSync('bash', ['-c', 'set -euo pipefail\n' + block], {
+      encoding:'utf8',
+      env:{...process.env, DATA_DIR:'/opt/agentcoin-node/data', INSTALL_DIR:'/opt/agentcoin-node', SITE:'node4.example', SEEDS:seeds}
     });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(fs.readFileSync(peers, 'utf8')), ['https://existing.example']);
+    const empty = runEnv('');
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.equal(empty.stdout.includes('AGT_SEED_NODES'), false);
+    const two = runEnv('https://a.example https://b.example');
+    assert.equal(two.status, 0, two.stderr);
+    assert.match(two.stdout, /AGT_SEED_NODES=https:\/\/a\.example,https:\/\/b\.example/);
   });
 
   for (const name of ['steward.mjs', 'moltbook-daily-report.mjs']) {

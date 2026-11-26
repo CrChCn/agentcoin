@@ -27,6 +27,9 @@ die() { echo "✗ ОШИБКА: $*" >&2; exit 1; }
 SITE="${1:-}"; TGZ="${2:-}"; shift 2 || true
 SEEDS="$*"
 [ -n "$SITE" ] || die "usage: bash $0 <site-hostname> <release-tgz> [seed-url...]"
+# SITE уезжает в AGT_PUBLIC_URL и в блок Caddyfile — валидируем ДО любых изменений системы.
+CLEAN_SITE="$(bash "$(dirname "$0")/validate-site-host.sh" "$SITE")" || die "некорректный site-hostname: ${SITE}"
+SITE="$CLEAN_SITE"
 [ -f "$TGZ" ] || die "релизный тарболл ${TGZ} не найден"
 [ "$(id -u)" = "0" ] || die "install — только от root"
 [ -e "$SRC" ] && die "${SRC} уже существует — это не install; обновления: scripts/rollout-node-update.sh"
@@ -63,7 +66,7 @@ echo "[4/7] env + systemd юнит ${UNIT} (loopback; наружу — толь�
   echo "AGT_PEER_DISCOVERY=1"
   echo "AGT_PUBLIC_URL=https://${SITE}"
   echo "AGT_MONITOR_TARGETS_FILE=${INSTALL_DIR}/monitor-targets.json"
-  [ -n "$SEEDS" ] && echo "AGT_SEED_NODES=${SEEDS// /,}"
+  if [ -n "$SEEDS" ]; then echo "AGT_SEED_NODES=${SEEDS// /,}"; fi
 } > /etc/agentcoin-node.env
 chmod 600 /etc/agentcoin-node.env
 cat > "/etc/systemd/system/${UNIT}.service" <<EOF

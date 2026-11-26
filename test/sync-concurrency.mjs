@@ -10,6 +10,8 @@ import {
 } from '../core.mjs';
 
 // All HTTP is a disposable loopback peer; metadata never touches a real node.
+// AGIP-PRIV-01 по умолчанию считает петлю не-пиром, для стенда это явно включаем.
+process.env.AGT_PEER_ALLOW_LOOPBACK = '1';
 const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agt-sync-concurrency-'));
 process.env.AGT_DATA_DIR = metadataDir;
 const { syncOne, syncAll, savePeers, savePeerMeta, loadPeerMeta } = await import('../sync.mjs');

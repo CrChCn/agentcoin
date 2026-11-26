@@ -280,6 +280,42 @@ else
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
   fi
   CF=/etc/caddy/Caddyfile
+  # Дефолтный Caddyfile из пакета Debian — это блок ":80 { root * /usr/share/caddy; file_server }":
+  # голый http://IP/ отдаёт чужой статик. Свой домен этот блок не обслуживает, глушим его.
+  if [ -f "$CF" ] && grep -q '/usr/share/caddy' "$CF"; then
+    if [ "$DRY" = 1 ]; then
+      printf '    [dry-run] убрать дефолтный блок :80 { file_server } из %s\n' "$CF"
+    else
+      BKD="$CF.bak-agt-default-$(date +%Y%m%d-%H%M%S)"
+      cp -a "$CF" "$BKD"
+      # выкидываем верхнеуровневый блок с адресом ":80", если он отдаёт /usr/share/caddy
+      awk '
+        !inblk {
+          if ($0 ~ /^[ \t]*:80[ \t]*\{[ \t]*$/) { inblk=1; buf=$0; depth=1; next }
+          print; next
+        }
+        {
+          buf = buf "\n" $0
+          o=$0; gsub(/[^{]/, "", o)
+          c=$0; gsub(/[^}]/, "", c)
+          depth += length(o) - length(c)
+          if (depth <= 0) {
+            if (buf !~ /\/usr\/share\/caddy/) printf "%s\n", buf
+            inblk=0
+          }
+        }
+        END { if (inblk) printf "%s\n", buf }
+      ' "$BKD" > "$CF"
+      if grep -q '/usr/share/caddy' "$CF"; then
+        cp -a "$BKD" "$CF"
+        warn "    дефолтный блок :80 остался в $CF — правь руками (бэкап $BKD)"
+      else
+        log "    дефолтный блок :80 { file_server } убран (бэкап $BKD)"
+        caddy validate --config "$CF" --adapter caddyfile \
+          || { cp -a "$BKD" "$CF"; systemctl reload caddy 2>/dev/null || true; die "Caddyfile не валиден после удаления :80 — откатил к $BKD"; }
+      fi
+    fi
+  fi
   ESC_DOMAIN="$(printf %s "$EFF_DOMAIN" | sed 's/\./\\./g')"
   if [ -f "$CF" ] && grep -Eq "(^|[[:space:]])${ESC_DOMAIN}([[:space:]]|\{|$)" "$CF"; then
     log "    блок $EFF_DOMAIN уже есть в Caddyfile — не трогаю"

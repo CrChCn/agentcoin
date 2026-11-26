@@ -14,7 +14,12 @@
 #      <md5-текущего> — md5 файла на хосте (защита от наката не на ту базу),
 #      absent — файла на хосте ещё нет. База обязательна для каждого файла пачки.
 #   Один файл по-старому:  bash $0 /root/node.mjs.new <md5-текущего-node.mjs>
-#   Откат: ROLLBACK=1 bash $0   — возвращает ВСЕ файлы последней раскатки.
+#   Откат: ROLLBACK=1 bash $0   — возвращает ВСЕ файлы последней раскатки
+#          (а файлы, которых до неё не было, — удаляет).
+#
+#   Раскладка переопределяется env (тестовый стенд, нестандартная установка):
+#     AGT_SRC (код), AGT_INSTALL_DIR, AGT_UNIT (юнит), AGT_PORT, AGT_BACKUP_DIR.
+#   Скрипт управляет только указанными модулями и своим юнитом.
 #
 # До копирования проверяется, что относительные импорты разрешаются
 # (check-module-imports.mjs): «привёз node.mjs, забыл seeds.mjs» ловится здесь,
@@ -23,10 +28,11 @@
 # Секретов не печатает: в local-режиме админ — только loopback.
 set -euo pipefail
 
-SRC=/opt/agentcoin-node/src
-INSTALL_DIR=/opt/agentcoin-node
-UNIT=agentcoin-node
-PORT=9335
+SRC="${AGT_SRC:-/opt/agentcoin-node/src}"
+INSTALL_DIR="${AGT_INSTALL_DIR:-/opt/agentcoin-node}"
+UNIT="${AGT_UNIT:-agentcoin-node}"
+PORT="${AGT_PORT:-9335}"
+BACKUP_DIR="${AGT_BACKUP_DIR:-/root}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECKER="${HERE}/check-module-imports.mjs"
 
@@ -55,18 +61,36 @@ report_life() {
 }
 
 if [ "${ROLLBACK:-0}" = "1" ]; then
-  echo "[rollback] ищу бэкапы последней раскатки"
+  echo "[rollback] ищу манифест/бэкапы последней раскатки"
   # shellcheck disable=SC2012
-  LAST="$(ls -1t "${SRC}"/*.bak-* 2>/dev/null | head -1)" || true
-  [ -n "${LAST:-}" ] || die "бэкапов node.mjs.bak-* нет — откат невозможен"
-  STAMP="${LAST##*.bak-}"
+  LAST_MANIFEST="$(ls -1t "${SRC}"/.rollout-*.manifest 2>/dev/null | head -1)" || true
+  if [ -n "${LAST_MANIFEST:-}" ]; then
+    STAMP="${LAST_MANIFEST##*.rollout-}"; STAMP="${STAMP%.manifest}"
+  else
+    LAST="$(ls -1t "${SRC}"/*.bak-* 2>/dev/null | head -1)" || true
+    [ -n "${LAST:-}" ] || die "ни манифеста, ни бэкапов *.bak-* — откат невозможен"
+    STAMP="${LAST##*.bak-}"
+  fi
   echo "[rollback] штамп ${STAMP}"
-  for b in "${SRC}"/*.bak-"${STAMP}"; do
-    [ -f "$b" ] || continue
-    target="${b%.bak-${STAMP}}"
-    cp "$b" "$target"
-    echo "  вернул $(basename "$target")"
-  done
+  if [ -n "${LAST_MANIFEST:-}" ]; then
+    while read -r state name; do
+      [ -n "${name:-}" ] || continue
+      if [ "$state" = "new" ]; then
+        rm -f "${SRC}/${name}"
+        echo "  убрал новый ${name}"
+      else
+        cp "${SRC}/${name}.bak-${STAMP}" "${SRC}/${name}"
+        echo "  вернул ${name}"
+      fi
+    done < "$LAST_MANIFEST"
+  else
+    for b in "${SRC}"/*.bak-"${STAMP}"; do
+      [ -f "$b" ] || continue
+      target="${b%.bak-${STAMP}}"
+      cp "$b" "$target"
+      echo "  вернул $(basename "$target")"
+    done
+  fi
   NODE_BIN="$(pick_node)" || die "node runtime не найден"
   "$NODE_BIN" --check "${SRC}/node.mjs" || die "node --check после отката провален"
   systemctl restart "$UNIT"
@@ -149,14 +173,21 @@ echo "[2/6] импорты (до копирования: что получитс
 
 echo "[3/6] бэкап (код + данные; tar rc=1 допустим — цепь живая, файлы меняются)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$BACKUP_DIR"
+MANIFEST="${SRC}/.rollout-${STAMP}.manifest"
+: > "$MANIFEST"
 for n in "${FILES[@]}"; do
   if [ -f "${SRC}/${n}" ]; then
     cp "${SRC}/${n}" "${SRC}/${n}.bak-${STAMP}"
+    echo "kept ${n}" >> "$MANIFEST"
     echo "  ${n}.bak-${STAMP}"
+  else
+    echo "new ${n}" >> "$MANIFEST"
+    echo "  ${n}: нового файла на хосте не было (откат удалит)"
   fi
 done
-tar czf "/root/agentcoin-update-data-${STAMP}.tgz" -C "$INSTALL_DIR" data || [ $? -eq 1 ]
-chmod 600 "/root/agentcoin-update-data-${STAMP}.tgz"
+tar czf "${BACKUP_DIR}/agentcoin-update-data-${STAMP}.tgz" -C "$INSTALL_DIR" data || [ $? -eq 1 ]
+chmod 600 "${BACKUP_DIR}/agentcoin-update-data-${STAMP}.tgz"
 
 echo "[4/6] установка + node --check (гейт)"
 for n in "${FILES[@]}"; do

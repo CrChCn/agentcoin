@@ -40,7 +40,8 @@ const AMOUNT = Number(arg('amount', 0.25));
 const COUNT = Number(arg('count', 3));
 const DEADLINE = Number(arg('deadline', 7200));
 const REPEAT_HOURS = Number(arg('repeat-hours', 12));
-const TASK_INDEX = has('task-index') ? Number(arg('task-index')) : null;
+const TASK_INDEX_RAW = arg('task-index');
+const TASK_INDEX = has('task-index') ? Number(TASK_INDEX_RAW) : null;
 const POST_EVERY_HOURS = Number(arg('post-every-hours', 6));
 const MIN_BALANCE = Number(arg('min-balance', 20));
 const LEDGER = path.resolve(arg('ledger', path.join(__dirname, 'hire-ledger.json')));
@@ -62,7 +63,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n) => Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 const short = (a) => String(a || '').slice(0, 12) + '…';
 
-function loadLedger() { try { return JSON.parse(fs.readFileSync(LEDGER, 'utf8')); } catch { return { shifts: [] }; } }
+function loadLedger() {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  try { const l = JSON.parse(fs.readFileSync(LEDGER, 'utf8')); return { ...l, shifts: arr(l.shifts), posts: arr(l.posts) }; }
+  catch { return { shifts: [], posts: [] }; }
+}
 function saveLedger(l) { fs.mkdirSync(path.dirname(LEDGER), { recursive: true }); fs.writeFileSync(LEDGER, JSON.stringify(l, null, 1)); }
 
 // отчёт к публикации: формулировка чередуется от сводки к сводке
@@ -73,7 +78,7 @@ function reportFor(t, ledger) {
 
 // окно публикации: одна сводка на --post-every-hours
 function feedGate(ledger, now = Date.now()) {
-  const posts = Array.isArray(ledger.posts) ? ledger.posts : [];
+  const posts = ledger.posts;
   const last = posts[posts.length - 1];
   const nextAt = last ? Date.parse(last.at) + POST_EVERY_HOURS * 3600_000 : 0;
   return { open: now >= nextAt, lastAt: last?.at || null, nextAt };
@@ -130,7 +135,6 @@ function taskPool(f) {
     {
       key: 'dxe',
       task: 'DXE-сводка по BOTAI: открытые ордера, лучший бид, лучший аск, спред. Отчёт идёт в сводку смены.',
-      sig: `dxe:${f.openOrders}:${bid}:${ask}:${spread}`,
       variants: [
         `DXE по BOTAI: открытых ордеров ${f.openOrders}, лучший бид ${bid} AGT, лучший аск ${ask} AGT, спред ${spread}. Высота ${h}.`,
         `Стакан BOTAI: ${f.openOrders} открытых ордеров, сверху бид ${bid} AGT и аск ${ask} AGT, разрыв ${spread}. Высота ${h}.`,
@@ -140,7 +144,6 @@ function taskPool(f) {
     {
       key: 'payouts',
       task: 'Проверка выплат: сколько всего выплачено, сколько работ оплачено, средняя выплата, комиссии казны. Отчёт идёт в сводку смены.',
-      sig: `payouts:${f.paidJobs}:${f.paidOut}:${f.fees}:${f.escrows}`,
       variants: [
         `Выплаты сети: ${fmt(f.paidOut)} AGT за ${f.paidJobs} оплаченных работ, средняя ${f.avgPayment} AGT, комиссии казны ${fmt(f.fees)} AGT. Всего эскроу ${f.escrows}.`,
         `Казна и выплаты: ${f.paidJobs} работ оплачено на ${fmt(f.paidOut)} AGT, в среднем ${f.avgPayment} AGT за работу, комиссии ${fmt(f.fees)} AGT, эскроу ${f.escrows}.`,
@@ -150,7 +153,6 @@ function taskPool(f) {
     {
       key: 'security',
       task: 'Аудит безопасности: атаки, бан-лист, валидность цепи на текущей высоте. Отчёт идёт в сводку смены.',
-      sig: `sec:${f.attacks}:${f.banned}:${f.valid}`,
       variants: [
         `Аудит: атак ${f.attacks}, адресов в бане ${f.banned}, цепь ${chain} на высоте ${h}. Последний блок ${age} с назад.`,
         `Безопасность: ${f.attacks} атак отбито, ${f.banned} адресов в бане, цепь ${chain}, высота ${h}, блок ${age} с назад.`,
@@ -160,7 +162,6 @@ function taskPool(f) {
     {
       key: 'nodes',
       task: 'Проверка децентрализации: сколько нод видит сеть, отстают ли они от tip, сходятся ли высоты. Отчёт идёт в сводку смены.',
-      sig: `nodes:${f.nodes}:${f.valid}:${f.passports}:${f.treasury}`,
       variants: [
         `Ноды: сеть видит ${f.nodes}, высота ${h}, цепь ${chain}. Паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
         `Сеть: ${f.nodes} нод, высота ${h}, цепь ${chain}; паспортов ${f.passports}, в казне ${fmt(f.treasury)} AGT.`,
@@ -170,7 +171,6 @@ function taskPool(f) {
     {
       key: 'market',
       task: 'Рынок работ: сколько открытых аукционов, какие задачи выставлены, средняя цена. Отчёт идёт в сводку смены.',
-      sig: `market:${f.auctions}:${f.paidJobs}:${f.paidOut}`,
       variants: [
         `Аукционы: открыто ${f.auctions}, оплачено работ ${f.paidJobs}, выплачено ${fmt(f.paidOut)} AGT. Средняя выплата ${f.avgPayment} AGT.`,
         `Рынок работ: ${f.auctions} открытых аукционов, ${f.paidJobs} оплаченных работ, ${fmt(f.paidOut)} AGT выплат, средняя ${f.avgPayment} AGT.`,
@@ -207,7 +207,7 @@ async function main() {
   const facts = await loadFacts();
   const pool = taskPool(facts);
   if (TASK_INDEX !== null && !(Number.isInteger(TASK_INDEX) && pool[TASK_INDEX])) {
-    throw new Error(`--task-index ${arg('task-index')} не из пула: 0…${pool.length - 1} (${pool.map((p) => p.key).join(', ')})`);
+    throw new Error(`--task-index ${TASK_INDEX_RAW} не из пула: 0…${pool.length - 1} (${pool.map((p) => p.key).join(', ')})`);
   }
   const workers = await pickWorkers(COUNT, ledger);
   const bal = await api('POST', '/balance', { address: EMPLOYER });
@@ -226,7 +226,7 @@ async function main() {
     const t = TASK_INDEX !== null ? pool[TASK_INDEX] : pool.find((x) => !used.has(x.key)) || pool[i % pool.length];
     used.add(t.key);
     const r = reportFor(t, ledger);
-    return { worker: w, handle: '', key: t.key, task: t.task, sig: t.sig, report: r.text, variant: r.variant };
+    return { worker: w, key: t.key, task: t.task, report: r.text, variant: r.variant };
   });
 
   const gate = feedGate(ledger);
@@ -271,7 +271,6 @@ async function main() {
   }
 
   console.log('\nжду подтверждения…');
-  ledger.posts = Array.isArray(ledger.posts) ? ledger.posts : [];
   const result = [];
   for (const d of done) {
     const e = await waitEscrow(d.escId, 'paid');
@@ -286,7 +285,7 @@ async function main() {
     const text = `Сводка смены, ${plural(done.length, ['агент', 'агента', 'агентов'])}:\n` + done.map((d) => `· ${d.report}`).join('\n');
     const sent = await api('POST', '/community/send', { sender: done[0].worker, text });
     if (sent.status === 201) {
-      ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key), sig: done.map((d) => d.sig).join('|') });
+      ledger.posts.push({ at: new Date().toISOString(), kind: 'digest', agents: done.length, tasks: done.map((d) => d.key) });
       console.log(`  сводка в ленте: ${plural(done.length, ['отчёт', 'отчёта', 'отчётов'])} от ${short(done[0].worker)}`);
     } else console.log(`  сводка не ушла (${sent.status})`);
   } else if (done.length) {

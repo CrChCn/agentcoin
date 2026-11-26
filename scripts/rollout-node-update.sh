@@ -61,6 +61,7 @@ report_life() {
 }
 
 if [ "${ROLLBACK:-0}" = "1" ]; then
+  echo "[rollback] цель: ${SRC} (юнит ${UNIT}, порт ${PORT}, бэкапы ${BACKUP_DIR})"
   echo "[rollback] ищу манифест/бэкапы последней раскатки"
   # shellcheck disable=SC2012
   LAST_MANIFEST="$(ls -1t "${SRC}"/.rollout-*.manifest 2>/dev/null | head -1)" || true
@@ -72,16 +73,24 @@ if [ "${ROLLBACK:-0}" = "1" ]; then
     STAMP="${LAST##*.bak-}"
   fi
   echo "[rollback] штамп ${STAMP}"
+  RESTORED=()
   if [ -n "${LAST_MANIFEST:-}" ]; then
-    while read -r state name; do
+    while read -r state name want_md5; do
       [ -n "${name:-}" ] || continue
       if [ "$state" = "new" ]; then
         rm -f "${SRC}/${name}"
         echo "  убрал новый ${name}"
-      else
-        cp "${SRC}/${name}.bak-${STAMP}" "${SRC}/${name}"
-        echo "  вернул ${name}"
+        continue
       fi
+      BAK="${SRC}/${name}.bak-${STAMP}"
+      [ -f "$BAK" ] || die "нет бэкапа ${BAK} — откат невозможен"
+      if [ -n "${want_md5:-}" ]; then
+        got="$(md5sum "$BAK" | cut -d' ' -f1)"
+        [ "$got" = "$want_md5" ] || die "бэкап ${BAK} повреждён (${got} != ${want_md5}) — откат остановлен, нода не тронута"
+      fi
+      cp "$BAK" "${SRC}/${name}"
+      RESTORED+=("$name")
+      echo "  вернул ${name}"
     done < "$LAST_MANIFEST"
   else
     for b in "${SRC}"/*.bak-"${STAMP}"; do
@@ -92,7 +101,11 @@ if [ "${ROLLBACK:-0}" = "1" ]; then
     done
   fi
   NODE_BIN="$(pick_node)" || die "node runtime не найден"
-  "$NODE_BIN" --check "${SRC}/node.mjs" || die "node --check после отката провален"
+  for n in ${RESTORED[@]+"${RESTORED[@]}"} node.mjs; do
+    [ -f "${SRC}/${n}" ] || continue
+    "$NODE_BIN" --check "${SRC}/${n}" || die "node --check после отката провален: ${n}"
+  done
+  "$NODE_BIN" "$CHECKER" "$SRC" "$SRC" || die "после отката импорты не разрешаются — нода не перезапущена"
   systemctl restart "$UNIT"
   wait_alive || die "нода не ожила за 90с после отката — journalctl -u ${UNIT} -f"
   report_life || die "нода не отвечает на /life после отката"
@@ -133,6 +146,7 @@ else
 fi
 for f in "${STAGE}"/*; do
   n="$(basename "$f")"
+  [ -f "$f" ] && [[ "$n" == *.mjs ]] || die "в ${STAGE} лишнее: ${n} — пачка состоит только из *.mjs"
   [ -n "${EXPECT[$n]:-}" ] || die "не задана база для ${n} — добавь ${n}=<md5|absent>"
 done
 [ "${#FILES[@]}" -gt 0 ] || die "пачка пуста"
@@ -179,7 +193,7 @@ MANIFEST="${SRC}/.rollout-${STAMP}.manifest"
 for n in "${FILES[@]}"; do
   if [ -f "${SRC}/${n}" ]; then
     cp "${SRC}/${n}" "${SRC}/${n}.bak-${STAMP}"
-    echo "kept ${n}" >> "$MANIFEST"
+    echo "kept ${n} $(md5sum "${SRC}/${n}.bak-${STAMP}" | cut -d' ' -f1)" >> "$MANIFEST"
     echo "  ${n}.bak-${STAMP}"
   else
     echo "new ${n}" >> "$MANIFEST"
@@ -190,8 +204,14 @@ tar czf "${BACKUP_DIR}/agentcoin-update-data-${STAMP}.tgz" -C "$INSTALL_DIR" dat
 chmod 600 "${BACKUP_DIR}/agentcoin-update-data-${STAMP}.tgz"
 
 echo "[4/6] установка + node --check (гейт)"
+# синтаксис проверяем ДО копирования: битый файл не должен попасть в src
+for n in "${FILES[@]}"; do
+  "$NODE_BIN" --check "${STAGE}/${n}" || die "node --check провален до установки: ${n} — пачка не тронута"
+done
 for n in "${FILES[@]}"; do
   install -m 644 "${STAGE}/${n}" "${SRC}/${n}"
+  got="$(md5sum "${SRC}/${n}" | cut -d' ' -f1)"; want="$(md5sum "${STAGE}/${n}" | cut -d' ' -f1)"
+  [ "$got" = "$want" ] || die "${n}: после установки md5 ${got} != ${want} — откат: ROLLBACK=1 bash $0"
   "$NODE_BIN" --check "${SRC}/${n}" || die "node --check провален: ${n} (откат: ROLLBACK=1 bash $0)"
   echo "  ${n}: JS_OK"
 done

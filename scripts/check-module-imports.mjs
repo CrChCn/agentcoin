@@ -65,7 +65,7 @@ if (!queue.length) {
   process.exit(2);
 }
 const visited = new Set();
-const missing = [];
+const missing = new Set();
 let edges = 0;
 
 while (queue.length) {
@@ -74,22 +74,22 @@ while (queue.length) {
   if (visited.has(real)) continue;
   visited.add(real);
   let source;
-  try { source = fs.readFileSync(real, 'utf8'); } catch (e) { missing.push(`${real}: не читается (${e.message})`); continue; }
+  try { source = fs.readFileSync(real, 'utf8'); } catch (e) { missing.add(`${real}: не читается (${e.message})`); continue; }
   for (const m of source.matchAll(SPEC_RE)) {
     const spec = m[1] || m[2] || m[3];
     if (!spec) continue;
     edges++;
     const target = resolveSpec(real, spec);
-    if (!target) { missing.push(`${path.basename(real)} -> ${spec}`); continue; }
+    if (!target) { missing.add(`${path.basename(real)} -> ${spec}`); continue; }
     if (!visited.has(path.resolve(target))) queue.push(target);
   }
 }
 
 const files = [...visited];
-if (missing.length) {
-  console.error(`✗ импорты не разрешаются (${missing.length}):`);
+if (missing.size) {
+  console.error(`✗ импорты не разрешаются (${missing.size}):`);
   for (const line of missing) console.error(`  ${line}`);
-  console.error('  доложи недостающие файлы в staging и повтори; нода не тронута');
+  console.error('  доложи недостающие файлы в staging и повтори');
   process.exit(1);
 }
 console.log(`✓ импорты разрешаются: ${files.length} модулей, ${edges} относительных ссылок`);

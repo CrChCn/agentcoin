@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentcoin · тестовая торговля</title>
+<style>
+  :root { --bg: #0f1420; --card: #182032; --line: #2a3445; --txt: #e8edf5; --mut: #93a0b8; --acc: #4da3ff; --ok: #3ecf8e; --bad: #ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 600px; margin: 0 auto; padding: 16px 12px 48px; }
+  h1 { font-size: 22px; margin: 8px 0 2px; }
+  .sub { color: var(--mut); margin: 0 0 12px; font-size: 14px; }
+  .tabs { display: flex; gap: 8px; margin: 12px 0; }
+  .tabs button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--txt); font-size: 15px; cursor: pointer; }
+  .tabs button.active { border-color: var(--acc); background: #1d2c47; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 20px; margin-right: 6px; }
+  .badge.sim { background: #12324a; color: #7fd4ff; border: 1px solid #1f5a82; }
+  .badge.chain { background: #123f2a; color: #7fe6a8; border: 1px solid #1f7049; }
+  .net { font-size: 12px; color: var(--mut); }
+  .amt { font-variant-numeric: tabular-nums; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; overflow-wrap: anywhere; word-break: break-all; }
+  .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button.action { flex: 1 1 100px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #22304a; color: var(--txt); font-size: 15px; cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #06121f; font-weight: 700; }
+  button.ghost { background: transparent; }
+  input#amount, input#liq-price, input#liq-trade, input#liq-tol { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: #0c1220; color: var(--txt); font-size: 17px; margin-top: 6px; }
+  #error, #liq-error { display: none; background: #3a1620; border: 1px solid var(--bad); color: #ffc9c9; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  #preview { display: none; border-color: var(--acc); }
+  .muted { color: var(--mut); }
+  a { color: var(--acc); overflow-wrap: anywhere; word-break: break-all; }
+  .k { color: var(--mut); font-size: 13px; }
+  ul.links { padding-left: 18px; margin: 6px 0; }
+  ul.links li { margin: 4px 0; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; word-break: break-all; }
+</style>
+</head>
+<body>
+<nav style="max-width:600px;margin:12px auto 0;padding:0 12px;display:flex;gap:10px;flex-wrap:wrap;font-size:13px">
+<a style="color:#93a0b8" href="/get-agt">← Как получить и хранить AGT</a>
+<a style="color:#93a0b8" href="/dex">wAGT</a>
+<a style="color:#93a0b8" href="/mine">Майнинг</a>
+<a style="color:#93a0b8" href="/mini">Miner Console</a>
+</nav>
+<main>
+  <h1>Agentcoin · тестовая торговля</h1>
+  <p class="sub">Учебная страница: симулятор пула wAGT/tAGT и подтверждённый обмен на Sepolia. Кошелёк не нужен, транзакции не отправляются. Бюджет — 0 USDC, торговля в основной сети отложена.</p>
+
+  <div class="tabs">
+    <button id="btn-sim" class="active">Симулятор</button>
+    <button id="btn-sepolia">Обмен на Sepolia</button>
+    <button id="btn-liq">Ликвидность</button>
+  </div>
+
+  <section id="tab-sim">
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">расчёт в браузере · сеть: нет (формула Uniswap V2, комиссия 0,3%)</span>
+      <div class="k">Резервы пула</div>
+      <div class="amt" id="poolW">—</div>
+      <div class="amt" id="poolT">—</div>
+      <div class="k" id="poolPrice">—</div>
+    </div>
+
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div class="k">Учебный баланс</div>
+      <div class="amt" id="balW">—</div>
+      <div class="amt" id="balT">—</div>
+    </div>
+
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div><label for="amount"><b>Сумма сделки</b></label></div>
+      <input id="amount" inputmode="decimal" placeholder="например, 2" autocomplete="off">
+      <div class="row">
+        <button class="action" id="buy">Купить wAGT</button>
+        <button class="action" id="sell">Продать wAGT</button>
+        <button class="action" id="reset">Сбросить</button>
+      </div>
+    </div>
+
+    <div id="error" role="alert"></div>
+    <div class="card" id="preview"></div>
+
+    <h2>История операций</h2>
+    <div id="history"></div>
+  </section>
+
+  <section id="tab-sepolia" style="display:none">
+    <div class="card">
+      <span class="badge chain">публичная тестовая сеть</span><span class="net">сеть: Sepolia · данные уже опубликованы, повтора не требуется</span>
+      <div><b>Фактический обмен: 2 wAGT → 18.993189503262370814 tAGT</b></div>
+      <div class="amt">Отдано: 2.000000000000000000 wAGT</div>
+      <div class="amt">Получено: 18.993189503262370814 tAGT</div>
+      <div class="k">Пул на момент сделки: 40 wAGT / 400 tAGT, официальный Uniswap V2 Router02. Где видно суммы: страница транзакции → «Tokens Transferred» (2 wAGT в пул, 18.993… tAGT из пула), те же остатки — на странице пула.</div>
+      <ul class="links">
+        <li>Транзакция обмена: <a class="mono" href="https://sepolia.etherscan.io/tx/0x72f4e6aaf8eb98013170bef7b3d0607263adf8cc8a0c75e01e64d979fa26e26c">0x72f4e6aa…9fa26e26c</a> (блок 12096587)</li>
+        <li>Пул wAGT/tAGT: <a class="mono" href="https://sepolia.etherscan.io/address/0x02778d388a9D397d9583524169506256d4179fDC">0x02778d388a9D397d9583524169506256d4179fDC</a></li>
+        <li>Токен wAGT: <a class="mono" href="https://sepolia.etherscan.io/token/0x64FEA6B5a6BE1CA8F8301Ad63b33356eA548b590">0x64FEA6B5a6BE1CA8F8301Ad63b33356eA548b590</a></li>
+        <li>Токен tAGT: <a class="mono" href="https://sepolia.etherscan.io/token/0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50">0x3fDD80F38e2F8678d669CC329Fc25Cf642fc1A50</a></li>
+        <li>Возврат (burn 3 wAGT): <a class="mono" href="https://sepolia.etherscan.io/tx/0x6a50e5cda311ae88b26c9ddff766239c599648e7553432131252622e7cb9af16">0x6a50e5cd…2e7cb9af16</a> (блок 12096589)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <span class="badge chain">публичная тестовая сеть</span><span class="net">только чтение · кошелёк не нужен · транзакция не отправляется</span>
+      <div><b>Живая котировка (не сделка): продажа 2 wAGT</b></div>
+      <div>Выход: <span class="amt" id="live-out">17.268890760796809396 tAGT</span></div>
+      <div class="k" id="live-block">блок 12103142 (снимок, сверен чтением Router02.getAmountsOut и пересчётом по резервам 42 / 381.006810496737629186 того же блока — сошлось точно)</div>
+      <div class="k">Пара <span class="mono">0x02778d388a9D397d9583524169506256d4179fDC</span>, Router02 <span class="mono">0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3</span>. Отличается от 18,99 совершённой сделки: резервы изменились той самой сделкой. Котировка живёт один блок.</div>
+      <div class="row"><button class="action primary" id="live-refresh">Обновить котировку</button></div>
+      <div class="k" id="live-msg"></div>
+    </div>
+  </section>
+</main>
+  <section id="tab-liq" style="display:none">
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">расчёт в браузере · комиссия сети не включена</span>
+      <div><b>Калькулятор ликвидности wAGT/USDC</b></div>
+      <div class="k">Сколько внести в пул, чтобы сделка заданного размера прошла в допуске. Отклонение считается от номинала (сделка × стартовая цена); комиссия пула 0,3% входит в допуск, комиссия сети — нет.</div>
+      <div><label for="liq-price"><b>Стартовая цена (USDC за wAGT)</b></label></div>
+      <input id="liq-price" inputmode="decimal" value="1" autocomplete="off">
+      <div><label for="liq-trade"><b>Размер сделки (wAGT)</b></label></div>
+      <input id="liq-trade" inputmode="decimal" value="2" autocomplete="off">
+      <div><label for="liq-tol"><b>Допустимое отклонение (%)</b></label></div>
+      <input id="liq-tol" inputmode="decimal" value="1" autocomplete="off">
+      <div class="row"><button class="action primary" id="liq-go">Рассчитать</button></div>
+    </div>
+
+    <div id="liq-error" role="alert" style="display:none"></div>
+    <div class="card" id="liq-result" style="display:none"></div>
+
+    <h2>Проверка трёх сценариев</h2>
+    <div id="liq-scen"></div>
+
+    <h2>Два сценария пула wAGT/WETH (партнёру)</h2>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">сеть: нет · комиссия сети не включена · стартовая цена 0,0005 WETH за wAGT — допущение, стороны выбирают сами</span>
+      <div><b>A · Пилот: 40 wAGT + 0,02 WETH</b></div>
+      <div>Проект: 40 wAGT в пул + <b>40 AGT</b> в резерв моста (1:1). Партнёр: <b>0,02 WETH</b>.</div>
+      <div>Продажа 2 wAGT → <span class="amt">0.000949659475163118 WETH</span> (откл. 5,03%, комиссия пула 0,006 wAGT, цена после 0,000454).</div>
+      <div>Покупка за 0,001 WETH → <span class="amt">1.899318950326237081 wAGT</span>.</div>
+    </div>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">сеть: нет · комиссия сети не включена</span>
+      <div><b>B · Рабочий: 283 wAGT + 0,1415 WETH</b></div>
+      <div>Проект: 283 wAGT в пул + <b>283 AGT</b> в резерв моста (1:1). Партнёр: <b>0,1415 WETH</b>.</div>
+      <div>Продажа 2 wAGT → <span class="amt">0.000990024351389853 WETH</span> (откл. 1,00%, цена после 0,000493).</div>
+      <div>Покупка за 0,001 WETH → <span class="amt">1.980048702779707642 wAGT</span>.</div>
+    </div>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span>
+      <div><b>Условия для партнёра (вариант для обсуждения)</b></div>
+      <ul class="links">
+        <li>Газ: каждую транзакцию оплачивает её отправитель. Создание пула и первый депозит — по договорённости (вариант: проект); approve — каждый свой; вывод — выводящий. Газ — в ETH, плательщика фиксируют до запуска.</li>
+        <li>LP-токены: в V2 их получает вносящий автоматически. Держатель — по согласованию (мультисиг сторон или сплит пропорционально вкладам); вывод ликвидности — только по совместному решению. Без этого пул не создаётся.</li>
+        <li>Стартовая цена wAGT (здесь 0,0005 WETH) — параметр: стороны выбирают и фиксируют до создания пула.</li>
+      </ul>
+    </div>
+
+    <h2>Карточка для партнёра (вариант для обсуждения)</h2>
+    <div class="card">
+      <span class="badge sim">локальная симуляция</span><span class="net">реального пула нет · переводов нет</span>
+      <div><b>Кто что вносит</b></div>
+      <ul class="links">
+        <li>AGT в резерв моста вносит <b>проект</b>; wAGT выпускается только под заблокированные AGT (обратный выкуп — через burn).</li>
+        <li>wAGT в пул вносит <b>проект</b> (обеспеченные, из того же выпуска).</li>
+        <li>USDC в пул вносит <b>партнёр</b>. Бюджет проекта — 0 USDC.</li>
+      </ul>
+      <div><b>LP-токены и вывод</b></div>
+      <ul class="links">
+        <li>Доли LP-токенов и право вывода ликвидности стороны <b>согласуют до запуска</b> (вариант: пропорционально вкладам, вывод — только по совместному решению).</li>
+        <li>Без согласованных долей и порядка вывода пул не создаётся.</li>
+      </ul>
+      <div class="k">Это вариант для обсуждения, не оферта. Все цифры выше — локальный расчёт по формуле Uniswap V2; комиссия сети считается отдельно.</div>
+    </div>
+  </section>
+</main>
+<script type="module" src="/sim-ui.js"></script>
+<script type="module" src="/sim-liq.js"></script>
+<script type="module" src="/sim-live.js"></script>
+</body>
+</html>

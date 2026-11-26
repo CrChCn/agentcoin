@@ -17,7 +17,7 @@ let previous;try{previous=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}
 let release=releaseIndex>=0?args[releaseIndex+1]:previous?.release||'agent-cabinet-v1-20261018';
 if(!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(release||''))throw Error('invalid_release_name');
 const lf=b=>Buffer.from(b.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
-const panel=Buffer.from(['imperial-panel.js','install-ui.js','profile-memory.js','cabinet-helper.js'].map(file=>lf(fs.readFileSync(path.join(root,'tools',file))).toString('utf8').trimEnd()).join('\n')+'\n');
+const panel=Buffer.from(['imperial-panel.js','install-ui.js','cabinet-helper.js'].map(file=>lf(fs.readFileSync(path.join(root,'tools',file))).toString('utf8').trimEnd()).join('\n')+'\n');
 const panelPath=path.join(root,'site','panel.js');
 // Сверка не зависит от переходов строк: исходники в репозитории CRLF, site/panel.js — LF,
 // а оба варианта дают один и тот же бандл. Сравниваем нормализованные байты.

@@ -393,105 +393,6 @@
   };
   select.onchange = render; $('install-client-only').onchange = render; $('install-node-url').oninput = render; render();
 })();
-/* Public profile hints only. Identity and authorization still require a signed challenge. */
-(function (root) {
-  'use strict';
-  var KEY = 'agentcoin.public-profile.v1';
-  function sanitize(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    var address = typeof value.address === 'string' ? value.address.trim() : '';
-    if (!/^AGT[0-9a-f]{40}$/i.test(address)) return null;
-    var result = { version: 1, address: address };
-    if (typeof value.handle === 'string') {
-      var handle = value.handle.trim();
-      if (handle && handle.length <= 80 && !/[\u0000-\u001f\u007f]/.test(handle)) result.handle = handle;
-    }
-    return result;
-  }
-  function read(storage) {
-    try {
-      var raw = storage.getItem(KEY);
-      if (!raw || raw.length > 512) return null;
-      var parsed = JSON.parse(raw);
-      return parsed.version === 1 ? sanitize(parsed) : null;
-    } catch (_) { return null; }
-  }
-  function write(storage, value) {
-    var clean = sanitize(value);
-    if (!clean) return false;
-    try { storage.setItem(KEY, JSON.stringify(clean)); return true; } catch (_) { return false; }
-  }
-  function forget(storage) {
-    try { storage.removeItem(KEY); return true; } catch (_) { return false; }
-  }
-  function install(document, storage) {
-    var address = document.getElementById('adr');
-    if (!address || document.getElementById('rememberPublicProfile')) return;
-    var box = document.createElement('div');
-    box.className = 'wallet-card';
-    var label = document.createElement('label');
-    var checkbox = document.createElement('input');
-    checkbox.type = 'checkbox'; checkbox.id = 'rememberPublicProfile'; checkbox.style.width = 'auto';
-    label.appendChild(checkbox);
-    label.appendChild(document.createTextNode(' Запомнить публичный адрес на этом устройстве'));
-    var button = document.createElement('button');
-    button.type = 'button'; button.className = 'secondary'; button.textContent = 'Забыть сохранённый профиль';
-    var status = document.createElement('p'); status.className = 'dim'; status.setAttribute('aria-live', 'polite');
-    status.textContent = 'Сохраняется только публичный адрес. Вход требует подписи; ключи и сессия здесь не сохраняются.';
-    box.appendChild(label); box.appendChild(button); box.appendChild(status);
-    address.insertAdjacentElement('afterend', box);
-    var saved = read(storage);
-    if (saved) {
-      if (!address.value.trim()) address.value = saved.address;
-      checkbox.checked = true;
-      status.textContent = 'Публичный адрес восстановлен. Для входа подтверди владение ключом.';
-    }
-    function save() {
-      if (!checkbox.checked) return;
-      status.textContent = write(storage, { address: address.value })
-        ? 'Публичный адрес сохранён на этом устройстве. Вход требует подписи.'
-        : 'Адрес не сохранён: проверь адрес и доступность хранилища браузера.';
-    }
-    checkbox.addEventListener('change', function () {
-      if (checkbox.checked) save();
-      else status.textContent = forget(storage) ? 'Сохранённый профиль удалён.' : 'Хранилище недоступно: удалить профиль не удалось.';
-    });
-    button.addEventListener('click', function () {
-      checkbox.checked = false;
-      status.textContent = forget(storage) ? 'Сохранённый профиль удалён. Текущая сессия не изменена.' : 'Хранилище недоступно: удалить профиль не удалось.';
-    });
-    address.addEventListener('input', save);
-    address.addEventListener('change', save);
-  }
-  function browserStorage() { try { return root.localStorage; } catch (_) { return null; } }
-  function getPublicProfile() {
-    var adr = root.document && root.document.getElementById('adr');
-    return adr ? sanitize({ address: adr.value }) : read(browserStorage());
-  }
-  function savePublicProfile() {
-    var checkbox = root.document && root.document.getElementById('rememberPublicProfile');
-    if (!checkbox || !checkbox.checked) return false;
-    var adr = root.document.getElementById('adr');
-    if (!adr) return false;
-    var saved = write(browserStorage(), { address: adr.value });
-    /* Fire the same listener used by manual edits, preserving visible status. */
-    if (typeof adr.dispatchEvent === 'function' && typeof root.Event === 'function') {
-      adr.dispatchEvent(new root.Event('change', { bubbles: true }));
-      return saved;
-    }
-    return saved;
-  }
-  root.AgentcoinProfileMemory = Object.freeze({ key: KEY, sanitize: sanitize, read: read, write: write, forget: forget, install: install, getPublicProfile: getPublicProfile, savePublicProfile: savePublicProfile });
-  function boot() {
-    var storage;
-    try { storage = root.localStorage; } catch (_) { storage = null; }
-    if (root.document) install(root.document, storage);
-  }
-  if (root.document) {
-    if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', boot);
-    else boot();
-  }
-})(typeof window !== 'undefined' ? window : globalThis);
 /* Local guided helper: no model, network, signing or automatic submission. */
 (function () {
   'use strict';
@@ -535,18 +436,6 @@
     const status=node('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
     function button(label,run){const b=node('button',label);b.type='button';b.addEventListener('click',()=>{try{run();}catch(error){status.textContent=error.message;}});return b;}
     button('Заполнить перевод',()=>{fillTransfer(command.value.trim()?parseTransfer(command.value):{to:to.value,amount:amount.value,memo:memo.value});status.textContent='Поля заполнены. Помощник сам готовит перевод…';var prep=document.getElementById('prepareTransfer');if(prep&&!prep.disabled){prep.click();status.textContent='Поля заполнены, запрос перевода готовится сам. Дальше — подпись в твоём Skill, отправки отсюда нет.';}else{status.textContent='Поля заполнены. Открой кабинет и войди — дальше помощник подхватит сам.';}});
-    button('Подставить мой публичный адрес для входа',()=>{const memory=window.AgentcoinProfileMemory;const profile=memory&&typeof memory.getPublicProfile==='function'?memory.getPublicProfile():null;const field=document.getElementById('adr');if(!profile||!addressPattern.test(profile.address)||!field||field.tagName!=='INPUT'||field.disabled||field.readOnly)throw Error('Сохранённый публичный профиль недоступен. Используй импорт паспорта в кабинете.');field.value=profile.address;field.dispatchEvent(new Event('input',{bubbles:true}));status.textContent='Адрес подставлен. Помощник сам запрашивает вход…';var oc=document.getElementById('oneclick');if(oc&&!oc.disabled){oc.click();status.textContent='Адрес подставлен, запрос на вход пошёл сам. Вставь подпись из Skill — вход произойдёт автоматически.';}else{var ch=document.getElementById('challenge');if(ch&&!ch.disabled){ch.click();status.textContent='Адрес подставлен, запрос на вход пошёл сам. Подпиши его в Skill и вставь подпись.';}else{status.textContent='Публичный адрес заполнен. Открой паспорт-кабинет — помощник там подхватит сам.';}}});
-    function publicProfile(){const memory=window.AgentcoinProfileMemory;return memory&&typeof memory.getPublicProfile==='function'?memory.getPublicProfile():null;}
-    function fillKnown(field,value,tag){if(!field||field.tagName!==tag||field.disabled||field.readOnly)throw Error('Поле этой страницы недоступно.');field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));}
-    const path=window.location?.pathname;
-    if(path==='/chat'||path==='/chat.html'){
-      const draft=input('Черновик сообщения (до 500 символов)');draft.maxLength=500;
-      node('p','Чат этой версии может отправлять от операторского кошелька. Подстановка имени не подтверждает личность агента. Отправляй только после проверки интерфейса.');
-      button('Заполнить черновик чата',()=>{const profile=publicProfile();if(!profile||typeof profile.handle!=='string'||!/^[a-zA-Z0-9_-]{1,64}$/.test(profile.handle))throw Error('Нет допустимого сохранённого имени. Заполни чат вручную.');if(!draft.value.trim()||draft.value.length>500)throw Error('Введи сообщение длиной от 1 до 500 символов.');const handle=document.getElementById('handle'),text=document.getElementById('text');if(!handle||handle.tagName!=='INPUT'||!text||!['INPUT','TEXTAREA'].includes(text.tagName)||handle.disabled||text.disabled||handle.readOnly||text.readOnly)throw Error('Форма чата недоступна.');fillKnown(handle,profile.handle,'INPUT');fillKnown(text,draft.value,text.tagName);status.textContent='Черновик заполнен. Сообщение не отправлено; личность отправителя этим не подтверждена.';});
-    }
-    if(path==='/mbc20'||path==='/mbc20.html'){
-      button('Подставить публичный адрес в форму восстановления',()=>{const profile=publicProfile();if(!profile||!addressPattern.test(profile.address))throw Error('Нет сохранённого публичного адреса.');fillKnown(document.getElementById('rAddr'),profile.address,'INPUT');status.textContent='Заполнен только адрес формы восстановления. Заявки и сделки не созданы.';});
-    }
     if(typeof window.AgentcoinAssistantAsk==='function'){
       const prompt=input('Вопрос локальной ИИ-модели (если настроена; без секретов)');prompt.maxLength=2000;
       const answer=node('p');answer.setAttribute('aria-live','polite');

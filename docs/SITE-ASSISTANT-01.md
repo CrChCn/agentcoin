@@ -17,7 +17,7 @@ No Ollama installation/download or actual model generation was performed on the 
 
 ## Verified
 
-node --test test/profile-memory.mjs test/cabinet-helper.mjs test/assistant-service.mjs test/assistant-http.mjs test/evidence-api.mjs test/wallet-cabinet-ui.mjs test/site-release.mjs
+node --test test/cabinet-helper.mjs test/assistant-service.mjs test/assistant-http.mjs test/evidence-api.mjs test/wallet-cabinet-ui.mjs test/site-release.mjs
 
 32/32 pass, no skips. Includes real isolated HTTP enrollment with generated test-only key, proof-of-possession login, unauthorized rejection, disabled-model result and rate limit; model protocol tested with injected bounded responses, not a real model. UI behavior exercised in DOM VM. Browser visual QA on operational site still required. node tools/build-site-release.mjs --check passes.
 

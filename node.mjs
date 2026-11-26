@@ -44,7 +44,7 @@ import { Blockchain, createWallet, signTransaction, verifyTransaction,
 import { addPeer, loadPeers, syncAll, gossipTx, peerMetaStatus, peerStrike, setSelfUrl } from './sync.mjs';
 import { FALLBACK_SEED_URLS, resolveDnsSeeds, seedHostsFromEnv } from './seeds.mjs';
 import { walletHistory, walletEstimate } from './wallet-api.mjs';
-import { WsHub, connectClient } from './ws.mjs';
+import { WsHub, connectClient, hasLivePeerLink } from './ws.mjs';
 import { ESCROW_PREFIX, escrowReceiptDigest, escrowConfirmDigest, findEscrowOpen, escrowPaidOut } from './core.mjs';
 import { lsagSign, lsagVerify, pointFromPubKeyPEM } from './ring-signature.mjs';
 import { CommunityChat } from './community.mjs';
@@ -3321,8 +3321,7 @@ async function wsConnectLoop() {
     // уже есть живая связь с этим пиром в ЛЮБУЮ сторону: входящая (её theirUrl =
     // идентичность звонившего совпадает с peerUrl) или наша исходящая. Иначе два
     // узла, звонящие друг другу, держат по два сокета на пару (двойной gossip).
-    const already = [...hub.peers].some(p => p.connectedPeerUrl === peerUrl || p.theirUrl === peerUrl);
-    if (already) continue;
+    if (hasLivePeerLink(hub.peers, peerUrl)) continue;
     try {
       const client = await connectClient(sockUrl, { timeoutMs: 4000 });
       client.connectedPeerUrl = peerUrl;

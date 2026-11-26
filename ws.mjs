@@ -200,6 +200,18 @@ export function effectivePeerIp(req) {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(cand) || (cand.includes(':') && !cand.includes(' ')) ? cand : raw;
 }
 
+// AGIP-23/dedupe: пара узлов держит ОДИН канал. Перед исходящим звонком проверяем,
+// что с пиром нет живой связи ни в одну сторону: ни нашей исходящей
+// (connectedPeerUrl), ни входящей от него (theirUrl = его идентичность, и она
+// совпадает с URL пира, если звонил именно он). Иначе два узла, звонящие друг
+// другу одновременно, держат по два сокета на пару (двойной gossip).
+export function hasLivePeerLink(peers, peerUrl) {
+  for (const p of peers || []) {
+    if (p && (p.connectedPeerUrl === peerUrl || p.theirUrl === peerUrl)) return true;
+  }
+  return false;
+}
+
 export class WsHub {
   constructor() {
     this.peers = new Set();     // PeerSocket (все живые)

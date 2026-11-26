@@ -23,17 +23,23 @@ die() { echo "✗ $*" >&2; exit 1; }
 for f in "${FILES[@]}"; do [ -f "$f" ] || die "нет $f (собери: node stream/build-site-stream.mjs)"; done
 grep -q 'id="stream"' site/imperial.html || die "в imperial.html нет модуля эфира — собери stream/build-site-stream.mjs"
 
+# ключ прода деплоя (если лежит в ~/.ssh) — иначе обычный ssh/default agent
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=8)
+if [ -f "$HOME/.ssh/agentcoin-deploy" ]; then
+  SSH_OPTS+=(-i "$HOME/.ssh/agentcoin-deploy" -o IdentitiesOnly=yes)
+fi
+
 echo "→ проверка доступа $HOST"
-ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST" 'true' || die "нет SSH-доступа к $HOST (нужен ключ или пароль; без него деплой невозможен)"
+ssh "${SSH_OPTS[@]}" "$HOST" 'true' || die "нет SSH-доступа к $HOST (нужен ключ или пароль; без него деплой невозможен)"
 
 echo "→ цель: $HOST:$ROOT"
-ssh -o BatchMode=yes "$HOST" "test -d '$ROOT'" || die "на сервере нет каталога $ROOT — уточни root из /etc/caddy/Caddyfile"
+ssh "${SSH_OPTS[@]}" "$HOST" "test -d '$ROOT'" || die "на сервере нет каталога $ROOT — уточни root из /etc/caddy/Caddyfile"
 
 echo "→ копирование (${FILES[*]})"
-if command -v rsync >/dev/null 2>&1 && ssh -o BatchMode=yes "$HOST" 'command -v rsync >/dev/null'; then
-  rsync -az --chmod=F644 "${FILES[@]}" "$HOST:$ROOT/"
+if command -v rsync >/dev/null 2>&1 && ssh "${SSH_OPTS[@]}" "$HOST" 'command -v rsync >/dev/null'; then
+  rsync -az --chmod=F644 -e "ssh ${SSH_OPTS[*]}" "${FILES[@]}" "$HOST:$ROOT/"
 else
-  scp -q "${FILES[@]}" "$HOST:$ROOT/"
+  scp -q "${SSH_OPTS[@]}" "${FILES[@]}" "$HOST:$ROOT/"
 fi
 
 echo "→ проверка прода"

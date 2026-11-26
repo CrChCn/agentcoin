@@ -278,7 +278,7 @@ body>*{position:relative;z-index:1}
   if(!root || !elH) return;
 
   var state = { height:null, valid:null, tip:null, mempool:null, esc:null, live:null };
-  var voiceOn = true, spoken = 0, hintShown = false;
+  var voiceOn = true, spoken = 0, hintShown = false, nextStreamCheck = 0;
 
   function fmt(n){ try { return Number(n).toLocaleString('ru-RU'); } catch(e){ return String(n); } }
   function getJSON(url){
@@ -301,8 +301,11 @@ body>*{position:relative;z-index:1}
     else elWatch.hidden = true;
     if (state.esc) {
       var e = state.esc;
-      elLast.innerHTML = 'последний контракт: <code>' + String(e.escId||'').slice(0,18) + '…</code> · ' +
-        (e.amount!=null ? '<b>'+e.amount+' AGT</b>' : '—') + (e.status ? ' · '+e.status : '') +
+      var amt = e.paidOut!=null ? e.paidOut : e.openedAmount;
+      var txid = e.paidTxid || e.openedTxid || '';
+      elLast.innerHTML = 'последний контракт: <code>' + String(e.escId||'').slice(0,12) + '…</code> · ' +
+        (amt!=null ? '<b>'+amt+' AGT</b>' : '—') + (e.status ? ' · '+e.status : '') +
+        (txid ? ' · tx <code>'+String(txid).slice(0,10)+'…</code>' : '') +
         ' · <a href="/hires-proof.html">пруф выплаты</a>';
     }
   }
@@ -323,8 +326,12 @@ body>*{position:relative;z-index:1}
       var list = (x && x.escrows) || [];
       if (list.length) { state.esc = list[list.length-1]; paint(); }
     }).catch(function(){});
-    // Модуль сам подхватит конфиг эфира, когда нода отдаёт /stream/state (сейчас может быть 404 — это не ошибка).
-    getJSON('/stream/state').then(function(s){ if (s) { state.live = s.live||null; if (s.chain && s.chain.height!=null) state.height=s.chain.height; if (s.chain && s.chain.mempool!=null) state.mempool=s.chain.mempool; paint(); } }).catch(function(){});
+    // Конфиг эфира (/stream/state) появится, когда нода получит этот роут.
+    // Пока 404 — не дёргаем каждые 12 с: одна попытка в 10 минут, без шума в консоли.
+    if (Date.now() >= nextStreamCheck) {
+      nextStreamCheck = Date.now() + 600000;
+      getJSON('/stream/state').then(function(s){ if (s) { state.live = s.live||null; if (s.chain && s.chain.height!=null) state.height=s.chain.height; if (s.chain && s.chain.mempool!=null) state.mempool=s.chain.mempool; paint(); } }).catch(function(){});
+    }
   }
 
   // --- голос: мужской, низкий тон, без текста на экране ---
@@ -342,7 +349,8 @@ body>*{position:relative;z-index:1}
     parts.push(state.valid===false ? 'Цепь под вопросом.' : 'Цепь валидна.');
     if (state.tip!=null) parts.push('Последний блок ' + Math.max(0,Math.round(state.tip)) + ' секунд назад.');
     if (state.mempool!=null) parts.push(state.mempool>0 ? 'В мемпуле ' + state.mempool + '.' : 'Мемпул пуст.');
-    if (state.esc && state.esc.amount!=null) parts.push('Последняя выплата ' + state.esc.amount + ' AGT. Пруф сходится.');
+    var lastAmt = state.esc ? (state.esc.paidOut!=null ? state.esc.paidOut : state.esc.openedAmount) : null;
+    if (lastAmt!=null) parts.push('Последняя выплата ' + lastAmt + ' AGT. Пруф сходится.');
     var u = new SpeechSynthesisUtterance(parts.join(' '));
     var v = pickVoice(); if (v) u.voice = v;
     u.lang = v ? v.lang : 'ru-RU'; u.rate = 0.9; u.pitch = 0.55; u.volume = 1;

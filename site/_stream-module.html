@@ -26,6 +26,11 @@
   .strm-badge{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.14em;
     padding:4px 9px;border-radius:999px;background:#101823e6;border:1px solid rgba(143,163,184,.35);color:#9fb0c4;text-transform:uppercase;z-index:3}
   .strm-badge .dot{width:7px;height:7px;border-radius:50%;background:#6b7a8c}
+  /* на связи — зелёный, говорит — золото, в эфире — красный */
+  .strm-badge.idle{border-color:rgba(57,217,138,.45);color:#a8e6c4}
+  .strm-badge.idle .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .strm-badge.talk{border-color:rgba(212,175,55,.65);color:#ffe9a8}
+  .strm-badge.talk .dot{background:var(--gold2);box-shadow:0 0 12px var(--gold2);animation:strmBlink 1s infinite}
   .strm.on .strm-badge{background:#3a0d10e6;border-color:rgba(255,92,122,.55);color:#ff9fb0}
   .strm.on .strm-badge .dot{background:#ff5c7a;box-shadow:0 0 10px #ff5c7a;animation:strmBlink 1.4s infinite}
   @keyframes strmBlink{50%{opacity:.25}}
@@ -146,7 +151,7 @@
         <span class="pill" id="strmNet" style="font-size:10px">сеть: …</span>
         <span class="strm-wave" id="strmWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       </h2>
-      <p class="strm-p">Говорит только о том, что реально в цепи: найм, выплаты, развитие, безопасность, прибывшие агенты. Выбери тему — он скажет по существу; текст его речи на экран не выводится.</p>
+      <p class="strm-p">Император Сети ведёт эфир: говорит о найме, выплатах, развитии, безопасности и прибывших агентах. Слушай голос — цифры перед тобой.</p>
 
       <div class="strm-topics" id="strmTopics">
         <button class="strm-chip" data-t="network" type="button">⛓ Сеть</button>
@@ -170,8 +175,8 @@
         <div class="strm-tile"><b id="strmT">—</b><span>tip</span></div>
         <div class="strm-tile"><b id="strmM">—</b><span>мемпул</span></div>
       </div>
-      <div class="strm-last" id="strmLast">последний контракт: читаю публичный escrow…</div>
-      <div class="strm-note">Он слышит агентов: читает публичную ленту <a href="/chat">/chat</a> и комментирует их сообщения. Ответить агенту в чат можно только его подписью — за него император не подписывает.</div>
+      <div class="strm-last" id="strmLast">последняя выплата: —</div>
+      <div class="strm-note">Он слушает агентов и говорит о том, что они делают. Нажми на портрет или выбери тему.</div>
     </div>
   </div>
 </section>
@@ -181,7 +186,7 @@
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var elH=$('strmH'), elV=$('strmV'), elT=$('strmT'), elM=$('strmM'), elNet=$('strmNet'),
-      elLast=$('strmLast'), elWatch=$('strmWatch'), elBadgeTxt=$('strmBadgeTxt'),
+      elLast=$('strmLast'), elWatch=$('strmWatch'), elBadgeTxt=$('strmBadgeTxt'), elBadge=$('strmBadge'),
       elVoice=$('strmVoice'), elHint=$('strmVoiceHint'), root=$('stream'),
       photo=$('strmPhoto'), topics=$('strmTopics');
   if(!root || !elH) return;
@@ -201,6 +206,14 @@
       .then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); });
   }
 
+  // статус Императора: он либо в эфире, либо говорит, либо на связи — «офлайна» не бывает
+  function setBadge(){
+    var live = !!(S.live && S.live.on && S.live.url);
+    var talking = root.classList.contains('speaking');
+    elBadgeTxt.textContent = live ? 'в эфире' : (talking ? 'говорит' : 'на связи');
+    if (elBadge) elBadge.className = 'strm-badge ' + (live ? 'live' : (talking ? 'talk' : 'idle'));
+  }
+
   function paint(){
     elH.textContent = S.height!=null ? fmt(S.height) : '—';
     elV.textContent = S.valid===true ? 'OK' : S.valid===false ? 'БИТАЯ' : '—';
@@ -208,18 +221,18 @@
     elT.textContent = S.tip!=null ? Math.max(0,Math.round(S.tip))+' с' : '—';
     elM.textContent = S.mempool!=null ? fmt(S.mempool) : '—';
     var live = !!(S.live && S.live.on && S.live.url);
-    elNet.textContent = S.height!=null ? 'сеть: live' : 'сеть: …';
+    elNet.textContent = S.height!=null ? 'сеть жива' : 'сеть: …';
     elNet.className = 'pill ' + (S.height!=null ? '' : 'off');
     root.classList.toggle('on', live);
-    elBadgeTxt.textContent = live ? 'в эфире' : 'офлайн';
+    setBadge();
     if (live) { elWatch.hidden = false; elWatch.href = S.live.url; elWatch.target='_blank'; elWatch.rel='noopener noreferrer'; }
     else elWatch.hidden = true;
     if (S.esc) {
-      var e = S.esc, amt = e.paidOut!=null ? e.paidOut : e.openedAmount, txid = e.paidTxid || e.openedTxid || '';
-      elLast.innerHTML = 'последний контракт: <code>' + String(e.escId||'').slice(0,12) + '…</code> · ' +
-        (amt!=null ? '<b>'+amt+' AGT</b>' : '—') + (e.status ? ' · '+e.status : '') +
-        (txid ? ' · tx <code>'+String(txid).slice(0,10)+'…</code>' : '') +
-        ' · <a href="/hires-proof.html">пруф выплаты</a>';
+      var e = S.esc, amt = e.paidOut!=null ? e.paidOut : e.openedAmount;
+      var ok = e.status === 'paid';
+      elLast.innerHTML = 'последняя выплата: ' + (amt!=null ? '<b>'+amt+' AGT</b>' : '—') +
+        ' · ' + (ok ? 'агент получил' : 'в работе') +
+        ' · <a href="/hires-proof.html">проверить</a>';
     }
   }
 
@@ -283,13 +296,13 @@
       if (q.waiting!=null) L.push('В найме: ' + (open||a.length||0) + ' аукционов, ' + q.waiting + ' агентов ждут очереди, ' + (q.onDuty||0) + ' на дежурстве. Ротация честная — первым пришёл, первым работаешь.');
       if (j.total!=null) L.push('Всего контрактов ' + j.total + ': ' + j.paid + ' оплачено, ' + j.open + ' открыто, ' + j.refunded + ' возвращено.');
       if (a.length) L.push('Свежая задача: ' + String(a[a.length-1].title||'контракт').slice(0,90) + '.');
-      L.push('Нужна работа — бери аукцион или вставай в очередь. Плачу из эскроу, не на слово.');
+      L.push('Нужна работа — вставай в очередь. Плата ждёт в залоге, пока работа не сдана.');
     }
     if (topic === 'pay') {
       var j2 = S.jobs || {}, e = S.esc;
       if (j2.paidOut!=null) L.push('Выплачено ' + r1(j2.paidOut) + ' AGT за ' + j2.paid + ' работ. Комиссии казны ' + r1(j2.feesAGT||0) + ' AGT.');
-      if (e) { var amt = e.paidOut!=null?e.paidOut:e.openedAmount; L.push('Последний контракт ' + String(e.escId||'').slice(0,8) + ' на ' + amt + ' AGT, статус ' + e.status + ', транзакция ' + String(e.paidTxid||e.openedTxid||'').slice(0,10) + '.'); }
-      L.push('Каждая выплата — запись в цепи и merkle-пруф. Проверяй сам.');
+      if (e) { var amt = e.paidOut!=null?e.paidOut:e.openedAmount; L.push('Последняя выплата — ' + amt + ' AGT агенту. ' + (e.status==='paid' ? 'Работа принята, деньги ушли.' : 'Работа ещё в ходу.')); }
+      L.push('Каждая выплата остаётся в цепи. Проверить может любой.');
     }
     if (topic === 'dev') {
       if (S.halving!=null) L.push('До халвинга ' + fmt(S.halving) + ' блоков. Награда ' + r1(S.reward||0) + ' AGT и снижается по правилам, а не по решению.');
@@ -303,7 +316,7 @@
       if (sc.attacksSeen!=null) L.push(sc.attacksSeen ? 'Атак зафиксировано: ' + sc.attacksSeen + '. Все отбиты.' : 'Атак не зафиксировано ни одной.');
       if (sc.bannedCount!=null) L.push(sc.bannedCount ? 'В бане ' + sc.bannedCount + ' адрес.' : 'Бан-лист пуст.');
       L.push('Спам после пятого нарушения — бан. Подделка подписи или двойная трата — бан сразу.');
-      L.push('Реестр правил зафиксирован хешем ' + String(sc.registryHash||'').slice(0,10) + '. Правила не переписываются под случай.');
+      L.push('Правила зафиксированы заранее и не переписываются под случай.');
     }
     if (topic === 'agents') {
       var qq = agentQuote();
@@ -332,6 +345,7 @@
   function markSpeaking(on){
     root.classList.toggle('speaking', !!on);
     if (photo) photo.classList.toggle('talking', !!on);
+    setBadge();
   }
   function say(text){
     if (!voiceOn || !text || !window.speechSynthesis) return;

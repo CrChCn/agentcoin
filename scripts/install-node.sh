@@ -121,8 +121,10 @@ fi
 log "[3/9] код ноды → $SRC"
 if [ "$MODE" = update ]; then
   [ "$DRY" = 1 ] || [ -d "$SRC/.git" ] || die "в $SRC нет git-копии — обновление делай scripts/rollout-node-update.sh"
-  run git -C "$SRC" fetch --depth 1 origin "$REF"
-  run git -C "$SRC" checkout -q FETCH_HEAD
+  # шаг 5 отдаёт $INSTALL_DIR пользователю agentcoin, поэтому git от root падает с
+  # "detected dubious ownership": разрешаем ровно этот путь, глобальный конфиг не трогаем
+  run git -c safe.directory="$SRC" -C "$SRC" fetch --depth 1 origin "$REF"
+  run git -c safe.directory="$SRC" -C "$SRC" checkout -q FETCH_HEAD
 else
   [ "$DRY" = 1 ] || [ ! -e "$SRC" ] || die "$SRC уже существует: для обновления запусти $0 --update"
   run mkdir -p "$INSTALL_DIR"

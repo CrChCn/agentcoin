@@ -45,6 +45,20 @@ pick_node() {
   return 1
 }
 
+# restart_unit — restart + проверка, что MainPID действительно сменился:
+# иначе /life может ответить старый процесс, и успех будет ложным
+restart_unit() {
+  local before after
+  before="$(systemctl show -p MainPID --value "$UNIT" 2>/dev/null || echo 0)"
+  systemctl restart "$UNIT"
+  for _ in $(seq 1 10); do
+    after="$(systemctl show -p MainPID --value "$UNIT" 2>/dev/null || echo 0)"
+    if [ "$after" != "$before" ] && [ "$after" != "0" ]; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 wait_alive() {
   for _ in $(seq 1 45); do
     if curl -fsS -m 5 "http://127.0.0.1:${PORT}/life" 2>/dev/null | grep -q '"chainValid": *true'; then
@@ -106,7 +120,7 @@ if [ "${ROLLBACK:-0}" = "1" ]; then
     "$NODE_BIN" --check "${SRC}/${n}" || die "node --check после отката провален: ${n}"
   done
   "$NODE_BIN" "$CHECKER" "$SRC" "$SRC" || die "после отката импорты не разрешаются — нода не перезапущена"
-  systemctl restart "$UNIT"
+  restart_unit || die "юнит ${UNIT} не перезапустился (MainPID не сменился) — смотри systemctl status ${UNIT}"
   wait_alive || die "нода не ожила за 90с после отката — journalctl -u ${UNIT} -f"
   report_life || die "нода не отвечает на /life после отката"
   echo "ОТКАТ ГОТОВ"
@@ -217,7 +231,7 @@ for n in "${FILES[@]}"; do
 done
 
 echo "[5/6] рестарт + ожидание живости (до 90с)"
-systemctl restart "$UNIT"
+restart_unit || die "юнит ${UNIT} не перезапустился (MainPID не сменился) — откат: ROLLBACK=1 bash $0"
 wait_alive || die "нода не отвечает 90с — откат: ROLLBACK=1 bash $0; логи: journalctl -u ${UNIT} -f"
 
 echo "[6/6] сверки"

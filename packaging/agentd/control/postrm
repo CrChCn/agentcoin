@@ -1,0 +1,25 @@
+#!/bin/bash
+# postrm: purge удаляет данные и пользователя; обычное удаление оставляет
+# очередь, память и артефакты на месте.
+set -e
+
+systemctl daemon-reload 2>/dev/null || true
+
+case "$1" in
+  remove)
+    # symlink current не принадлежит ни одному файлу пакета — убираем сами,
+    # иначе после удаления остаётся висячая ссылка в /opt.
+    rm -f /opt/agentcoin-orchestrator/current /opt/agentcoin-orchestrator/previous
+    ;;
+  purge)
+    rm -rf /opt/agentcoin-orchestrator /var/lib/agentcoin-orchestrator /var/log/agentcoin-orchestrator
+    if getent passwd agt-orchestrator >/dev/null; then
+      userdel agt-orchestrator 2>/dev/null || true
+    fi
+    if getent group agt-orchestrator >/dev/null; then
+      groupdel agt-orchestrator 2>/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

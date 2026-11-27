@@ -1,0 +1,30 @@
+#!/bin/sh
+# agentd — единственная точка входа пакета agentcoin-agentd.
+# Код неизменяем и лежит в releases/<version>; current переключается пакетом.
+# Без аргументов печатает справку; команды — как у service/opsd.mjs
+# (status, plan, tick, api, watchdog, queue, memory, runtime).
+set -eu
+
+CODE=/opt/agentcoin-orchestrator/current/orchestrator
+ENV_FILE=/etc/agentcoin/ops.env
+
+if [ ! -f "$CODE/service/opsd.mjs" ]; then
+  echo "agentd: код не найден в $CODE (пакет установлен неполно)" >&2
+  exit 1
+fi
+
+# Переменные читаются из conffile; секретов там нет. Файл принадлежит root,
+# сервисный пользователь читает его через группу.
+if [ -r "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+if [ -z "${OPS_ROOT:-}" ]; then
+  OPS_ROOT=/var/lib/agentcoin-orchestrator
+  export OPS_ROOT
+fi
+
+exec node "$CODE/service/opsd.mjs" "$@"

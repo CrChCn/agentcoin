@@ -1,0 +1,94 @@
+#!/bin/bash
+# postinst: непривилегированный пользователь, раскладка данных, seed, юниты,
+# health-check и автоматический откат на предыдущий релиз.
+# Секретов здесь нет: операторский ключ создаёт владелец командой operator.mjs.
+set -e
+
+SERVICE_USER=agt-orchestrator
+CODE=/opt/agentcoin-orchestrator
+DATA=/var/lib/agentcoin-orchestrator
+LOGS=/var/log/agentcoin-orchestrator
+ENV_FILE=/etc/agentcoin/ops.env
+REL="$CODE/releases/@VERSION@"
+
+if ! getent group "$SERVICE_USER" >/dev/null; then
+  addgroup --system "$SERVICE_USER"
+fi
+if ! getent passwd "$SERVICE_USER" >/dev/null; then
+  adduser --system --ingroup "$SERVICE_USER" --home "$DATA" --no-create-home \
+    --disabled-login --shell /usr/sbin/nologin "$SERVICE_USER"
+fi
+
+install -d -o root -g root -m 0755 "$CODE" "$CODE/releases"
+install -d -o root -g root -m 0755 "$DATA/control"
+install -d -o root -g root -m 0750 "$DATA/inventory"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 \
+  "$DATA" "$DATA/queue" "$DATA/queue/tasks" "$DATA/queue/backlog" \
+  "$DATA/project-memory" "$DATA/runs" "$DATA/artifacts" "$DATA/state" "$DATA/workspaces" "$LOGS"
+
+# Стартовые mission/registry — только если файла ещё нет: данные владельца
+# обновление пакета не перезаписывает. Семя принадлежит root, сервис читает
+# его через группу: иначе сервис сможет выписать себе мандат правкой реестра.
+if [ -f /usr/share/agentcoin-agentd/seeds/mission.json ] && [ ! -f "$DATA/queue/mission.json" ]; then
+  install -o root -g "$SERVICE_USER" -m 0640 \
+    /usr/share/agentcoin-agentd/seeds/mission.json "$DATA/queue/mission.json"
+fi
+if [ -f /usr/share/agentcoin-agentd/seeds/registry.json ] && [ ! -f "$DATA/queue/registry.json" ]; then
+  install -o root -g "$SERVICE_USER" -m 0640 \
+    /usr/share/agentcoin-agentd/seeds/registry.json "$DATA/queue/registry.json"
+fi
+
+# Конфиг принадлежит root; сервис читает его через группу.
+chown root:"$SERVICE_USER" "$ENV_FILE"
+chmod 0640 "$ENV_FILE"
+
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "agentcoin-agentd: bubblewrap не найден — изоляция агентов недоступна" >&2
+fi
+
+systemctl daemon-reload || true
+systemctl enable agt-orchestrator-api.service agt-orchestrator.service \
+  agt-orchestrator-scheduler.timer agt-orchestrator-watchdog.timer >/dev/null 2>&1 || true
+
+# Переключение current. Предыдущий релиз остаётся на диске и становится
+# целью отката, если health-check нового не проходит.
+PREVIOUS=""
+if [ -L "$CODE/current" ]; then
+  PREVIOUS="$(readlink -f "$CODE/current" || true)"
+fi
+ln -sfn "$REL" "$CODE/current.new"
+mv -Tf "$CODE/current.new" "$CODE/current"
+if [ -n "$PREVIOUS" ] && [ "$PREVIOUS" != "$(readlink -f "$REL")" ] && [ -d "$PREVIOUS" ]; then
+  ln -sfn "$PREVIOUS" "$CODE/previous"
+fi
+
+systemctl restart agt-orchestrator-api.service || true
+systemctl restart agt-orchestrator.service || true
+systemctl start agt-orchestrator-scheduler.timer agt-orchestrator-watchdog.timer || true
+
+healthy=0
+for _ in $(seq 1 20); do
+  if curl -fsS --max-time 2 http://127.0.0.1:8799/ops/health >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  sleep 1
+done
+
+if [ "$healthy" -ne 1 ]; then
+  echo "agentcoin-agentd: health-check /ops/health не прошёл" >&2
+  systemctl --no-pager --lines=20 status agt-orchestrator-api.service >&2 || true
+  systemctl --no-pager --lines=20 status agt-orchestrator.service >&2 || true
+  if [ -L "$CODE/previous" ]; then
+    ROLLBACK="$(readlink -f "$CODE/previous")"
+    echo "agentcoin-agentd: откат current -> $ROLLBACK" >&2
+    ln -sfn "$ROLLBACK" "$CODE/current.new"
+    mv -Tf "$CODE/current.new" "$CODE/current"
+    systemctl restart agt-orchestrator-api.service || true
+    systemctl restart agt-orchestrator.service || true
+  else
+    echo "agentcoin-agentd: предыдущего релиза нет — откатывать некуда" >&2
+  fi
+fi
+
+exit 0

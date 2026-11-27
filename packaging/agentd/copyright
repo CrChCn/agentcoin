@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: agentcoin
+Source: https://agentcoin.work
+
+Files: *
+Copyright: Agentcoin project
+Comment: Условия распространения см. на https://agentcoin.work и в репозитории
+ проекта. Пакет не содержит секретов, приватных ключей и production-конфигурации.

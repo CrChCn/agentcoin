@@ -1,0 +1,19 @@
+Package: @PACKAGE@
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Agentcoin Ops <ops@agentcoin.work>
+Installed-Size: @INSTALLED_SIZE@
+Depends: nodejs (>= 20), bubblewrap, systemd, adduser, curl
+Recommends: ca-certificates
+Section: admin
+Priority: optional
+Homepage: https://agentcoin.work
+Description: Agentcoin ops daemon (evidence-gated engineering loop)
+ Runs a single-node orchestrator: durable queue, planner that creates a task
+ only from a proven discrepancy, read-only status API on loopback, watchdog and
+ pinned-runtime gate. The package ships systemd units, configuration and the
+ sandbox dependency (bubblewrap), creates an unprivileged service user and
+ seeds mission/registry without overwriting existing data.
+ .
+ The package contains no secrets, private keys or production configuration and
+ cannot deploy: the deployer unit is not included.

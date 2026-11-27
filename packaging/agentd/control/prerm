@@ -1,0 +1,15 @@
+#!/bin/bash
+# prerm: остановка и снятие с автозапуска. Данные не трогаем — это делает
+# postrm только при purge.
+set -e
+
+case "$1" in
+  remove|deconfigure)
+    systemctl stop agt-orchestrator-scheduler.timer agt-orchestrator-watchdog.timer 2>/dev/null || true
+    systemctl stop agt-orchestrator.service agt-orchestrator-api.service 2>/dev/null || true
+    systemctl disable agt-orchestrator-scheduler.timer agt-orchestrator-watchdog.timer 2>/dev/null || true
+    systemctl disable agt-orchestrator.service agt-orchestrator-api.service 2>/dev/null || true
+    ;;
+esac
+
+exit 0

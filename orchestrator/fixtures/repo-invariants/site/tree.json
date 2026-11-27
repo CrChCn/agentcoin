@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "href": "/ops", "label": "Оркестратор", "public": true },
+    { "href": "/cabinet", "label": "Кабинет", "public": true }
+  ]
+}

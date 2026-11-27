@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>AGENTCOIN — оверлей Императора</title>
+<style>
+  :root{
+    --ink:#0b0d12; --ink2:#11141c; --gold:#d4af37; --gold-dim:rgba(212,175,55,.28);
+    --bone:#e8e2d0; --dim:#8b8577; --ok:#4ade80; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0; width:1920px; height:1080px; background:transparent; overflow:hidden;
+    font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; color:var(--bone);
+    -webkit-font-smoothing:antialiased;
+  }
+  .panel{background:rgba(11,13,18,.82); border:1px solid var(--gold-dim); backdrop-filter:blur(8px)}
+  .mono{font-family:ui-monospace,Consolas,"Courier New",monospace; letter-spacing:.02em}
+  .dim{color:var(--dim)}
+
+  /* ── шапка ─────────────────────────────────────────── */
+  .brand{position:absolute; left:64px; top:44px; display:flex; align-items:center; gap:20px; padding:16px 26px 16px 22px}
+  .crown{display:flex; gap:5px; align-items:flex-end; height:34px}
+  .crown i{display:block; width:15px; background:linear-gradient(180deg,var(--gold),#8a6f1e)}
+  .crown i:nth-child(1),.crown i:nth-child(3){height:20px}
+  .crown i:nth-child(2){height:32px}
+  .brand h1{margin:0; font-size:27px; letter-spacing:.16em; font-weight:700; text-transform:uppercase}
+  .brand p{margin:4px 0 0; font-size:13px; letter-spacing:.08em; color:var(--dim)}
+  .brand p b{color:var(--bone); font-weight:600}
+
+  .status{position:absolute; right:64px; top:44px; display:flex; align-items:center; gap:14px; padding:14px 22px; font-size:14px; letter-spacing:.1em}
+  .dot{width:10px; height:10px; border-radius:50%; background:var(--ok); box-shadow:0 0 12px var(--ok)}
+  .dot.off{background:var(--bad); box-shadow:0 0 12px var(--bad)}
+  .clock{color:var(--dim); letter-spacing:.06em}
+
+  /* ── аватар ────────────────────────────────────────── */
+  .avatar{position:absolute; right:64px; top:132px; width:300px; padding:10px 10px 0}
+  .avatar img{display:block; width:100%; height:auto; filter:contrast(1.05) saturate(.92)}
+  .avatar .plate{font-size:11px; letter-spacing:.24em; text-align:center; padding:9px 0 11px; color:var(--gold); text-transform:uppercase}
+
+  /* ?bg=1 — тёмный холст внутри этого же источника (для сцены без отдельного фона) */
+  body.opaque{background:radial-gradient(1200px 720px at 50% 38%, #141823 0%, #0b0d12 56%, #06070a 100%)}
+
+  /* ── цифры сети ────────────────────────────────────── */
+  .stats{position:absolute; left:64px; top:170px; width:520px; padding:26px 30px 22px}
+  .stats .cap{font-size:12px; letter-spacing:.22em; color:var(--gold); text-transform:uppercase}
+  .height{font-size:86px; line-height:1; font-weight:200; margin:8px 0 2px; letter-spacing:.01em; font-variant-numeric:tabular-nums}
+  .height small{font-size:22px; color:var(--dim); letter-spacing:.1em; margin-left:10px; vertical-align:super}
+  .tip{font-size:13px; color:var(--dim); margin-bottom:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .rows{display:grid; grid-template-columns:1fr 1fr; gap:12px 22px; border-top:1px solid var(--gold-dim); padding-top:16px}
+  .row .k{font-size:11px; letter-spacing:.16em; color:var(--dim); text-transform:uppercase}
+  .row .v{font-size:22px; margin-top:3px; font-variant-numeric:tabular-nums}
+  .v.ok{color:var(--ok)} .v.bad{color:var(--bad)}
+
+  /* ── эскроу ────────────────────────────────────────── */
+  .escrow{position:absolute; right:64px; bottom:170px; width:560px; padding:22px 26px}
+  .escrow .cap{font-size:12px; letter-spacing:.22em; color:var(--gold); text-transform:uppercase; display:flex; justify-content:space-between}
+  .escrow .id{font-size:26px; margin:10px 0 6px; letter-spacing:.04em}
+  .escrow .line{display:flex; justify-content:space-between; font-size:14px; margin-top:6px; gap:16px}
+  .escrow .tx{font-size:12px; color:var(--dim); margin-top:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .badge{font-size:11px; letter-spacing:.12em; padding:4px 10px; border:1px solid var(--gold-dim); text-transform:uppercase}
+  .badge.paid{color:var(--ok); border-color:rgba(74,222,128,.45)}
+  .badge.open{color:var(--gold); border-color:var(--gold-dim)}
+  .empty{font-size:14px; color:var(--dim); margin-top:12px}
+
+  /* ── нижняя строка ─────────────────────────────────── */
+  .ticker{position:absolute; left:64px; right:64px; bottom:64px; display:flex; align-items:center;
+    justify-content:space-between; gap:32px; padding:16px 26px; font-size:16px; letter-spacing:.05em}
+  .ticker .motto{color:var(--bone)}
+  .ticker .supply{color:var(--dim); font-size:13px; letter-spacing:.1em; text-align:right}
+  .disclosure{position:absolute; left:64px; bottom:22px; font-size:11px; letter-spacing:.1em; color:rgba(139,133,119,.85)}
+</style>
+</head>
+<body>
+  <!-- Адрес эскроу, который Император покажет крупно (правится на лету из консоли) -->
+  <div class="brand panel">
+    <div class="crown" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div>
+      <h1>Император Сети</h1>
+      <p>AGENTCOIN (AGT) · <b class="mono">genesis 00026d18…</b> · 2-of-3</p>
+    </div>
+  </div>
+
+  <div class="status panel">
+    <span class="dot" id="dot"></span>
+    <span id="link">СВЯЗЬ</span>
+    <span class="clock mono" id="clock">--:--:--</span>
+  </div>
+
+  <div class="avatar panel">
+    <img src="avatar-emperor.jpg" alt="Император Сети">
+    <div class="plate">Император Сети · AGT</div>
+  </div>
+
+  <div class="stats panel">
+    <div class="cap">Высота цепи</div>
+    <div class="height" id="height">—<small>блок</small></div>
+    <div class="tip mono" id="tip">tip —</div>
+    <div class="rows">
+      <div class="row"><div class="k">Валидность</div><div class="v" id="valid">—</div></div>
+      <div class="row"><div class="k">Возраст tip</div><div class="v" id="age">—</div></div>
+      <div class="row"><div class="k">Мемпул</div><div class="v" id="mempool">—</div></div>
+      <div class="row"><div class="k">Пиры</div><div class="v" id="peers">—</div></div>
+    </div>
+  </div>
+
+  <div class="escrow panel">
+    <div class="cap"><span>Последний эскроу</span><span class="badge" id="esc-status">—</span></div>
+    <div class="id mono" id="esc-id">—</div>
+    <div class="line"><span class="dim">Открыт</span><span id="esc-open">—</span></div>
+    <div class="line"><span class="dim">Выплачено</span><span id="esc-paid">—</span></div>
+    <div class="line"><span class="dim">Воркер</span><span class="mono" id="esc-worker">—</span></div>
+    <div class="tx mono" id="esc-tx">пруф появится после выплаты</div>
+  </div>
+
+  <div class="ticker panel">
+    <span class="motto">«Сеть не просит верить. Сеть показывает блок.»</span>
+    <span class="supply" id="supply">—</span>
+  </div>
+  <div class="disclosure">AI-ведущий · персонаж сети Agentcoin · не AITV / AgentCoin TV / AGK</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  if (new URLSearchParams(location.search).has('bg')) document.body.classList.add('opaque');
+  const get = (p) => fetch('/api' + p, { cache: 'no-store' }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+  const short = (h, n = 10) => (h ? h.slice(0, n) + '…' : '—');
+  const num = (n) => new Intl.NumberFormat('ru-RU').format(n);
+  let lastOk = 0;
+
+  function setLink(ok, at) {
+    $('dot').className = 'dot' + (ok ? '' : ' off');
+    $('link').textContent = ok ? 'В СЕТИ' : 'НЕТ СВЯЗИ';
+    if (ok) lastOk = Date.now();
+  }
+
+  function render(life, info, esc) {
+    $('height').innerHTML = num(life.blocks) + '<small>блок</small>';
+    $('tip').textContent = 'tip ' + short(life.tipHash, 26);
+    $('tip').title = life.tipHash || '';
+    const valid = life.chainValid;
+    $('valid').textContent = valid === true ? 'OK' : valid === false ? 'БИТАЯ' : '—';
+    $('valid').className = 'v ' + (valid === true ? 'ok' : valid === false ? 'bad' : '');
+    $('age').textContent = life.tipAgeSec == null ? '—' : life.tipAgeSec + ' c';
+    $('mempool').textContent = info.mempool == null ? '—' : num(info.mempool);
+    $('peers').textContent = life.peers && life.peers.peer_count != null ? num(life.peers.peer_count) : '—';
+    if (info.totalSupplyCirculating != null) {
+      $('supply').textContent = 'В ОБОРОТЕ ' + num(Math.round(info.totalSupplyCirculating)) + ' / 21 000 000 AGT · НАГРАДА ' + num(info.nextReward || 0);
+    }
+
+    const list = (esc && esc.escrows) || [];
+    const e = list[list.length - 1];
+    if (!e) {
+      $('esc-id').textContent = 'журнал пуст';
+      $('esc-status').textContent = '—';
+      return;
+    }
+    $('esc-id').textContent = e.escId || '—';
+    $('esc-status').textContent = e.status || '—';
+    $('esc-status').className = 'badge ' + (e.status === 'paid' ? 'paid' : 'open');
+    $('esc-open').textContent = (e.openedAmount ?? 0) + ' AGT';
+    $('esc-paid').textContent = (e.paidOut ?? 0) + ' AGT';
+    $('esc-worker').textContent = short(e.worker, 14);
+    const tx = e.paidTxid || e.openedTxid;
+    $('esc-tx').textContent = tx
+      ? (e.paidTxid ? 'пруф /txproof/' : 'открытие /txproof/') + short(tx, 18)
+      : '—';
+    $('esc-tx').title = tx || '';
+  }
+
+  async function tick() {
+    try {
+      const [life, info, esc] = await Promise.all([get('/life'), get('/info'), get('/escrow/state')]);
+      render(life, info, esc);
+      setLink(true, life.checkedAt);
+    } catch (e) {
+      setLink(false);
+      $('tip').textContent = 'tip — (последние данные ' + new Date(lastOk || Date.now()).toISOString().slice(11, 19) + 'Z)';
+    }
+  }
+
+  setInterval(() => {
+    $('clock').textContent = new Date().toISOString().slice(11, 19) + 'Z';
+  }, 1000);
+  tick();
+  setInterval(tick, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+{
+  "escId": "68b62518f1ad5e58074c",
+  "title": "Пилот: корона и первый контракт",
+  "agent": {
+    "name": "AGT45786822d…",
+    "role": "агент"
+  },
+  "amount": 0.5,
+  "paidOut": 0.5,
+  "status": "paid",
+  "task": null,
+  "taskHash": "98076bf3aff0f72987c6c015bec55f75484bdb114494efcce2f678dc792f0593",
+  "employer": "AGT85ee0f073931b0c22907dc7beea91552152943e2",
+  "worker": "AGT45786822d8a3f9279101c25d51312dd460628911",
+  "escrowAddress": null,
+  "opened": {
+    "txid": "bd609c520929b9ffeec6a9d83ed849f3511ffd6c18291eea3fe8b5e29be181c9",
+    "height": 59978,
+    "blockHash": "0001978dfb106437982672233bddeb7914fc44472da7b27345d2a34095c58882",
+    "txIndex": 0,
+    "branch": 2,
+    "merkleRoot": "cddf42493f1629d650dfbe2447c99f68770e41c48da318c999b0cf21377f3bf8",
+    "merkleOk": true,
+    "blockHashOk": true,
+    "powOk": true,
+    "checkedAt": "2026-11-25T22:48:32.109Z"
+  },
+  "paid": {
+    "txid": "d86bf8a8091f847372186c1327b9f965ee19a406fcf4b50057afa3d96de75370",
+    "height": 59979,
+    "blockHash": "0000f7448fa4ff5d8b8c261a2258f24314e803f97484eec923921652c9923957",
+    "txIndex": 1,
+    "branch": 2,
+    "merkleRoot": "6e1287f533d54326be55f1921f52f8eb5bcd1550a4bf107472f1af293af3f796",
+    "merkleOk": true,
+    "blockHashOk": true,
+    "powOk": true,
+    "checkedAt": "2026-11-25T22:48:32.194Z"
+  },
+  "verified": true,
+  "network": "https://node1.agentcoin.work",
+  "createdAt": null,
+  "cardedAt": "2026-11-25T22:48:32.195Z"
+}

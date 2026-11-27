@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Император Сети — телесуфлёр</title>
+<style>
+  :root{--ink:#0b0d12;--panel:#11141c;--gold:#d4af37;--bone:#e8e2d0;--dim:#8b8577;--ok:#4ade80;--bad:#ef4444}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:var(--ink);color:var(--bone);
+    font-family:"Segoe UI",Roboto,Arial,sans-serif;display:grid;grid-template-columns:1fr 360px}
+  main{padding:56px 64px;display:flex;flex-direction:column;min-height:100vh}
+  .eyebrow{font-size:12px;letter-spacing:.3em;color:var(--gold);text-transform:uppercase}
+  .line{margin:auto 0;font-size:46px;line-height:1.28;font-weight:300}
+  .line.cue{font-size:22px;color:var(--dim);font-style:italic;letter-spacing:.05em}
+  .line.small{font-size:34px}
+  .meta{display:flex;justify-content:space-between;color:var(--dim);font-size:13px;letter-spacing:.12em;
+    border-top:1px solid rgba(212,175,55,.25);padding-top:14px}
+  aside{background:var(--panel);border-left:1px solid rgba(212,175,55,.25);padding:36px 28px;display:flex;flex-direction:column;gap:22px}
+  h2{margin:0;font-size:12px;letter-spacing:.24em;color:var(--gold);text-transform:uppercase;font-weight:600}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .stat .k{font-size:10px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+  .stat .v{font-size:19px;font-variant-numeric:tabular-nums}
+  button{appearance:none;border:1px solid rgba(212,175,55,.35);background:transparent;color:var(--bone);
+    padding:12px 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-align:center;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  button:hover{border-color:var(--gold);color:#fff}
+  button.primary{background:rgba(212,175,55,.14);border-color:var(--gold)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  label{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;display:block;margin-bottom:6px}
+  select,input[type=range]{width:100%;accent-color:#d4af37}
+  select{background:#0b0d12;color:var(--bone);border:1px solid rgba(212,175,55,.35);padding:8px 6px;font-size:12px}
+  input[type=range]{height:18px}
+  .hint{font-size:12px;line-height:1.5;color:var(--dim)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:8px}
+  .dot.off{background:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow" id="eyebrow">Загрузка сценария…</div>
+  <div class="line" id="line">…</div>
+  <div class="meta">
+    <span id="counter">0 / 0</span>
+    <span>пробел — озвучить · A — автоплей · ←/→ — листать</span>
+  </div>
+</main>
+
+<aside>
+  <div>
+    <h2>Сеть</h2>
+    <div class="stats" style="margin-top:14px">
+      <div class="stat"><div class="k">Высота</div><div class="v" id="s-height">—</div></div>
+      <div class="stat"><div class="k">Валидность</div><div class="v" id="s-valid">—</div></div>
+      <div class="stat"><div class="k">Мемпул</div><div class="v" id="s-mempool">—</div></div>
+      <div class="stat"><div class="k">Пиры</div><div class="v" id="s-peers">—</div></div>
+    </div>
+    <div class="hint" style="margin-top:10px"><span class="dot" id="s-dot"></span><span id="s-link">связь</span></div>
+  </div>
+
+  <div>
+    <h2>Голос</h2>
+    <label for="voice">Голос (ru-RU)</label>
+    <select id="voice"></select>
+    <label style="margin-top:12px">Темп <span id="rateVal">0.93</span></label>
+    <input id="rate" type="range" min="0.75" max="1.15" step="0.01" value="0.93">
+    <label>Высота <span id="pitchVal">0.85</span></label>
+    <input id="pitch" type="range" min="0.5" max="1.2" step="0.01" value="0.85">
+  </div>
+
+  <div class="row2">
+    <button class="primary" id="speak">Озвучить</button>
+    <button id="auto">Автоплей</button>
+    <button id="prev">← Назад</button>
+    <button id="next">Далее →</button>
+  </div>
+  <div class="hint">Голос — системный (Windows/Chrome). Для эфира можно заменить на ElevenLabs: текст тот же, из <code>episode-01.json</code>.</div>
+</aside>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const synth = window.speechSynthesis;
+  let SCRIPT = [];
+  let i = 0, auto = false;
+
+  async function loadScript() {
+    try {
+      const r = await fetch('episode-01.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      SCRIPT = Array.isArray(data.lines) ? data.lines : [];
+      $('eyebrow').textContent = (data.title || 'Эпизод') + (data.durationMin ? ' · ' + data.durationMin + ' мин' : '');
+      i = 0;
+      render();
+    } catch (e) {
+      $('line').textContent = 'Сценарий не загрузился: ' + e.message;
+      $('line').className = 'line cue';
+    }
+  }
+
+  function render() {
+    if (!SCRIPT.length) return;
+    const item = SCRIPT[i];
+    const el = $('line');
+    el.className = 'line' + (item.cue ? ' cue' : (item.text && item.text.length > 220 ? ' small' : ''));
+    el.textContent = item.cue ? '— ' + item.cue + ' —' : item.text;
+    $('counter').textContent = (i + 1) + ' / ' + SCRIPT.length;
+  }
+
+  function pickVoice() {
+    const voices = synth.getVoices().filter(v => /^ru/i.test(v.lang));
+    const sel = $('voice');
+    const keep = sel.value;
+    sel.innerHTML = '';
+    if (!voices.length) { sel.innerHTML = '<option value="">— нет ru-голоса —</option>'; return; }
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.name; o.textContent = v.name + ' · ' + v.lang;
+      sel.appendChild(o);
+    }
+    if (keep && voices.some(v => v.name === keep)) sel.value = keep;
+  }
+  synth.onvoiceschanged = pickVoice;
+  pickVoice();
+
+  function speak() {
+    if (!SCRIPT.length) return;
+    const item = SCRIPT[i];
+    if (!item.text) { next(); return; }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(item.text);
+    const v = synth.getVoices().find(x => x.name === $('voice').value);
+    if (v) u.voice = v;
+    u.lang = v ? v.lang : 'ru-RU';
+    u.rate = Number($('rate').value);
+    u.pitch = Number($('pitch').value);
+    u.onend = () => { if (auto) setTimeout(next, 700); };
+    synth.speak(u);
+  }
+
+  function next() {
+    if (!SCRIPT.length || i >= SCRIPT.length - 1) { auto = false; $('auto').classList.remove('primary'); return; }
+    i++; render();
+    if (auto && SCRIPT[i].text) speak(); else if (auto) setTimeout(next, 500);
+  }
+  function prev() { if (i > 0) { i--; render(); } }
+
+  $('speak').onclick = speak;
+  $('next').onclick = () => { synth.cancel(); next(); };
+  $('prev').onclick = () => { synth.cancel(); prev(); };
+  $('auto').onclick = () => {
+    auto = !auto;
+    $('auto').classList.toggle('primary', auto);
+    if (auto) speak(); else synth.cancel();
+  };
+  $('rate').oninput = e => $('rateVal').textContent = e.target.value;
+  $('pitch').oninput = e => $('pitchVal').textContent = e.target.value;
+
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') { synth.cancel(); next(); }
+    else if (e.key === 'ArrowLeft') { synth.cancel(); prev(); }
+    else if (e.key === ' ') { e.preventDefault(); speak(); }
+    else if (e.key.toLowerCase() === 'a') { $('auto').click(); }
+    else if (e.key === 'Escape') { auto = false; synth.cancel(); $('auto').classList.remove('primary'); }
+  });
+
+  loadScript();
+
+  async function net() {
+    try {
+      const [life, info] = await Promise.all([
+        fetch('/api/life', { cache: 'no-store' }).then(r => r.json()),
+        fetch('/api/info', { cache: 'no-store' }).then(r => r.json()),
+      ]);
+      $('s-height').textContent = new Intl.NumberFormat('ru-RU').format(life.blocks);
+      $('s-valid').textContent = life.chainValid === true ? 'OK' : life.chainValid === false ? 'БИТАЯ' : '—';
+      $('s-mempool').textContent = info.mempool ?? '—';
+      $('s-peers').textContent = life.peers?.peer_count ?? '—';
+      $('s-dot').className = 'dot';
+      $('s-link').textContent = 'в сети · ' + new Date().toISOString().slice(11, 19) + 'Z';
+    } catch {
+      $('s-dot').className = 'dot off';
+      $('s-link').textContent = 'нет связи с нодой';
+    }
+  }
+  net(); setInterval(net, 5000);
+</script>
+</body>
+</html>

@@ -8,7 +8,7 @@
  * ручные файлы и чанки не затираются, но новые страницы и их чанки появляются.
  *
  * Использование:
- *   node scripts/site-release.mjs --export ../agentcoin-canonical/web/out \
+ *   node scripts/site-release.mjs --export web/out \
  *        [--tag i18n-docs-20261127] [--host root@2.31.145.160] \
  *        [--key ~/.ssh/agentcoin-deploy] [--pages jobs,mine,docs] [--sync-site] [--dry-run]
  *

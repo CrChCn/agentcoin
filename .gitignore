@@ -61,7 +61,11 @@ docs/NEW-FEATURES-v4.md
 .gh-token
 .gh-token.txt
 
-# --- 6) Секреты и ключи (НИКОГДА не в git) ---
+# --- 6.5) Зависимости и локальные копии node_modules (site/agent/, web/) ---
+node_modules/
+node_modules_dead*/
+
+# --- 7) Секреты и ключи (НИКОГДА не в git) ---
 .env
 .env.*
 *.env

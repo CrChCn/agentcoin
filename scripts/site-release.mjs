@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+/**
+ * site-release.mjs — выпуск статики сайта из собранного Next-экспорта.
+ *
+ * Зачем: прод отдаёт `/srv/agentcoin-empire/current`, а ручные страницы
+ * (imperial.html, auctions.html, docs/) живут рядом с экспортом. Поэтому релиз
+ * собирается как КОПИЯ текущего релиза + аддитивная заливка экспорта: старые
+ * ручные файлы и чанки не затираются, но новые страницы и их чанки появляются.
+ *
+ * Использование:
+ *   node scripts/site-release.mjs --export ../agentcoin-canonical/web/out \
+ *        [--tag i18n-docs-20261127] [--host root@2.31.145.160] \
+ *        [--key ~/.ssh/agentcoin-deploy] [--pages jobs,mine,docs] [--sync-site] [--dry-run]
+ *
+ *   --sync-site  после успешной выкатки обновить локальное дерево site/ теми же
+ *                файлами экспорта (чтобы выкатка из site/ не откатила страницы).
+ *
+ * Что НЕ копируется: index.html (корень — imperial.html через Caddy) и 404.html
+ * (своя страница сайта). Остальные страницы экспорта + _next/ — аддитивно.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+const REMOTE_ROOT = '/srv/agentcoin-empire';
+const SKIP = new Set(['index.html', '404.html']);
+
+function arg(name, fallback = null) {
+  const i = process.argv.indexOf('--' + name);
+  if (i < 0) return fallback;
+  const v = process.argv[i + 1];
+  return v && !v.startsWith('--') ? v : true;
+}
+const has = (name) => process.argv.includes('--' + name);
+
+const exportDir = arg('export');
+if (!exportDir) {
+  console.error('usage: node scripts/site-release.mjs --export <web/out> [--tag ...] [--sync-site] [--dry-run]');
+  process.exit(2);
+}
+const EXPORT = path.resolve(process.cwd(), exportDir);
+const HOST = String(arg('host', 'root@2.31.145.160'));
+const KEY = String(arg('key', '~/.ssh/agentcoin-deploy')).replace(/^~/, os.homedir());
+const DRY = has('dry-run');
+const SYNC_SITE = has('sync-site');
+const TAG = String(arg('tag', 'site-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, 'Z')));
+const PAGES = String(arg('pages', 'jobs,mine,docs')).split(',').map((s) => s.trim()).filter(Boolean);
+
+if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(TAG)) { console.error('invalid --tag (a-z0-9._-).'); process.exit(2); }
+if (!fs.existsSync(path.join(EXPORT, '_next')) || !fs.existsSync(path.join(EXPORT, 'jobs.html'))) {
+  console.error(`✗ ${EXPORT} не похож на Next-экспорт (нужны _next/ и jobs.html). Собери: npm run build`);
+  process.exit(1);
+}
+
+/** Файлы экспорта, которые уезжают на прод: все страницы (включая вложенные
+ *  вроде docs/view.html) кроме SKIP, плюс _next. */
+function listHtml(dir = EXPORT, base = '') {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name === '_next') continue;
+    const rel = base ? `${base}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...listHtml(path.join(dir, e.name), rel));
+    else if (e.name.endsWith('.html') && !SKIP.has(rel)) out.push(rel);
+  }
+  return out;
+}
+function exportItems() {
+  return { pages: listHtml().sort(), dirs: ['_next'] };
+}
+
+const ssh = (cmd) => execFileSync('ssh', ['-i', KEY, '-o', 'StrictHostKeyChecking=no', HOST, cmd], { encoding: 'utf8' });
+const scp = (items) => execFileSync('scp', ['-q', '-r', '-i', KEY, '-o', 'StrictHostKeyChecking=no', ...items, `${HOST}:${REMOTE_ROOT}/releases/${TAG}/`], { stdio: 'inherit' });
+
+const { pages, dirs } = exportItems();
+console.log(`→ экспорт: ${EXPORT}`);
+console.log(`  страницы: ${pages.join(', ')}`);
+if (DRY) { console.log('  --dry-run: ничего не меняю.'); process.exit(0); }
+
+const NEW = `${REMOTE_ROOT}/releases/${TAG}`;
+let previous = '';
+try {
+  previous = ssh(`readlink -f ${REMOTE_ROOT}/current`).trim();
+  if (!previous) throw new Error('current пуст');
+  ssh(`rm -rf ${NEW} && cp -a ${previous} ${NEW} && echo ok`);
+  console.log(`→ релиз ${TAG}: копия ${path.basename(previous)}`);
+} catch (e) {
+  console.error('✗ не удалось подготовить релиз:', String(e.message || e).trim());
+  process.exit(1);
+}
+
+try {
+  scp([...pages.map((p) => path.join(EXPORT, p)), ...dirs.map((d) => path.join(EXPORT, d))]);
+  console.log(`→ залито: ${pages.length} страниц + ${dirs.join(', ')}`);
+} catch (e) {
+  console.error('✗ заливка не удалась, симлинк не тронут:', String(e.message || e).trim());
+  process.exit(1);
+}
+
+// Атомарное переключение: current никогда не бывает «наполовину» новым.
+ssh(`ln -sfn ${NEW} ${REMOTE_ROOT}/.current.tmp && mv -T ${REMOTE_ROOT}/.current.tmp ${REMOTE_ROOT}/current && echo ok`);
+
+// Проверка — через fetch самого Node: curl на Windows не понимает -o /dev/null
+// и валит проверку ложным «Command failed».
+const get = async (url) => {
+  const ctl = AbortSignal.timeout(20000);
+  const r = await fetch(url, { signal: ctl, headers: { 'cache-control': 'no-cache' } });
+  return { status: r.status, text: await r.text() };
+};
+const fail = [];
+for (const page of PAGES) {
+  try {
+    const { status, text } = await get(`https://agentcoin.work/${page}`);
+    if (status !== 200) { fail.push(`${page}: HTML → ${status}`); continue; }
+    const chunk = (text.match(/_next\/static\/chunks\/app\/[a-z0-9-]+\/page-[a-z0-9]+\.js/) || [])[0];
+    if (!chunk) { fail.push(`${page}: в HTML нет page-чанка`); continue; }
+    const res = await fetch(`https://agentcoin.work/${chunk}`, { method: 'GET', signal: AbortSignal.timeout(20000) });
+    if (res.status !== 200) fail.push(`${page}: чанк ${chunk} → ${res.status}`);
+    else console.log(`  ✓ /${page} → ${chunk} 200`);
+  } catch (e) {
+    fail.push(`${page}: ${String(e.message || e).trim()}`);
+  }
+}
+
+if (fail.length) {
+  console.error('✗ проверка не прошла:');
+  for (const f of fail) console.error('   ' + f);
+  if (previous) {
+    ssh(`ln -sfn ${previous} ${REMOTE_ROOT}/.current.tmp && mv -T ${REMOTE_ROOT}/.current.tmp ${REMOTE_ROOT}/current && echo ok`);
+    console.error(`↩ откат на ${path.basename(previous)}`);
+  }
+  process.exit(1);
+}
+
+if (SYNC_SITE) {
+  const dest = path.join(ROOT, 'site');
+  for (const p of pages) {
+    const target = path.join(dest, p);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(EXPORT, p), target);
+  }
+  fs.cpSync(path.join(EXPORT, '_next'), path.join(dest, '_next'), { recursive: true, force: true });
+  console.log(`→ site/ обновлён теми же файлами (${pages.length} страниц + _next)`);
+  console.log('  дальше: git commit site/ && node tools/build-site-release.mjs');
+}
+
+console.log(`✓ релиз ${TAG} в проде: ${PAGES.map((p) => '/' + p).join(' ')}`);
+console.log(`  откат: ln -sfn ${previous} ${REMOTE_ROOT}/.current.tmp && mv -T ${REMOTE_ROOT}/.current.tmp ${REMOTE_ROOT}/current`);

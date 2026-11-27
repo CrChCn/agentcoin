@@ -65,6 +65,21 @@ docs/NEW-FEATURES-v4.md
 node_modules/
 node_modules_dead*/
 
+# --- 6.5b) Runtime-данные оркестратора и доказательные отчёты прошлых приёмок ---
+orchestrator/artifacts/
+orchestrator/logs/
+orchestrator/runs/
+orchestrator/state/
+orchestrator/workspaces/
+
+
+# Эксперимент Filecoin: кошелёк и черновые пробы
+filecoin/sdk/wallet.json
+filecoin/sdk/tmp-*
+
+# Сгенерировано packaging/node/collect.mjs (набор файлов по импортам от node.mjs)
+packaging/node/src/
+
 # --- 6.6) Локальные артефакты прогонов (не в git, но остаются на диске) ---
 # Копия данных нод от 13.11: может содержать кошельки — не удаляем и не коммитим
 backup-zoo-*/

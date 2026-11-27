@@ -45,7 +45,7 @@ const HOST = String(arg('host', 'root@2.31.145.160'));
 const KEY = String(arg('key', '~/.ssh/agentcoin-deploy')).replace(/^~/, os.homedir());
 const DRY = has('dry-run');
 const SYNC_SITE = has('sync-site');
-const TAG = String(arg('tag', 'site-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, 'Z')));
+const TAG = String(arg('tag', 'site-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, 'z').toLowerCase()));
 const PAGES = String(arg('pages', 'jobs,mine,docs')).split(',').map((s) => s.trim()).filter(Boolean);
 
 if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(TAG)) { console.error('invalid --tag (a-z0-9._-).'); process.exit(2); }

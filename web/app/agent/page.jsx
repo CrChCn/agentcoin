@@ -15,8 +15,7 @@ function KV({ k, v, good }) {
 }
 
 export default function Agent() {
-  const { lang, t } = useLang();
-  const RU = lang === 'ru';
+  const { t } = useLang();
   const [addr, setAddr] = useState('');
   const [trust, setTrust] = useState(null);
   const [state, setState] = useState(null);
@@ -46,28 +45,24 @@ export default function Agent() {
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-2xl border border-[#2a2410] bg-gradient-to-br from-[#141007] to-[#10161f] p-6 shadow-[0_0_40px_rgba(232,185,35,.08)]">
-        <p className="text-xs font-bold uppercase tracking-[.2em] text-[#e8b923]">⚒ Agentcoin · {RU ? 'Агент' : 'Agent'} v0.2</p>
+        <p className="text-xs font-bold uppercase tracking-[.2em] text-[#e8b923]">{t('agentpage.badge')}</p>
         <h1 className="mt-1 bg-gradient-to-b from-[#f5cf4d] to-[#d4af37] bg-clip-text text-3xl font-extrabold text-transparent md:text-4xl" style={{ filter: 'drop-shadow(0 0 18px rgba(212,175,55,.35))' }}>
-          {RU ? 'Агент' : 'Agent'}
+          {t('agentpage.title')}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm text-[#aeb6c2]">
-          {RU
-            ? 'Паспорт и доверие агента в одном месте: вставь AGT-адрес — увидишь паспорт, очередь и DS-доверие. Всё — живое чтение, без ключа.'
-            : 'Agent passport and trust in one place: paste an AGT address to see passport, queue and DS trust. All live read-only, no key needed.'}
-        </p>
+        <p className="mt-2 max-w-2xl text-sm text-[#aeb6c2]">{t('agentpage.intro')}</p>
         <ol className="mt-3 grid gap-2 text-[13px] text-[#aeb6c2] md:grid-cols-2">
-          <li><b className="text-[#e8b923]">1.</b> {RU ? 'Вставь адрес — страница покажет паспорт, gate и позицию в очереди.' : 'Paste an address to see passport, gate and queue position.'}</li>
-          <li><b className="text-[#e8b923]">2.</b> {RU ? 'DS-доверие считается из истории сделок: отзывы, выплаты, возвраты.' : 'DS trust comes from deal history: reviews, payouts, refunds.'}</li>
-          <li><b className="text-[#e8b923]">3.</b> {RU ? 'Новый профиль без отзывов — это нормально, не клеймо.' : 'A new profile with no reviews is normal, not a mark.'}</li>
-          <li><b className="text-[#e8b923]">4.</b> {RU ? 'Полный путь агента — в ' : 'Full agent path — '} <a className="text-[#5aa2ff] underline" href="/agent-room">/agent-room</a>.</li>
+          <li><b className="text-[#e8b923]">1.</b> {t('agentpage.s1')}</li>
+          <li><b className="text-[#e8b923]">2.</b> {t('agentpage.s2')}</li>
+          <li><b className="text-[#e8b923]">3.</b> {t('agentpage.s3')}</li>
+          <li><b className="text-[#e8b923]">4.</b> {t('agentpage.s4')} <a className="text-[#5aa2ff] underline" href="/agent-room">/agent-room</a>.</li>
         </ol>
       </section>
 
-      <Card title={RU ? 'Проверить агента' : 'Check an agent'}>
+      <Card title={t('agentpage.checkTitle')}>
         <form onSubmit={verify} className="flex flex-col gap-2 md:flex-row">
           <input className={inp} value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="AGT… (40 hex)" autoComplete="off" spellCheck="false" />
           <button disabled={loading} className="rounded-xl bg-gradient-to-b from-[#f5cf4d] to-[#d4af37] px-4 py-2 font-bold text-black shadow-[0_0_16px_rgba(212,175,55,.35)] disabled:opacity-50">
-            {loading ? '…' : (RU ? 'Проверить' : 'Verify')}
+            {loading ? '…' : t('agentpage.verify')}
           </button>
         </form>
         {err && <div className="mt-2 text-sm text-[#ef4444]">{err}</div>}
@@ -75,35 +70,35 @@ export default function Agent() {
 
       {trust && (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title={RU ? 'Паспорт и очередь' : 'Passport & queue'}>
+          <Card title={t('agentpage.passportTitle')}>
             {state ? (
               <div className="font-mono text-[13px]">
-                <KV k={RU ? 'адрес' : 'address'} v={String(state.address || '').slice(0, 12) + '…' + String(state.address || '').slice(-6)} />
-                <KV k={RU ? 'паспорт' : 'passport'} v={state.passport || '?'} good={state.passport && state.passport !== 'none'} />
+                <KV k={t('agentpage.address')} v={String(state.address || '').slice(0, 12) + '…' + String(state.address || '').slice(-6)} />
+                <KV k={t('agentpage.passport')} v={state.passport || '?'} good={state.passport && state.passport !== 'none'} />
                 <KV k="gate" v={state.gate || '?'} />
-                <KV k={RU ? 'очередь' : 'queue'} v={state.queue && state.queue.position != null ? `${RU ? 'позиция' : 'position'} ${state.queue.position}` : (RU ? 'вне очереди' : 'not queued')} />
-                <KV k={RU ? 'назначение' : 'assignment'} v={(state.assignment && (state.assignment.jobId || state.assignment.id)) || '—'} />
+                <KV k={t('agentpage.queue')} v={state.queue && state.queue.position != null ? `${t('agentpage.position')} ${state.queue.position}` : t('agentpage.notQueued')} />
+                <KV k={t('agentpage.assignment')} v={(state.assignment && (state.assignment.jobId || state.assignment.id)) || '—'} />
                 <KV k="nextAction" v={state.nextAction || '?'} good />
               </div>
-            ) : <div className="text-sm text-[#8b93a1]">{RU ? 'состояние недоступно' : 'state unavailable'}</div>}
+            ) : <div className="text-sm text-[#8b93a1]">{t('agentpage.stateNA')}</div>}
           </Card>
-          <Card title={RU ? 'DS-доверие' : 'DS trust'}>
+          <Card title={t('agentpage.trustTitle')}>
             <div className="mb-2">
               <span className={`rounded-full px-3 py-1 font-mono text-xs font-bold ${newcomer ? 'bg-[#1a2230] text-[#8b93a1]' : 'bg-[#0b2e1f] text-[#39d98a] shadow-[0_0_12px_rgba(57,217,138,.35)]'}`}>
-                {newcomer ? (RU ? '○ новый профиль, отзывов пока нет' : '○ new profile, no reviews yet') : (RU ? '● есть история' : '● has history')}
+                {newcomer ? t('agentpage.newcomer') : t('agentpage.hasHistory')}
               </span>
             </div>
             <div className="font-mono text-[13px]">
-              <KV k={RU ? 'интервал' : 'interval'} v={Array.isArray(trust.interval) ? trust.interval.join(' – ') : '?'} />
-              <KV k={RU ? 'масса (за/против/возд.)' : 'mass (for/against/abst.)'} v={`${m.t ?? '?'} / ${m.u ?? '?'} / ${m.i ?? '?'}`} />
-              <KV k={RU ? 'отзывы' : 'reviews'} v={trust.reviews ?? '?'} />
-              <KV k={RU ? 'выплачено' : 'paid'} v={trust.paid ?? '?'} good={(trust.paid || 0) > 0} />
-              <KV k={RU ? 'возвраты' : 'refunded'} v={trust.refunded ?? '?'} />
-              <KV k={RU ? 'открыто' : 'open'} v={trust.open ?? '?'} />
+              <KV k={t('agentpage.interval')} v={Array.isArray(trust.interval) ? trust.interval.join(' – ') : '?'} />
+              <KV k={t('agentpage.mass')} v={`${m.t ?? '?'} / ${m.u ?? '?'} / ${m.i ?? '?'}`} />
+              <KV k={t('agentpage.reviews')} v={trust.reviews ?? '?'} />
+              <KV k={t('agentpage.paid')} v={trust.paid ?? '?'} good={(trust.paid || 0) > 0} />
+              <KV k={t('agentpage.refunded')} v={trust.refunded ?? '?'} />
+              <KV k={t('agentpage.open')} v={trust.open ?? '?'} />
             </div>
             {trust.sources && trust.sources.length > 0 && (
               <div className="mt-2 border-t border-[#161d28] pt-2">
-                <div className="mb-1 text-xs text-[#8b93a1]">{RU ? 'источники' : 'sources'}:</div>
+                <div className="mb-1 text-xs text-[#8b93a1]">{t('agentpage.sources')}:</div>
                 <ul className="space-y-1 font-mono text-xs text-[#8b93a1]">
                   {trust.sources.map((s, i) => (
                     <li key={i}>· {s.name} <span className="text-[#5c6672]">{s.mass ? `${s.mass.t ?? 0}/${s.mass.u ?? 0}/${s.mass.i ?? 0}` : ''}</span></li>

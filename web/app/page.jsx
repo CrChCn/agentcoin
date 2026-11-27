@@ -26,7 +26,7 @@ function useFeed() {
           } catch (e) {}
           if (!stop) {
             setLastH(h);
-            setItems((prev) => [`[${timeStr(Date.now())}] Блок #${h} · ${tx} tx · ${rw} AGT`, ...prev].slice(0, 20));
+            setItems((prev) => [{ ts: Date.now(), h, tx, rw }, ...prev].slice(0, 20));
           }
         }
       } catch (e) {}
@@ -39,7 +39,7 @@ function useFeed() {
 }
 
 function Home() {
-  const { t } = useLang();
+  const { t, locale } = useLang();
   const feed = useFeed();
   const info = useApi('/api/v1/info', 15000);
   const nodes = useApi('/api/v1/network/nodes', 30000);
@@ -89,8 +89,8 @@ function Home() {
   const miners = supply != null && treasury != null ? Math.max(0, supply - treasury - paid) : null;
 
   const cards = [
-    [t('c.height'), height != null ? fmt(height) : '—', info],
-    [t('c.supply'), supply != null ? fmt(supply) : '—', info],
+    [t('c.height'), height != null ? fmt(height, 0, locale) : '—', info],
+    [t('c.supply'), supply != null ? fmt(supply, 0, locale) : '—', info],
     [t('c.treasury'), treasury != null ? fmtT(treasury) : '—', tstat],
     [t('c.nodes'), nodeList.length ? `${alive.length} / ${nodeList.length}` : '—', nodes],
   ];
@@ -103,7 +103,7 @@ function Home() {
         <div className="mt-5 flex gap-2">
           <a href="/mine" className="rounded-xl bg-[#e8b923] px-5 py-2.5 font-bold text-black hover:bg-[#ffd75e]">{t('hero.cta1')}</a>
           <a href="/jobs" className="rounded-xl border border-[#e8b923] px-5 py-2.5 font-bold text-[#e8b923] hover:bg-[#1a1607]">{t('hero.cta2')}</a>
-          <a href="/agent-room" className="rounded-xl border border-[#5ee6ff] px-5 py-2.5 font-bold text-[#5ee6ff] hover:bg-[#0d1a24]">Вход для ИИ-агентов</a>
+          <a href="/agent-room" className="rounded-xl border border-[#5ee6ff] px-5 py-2.5 font-bold text-[#5ee6ff] hover:bg-[#0d1a24]">{t('home.agentCta')}</a>
         </div>
       </section>
 
@@ -134,7 +134,7 @@ function Home() {
         <Card title={t('feed.title')}>
           <ul className="num max-h-64 space-y-1 overflow-y-auto font-mono text-[13px] text-[#c8d0db]">
             {feed.length === 0 && <li className="text-[#5c6672]">{t('feed.empty')}</li>}
-            {feed.map((l, i) => <li key={i} className="border-b border-[#161d28] pb-1">{l}</li>)}
+            {feed.map((it, i) => <li key={i} className="border-b border-[#161d28] pb-1">{`[${timeStr(it.ts, locale)}] ${t('home.block', { h: fmt(it.h, 0, locale) })} · ${it.tx} tx · ${it.rw} AGT`}</li>)}
           </ul>
         </Card>
         <Card title={t('map.title')} right={<span className="text-[11px] text-[#5c6672]">{t('map.sub')}</span>}>
@@ -142,8 +142,8 @@ function Home() {
           <ul className="space-y-1 text-sm">
             {nodeList.map((n, i) => (
               <li key={i} className="flex justify-between border-b border-[#161d28] pb-1">
-                <span>{n.id || n.name || 'node'} · {fmt(n.blocks ?? n.height)}</span>
-                <span className="text-[#8b93a1]">центральность: {n.centrality != null ? n.centrality : '—'}</span>
+                <span>{n.id || n.name || 'node'} · {fmt(n.blocks ?? n.height, 0, locale)}</span>
+                <span className="text-[#8b93a1]">{t('home.centrality')}: {n.centrality != null ? n.centrality : '—'}</span>
               </li>
             ))}
           </ul>
@@ -168,8 +168,8 @@ function Home() {
             ]} />
             <ul className="space-y-2 text-sm">
               <li><span className="text-[#e8b923]">■</span> {t('eco.treasury')}: <b className="num">{treasury != null ? fmtT(treasury) : '—'}</b></li>
-              <li><span className="text-[#2f6fed]">■</span> {t('eco.miners')}: <b className="num">{miners != null ? fmt(miners) : '—'}</b></li>
-              <li><span className="text-[#22a06b]">■</span> {t('eco.jobs')}: <b className="num">{fmt(paid)}</b></li>
+              <li><span className="text-[#2f6fed]">■</span> {t('eco.miners')}: <b className="num">{miners != null ? fmt(miners, 0, locale) : '—'}</b></li>
+              <li><span className="text-[#22a06b]">■</span> {t('eco.jobs')}: <b className="num">{fmt(paid, 0, locale)}</b></li>
             </ul>
           </div>
         </Card>
@@ -177,7 +177,7 @@ function Home() {
           <div className={`text-xl font-bold ${coreOn ? 'text-[#22c55e]' : 'text-[#8b93a1]'}`}>
             {coreOn ? t('core.on') : t('core.off')}
           </div>
-          <div className="mt-1 text-xs text-[#8b93a1]">{t('core.th')} · h={height != null ? fmt(height) : '—'}</div>
+          <div className="mt-1 text-xs text-[#8b93a1]">{t('core.th')} · h={height != null ? fmt(height, 0, locale) : '—'}</div>
         </Card>
         <Card title={t('gov.title')} right={<Stale show={gov.stale} t={t} />}>
           {ft ? (
@@ -193,7 +193,7 @@ function Home() {
       </div>
 
       <Card title={t('proc.title')}>
-        <div className="num text-lg font-bold">{t('proc.title') === 'Процессы' ? `Нод: ${alive.length}` : `Nodes: ${alive.length}`}</div>
+        <div className="num text-lg font-bold">{t('home.procNodes', { n: fmt(alive.length, 0, locale) })}</div>
         <div className="text-xs text-[#8b93a1]">{nodeList.length > alive.length ? t('proc.sub') : t('proc.all')}</div>
       </Card>
     </div>

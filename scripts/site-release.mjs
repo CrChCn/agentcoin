@@ -71,7 +71,9 @@ function exportItems() {
 }
 
 const ssh = (cmd) => execFileSync('ssh', ['-i', KEY, '-o', 'StrictHostKeyChecking=no', HOST, cmd], { encoding: 'utf8' });
-const scp = (items) => execFileSync('scp', ['-q', '-r', '-i', KEY, '-o', 'StrictHostKeyChecking=no', ...items, `${HOST}:${REMOTE_ROOT}/releases/${TAG}/`], { stdio: 'inherit' });
+// ВАЖНО: scp с отдельными файлами кладёт их в basename целевого каталога и ТЕРЯЕТ
+// вложенность (docs/view.html → view.html). Поэтому файлы группируются по
+// каталогам и заливаются в свой каталог назначения.
 
 const { pages, dirs } = exportItems();
 console.log(`→ экспорт: ${EXPORT}`);
@@ -91,8 +93,21 @@ try {
 }
 
 try {
-  scp([...pages.map((p) => path.join(EXPORT, p)), ...dirs.map((d) => path.join(EXPORT, d))]);
-  console.log(`→ залито: ${pages.length} страниц + ${dirs.join(', ')}`);
+  const byDir = new Map();
+  for (const p of pages) {
+    const rel = p.split('/').slice(0, -1).join('/'); // '' для корня
+    if (!byDir.has(rel)) byDir.set(rel, []);
+    byDir.get(rel).push(path.join(EXPORT, p));
+  }
+  ssh([...byDir.keys()].filter(Boolean).map((d) => `mkdir -p ${NEW}/${d}`).join(' && ') || 'true');
+  for (const [rel, files] of byDir) {
+    const dest = rel ? `${HOST}:${NEW}/${rel}/` : `${HOST}:${NEW}/`;
+    execFileSync('scp', ['-q', '-i', KEY, '-o', 'StrictHostKeyChecking=no', ...files, dest], { stdio: 'inherit' });
+  }
+  for (const d of dirs) {
+    execFileSync('scp', ['-q', '-r', '-i', KEY, '-o', 'StrictHostKeyChecking=no', path.join(EXPORT, d), `${HOST}:${NEW}/`], { stdio: 'inherit' });
+  }
+  console.log(`→ залито: ${pages.length} страниц (включая вложенные) + ${dirs.join(', ')}`);
 } catch (e) {
   console.error('✗ заливка не удалась, симлинк не тронут:', String(e.message || e).trim());
   process.exit(1);

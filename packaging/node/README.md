@@ -10,7 +10,7 @@
 | Файл | Назначение |
 |---|---|
 | `install.sh` | установка, `--dry-run`, `--prefix=`, `--enable`, `--join`, `--rollback`, `--uninstall` |
-| `node.env.example` | конфиг: `AGT_DATA_DIR`, `AGT_BIND`, `AGT_ADMIN_MODE`, `AGT_ADMIN_TOKEN`, **`PEER_URL`**, `AGT_SEED_NODES`, `AGT_PUBLIC_URL` |
+| `node-env.example` | конфиг: `AGT_DATA_DIR`, `AGT_BIND`, `AGT_ADMIN_MODE`, `AGT_ADMIN_TOKEN`, **`PEER_URL`**, `AGT_SEED_NODES`, `AGT_PUBLIC_URL` |
 | `systemd/agentcoin-node.service` | юнит: сервисный пользователь, `Restart=always`, `ProtectSystem=strict` |
 | `src/node.mjs` | сама нода с фиксированным SHA256 (`src/SHA256SUMS`) |
 

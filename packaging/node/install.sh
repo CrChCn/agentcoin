@@ -148,7 +148,7 @@ fi
 # --- env-конфиг ------------------------------------------------------------
 install -d -m 0755 "$ENV_DIR"
 if [ ! -f "$ENV_FILE" ]; then
-  run "install -m 0640 '$HERE/node.env.example' '$ENV_FILE'"
+  run "install -m 0640 '$HERE/node-env.example' '$ENV_FILE'"
   if [ "$DRY" -ne 1 ] && [ -z "$PREFIX" ]; then
     chown "root:$SERVICE_USER" "$ENV_FILE"
     TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"

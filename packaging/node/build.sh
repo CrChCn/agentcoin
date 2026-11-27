@@ -21,7 +21,7 @@ mkdir -p "$DIST"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/agentcoin-node"
-cp -a "$HERE/install.sh" "$HERE/node.env.example" "$HERE/systemd" "$HERE/src" "$HERE/README.md" "$STAGE/agentcoin-node/"
+cp -a "$HERE/install.sh" "$HERE/node-env.example" "$HERE/systemd" "$HERE/src" "$HERE/README.md" "$STAGE/agentcoin-node/"
 
 # Windows-дерево даёт CRLF: shebang node.mjs и значения env ломаются на хосте.
 find "$STAGE/agentcoin-node" -type f \( -name '*.mjs' -o -name '*.sh' -o -name '*.md' \
@@ -54,7 +54,7 @@ cat > "$DIST/RELEASE.json" <<JSON
   "codeFiles": $CLOSURE_FILES,
   "runtime": "Node 20+ (проверено на v24.22.2)",
   "optionalVendor": "/opt/agentcoin-node/vendor/node_modules/snarkjs (PoUW ZK; без него 503)",
-  "contents": ["install.sh", "node.env.example", "systemd/agentcoin-node.service", "src/** (весь граф импортов)", "README.md"]
+  "contents": ["install.sh", "node-env.example", "systemd/agentcoin-node.service", "src/** (весь граф импортов)", "README.md"]
 }
 JSON
 

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentcoin node · локальный GUI</title>
+<style>
+  :root{--bg:#0b0f14;--panel:#121a23;--line:#22303f;--txt:#d8e3ef;--dim:#7f95aa;--ok:#3ddc97;--bad:#ff617e;--accent:#5aa2ff}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.5 "Segoe UI",system-ui,sans-serif;max-width:900px;margin:0 auto;padding:18px}
+  h1{font-size:19px;margin-bottom:4px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:10px}
+  table{width:100%;border-collapse:collapse}
+  td{padding:4px 6px;border-bottom:1px solid var(--line)}
+  td:first-child{color:var(--dim);width:210px}
+  .mono{font-family:Consolas,monospace;font-size:12px;word-break:break-all}
+  button{background:#0f1620;color:var(--txt);border:1px solid var(--accent);border-radius:7px;padding:7px 11px;font:inherit;cursor:pointer;margin-right:6px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .dim{color:var(--dim)}
+  #msg{white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;color:var(--dim);margin-top:10px;max-height:200px;overflow:auto}
+</style>
+</head>
+<body>
+<h1>Agentcoin node · локальный GUI</h1>
+<div class="sub">Управление только этой нодой через loopback API. Ключ и приватные адреса наружу не уходят.</div>
+
+<div class="panel"><h2>Состояние</h2><table id="status"><tr><td>загрузка…</td><td></td></tr></table></div>
+<div class="panel"><h2>Действия</h2>
+  <button data-act="sync">Синхронизировать</button>
+  <button data-act="announce">Объявить себя</button>
+  <button data-act="nat">Проверить NAT</button>
+  <button data-act="updates">Обновления</button>
+  <button data-act="rollback">Откатить обновление</button>
+  <div id="msg"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = (s) => s ? String(s).slice(0, 10) + '…' + String(s).slice(-6) : '—';
+async function refresh() {
+  const r = await fetch('/status', { cache: 'no-store' });
+  const s = await r.json();
+  const rows = [
+    ['nodeId', `<span class="mono">${esc(s.nodeId)}</span>`],
+    ['версия / протокол', `${esc(s.version)} / ${esc(s.protocol)}`],
+    ['сеть', esc(s.networkId)],
+    ['состояние', `<span class="${s.state === 'running' ? 'ok' : 'bad'}">${esc(s.state)}</span>`],
+    ['высота / tip', `${s.chain.height} / <span class="mono">${short(s.chain.tipHash)}</span>`],
+    ['chainwork', `<span class="mono">${esc(s.chain.chainwork)}</span>`],
+    ['пиры (вход/исход)', `${s.peers.total} (${s.peers.inbound}/${s.peers.outbound})`],
+    ['входящие подтверждены', String(s.inboundVerified)],
+    ['NAT', `${esc(s.nat.status)}${s.nat.mapped ? ' · mapped' : ''}${s.nat.cgnat ? ' · CGNAT' : ''}`],
+    ['синхронизация', `${esc(s.sync.lastAt || '—')} · ошибка: ${esc(s.sync.lastError || 'нет')}`],
+    ['известно адресов', `${s.peers.known} · банов ${s.peers.banned}`],
+    ['guard', s.guard ? `pid ${s.guard.pid}` : '—'],
+    ['чтение цепи', s.chain.readOnly ? `<span class="bad">остановлена: ${esc(s.chain.stoppedReason)}</span>` : '<span class="ok">ok</span>'],
+    ['обновление', `${esc(s.version)}`],
+  ];
+  $('status').innerHTML = rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('');
+  return s;
+}
+async function act(a) {
+  const body = a === 'sync' || a === 'announce' || a === 'nat' || a === 'rollback' || a === 'updates';
+  const r = await fetch(`/${a === 'updates' ? 'updates' : a}`, { method: body && a !== 'updates' ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body && a !== 'updates' ? '{}' : undefined });
+  $('msg').textContent = `${a}: ${JSON.stringify(await r.json(), null, 2)}`;
+  refresh();
+}
+for (const b of document.querySelectorAll('button[data-act]')) b.addEventListener('click', () => act(b.dataset.act));
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

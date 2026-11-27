@@ -1,0 +1,17 @@
+{
+  "name": "agentnet",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentcoin network layer: node identity, signed P2P protocol, discovery, NAT, headers-first sync, independent observers, versioned Network API, updates",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "demo": "node scripts/demo.mjs",
+    "prove:production": "node scripts/prove-production-sync.mjs",
+    "build:portable": "node scripts/build-portable.mjs",
+    "build:installer": "node scripts/build-installer.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

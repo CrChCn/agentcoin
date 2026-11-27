@@ -1,0 +1,6 @@
+.demo/
+.data/
+.demo.log
+*.log
+.proof/
+dist/

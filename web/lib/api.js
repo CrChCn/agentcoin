@@ -18,10 +18,12 @@ export function fmt(n, dec = 0, locale = 'ru-RU') {
   return Number(n).toLocaleString(locale, { maximumFractionDigits: dec, minimumFractionDigits: dec });
 }
 
-export function fmtT(n) {
+// Казна приходит в AGT; крупные суммы показываем в миллиардах. Локаль нужна
+// та же, что у остальных чисел на странице, иначе EN-вид получает «1 234,5».
+export function fmtT(n, locale = 'ru-RU') {
   if (n == null) return '—';
   const s = String(n);
-  return s.includes('.') ? s : (Number(n) / 1e9).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+  return s.includes('.') ? s : (Number(n) / 1e9).toLocaleString(locale, { maximumFractionDigits: 1 });
 }
 
 // Polling hook: returns {data, updatedAt, stale}. stale=true if no success for 5 min.

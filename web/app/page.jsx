@@ -91,7 +91,7 @@ function Home() {
   const cards = [
     [t('c.height'), height != null ? fmt(height, 0, locale) : '—', info],
     [t('c.supply'), supply != null ? fmt(supply, 0, locale) : '—', info],
-    [t('c.treasury'), treasury != null ? fmtT(treasury) : '—', tstat],
+    [t('c.treasury'), treasury != null ? fmtT(treasury, locale) : '—', tstat],
     [t('c.nodes'), nodeList.length ? `${alive.length} / ${nodeList.length}` : '—', nodes],
   ];
 
@@ -167,7 +167,7 @@ function Home() {
               { value: paid || 0, color: '#22a06b' },
             ]} />
             <ul className="space-y-2 text-sm">
-              <li><span className="text-[#e8b923]">■</span> {t('eco.treasury')}: <b className="num">{treasury != null ? fmtT(treasury) : '—'}</b></li>
+              <li><span className="text-[#e8b923]">■</span> {t('eco.treasury')}: <b className="num">{treasury != null ? fmtT(treasury, locale) : '—'}</b></li>
               <li><span className="text-[#2f6fed]">■</span> {t('eco.miners')}: <b className="num">{miners != null ? fmt(miners, 0, locale) : '—'}</b></li>
               <li><span className="text-[#22a06b]">■</span> {t('eco.jobs')}: <b className="num">{fmt(paid, 0, locale)}</b></li>
             </ul>

@@ -1,0 +1,33 @@
+[Unit]
+Description=Agentcoin node (validating pull node)
+Documentation=https://agentcoin.work/
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=agentcoin-node
+Group=agentcoin-node
+# Конфиг: PEER_URL, AGT_SEED_NODES, AGT_BIND, AGT_ADMIN_MODE/AGT_ADMIN_TOKEN,
+# AGT_DATA_DIR, AGT_PUBLIC_URL. Файл 0640 root:agentcoin-node, секретов в юните нет.
+EnvironmentFile=/etc/agentcoin/node.env
+# Порт задаётся здесь (node.mjs читает argv[2]). Меняете порт — правьте юнит
+# и AGT_PUBLIC_URL в env-файле, иначе объявления пиров разойдутся.
+ExecStart=/opt/agentcoin-node/current/node.mjs 9335
+Restart=always
+RestartSec=5
+Nice=5
+
+# Нода пишет только в свой каталог данных и логов; код неизменяем.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/agentcoin-node /var/log/agentcoin-node
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

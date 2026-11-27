@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://agentcoin.work/sitemap.xml

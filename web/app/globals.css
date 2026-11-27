@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+body {
+  background: #07090d;
+  color: #e8edf3;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+}
+.num { font-variant-numeric: tabular-nums; }
+a { color: #e8b923; }

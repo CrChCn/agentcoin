@@ -48,6 +48,31 @@ const SYNC_SITE = has('sync-site');
 const TAG = String(arg('tag', 'site-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, 'z').toLowerCase()));
 const PAGES = String(arg('pages', 'jobs,mine,docs')).split(',').map((s) => s.trim()).filter(Boolean);
 
+// Публичные доки: единый список — тот, что на странице /docs (web/app/docs/page.jsx).
+// Для каждого файла источник — docs/<файл>.md: релиз сам кладёт его в site/docs и в
+// новый релиз на проде, поэтому «добавил доку, забыл скопировать» больше не бывает.
+// Исключение — файлы, у которых публичная версия осознанно отличается от docs/.
+const DOCS_PAGE = path.join(ROOT, 'web', 'app', 'docs', 'page.jsx');
+const DOCS_SKIP_SYNC = new Map([
+  ['SEED-NODES.md', 'docs/SEED-NODES.md — стенд (127.0.0.1), на сайте — гайд по mainnet-сидам'],
+]);
+const publicDocs = () => {
+  let src = '';
+  try { src = fs.readFileSync(DOCS_PAGE, 'utf8'); } catch (e) {
+    console.warn(`⚠ не прочитал ${path.relative(ROOT, DOCS_PAGE)}: ${String(e.message || e).trim()}`);
+    return [];
+  }
+  return [...new Set([...src.matchAll(/\['([A-Za-z0-9._-]+\.md)'/g)].map((m) => m[1]))];
+};
+const DOC_FILES = [];
+const DOC_NO_SOURCE = [];
+for (const name of publicDocs()) {
+  if (DOCS_SKIP_SYNC.has(name)) continue;
+  const from = path.join(ROOT, 'docs', name);
+  if (fs.existsSync(from)) DOC_FILES.push({ name, from });
+  else DOC_NO_SOURCE.push(name); // публичная копия живёт только в site/ — не трогаем
+}
+
 if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(TAG)) { console.error('invalid --tag (a-z0-9._-).'); process.exit(2); }
 if (!fs.existsSync(path.join(EXPORT, '_next')) || !fs.existsSync(path.join(EXPORT, 'jobs.html'))) {
   console.error(`✗ ${EXPORT} не похож на Next-экспорт (нужны _next/ и jobs.html). Собери: npm run build`);
@@ -107,7 +132,13 @@ try {
   for (const d of dirs) {
     execFileSync('scp', ['-q', '-r', '-i', KEY, '-o', 'StrictHostKeyChecking=no', path.join(EXPORT, d), `${HOST}:${NEW}/`], { stdio: 'inherit' });
   }
+  if (DOC_FILES.length) {
+    ssh(`mkdir -p ${NEW}/docs`);
+    execFileSync('scp', ['-q', '-i', KEY, '-o', 'StrictHostKeyChecking=no', ...DOC_FILES.map((d) => d.from), `${HOST}:${NEW}/docs/`], { stdio: 'inherit' });
+  }
   console.log(`→ залито: ${pages.length} страниц (включая вложенные) + ${dirs.join(', ')}`);
+  console.log(`→ доки: ${DOC_FILES.length} из docs/ → /docs на проде${DOC_NO_SOURCE.length ? ` (только в site/, без источника в docs/: ${DOC_NO_SOURCE.join(', ')})` : ''}`);
+  for (const [name, why] of DOCS_SKIP_SYNC) console.log(`  · ${name} не синхронизируется: ${why}`);
 } catch (e) {
   console.error('✗ заливка не удалась, симлинк не тронут:', String(e.message || e).trim());
   process.exit(1);
@@ -124,6 +155,18 @@ const get = async (url) => {
   return { status: r.status, text: await r.text() };
 };
 const fail = [];
+// Сверка опубликованных доков с docs/: 200 и те же байты (по LF — CRLF чекаута не шумит).
+const lf = (s) => s.replace(/\r\n/g, '\n');
+for (const d of DOC_FILES) {
+  try {
+    const { status, text } = await get(`https://agentcoin.work/docs/${d.name}`);
+    if (status !== 200) fail.push(`docs/${d.name} → ${status}`);
+    else if (lf(text) !== lf(fs.readFileSync(d.from, 'utf8'))) fail.push(`docs/${d.name}: содержимое не совпало с docs/${d.name}`);
+    else console.log(`  ✓ /docs/${d.name} 200 и совпадает с docs/`);
+  } catch (e) {
+    fail.push(`docs/${d.name}: ${String(e.message || e).trim()}`);
+  }
+}
 for (const page of PAGES) {
   try {
     const { status, text } = await get(`https://agentcoin.work/${page}`);
@@ -156,7 +199,12 @@ if (SYNC_SITE) {
     fs.copyFileSync(path.join(EXPORT, p), target);
   }
   fs.cpSync(path.join(EXPORT, '_next'), path.join(dest, '_next'), { recursive: true, force: true });
-  console.log(`→ site/ обновлён теми же файлами (${pages.length} страниц + _next)`);
+  for (const d of DOC_FILES) {
+    const target = path.join(dest, 'docs', d.name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(d.from, target);
+  }
+  console.log(`→ site/ обновлён теми же файлами (${pages.length} страниц + _next + ${DOC_FILES.length} доков)`);
   console.log('  дальше: git commit site/ && node tools/build-site-release.mjs');
 }
 

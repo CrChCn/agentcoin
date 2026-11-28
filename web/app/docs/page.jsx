@@ -7,6 +7,7 @@ import { Card } from '@/components/ui';
 const DOCS = [
   ['WHITEPAPER-AGENTS.md', 'Whitepaper'],
   ['WHAT-IS-AGT.md', 'Что такое AGT'],
+  ['OWNERSHIP-PROOF.md', 'Владение ключом'],
   ['README.md', 'README'],
   ['PoUW-PLAN.md', 'PoUW plan'],
   ['AGENT-HANDOFF.md', 'Agent handoff'],

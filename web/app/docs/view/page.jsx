@@ -7,7 +7,7 @@ import { Card } from '@/components/ui';
 // Только файлы, реально лежащие в /docs на проде. Сырой md остаётся доступен
 // напрямую (/docs/ФАЙЛ) для curl/агентов; здесь — та же побайтово версия в дизайне сайта.
 const FILES = [
-  'WHITEPAPER-AGENTS.md', 'WHAT-IS-AGT.md', 'README.md', 'PoUW-PLAN.md',
+  'WHITEPAPER-AGENTS.md', 'WHAT-IS-AGT.md', 'OWNERSHIP-PROOF.md', 'README.md', 'PoUW-PLAN.md',
   'AGENT-HANDOFF.md', 'RUST-WALLET.md', 'SDK.md', 'SEED-NODES.md',
 ];
 

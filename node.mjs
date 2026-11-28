@@ -2765,7 +2765,7 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     // считать их независимыми агентами нельзя, пока не появится доказательство.
     const wallets = loadWallets();
     const seenOrigin = new Set();
-const externalAddrs = [];
+    const externalAddrs = [];
     let nodeCustodied = 0;
     for (const rec of merged.auditRecords) {
       const addr = rec && rec.address;
@@ -2773,6 +2773,23 @@ const externalAddrs = [];
       seenOrigin.add(addr);
       const w = wallets[addr] || wallets[addr.toLowerCase()];
       if (w && w.privKey) nodeCustodied++; else externalAddrs.push(addr);
+    }
+    // Два разных подтверждения владения ключом, их нельзя смешивать:
+    //  • при регистрации — identity-сертификат выдаётся только после проверки
+    //    подписи ed25519 агента над вызовом ноды (agent-identity.mjs register()),
+    //    поэтому сама запись в реестре identity и есть факт подтверждения;
+    //  • повторным вызовом — /passport/ownership/challenge + prove.
+    // Считать только второй вид значит занижать реальность: агент, прошедший
+    // регистрацию, уже доказал контроль над ключом.
+    let verifiedAtRegistration = 0;
+    let verifiedByChallenge = 0;
+    let verifiedExternal = 0;
+    for (const addr of externalAddrs) {
+      const atRegistration = Boolean(identityRegistry.findByAddress(addr));
+      const byChallenge = ownershipProofs.verified(addr);
+      if (atRegistration) verifiedAtRegistration++;
+      if (byChallenge) verifiedByChallenge++;
+      if (atRegistration || byChallenge) verifiedExternal++;
     }
     return json(res, 200, {
       count: merged.count,
@@ -2783,8 +2800,11 @@ const externalAddrs = [];
       origin: {
         nodeCustodied,
         externalRecords: seenOrigin.size - nodeCustodied,
-        verifiedExternal: ownershipProofs.verifiedCount(externalAddrs),
-        semantics: 'node_custodied_has_key_in_this_node_wallet_store; external_records_verified_only_with_signature_proof',
+        verifiedAtRegistration,
+        verifiedByChallenge,
+        verifiedExternal,
+        unverifiedExternal: seenOrigin.size - nodeCustodied - verifiedExternal,
+        semantics: 'node_custodied_has_key_in_this_node_wallet_store; verified_at_registration_means_identity_certificate_issued_only_after_ed25519_challenge_signature; verified_by_challenge_means_fresh_ownership_proof; key_control_not_independent_operator',
       },
       ...snapshotMark(),
     });
@@ -2812,11 +2832,16 @@ const externalAddrs = [];
   if (p === '/passport/ownership') {
     const address = String(url.searchParams.get('address') || '');
     const proof = ownershipProofs.proofOf(address);
+    const passport = identityRegistry.findByAddress(address);
+    const atRegistration = Boolean(passport);
     return json(res, 200, {
       address,
-      verified: Boolean(proof),
-      verifiedAt: proof ? proof.verifiedAt : null,
-      semantics: 'signature_over_node_challenge_proves_key_control_not_independent_operator',
+      verified: Boolean(proof || atRegistration),
+      verifiedBy: proof ? 'challenge' : (atRegistration ? 'registration' : null),
+      verifiedAt: proof ? proof.verifiedAt : (atRegistration ? passport.issuedAt : null),
+      atRegistration,
+      byChallenge: Boolean(proof),
+      semantics: 'key_control_confirmed_by_registration_challenge_or_later_ownership_proof_not_independent_operator',
     });
   }
   if (p === '/passport/issue' && req.method === 'POST') {

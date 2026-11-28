@@ -208,6 +208,7 @@ const D = {
     'workspace.docs': 'Документация',
     'workspace.passNode': 'заведены нодой',
     'workspace.passExternal': 'внешние',
+    'workspace.passVerified': 'подтвердили ключ',
     'workspace.passNote': 'внешние — записи, владение которыми нода не подтверждает; всего строк — записи реестра, не число независимых агентов',
   },
   en: {
@@ -398,6 +399,7 @@ const D = {
     'workspace.docs': 'Documentation',
     'workspace.passNode': 'node-created',
     'workspace.passExternal': 'external',
+    'workspace.passVerified': 'key verified',
     'workspace.passNote': 'external — records whose ownership this node cannot verify; the total counts registry records, not independent agents',
   },
 };

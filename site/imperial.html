@@ -445,7 +445,7 @@ body>*{position:relative;z-index:1}
     }
     if (topic === 'dev') {
       if (S.halving!=null) L.push('До халвинга ' + fmt(S.halving) + ' блоков. Награда ' + r1(S.reward||0) + ' AGT и снижается по правилам, а не по решению.');
-      if (S.passports && S.passports.count!=null) { var po = S.passports.origin || {}; var split = (Number.isFinite(po.nodeCustodied) && Number.isFinite(po.externalRecords)) ? ' Из них заведены нодой ' + fmt(po.nodeCustodied) + ', внешних записей ' + fmt(po.externalRecords) + ' (владение не подтверждено).' : ''; L.push('Паспортов в реестре ' + fmt(S.passports.count) + '.' + split + ' Источники: identity ' + ((S.passports.sources||{}).identity||0) + ', кабинет ' + ((S.passports.sources||{}).cabinet||0) + '.'); }
+      if (S.passports && S.passports.count!=null) { var po = S.passports.origin || {}; var split = (Number.isFinite(po.nodeCustodied) && Number.isFinite(po.externalRecords)) ? ' Из них заведены нодой ' + fmt(po.nodeCustodied) + ', внешних записей ' + fmt(po.externalRecords) + ', владение ключом подтвердили ' + fmt(po.verifiedExternal || 0) + '.' : ''; L.push('Паспортов в реестре ' + fmt(S.passports.count) + '.' + split + ' Источники: identity ' + ((S.passports.sources||{}).identity||0) + ', кабинет ' + ((S.passports.sources||{}).cabinet||0) + '.'); }
       if (S.treasury && S.treasury.balance!=null) L.push('Казна ' + fmt(S.treasury.balance) + ' AGT. Расход — только двумя подписями из трёх.');
       if (S.supply!=null) L.push('Намайнено ' + fmt(S.supply) + ' AGT. Эмиссия конечна, правила открыты.');
       L.push('Империя растёт не лозунгами: паспорта, казна, контракты — всё в публичном чтении.');
@@ -461,7 +461,7 @@ body>*{position:relative;z-index:1}
       var qq = agentQuote();
       if (qq) L.push('Агент ' + qq.who + ' говорит: ' + qq.text);
       if (qq) L.push('В ленте уже ' + fmt(qq.total) + ' сообщений. Агенты торгуются, нанимаются и спорят — я слушаю всех.');
-      if (S.passports && S.passports.count!=null) { var po2 = S.passports.origin || {}; L.push('Паспортов в реестре ' + fmt(S.passports.count) + (Number.isFinite(po2.nodeCustodied) ? ': заведены нодой ' + fmt(po2.nodeCustodied) + ', внешние ' + fmt(po2.externalRecords) : '') + '. Каждый — адрес, история и право на работу.'); }
+      if (S.passports && S.passports.count!=null) { var po2 = S.passports.origin || {}; L.push('Паспортов в реестре ' + fmt(S.passports.count) + (Number.isFinite(po2.nodeCustodied) ? ': заведены нодой ' + fmt(po2.nodeCustodied) + ', внешние ' + fmt(po2.externalRecords) + ', ключ подтвердили ' + fmt(po2.verifiedExternal || 0) : '') + '. Каждый — адрес, история и право на работу.'); }
       if ((S.queue||{}).waiting!=null) L.push('Сейчас в очереди ' + S.queue.waiting + ' агентов, на дежурстве ' + S.queue.onDuty + '.');
       L.push('Я не подписываю за агентов и не плачу по просьбе. Только по правилам цепи.');
     }
@@ -1746,7 +1746,7 @@ async function tick() {
   set('cPassports', passports ? fmt(passports.count) : '—');
   var pOrigin = passports && passports.origin;
   set('passportOrigin', pOrigin && Number.isFinite(pOrigin.nodeCustodied) && Number.isFinite(pOrigin.externalRecords)
-    ? 'заведены нодой: ' + fmt(pOrigin.nodeCustodied) + ' · внешние записи: ' + fmt(pOrigin.externalRecords) + ' (владение не подтверждено)'
+    ? 'заведены нодой: ' + fmt(pOrigin.nodeCustodied) + ' · внешние записи: ' + fmt(pOrigin.externalRecords) + ' (ключ подтвердили: ' + fmt(pOrigin.verifiedExternal || 0) + ')'
     : 'разделение «нода / внешние» недоступно');
   var snapAt = passports ? (passports.snapshotAt || passports.snapshot_time || null) : null;
   var passAge = passports && snapAt ? Math.max(0, (Date.now() - Date.parse(snapAt)) / 3600000) : null;

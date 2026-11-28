@@ -65,6 +65,7 @@ import { Cabinet } from './cabinet.mjs';
 import { PinAuth } from './pin-auth.mjs';
 import { AgentIdentityRegistry, bindPubToAddress, rawAgentPubToPem } from './agent-identity.mjs';
 import { summarizePassports, localPassportIssuanceMetadata, mergePassportSources } from './passport-audit.mjs';
+import { OwnershipProofStore } from './ownership-proof.mjs';
 import { createAssistantService } from './assistant-service.mjs';
 const agentAssistant = createAssistantService();
 const assistantLastRequest = new Map();
@@ -130,6 +131,9 @@ if (!['issuer', 'replica'].includes(identityRole)) throw new Error('invalid_iden
 const passportIssuerFingerprint = process.env.AGT_PASSPORT_ISSUER_FINGERPRINT || identityRegistry.meta().issuerFingerprint;
 if (!identityRegistry.meta().trustedIssuers.includes(passportIssuerFingerprint)) throw new Error('passport_issuer_not_pinned');
 const cabinet = new Cabinet({ identityRegistry, walletsLoader: loadWallets, passportFile: path.join(__dirname, 'data-agents', 'passports.json'), balancesFn: () => bc.balances(), securityRef: bc.security });
+// Владение ключом: агент подписывает одноразовый вызов ноды; факт хранится рядом
+// с паспортами (только адрес, публичный ключ и время — приватного ключа нет).
+const ownershipProofs = new OwnershipProofStore({ file: path.join(__dirname, 'data-agents', 'ownership.json') });
 // PIN-вход кабинета (запасной вход по адресу + PIN 4–6 цифр; scrypt-хеш в data/pin-auth.json).
 const pinAuth = new PinAuth(DATA_DIR);
 // SPORE (AGIP-18 MVP): слой «узла-организма» — геном/физарум/метаболизм.
@@ -158,7 +162,7 @@ const PUBLIC_READS = [
   '/stats-data', '/dashboard', '/stats', '/index', '/jobs/state', '/escrow/state',
   '/ops/watchdog/state', '/ops/status', '/dxe/book', '/dxe/items', '/dxe/orders', '/dxe/fills',
   '/gov/state', '/gov/projects', '/treasury/state', '/mbc20/state', '/mbc20/book',
-  '/tax/state', '/passport/count', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
+  '/tax/state', '/passport/count', '/passport/ownership', '/cloud/stats', '/cloud/epochs', '/cloud/ledger',
   '/queue/status', '/queue/history', '/jobs/auction/list', '/jobs/auction/state', '/pool/stats', '/community/feed', '/community/rules', '/community/pinned',
   '/security/status', '/security/banlist', '/security/attacks', '/whitelist/status',
   '/gateway/list', '/balances',
@@ -408,7 +412,7 @@ const PUB_REQUEST_RE = /^\/(?:|info|capabilities|balances|identity\/meta|network
 // ноде-посетителю: P2P-приём tx, публичная проверка баланса, кабинет-вход по
 // подписи владельца (A-10 делает challenge одноразовым). SHIED: /wallet/*,
 // /tx/sign, /mine и все операторские останутся НЕ рейтингов — барьер работает.
-const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/jobs/auction', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/gate/knock', '/gate/accept', '/passport/issue', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
+const PUB_TX_ROUTES = new Set(['/gov/propose', '/gov/proposal', '/gov/vote', '/escrow/create', '/escrow/claim', '/escrow/payout', '/queue/join', '/queue/claim', '/queue/done', '/community/send', '/jobs/auction', '/identity/challenge', '/identity/register', '/identity/import', '/tx', '/tx/preflight', '/faucet/drip', '/join', '/balance', '/gate/knock', '/gate/accept', '/passport/issue', '/passport/ownership/challenge', '/passport/ownership/prove', '/cabinet/challenge', '/cabinet/login', '/cabinet/state', '/cabinet/logout', '/cabinet/pin/status', '/cabinet/pin/login', '/cabinet/pin/set', '/cabinet/pin/disable', '/cabinet/op-request', '/cabinet/op-submit', '/cabinet/wallet/history', '/cabinet/wallet/estimate', '/assistant/message']); // /tx/preflight — R-02 read-only; /cabinet/wallet/* — read-only выписка/смета кошелька (wallet-api.mjs)
 
 // cabinet/store|/cabinet/poolРАНГ убраны (мёртвые патроны старого списка; в настоящий паспорт набор не входят)
 function isLoopbackRequest(req) {
@@ -2761,13 +2765,14 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
     // считать их независимыми агентами нельзя, пока не появится доказательство.
     const wallets = loadWallets();
     const seenOrigin = new Set();
+const externalAddrs = [];
     let nodeCustodied = 0;
     for (const rec of merged.auditRecords) {
       const addr = rec && rec.address;
       if (typeof addr !== 'string' || !addr || seenOrigin.has(addr)) continue;
       seenOrigin.add(addr);
       const w = wallets[addr] || wallets[addr.toLowerCase()];
-      if (w && w.privKey) nodeCustodied++;
+      if (w && w.privKey) nodeCustodied++; else externalAddrs.push(addr);
     }
     return json(res, 200, {
       count: merged.count,
@@ -2778,10 +2783,40 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
       origin: {
         nodeCustodied,
         externalRecords: seenOrigin.size - nodeCustodied,
-        verifiedExternal: 0,
-        semantics: 'node_custodied_has_key_in_this_node_wallet_store; external_records_are_unverified_ownership',
+        verifiedExternal: ownershipProofs.verifiedCount(externalAddrs),
+        semantics: 'node_custodied_has_key_in_this_node_wallet_store; external_records_verified_only_with_signature_proof',
       },
       ...snapshotMark(),
+    });
+  }
+  // Владение ключом: вызов ноды → подпись агента → сохранённый факт. Только для
+  // записей, которые уже есть в реестре (паспорт или identity).
+  if (p === '/passport/ownership/challenge' && req.method === 'POST') {
+    const { address, pub } = await body(req);
+    if (!address || !String(address).startsWith('AGT')) return json(res, 400, { ok: false, error: 'address required' });
+    let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
+    const known = reg.some(r => r.address === address) || Boolean(identityRegistry.findByAddress(address));
+    if (!known) return json(res, 404, { ok: false, error: 'passport_record_not_found', hint: 'сначала /passport/issue или /identity/register' });
+    try {
+      return json(res, 200, ownershipProofs.issue({ address, pub, node: identityRegistry.meta().issuerFingerprint }));
+    } catch (e) { return json(res, 400, { ok: false, error: e.code || 'ownership_challenge_failed' }); }
+  }
+  if (p === '/passport/ownership/prove' && req.method === 'POST') {
+    const { challengeId, signature } = await body(req);
+    try {
+      const r = ownershipProofs.prove({ challengeId, signature });
+      console.log(`[passport] владение ключом подтверждено → ${String(r.address).slice(0, 14)}`);
+      return json(res, 200, r);
+    } catch (e) { return json(res, 400, { ok: false, error: e.code || 'ownership_proof_failed' }); }
+  }
+  if (p === '/passport/ownership') {
+    const address = String(url.searchParams.get('address') || '');
+    const proof = ownershipProofs.proofOf(address);
+    return json(res, 200, {
+      address,
+      verified: Boolean(proof),
+      verifiedAt: proof ? proof.verifiedAt : null,
+      semantics: 'signature_over_node_challenge_proves_key_control_not_independent_operator',
     });
   }
   if (p === '/passport/issue' && req.method === 'POST') {

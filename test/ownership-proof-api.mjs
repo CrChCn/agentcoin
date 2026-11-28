@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -40,7 +40,9 @@ test('внешний агент доказывает владение ключо
     });
     const base = `http://127.0.0.1:${port}`;
     let ready = false;
-    for (let i = 0; i < 100; i++) {
+    // Старт холодной изолированной ноды на Windows бывает дольше 10 с (AV/FS),
+    // поэтому ждём до 30 с; проверка та же: /health должен ответить 200.
+    for (let i = 0; i < 300; i++) {
       try { const r = await fetch(base + '/health'); if (r.ok) { ready = true; break; } } catch {}
       await new Promise(r => setTimeout(r, 100));
     }
@@ -56,7 +58,20 @@ test('внешний агент доказывает владение ключо
     const before = (await (await fetch(base + '/passport/count')).json()).origin;
     assert.equal(before.externalRecords, 1);
     assert.equal(before.nodeCustodied, 0);
-    assert.equal(before.verifiedExternal, 0, 'регистрация сама по себе не даёт подтверждённого владения');
+    // identity-сертификат выдаётся только после проверки подписи вызова, значит
+    // владение ключом уже подтверждено при регистрации — это отдельный вид.
+    assert.equal(before.verifiedAtRegistration, 1);
+    assert.equal(before.verifiedByChallenge, 0);
+    assert.equal(before.verifiedExternal, 1);
+    assert.equal(before.unverifiedExternal, 0);
+
+    // Публичный статус до повторного вызова: подтверждение именно при регистрации.
+    const regStatus = await (await fetch(base + '/passport/ownership?address=' + k.address)).json();
+    assert.equal(regStatus.verified, true);
+    assert.equal(regStatus.verifiedBy, 'registration');
+    assert.equal(regStatus.atRegistration, true);
+    assert.equal(regStatus.byChallenge, false);
+    assert.equal(typeof regStatus.verifiedAt, 'number');
 
     // 2. доказательство владения: новый вызов, подпись
     const ch = await post(base, '/passport/ownership/challenge', { address: k.address, pub: k.pub });
@@ -69,9 +84,15 @@ test('внешний агент доказывает владение ключо
     const after = (await (await fetch(base + '/passport/count')).json()).origin;
     assert.equal(after.verifiedExternal, 1);
     assert.equal(after.externalRecords, 1);
+    assert.equal(after.verifiedAtRegistration, 1);
+    assert.equal(after.verifiedByChallenge, 1);
+    assert.equal(after.unverifiedExternal, 0);
     const status = await (await fetch(base + '/passport/ownership?address=' + k.address)).json();
     assert.equal(status.verified, true);
-    assert.equal(status.semantics, 'signature_over_node_challenge_proves_key_control_not_independent_operator');
+    assert.equal(status.verifiedBy, 'challenge');
+    assert.equal(status.atRegistration, true);
+    assert.equal(status.byChallenge, true);
+    assert.equal(status.semantics, 'key_control_confirmed_by_registration_challenge_or_later_ownership_proof_not_independent_operator');
 
     // 3. отрицательные случаи: повтор вызова, чужой ключ, неизвестный адрес
     assert.equal((await post(base, '/passport/ownership/prove', { challengeId: ch.body.challengeId, signature: sign(ch.body.message, k.privateKey) })).status, 400);
@@ -86,6 +107,77 @@ test('внешний агент доказывает владение ключо
     assert.equal(mismatch.status, 400);
     assert.equal(mismatch.body.error, 'address_public_key_mismatch');
     assert.equal((await (await fetch(base + '/passport/count')).json()).origin.verifiedExternal, 1, 'неудачные попытки не добавляют доверия');
+  } finally {
+    if (child && child.exitCode === null) { const done = once(child, 'exit'); child.kill(); await done; }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Запись, заведённая только через /passport/issue, ничего не доказывает: роут не
+// проверяет подпись ключа, а требует лишь локальный кошелёк и одобренный пропуск.
+// Когда ключ уезжает с ноды, запись становится внешней и должна остаться в
+// unverifiedExternal — иначе счётчик снова начнёт завышать доверие.
+test('паспорт только из /passport/issue остаётся неподтверждённым после ухода ключа с ноды', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agt-issue-only-'));
+  let child;
+  try {
+    const source = await stageIsolatedSource(path.resolve(import.meta.dirname, '..'), path.join(root, 'source'));
+    await mkdir(path.join(source, 'data-agents'));
+    const server = net.createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    const port = server.address().port; await new Promise(r => server.close(r));
+    await writeFile(path.join(root, 'bootstrap.json'), '{"bootstrap":[]}');
+    const dataDir = path.join(root, 'data');
+    child = spawn(process.execPath, [path.join(source, 'node.mjs'), String(port)], {
+      cwd: root,
+      env: { ...isolatedEnvironment(), AGT_DATA_DIR: dataDir, AGT_BIND: '127.0.0.1', AGT_BOOTSTRAP_FILE: path.join(root, 'bootstrap.json'), AGT_ADMIN_MODE: 'local', AGT_SPORE: '0', AGT_SITE_SYNC: '0', AGT_PEER_DISCOVERY: '0' },
+      stdio: 'ignore',
+    });
+    const base = `http://127.0.0.1:${port}`;
+    let ready = false;
+    for (let i = 0; i < 300; i++) {
+      try { const r = await fetch(base + '/health'); if (r.ok) { ready = true; break; } } catch {}
+      await new Promise(r => setTimeout(r, 100));
+    }
+    assert.ok(ready, 'isolated node starts');
+
+    // 1. паспорт выдаёт нода: ключ лежит на ноде, пропуск одобрен (FIFO-очередь
+    //    в изолированной ноде некому разбирать — ставим одобрение файлом).
+    const wallet = await post(base, '/wallet/create', { label: 'issue-only' });
+    assert.equal(wallet.status, 201, JSON.stringify(wallet.body));
+    const address = wallet.body.address;
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(path.join(dataDir, 'gate.json'), JSON.stringify({
+      queue: {},
+      approved: { [address.toLowerCase()]: { seq: 1, approvedAt: Date.now(), handle: 'issue-only' } },
+      nextSeq: 2, perHour: 60,
+    }));
+    const issued = await post(base, '/passport/issue', { address, handle: 'issue-only' });
+    assert.equal(issued.status, 201, JSON.stringify(issued.body));
+    assert.equal(issued.body.issued, true);
+
+    const custodied = (await (await fetch(base + '/passport/count')).json()).origin;
+    assert.equal(custodied.nodeCustodied, 1, 'пока ключ на ноде — запись заведена нодой');
+    assert.equal(custodied.externalRecords, 0);
+
+    // 2. ключ уехал с ноды: запись внешняя, но подтверждения владения нет
+    const walletsFile = path.join(dataDir, 'wallets.json');
+    const wallets = JSON.parse(await readFile(walletsFile, 'utf8'));
+    delete wallets[address];
+    await writeFile(walletsFile, JSON.stringify(wallets, null, 2));
+
+    const after = (await (await fetch(base + '/passport/count')).json()).origin;
+    assert.equal(after.nodeCustodied, 0);
+    assert.equal(after.externalRecords, 1);
+    assert.equal(after.verifiedAtRegistration, 0, '/passport/issue не проверяет подпись ключа');
+    assert.equal(after.verifiedByChallenge, 0);
+    assert.equal(after.verifiedExternal, 0);
+    assert.equal(after.unverifiedExternal, 1, 'запись без подписи остаётся неподтверждённой');
+
+    const status = await (await fetch(base + '/passport/ownership?address=' + address)).json();
+    assert.equal(status.verified, false);
+    assert.equal(status.verifiedBy, null);
+    assert.equal(status.atRegistration, false);
+    assert.equal(status.byChallenge, false);
   } finally {
     if (child && child.exitCode === null) { const done = once(child, 'exit'); child.kill(); await done; }
     await rm(root, { recursive: true, force: true });

@@ -2756,12 +2756,31 @@ const adminByToken = Boolean(process.env.AGT_ADMIN_TOKEN && req.headers['x-admin
   if (p === '/passport/count') {
     let reg = []; try { reg = JSON.parse(fs.readFileSync(PASSPORT_FILE, 'utf8')); } catch {}
     const merged = mergePassportSources({ identity: identityRegistry.list(), cabinet: reg });
+    // Происхождение: ключ в кошельке ЭТОЙ ноды = агент заведён нодой (самонайм/пул
+    // оператора). Остальные записи — внешние, и подтверждения владения ими нет:
+    // считать их независимыми агентами нельзя, пока не появится доказательство.
+    const wallets = loadWallets();
+    const seenOrigin = new Set();
+    let nodeCustodied = 0;
+    for (const rec of merged.auditRecords) {
+      const addr = rec && rec.address;
+      if (typeof addr !== 'string' || !addr || seenOrigin.has(addr)) continue;
+      seenOrigin.add(addr);
+      const w = wallets[addr] || wallets[addr.toLowerCase()];
+      if (w && w.privKey) nodeCustodied++;
+    }
     return json(res, 200, {
       count: merged.count,
       headHash: reg.length ? reg[reg.length - 1].hash : null,
       sources: merged.sources,
       diff: merged.diff,
       audit: summarizePassports(merged.auditRecords),
+      origin: {
+        nodeCustodied,
+        externalRecords: seenOrigin.size - nodeCustodied,
+        verifiedExternal: 0,
+        semantics: 'node_custodied_has_key_in_this_node_wallet_store; external_records_are_unverified_ownership',
+      },
       ...snapshotMark(),
     });
   }

@@ -209,7 +209,9 @@ const D = {
     'workspace.passNode': 'заведены нодой',
     'workspace.passExternal': 'внешние',
     'workspace.passVerified': 'подтвердили ключ',
-    'workspace.passNote': 'внешние — записи, владение которыми нода не подтверждает; всего строк — записи реестра, не число независимых агентов',
+    'workspace.passReg': 'при регистрации',
+    'workspace.passChal': 'повторным вызовом',
+    'workspace.passNote': 'подтверждение при регистрации — подпись вызова, без которой identity-сертификат не выдаётся; повторным вызовом — отдельное доказательство владения; всего строк — записи реестра, не число независимых агентов',
   },
   en: {
     'nav.home': 'Home', 'nav.mine': 'Mining', 'nav.jobs': 'Jobs', 'nav.mbc20': 'Exchange',
@@ -400,7 +402,9 @@ const D = {
     'workspace.passNode': 'node-created',
     'workspace.passExternal': 'external',
     'workspace.passVerified': 'key verified',
-    'workspace.passNote': 'external — records whose ownership this node cannot verify; the total counts registry records, not independent agents',
+    'workspace.passReg': 'at registration',
+    'workspace.passChal': 'by fresh challenge',
+    'workspace.passNote': 'at registration — the challenge signature required to issue an identity certificate; by fresh challenge — a separate ownership proof; the total counts registry records, not independent agents',
   },
 };
 

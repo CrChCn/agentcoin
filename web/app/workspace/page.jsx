@@ -56,7 +56,7 @@ export default function Workspace() {
         <Card title={t('workspace.passports')}>
           <div className="num text-2xl font-bold">{pc.count != null ? fmt(pc.count, 0, locale) : '—'}</div>
           <div className="mt-1 font-mono text-xs text-[#8b93a1]">
-            {t('workspace.passNode')} {fmt((pc.origin && pc.origin.nodeCustodied) ?? 0, 0, locale)} · {t('workspace.passExternal')} {fmt((pc.origin && pc.origin.externalRecords) ?? 0, 0, locale)} · {t('workspace.passVerified')} {fmt((pc.origin && pc.origin.verifiedExternal) ?? 0, 0, locale)}
+            {t('workspace.passNode')} {fmt((pc.origin && pc.origin.nodeCustodied) ?? 0, 0, locale)} · {t('workspace.passExternal')} {fmt((pc.origin && pc.origin.externalRecords) ?? 0, 0, locale)} · {t('workspace.passVerified')} {fmt((pc.origin && pc.origin.verifiedExternal) ?? 0, 0, locale)} ({t('workspace.passReg')} {fmt((pc.origin && pc.origin.verifiedAtRegistration) ?? 0, 0, locale)}, {t('workspace.passChal')} {fmt((pc.origin && pc.origin.verifiedByChallenge) ?? 0, 0, locale)})
           </div>
           <div className="mt-1 text-xs text-[#8b93a1]">{t('workspace.passNote')}</div>
           <div className="mt-1 break-all font-mono text-xs text-[#8b93a1]">head {pc.headHash ? String(pc.headHash).slice(0, 16) + '…' : '—'}</div>

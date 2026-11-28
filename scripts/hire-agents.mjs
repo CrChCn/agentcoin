@@ -148,6 +148,8 @@ async function loadFacts() {
     passNode: Number.isFinite(Number(pp.origin && pp.origin.nodeCustodied)) ? Number(pp.origin.nodeCustodied) : null,
     passExternal: Number.isFinite(Number(pp.origin && pp.origin.externalRecords)) ? Number(pp.origin.externalRecords) : null,
     passVerified: Number.isFinite(Number(pp.origin && pp.origin.verifiedExternal)) ? Number(pp.origin.verifiedExternal) : null,
+    passReg: Number.isFinite(Number(pp.origin && pp.origin.verifiedAtRegistration)) ? Number(pp.origin.verifiedAtRegistration) : null,
+    passChal: Number.isFinite(Number(pp.origin && pp.origin.verifiedByChallenge)) ? Number(pp.origin.verifiedByChallenge) : null,
     treasury: Number(tr.balance || 0),
     auctions: auctions.length,
     nodes: nodes.length,
@@ -159,7 +161,7 @@ function taskPool(f) {
   const bid = f.bestBid ?? '—', ask = f.bestAsk ?? '—', spread = f.spread ?? '—';
   const chain = f.valid ? 'валидна' : 'требует проверки';
   const h = fmt(f.height), age = Math.round(f.tipAge ?? 0);
-  const passSplit = f.passNode == null ? '' : ` (нода ${f.passNode}, внешние ${f.passExternal}, подтвердили владение ${f.passVerified ?? 0})`;
+  const passSplit = f.passNode == null ? '' : ` (нода ${f.passNode}, внешние ${f.passExternal}, подтвердили владение ${f.passVerified ?? 0}: при регистрации ${f.passReg ?? 0}, повторным вызовом ${f.passChal ?? 0})`;
   return [
     {
       key: 'dxe',

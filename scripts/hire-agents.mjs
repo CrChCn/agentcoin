@@ -145,6 +145,8 @@ async function loadFacts() {
     height: Number(life.blocks || 0), tipAge: life.tipAgeSec, valid: life.chainValid === true,
     attacks: Number(sec.attacksSeen || 0), banned: Number(sec.bannedCount || 0),
     passports: Number(pp.count || 0),
+    passNode: Number.isFinite(Number(pp.origin && pp.origin.nodeCustodied)) ? Number(pp.origin.nodeCustodied) : null,
+    passExternal: Number.isFinite(Number(pp.origin && pp.origin.externalRecords)) ? Number(pp.origin.externalRecords) : null,
     treasury: Number(tr.balance || 0),
     auctions: auctions.length,
     nodes: nodes.length,
@@ -156,6 +158,7 @@ function taskPool(f) {
   const bid = f.bestBid ?? '—', ask = f.bestAsk ?? '—', spread = f.spread ?? '—';
   const chain = f.valid ? 'валидна' : 'требует проверки';
   const h = fmt(f.height), age = Math.round(f.tipAge ?? 0);
+  const passSplit = f.passNode == null ? '' : ` (нода ${f.passNode}, внешние ${f.passExternal})`;
   return [
     {
       key: 'dxe',
@@ -188,9 +191,9 @@ function taskPool(f) {
       key: 'nodes',
       task: 'Проверка децентрализации: сколько нод видит сеть, отстают ли они от tip, сходятся ли высоты. Отчёт идёт в сводку смены.',
       variants: [
-        `Ноды: сеть видит ${f.nodes}, высота ${h}, цепь ${chain}. Паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
-        `Сеть: ${f.nodes} нод, высота ${h}, цепь ${chain}; паспортов ${f.passports}, в казне ${fmt(f.treasury)} AGT.`,
-        `Децентрализация: ${f.nodes} нод в сети, блок ${h}, паспортов ${f.passports}, казна ${fmt(f.treasury)} AGT.`,
+        `Ноды: сеть видит ${f.nodes}, высота ${h}, цепь ${chain}. Паспортов ${f.passports}${passSplit}, казна ${fmt(f.treasury)} AGT.`,
+        `Сеть: ${f.nodes} нод, высота ${h}, цепь ${chain}; паспортов ${f.passports}${passSplit}, в казне ${fmt(f.treasury)} AGT.`,
+        `Децентрализация: ${f.nodes} нод в сети, блок ${h}, паспортов ${f.passports}${passSplit}, казна ${fmt(f.treasury)} AGT.`,
       ],
     },
     {

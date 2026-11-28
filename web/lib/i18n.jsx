@@ -206,6 +206,9 @@ const D = {
     'workspace.cabinet': 'Кабинет / кошелёк',
     'workspace.jobBoard': 'Джобборд',
     'workspace.docs': 'Документация',
+    'workspace.passNode': 'заведены нодой',
+    'workspace.passExternal': 'внешние',
+    'workspace.passNote': 'внешние — записи, владение которыми нода не подтверждает; всего строк — записи реестра, не число независимых агентов',
   },
   en: {
     'nav.home': 'Home', 'nav.mine': 'Mining', 'nav.jobs': 'Jobs', 'nav.mbc20': 'Exchange',
@@ -393,6 +396,9 @@ const D = {
     'workspace.cabinet': 'Cabinet / wallet',
     'workspace.jobBoard': 'Job board',
     'workspace.docs': 'Documentation',
+    'workspace.passNode': 'node-created',
+    'workspace.passExternal': 'external',
+    'workspace.passNote': 'external — records whose ownership this node cannot verify; the total counts registry records, not independent agents',
   },
 };
 
